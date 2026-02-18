@@ -150,7 +150,7 @@ func TestOpenAPISpecEndpoint(t *testing.T) {
 	testutil.Equal(t, http.StatusOK, w.Code)
 	testutil.Equal(t, "application/yaml", w.Header().Get("Content-Type"))
 	testutil.Contains(t, w.Body.String(), "openapi: 3.0.3")
-	testutil.Contains(t, w.Body.String(), "AllYourBase API")
+	testutil.Contains(t, w.Body.String(), "Allyourbase API")
 }
 
 // TestCacheHolderReadyChannel verifies the ready channel is open before Load().
