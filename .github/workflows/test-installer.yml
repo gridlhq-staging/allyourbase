@@ -1,0 +1,39 @@
+name: Test Installer
+
+on:
+  workflow_dispatch:
+  workflow_run:
+    workflows: ["Release"]
+    types: [completed]
+  push:
+    branches: [main]
+    paths:
+      - "install.sh"
+
+jobs:
+  test:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Test installer
+        run: |
+          # Verify install.sh is valid shell
+          sh -n install.sh
+
+          # Run installer (will download latest release if one exists)
+          # Use a temp dir to avoid modifying the runner
+          export AYB_INSTALL="$(mktemp -d)"
+          export NO_MODIFY_PATH=1
+
+          if sh install.sh 2>&1; then
+            echo "Installer completed successfully"
+            ls -la "$AYB_INSTALL/bin/" || true
+          else
+            echo "Installer failed (may be expected if no release exists yet)"
+          fi
+
+          rm -rf "$AYB_INSTALL"

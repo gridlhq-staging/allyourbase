@@ -1,0 +1,42 @@
+stuart@Stuarts-MBP ~/repos> cd shareborough_root/
+stuart@Stuarts-MBP ~/r/shareborough_root> ls -1
+shareborough/
+shareborough_dev/
+stuart@Stuarts-MBP ~/r/shareborough_root> pwd
+/Users/stuart/repos/shareborough_root
+stuart@Stuarts-MBP ~/r/shareborough_root> cat shareborough/.git/config 
+[core]
+	repositoryformatversion = 0
+	filemode = true
+	bare = false
+	logallrefupdates = true
+	ignorecase = true
+	precomposeunicode = true
+[remote "origin"]
+	url = https://github.com/shareborough/shareborough.git
+	fetch = +refs/heads/*:refs/remotes/origin/*
+[branch "main"]
+	remote = origin
+	merge = refs/heads/main
+stuart@Stuarts-MBP ~/r/shareborough_root> 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
