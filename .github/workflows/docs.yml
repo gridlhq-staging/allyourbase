@@ -50,6 +50,43 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Generate api-docs
+        run: |
+          mkdir -p api-docs
+          cp openapi/openapi.yaml api-docs/openapi.yaml
+          cat > api-docs/index.html << 'EOF'
+          <!DOCTYPE html>
+          <html lang="en">
+          <head>
+            <meta charset="utf-8" />
+            <meta name="viewport" content="width=device-width, initial-scale=1" />
+            <title>👾 Allyourbase API Reference</title>
+            <meta name="description" content="Interactive API documentation for Allyourbase — the open-source PostgreSQL backend-as-a-service." />
+            <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>👾</text></svg>" />
+            <style>
+              body { margin: 0; }
+            </style>
+          </head>
+          <body>
+            <script
+              id="api-reference"
+              data-url="./openapi.yaml"
+              data-configuration='{
+                "theme": "kepler",
+                "layout": "modern",
+                "hideDarkModeToggle": false,
+                "searchHotKey": "k",
+                "metaData": {
+                  "title": "👾 Allyourbase API Reference"
+                },
+                "hideDownloadButton": false
+              }'>
+            </script>
+            <script src="https://cdn.jsdelivr.net/npm/@scalar/api-reference"></script>
+          </body>
+          </html>
+          EOF
+
       - name: Deploy to Cloudflare Pages
         uses: cloudflare/wrangler-action@v3
         with:

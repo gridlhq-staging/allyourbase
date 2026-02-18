@@ -1,17 +1,11 @@
 name: Installer Tests
 
-# Runs after a release completes, or manually, or on install script changes.
+# Runs after a release completes, or manually.
 on:
   workflow_dispatch:
   workflow_run:
     workflows: ["Release"]
     types: [completed]
-  push:
-    branches: [main]
-    paths:
-      - "install.sh"
-      - "tests/test_install.sh"
-      - ".github/workflows/test-installer.yml"
 
 jobs:
   installer:
