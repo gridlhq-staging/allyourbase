@@ -9,6 +9,7 @@ import (
 )
 
 func TestIsAPIKey(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name  string
 		token string
@@ -29,6 +30,7 @@ func TestIsAPIKey(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			testutil.Equal(t, IsAPIKey(tt.token), tt.want)
 		})
 	}
@@ -38,16 +40,20 @@ func TestIsAPIKey(t *testing.T) {
 
 func TestAPIKeyConstants(t *testing.T) {
 	// Verify that a real generated key has the expected length (prefix + hex).
+	t.Parallel()
+
 	raw := make([]byte, apiKeyRawBytes)
 	_, err := rand.Read(raw)
 	testutil.NoError(t, err)
 	plaintext := APIKeyPrefix + hex.EncodeToString(raw)
 	testutil.Equal(t, 52, len(plaintext))
-	testutil.True(t, len(APIKeyPrefix) == 4, "prefix should be 4 chars")
+	testutil.Equal(t, 4, len(APIKeyPrefix))
 }
 
 func TestAPIKeyFormat(t *testing.T) {
 	// Verify that a generated key has the expected format.
+	t.Parallel()
+
 	raw := make([]byte, apiKeyRawBytes)
 	_, err := rand.Read(raw)
 	testutil.NoError(t, err)
@@ -68,6 +74,8 @@ func TestAPIKeyFormat(t *testing.T) {
 
 func TestAPIKeyUniqueness(t *testing.T) {
 	// Two generated keys should be different.
+	t.Parallel()
+
 	raw1 := make([]byte, apiKeyRawBytes)
 	_, err := rand.Read(raw1)
 	testutil.NoError(t, err)
@@ -83,6 +91,8 @@ func TestAPIKeyUniqueness(t *testing.T) {
 
 func TestAPIKeyHashConsistency(t *testing.T) {
 	// Same plaintext should produce the same hash.
+	t.Parallel()
+
 	key := "ayb_abcdef1234567890abcdef1234567890abcdef12345678"
 	hash1 := hashToken(key)
 	hash2 := hashToken(key)
@@ -96,6 +106,8 @@ func TestAPIKeyHashConsistency(t *testing.T) {
 
 func TestAPIKeyErrorSentinels(t *testing.T) {
 	// Verify error sentinel values are distinct and have meaningful messages.
+	t.Parallel()
+
 	testutil.True(t, ErrAPIKeyNotFound != ErrAPIKeyRevoked, "not found != revoked")
 	testutil.True(t, ErrAPIKeyNotFound != ErrAPIKeyExpired, "not found != expired")
 	testutil.True(t, ErrAPIKeyRevoked != ErrAPIKeyExpired, "revoked != expired")
@@ -110,6 +122,7 @@ func TestAPIKeyErrorSentinels(t *testing.T) {
 // --- Scope tests ---
 
 func TestValidScopes(t *testing.T) {
+	t.Parallel()
 	testutil.True(t, ValidScopes[ScopeFullAccess], "* should be valid")
 	testutil.True(t, ValidScopes[ScopeReadOnly], "readonly should be valid")
 	testutil.True(t, ValidScopes[ScopeReadWrite], "readwrite should be valid")
@@ -122,6 +135,7 @@ func TestValidScopes(t *testing.T) {
 // TestClaimsIsReadAllowed, TestClaimsIsWriteAllowed, TestCheckWriteScope.
 
 func TestClaimsIsReadAllowed(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name  string
 		scope string
@@ -135,6 +149,7 @@ func TestClaimsIsReadAllowed(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			c := &Claims{APIKeyScope: tt.scope}
 			testutil.Equal(t, tt.want, c.IsReadAllowed())
 		})
@@ -142,6 +157,7 @@ func TestClaimsIsReadAllowed(t *testing.T) {
 }
 
 func TestClaimsIsWriteAllowed(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name  string
 		scope string
@@ -155,6 +171,7 @@ func TestClaimsIsWriteAllowed(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			c := &Claims{APIKeyScope: tt.scope}
 			testutil.Equal(t, tt.want, c.IsWriteAllowed())
 		})
@@ -162,6 +179,7 @@ func TestClaimsIsWriteAllowed(t *testing.T) {
 }
 
 func TestClaimsIsTableAllowed(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name   string
 		tables []string
@@ -178,6 +196,7 @@ func TestClaimsIsTableAllowed(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			c := &Claims{AllowedTables: tt.tables}
 			testutil.Equal(t, tt.want, c.IsTableAllowed(tt.table))
 		})
@@ -186,6 +205,8 @@ func TestClaimsIsTableAllowed(t *testing.T) {
 
 func TestCheckWriteScope(t *testing.T) {
 	// nil claims should pass (no-auth mode)
+	t.Parallel()
+
 	testutil.NoError(t, CheckWriteScope(nil))
 
 	// JWT claims (no scope) should pass
@@ -199,12 +220,13 @@ func TestCheckWriteScope(t *testing.T) {
 
 	// Readonly should fail
 	err := CheckWriteScope(&Claims{APIKeyScope: "readonly"})
-	testutil.True(t, err != nil, "readonly should deny writes")
 	testutil.Equal(t, ErrScopeReadOnly, err)
 }
 
 func TestCheckTableScope(t *testing.T) {
 	// nil claims should pass
+	t.Parallel()
+
 	testutil.NoError(t, CheckTableScope(nil, "posts"))
 
 	// No restrictions should pass
@@ -215,28 +237,30 @@ func TestCheckTableScope(t *testing.T) {
 
 	// Denied table should fail
 	err := CheckTableScope(&Claims{AllowedTables: []string{"posts"}}, "users")
-	testutil.True(t, err != nil, "denied table should fail")
 	testutil.Equal(t, ErrScopeTableDenied, err)
 }
 
-
 func TestCheckWriteScopeInvalidScope(t *testing.T) {
 	// An unrecognized scope should deny writes (fail closed).
+	t.Parallel()
+
 	err := CheckWriteScope(&Claims{APIKeyScope: "bogus"})
-	testutil.True(t, err != nil, "invalid scope should deny writes")
 	testutil.Equal(t, ErrScopeReadOnly, err)
 }
 
 func TestCheckTableScopeCaseSensitive(t *testing.T) {
 	// Table matching should be case-sensitive.
+	t.Parallel()
+
 	c := &Claims{AllowedTables: []string{"Posts"}}
 	testutil.True(t, c.IsTableAllowed("Posts"), "exact case should match")
 	testutil.True(t, !c.IsTableAllowed("posts"), "lowercase should not match uppercase restriction")
 }
 
-
 func TestIsAPIKeyLengthBoundary(t *testing.T) {
 	// Exactly the prefix length + 1 (minimum valid key).
+	t.Parallel()
+
 	testutil.True(t, IsAPIKey("ayb_x"), "prefix + 1 char should be valid")
 	// The prefix alone should be invalid.
 	testutil.True(t, !IsAPIKey("ayb_"), "prefix alone should not be valid")

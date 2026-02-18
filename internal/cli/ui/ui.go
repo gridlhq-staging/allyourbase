@@ -1,4 +1,4 @@
-// Package ui provides the AllYourBase CLI design system: styles, colors,
+// Package ui provides the Allyourbase CLI design system: styles, colors,
 // symbols, and terminal-aware writers. All CLI visual output should use
 // these definitions for consistency.
 package ui
@@ -14,7 +14,7 @@ import (
 
 // Brand
 
-// BrandEmoji is the official AllYourBase brand logo.
+// BrandEmoji is the official Allyourbase brand logo.
 const BrandEmoji = "\U0001F47E" // 👾
 
 // Colors — ANSI 4-bit for maximum terminal compatibility.

@@ -11,6 +11,7 @@ import (
 // --- Validation: empty, too many, bad method ---
 
 func TestBatchEmptyOperations(t *testing.T) {
+	t.Parallel()
 	h := testHandler(testSchema())
 	w := doRequest(h, "POST", "/collections/users/batch", `{"operations":[]}`)
 	testutil.Equal(t, http.StatusBadRequest, w.Code)
@@ -21,6 +22,8 @@ func TestBatchEmptyOperations(t *testing.T) {
 
 func TestBatchTooManyOperations(t *testing.T) {
 	// Build a request with maxBatchSize+1 operations.
+	t.Parallel()
+
 	ops := make([]BatchOperation, maxBatchSize+1)
 	for i := range ops {
 		ops[i] = BatchOperation{Method: "create", Body: map[string]any{"email": "a@b.com"}}
@@ -36,6 +39,7 @@ func TestBatchTooManyOperations(t *testing.T) {
 }
 
 func TestBatchInvalidJSON(t *testing.T) {
+	t.Parallel()
 	h := testHandler(testSchema())
 	w := doRequest(h, "POST", "/collections/users/batch", `{bad`)
 	testutil.Equal(t, http.StatusBadRequest, w.Code)
@@ -44,6 +48,7 @@ func TestBatchInvalidJSON(t *testing.T) {
 }
 
 func TestBatchUnknownMethod(t *testing.T) {
+	t.Parallel()
 	h := testHandler(testSchema())
 	body := `{"operations":[{"method":"upsert","body":{"email":"a@b.com"}}]}`
 	w := doRequest(h, "POST", "/collections/users/batch", body)
@@ -56,6 +61,7 @@ func TestBatchUnknownMethod(t *testing.T) {
 // --- Validation: create ---
 
 func TestBatchCreateMissingBody(t *testing.T) {
+	t.Parallel()
 	h := testHandler(testSchema())
 	body := `{"operations":[{"method":"create"}]}`
 	w := doRequest(h, "POST", "/collections/users/batch", body)
@@ -65,6 +71,7 @@ func TestBatchCreateMissingBody(t *testing.T) {
 }
 
 func TestBatchCreateNoRecognizedColumns(t *testing.T) {
+	t.Parallel()
 	h := testHandler(testSchema())
 	body := `{"operations":[{"method":"create","body":{"unknown":"val"}}]}`
 	w := doRequest(h, "POST", "/collections/users/batch", body)
@@ -76,6 +83,7 @@ func TestBatchCreateNoRecognizedColumns(t *testing.T) {
 // --- Validation: update ---
 
 func TestBatchUpdateMissingID(t *testing.T) {
+	t.Parallel()
 	h := testHandler(testSchema())
 	body := `{"operations":[{"method":"update","body":{"email":"a@b.com"}}]}`
 	w := doRequest(h, "POST", "/collections/users/batch", body)
@@ -85,6 +93,7 @@ func TestBatchUpdateMissingID(t *testing.T) {
 }
 
 func TestBatchUpdateMissingBody(t *testing.T) {
+	t.Parallel()
 	h := testHandler(testSchema())
 	body := `{"operations":[{"method":"update","id":"123"}]}`
 	w := doRequest(h, "POST", "/collections/users/batch", body)
@@ -94,6 +103,7 @@ func TestBatchUpdateMissingBody(t *testing.T) {
 }
 
 func TestBatchUpdateNoRecognizedColumns(t *testing.T) {
+	t.Parallel()
 	h := testHandler(testSchema())
 	body := `{"operations":[{"method":"update","id":"123","body":{"unknown":"val"}}]}`
 	w := doRequest(h, "POST", "/collections/users/batch", body)
@@ -105,6 +115,7 @@ func TestBatchUpdateNoRecognizedColumns(t *testing.T) {
 // --- Validation: delete ---
 
 func TestBatchDeleteMissingID(t *testing.T) {
+	t.Parallel()
 	h := testHandler(testSchema())
 	body := `{"operations":[{"method":"delete"}]}`
 	w := doRequest(h, "POST", "/collections/users/batch", body)
@@ -116,6 +127,7 @@ func TestBatchDeleteMissingID(t *testing.T) {
 // --- Collection guards ---
 
 func TestBatchCollectionNotFound(t *testing.T) {
+	t.Parallel()
 	h := testHandler(testSchema())
 	body := `{"operations":[{"method":"create","body":{"data":"x"}}]}`
 	w := doRequest(h, "POST", "/collections/nonexistent/batch", body)
@@ -125,6 +137,7 @@ func TestBatchCollectionNotFound(t *testing.T) {
 }
 
 func TestBatchOnViewNotAllowed(t *testing.T) {
+	t.Parallel()
 	h := testHandler(testSchema())
 	body := `{"operations":[{"method":"create","body":{"message":"x"}}]}`
 	w := doRequest(h, "POST", "/collections/logs/batch", body)
@@ -134,6 +147,7 @@ func TestBatchOnViewNotAllowed(t *testing.T) {
 }
 
 func TestBatchNoPrimaryKey(t *testing.T) {
+	t.Parallel()
 	h := testHandler(testSchema())
 	body := `{"operations":[{"method":"create","body":{"data":"x"}}]}`
 	w := doRequest(h, "POST", "/collections/nopk/batch", body)
@@ -143,6 +157,7 @@ func TestBatchNoPrimaryKey(t *testing.T) {
 }
 
 func TestBatchSchemaCacheNotReady(t *testing.T) {
+	t.Parallel()
 	h := testHandler(nil)
 	body := `{"operations":[{"method":"create","body":{"email":"a@b.com"}}]}`
 	w := doRequest(h, "POST", "/collections/users/batch", body)
@@ -155,6 +170,8 @@ func TestBatchExactlyMaxBatchSizePassesSizeCheck(t *testing.T) {
 	// Verify maxBatchSize ops passes the size guard but maxBatchSize+1 does not.
 	// We use an invalid method so validation fails AFTER the size check,
 	// confirming the size check itself accepted maxBatchSize.
+	t.Parallel()
+
 	ops := make([]BatchOperation, maxBatchSize)
 	for i := range ops {
 		ops[i] = BatchOperation{Method: "create", Body: map[string]any{"email": "a@b.com"}}
@@ -172,6 +189,7 @@ func TestBatchExactlyMaxBatchSizePassesSizeCheck(t *testing.T) {
 }
 
 func TestBatchErrorIncludesIndexZero(t *testing.T) {
+	t.Parallel()
 	h := testHandler(testSchema())
 	body := `{"operations":[{"method":"nope","body":{"email":"a@b.com"}}]}`
 	w := doRequest(h, "POST", "/collections/users/batch", body)
@@ -183,6 +201,7 @@ func TestBatchErrorIncludesIndexZero(t *testing.T) {
 // --- validateBatchOp unit tests ---
 
 func TestValidateBatchOp(t *testing.T) {
+	t.Parallel()
 	sc := testSchema()
 	tbl := sc.TableByName("users")
 
@@ -237,6 +256,7 @@ func TestValidateBatchOp(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			err := validateBatchOp(tbl, tt.op)
 			if tt.wantErr == "" {
 				testutil.NoError(t, err)
@@ -250,6 +270,7 @@ func TestValidateBatchOp(t *testing.T) {
 // --- Validation error includes operation index ---
 
 func TestBatchErrorIncludesIndex(t *testing.T) {
+	t.Parallel()
 	h := testHandler(testSchema())
 	// First op is valid, second has bad method — error should say "operation[1]".
 	body := `{"operations":[

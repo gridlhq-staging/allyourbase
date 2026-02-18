@@ -111,6 +111,7 @@ func fakeAYB(t *testing.T) *httptest.Server {
 }
 
 func TestNewServer(t *testing.T) {
+	t.Parallel()
 	ts := fakeAYB(t)
 	defer ts.Close()
 
@@ -119,6 +120,7 @@ func TestNewServer(t *testing.T) {
 }
 
 func TestListTables(t *testing.T) {
+	t.Parallel()
 	ts := fakeAYB(t)
 	defer ts.Close()
 
@@ -132,11 +134,13 @@ func TestListTables(t *testing.T) {
 }
 
 func TestDescribeTable(t *testing.T) {
+	t.Parallel()
 	ts := fakeAYB(t)
-	defer ts.Close()
+	t.Cleanup(ts.Close)
 	c := newClient(Config{BaseURL: ts.URL})
 
 	t.Run("existing table", func(t *testing.T) {
+		t.Parallel()
 		_, out, err := handleDescribeTable(context.Background(), c, DescribeTableInput{Table: "posts"})
 		testutil.NoError(t, err)
 		testutil.Equal(t, "posts", out.Name)
@@ -147,12 +151,14 @@ func TestDescribeTable(t *testing.T) {
 	})
 
 	t.Run("nonexistent table", func(t *testing.T) {
+		t.Parallel()
 		_, _, err := handleDescribeTable(context.Background(), c, DescribeTableInput{Table: "missing"})
 		testutil.ErrorContains(t, err, "not found")
 	})
 }
 
 func TestListFunctions(t *testing.T) {
+	t.Parallel()
 	ts := fakeAYB(t)
 	defer ts.Close()
 	c := newClient(Config{BaseURL: ts.URL})
@@ -165,6 +171,7 @@ func TestListFunctions(t *testing.T) {
 }
 
 func TestQueryRecords(t *testing.T) {
+	t.Parallel()
 	ts := fakeAYB(t)
 	defer ts.Close()
 	c := newClient(Config{BaseURL: ts.URL})
@@ -177,6 +184,7 @@ func TestQueryRecords(t *testing.T) {
 }
 
 func TestGetRecord(t *testing.T) {
+	t.Parallel()
 	ts := fakeAYB(t)
 	defer ts.Close()
 	c := newClient(Config{BaseURL: ts.URL})
@@ -187,6 +195,7 @@ func TestGetRecord(t *testing.T) {
 }
 
 func TestCreateRecord(t *testing.T) {
+	t.Parallel()
 	ts := fakeAYB(t)
 	defer ts.Close()
 	c := newClient(Config{BaseURL: ts.URL})
@@ -202,6 +211,7 @@ func TestCreateRecord(t *testing.T) {
 }
 
 func TestUpdateRecord(t *testing.T) {
+	t.Parallel()
 	ts := fakeAYB(t)
 	defer ts.Close()
 	c := newClient(Config{BaseURL: ts.URL})
@@ -215,6 +225,7 @@ func TestUpdateRecord(t *testing.T) {
 }
 
 func TestDeleteRecord(t *testing.T) {
+	t.Parallel()
 	ts := fakeAYB(t)
 	defer ts.Close()
 	c := newClient(Config{BaseURL: ts.URL})
@@ -225,10 +236,12 @@ func TestDeleteRecord(t *testing.T) {
 }
 
 func TestRunSQL(t *testing.T) {
+	t.Parallel()
 	ts := fakeAYB(t)
-	defer ts.Close()
+	t.Cleanup(ts.Close)
 
 	t.Run("with admin token", func(t *testing.T) {
+		t.Parallel()
 		c := newClient(Config{BaseURL: ts.URL, AdminToken: "test-admin-token"})
 		_, out, err := handleRunSQL(context.Background(), c, RunSQLInput{Query: "SELECT count(*) FROM posts"})
 		testutil.NoError(t, err)
@@ -238,6 +251,7 @@ func TestRunSQL(t *testing.T) {
 	})
 
 	t.Run("without admin token", func(t *testing.T) {
+		t.Parallel()
 		c := newClient(Config{BaseURL: ts.URL, AdminToken: ""})
 		_, _, err := handleRunSQL(context.Background(), c, RunSQLInput{Query: "SELECT 1"})
 		testutil.ErrorContains(t, err, "401")
@@ -245,6 +259,7 @@ func TestRunSQL(t *testing.T) {
 }
 
 func TestCallFunction(t *testing.T) {
+	t.Parallel()
 	ts := fakeAYB(t)
 	defer ts.Close()
 	c := newClient(Config{BaseURL: ts.URL})
@@ -263,6 +278,7 @@ func TestCallFunction(t *testing.T) {
 }
 
 func TestCallFunction_VoidReturn(t *testing.T) {
+	t.Parallel()
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusNoContent)
 	}))
@@ -277,6 +293,7 @@ func TestCallFunction_VoidReturn(t *testing.T) {
 }
 
 func TestGetStatus(t *testing.T) {
+	t.Parallel()
 	ts := fakeAYB(t)
 	defer ts.Close()
 	c := newClient(Config{BaseURL: ts.URL})
@@ -288,6 +305,7 @@ func TestGetStatus(t *testing.T) {
 }
 
 func TestQueryRecords_WithParams(t *testing.T) {
+	t.Parallel()
 	var capturedURL string
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		capturedURL = r.URL.String()
@@ -325,6 +343,7 @@ func TestQueryRecords_WithParams(t *testing.T) {
 }
 
 func TestQueryRecords_NotFound(t *testing.T) {
+	t.Parallel()
 	ts := fakeAYB(t)
 	defer ts.Close()
 	c := newClient(Config{BaseURL: ts.URL})
@@ -334,6 +353,7 @@ func TestQueryRecords_NotFound(t *testing.T) {
 }
 
 func TestResourceSchema(t *testing.T) {
+	t.Parallel()
 	ts := fakeAYB(t)
 	defer ts.Close()
 	c := newClient(Config{BaseURL: ts.URL})
@@ -345,6 +365,7 @@ func TestResourceSchema(t *testing.T) {
 }
 
 func TestResourceHealth(t *testing.T) {
+	t.Parallel()
 	ts := fakeAYB(t)
 	defer ts.Close()
 	c := newClient(Config{BaseURL: ts.URL})
@@ -355,6 +376,7 @@ func TestResourceHealth(t *testing.T) {
 }
 
 func TestServerHasToolsRegistered(t *testing.T) {
+	t.Parallel()
 	ts := fakeAYB(t)
 	defer ts.Close()
 
@@ -398,6 +420,7 @@ func TestServerHasToolsRegistered(t *testing.T) {
 }
 
 func TestServerHasResourcesRegistered(t *testing.T) {
+	t.Parallel()
 	ts := fakeAYB(t)
 	defer ts.Close()
 
@@ -430,6 +453,7 @@ func TestServerHasResourcesRegistered(t *testing.T) {
 }
 
 func TestServerHasPromptsRegistered(t *testing.T) {
+	t.Parallel()
 	ts := fakeAYB(t)
 	defer ts.Close()
 
@@ -463,6 +487,7 @@ func TestServerHasPromptsRegistered(t *testing.T) {
 }
 
 func TestAPIClientAuthHeaders(t *testing.T) {
+	t.Parallel()
 	var gotAdminHeader, gotUserHeader string
 
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -491,6 +516,7 @@ func TestAPIClientAuthHeaders(t *testing.T) {
 }
 
 func TestAPIClientErrorHandling(t *testing.T) {
+	t.Parallel()
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusBadRequest)
@@ -505,6 +531,8 @@ func TestAPIClientErrorHandling(t *testing.T) {
 
 func TestGetStatus_Unreachable(t *testing.T) {
 	// Health endpoint unreachable → status should be "unreachable", no error
+	t.Parallel()
+
 	c := newClient(Config{BaseURL: "http://127.0.0.1:1"})
 	_, out, err := handleGetStatus(context.Background(), c)
 	testutil.NoError(t, err)
@@ -512,6 +540,7 @@ func TestGetStatus_Unreachable(t *testing.T) {
 }
 
 func TestDeleteRecord_NotFound(t *testing.T) {
+	t.Parallel()
 	ts := fakeAYB(t)
 	defer ts.Close()
 	c := newClient(Config{BaseURL: ts.URL})
@@ -522,6 +551,7 @@ func TestDeleteRecord_NotFound(t *testing.T) {
 }
 
 func TestGetRecord_NotFound(t *testing.T) {
+	t.Parallel()
 	ts := fakeAYB(t)
 	defer ts.Close()
 	c := newClient(Config{BaseURL: ts.URL})
@@ -531,13 +561,15 @@ func TestGetRecord_NotFound(t *testing.T) {
 }
 
 func TestAPIClientConnectionError(t *testing.T) {
+	t.Parallel()
 	c := newClient(Config{BaseURL: "http://127.0.0.1:1"})
 	_, _, err := c.doJSON(context.Background(), "GET", "/health", nil, false)
-	testutil.True(t, err != nil, "expected connection error")
+	testutil.NotNil(t, err)
 	testutil.ErrorContains(t, err, "request failed")
 }
 
 func TestAPIClientNonJSONResponse(t *testing.T) {
+	t.Parallel()
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/plain")
 		w.Write([]byte("plain text response"))
@@ -552,6 +584,7 @@ func TestAPIClientNonJSONResponse(t *testing.T) {
 }
 
 func TestAPIClientEmptyResponse(t *testing.T) {
+	t.Parallel()
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusNoContent)
 	}))

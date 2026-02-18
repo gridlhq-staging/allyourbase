@@ -12,6 +12,7 @@ import (
 )
 
 func TestLocalBackendPutAndGet(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	b, err := NewLocalBackend(dir)
 	testutil.NoError(t, err)
@@ -37,6 +38,7 @@ func TestLocalBackendPutAndGet(t *testing.T) {
 }
 
 func TestLocalBackendNestedPath(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	b, err := NewLocalBackend(dir)
 	testutil.NoError(t, err)
@@ -56,6 +58,7 @@ func TestLocalBackendNestedPath(t *testing.T) {
 }
 
 func TestLocalBackendGetNotFound(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	b, err := NewLocalBackend(dir)
 	testutil.NoError(t, err)
@@ -65,6 +68,7 @@ func TestLocalBackendGetNotFound(t *testing.T) {
 }
 
 func TestLocalBackendDelete(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	b, err := NewLocalBackend(dir)
 	testutil.NoError(t, err)
@@ -86,6 +90,7 @@ func TestLocalBackendDelete(t *testing.T) {
 }
 
 func TestLocalBackendDeleteNotExist(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	b, err := NewLocalBackend(dir)
 	testutil.NoError(t, err)
@@ -96,6 +101,7 @@ func TestLocalBackendDeleteNotExist(t *testing.T) {
 }
 
 func TestLocalBackendExists(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	b, err := NewLocalBackend(dir)
 	testutil.NoError(t, err)
@@ -115,6 +121,7 @@ func TestLocalBackendExists(t *testing.T) {
 }
 
 func TestLocalBackendOverwrite(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	b, err := NewLocalBackend(dir)
 	testutil.NoError(t, err)
@@ -136,6 +143,7 @@ func TestLocalBackendOverwrite(t *testing.T) {
 }
 
 func TestNewLocalBackendCreatesDir(t *testing.T) {
+	t.Parallel()
 	dir := filepath.Join(t.TempDir(), "nested", "storage")
 	b, err := NewLocalBackend(dir)
 	testutil.NoError(t, err)

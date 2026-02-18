@@ -25,6 +25,7 @@ func newTestServerWithPassword(t *testing.T, password string) *server.Server {
 }
 
 func TestAdminStatusNoPassword(t *testing.T) {
+	t.Parallel()
 	srv := newTestServer(t, newCacheHolderWithSchema(nil))
 
 	w := httptest.NewRecorder()
@@ -37,6 +38,7 @@ func TestAdminStatusNoPassword(t *testing.T) {
 }
 
 func TestAdminStatusWithPassword(t *testing.T) {
+	t.Parallel()
 	srv := newTestServerWithPassword(t, "secret123")
 
 	w := httptest.NewRecorder()
@@ -49,6 +51,7 @@ func TestAdminStatusWithPassword(t *testing.T) {
 }
 
 func TestAdminLoginSuccess(t *testing.T) {
+	t.Parallel()
 	srv := newTestServerWithPassword(t, "mypassword")
 
 	w := httptest.NewRecorder()
@@ -63,6 +66,7 @@ func TestAdminLoginSuccess(t *testing.T) {
 }
 
 func TestAdminLoginWrongPassword(t *testing.T) {
+	t.Parallel()
 	srv := newTestServerWithPassword(t, "mypassword")
 
 	w := httptest.NewRecorder()
@@ -75,6 +79,7 @@ func TestAdminLoginWrongPassword(t *testing.T) {
 }
 
 func TestAdminLoginNotConfigured(t *testing.T) {
+	t.Parallel()
 	srv := newTestServer(t, newCacheHolderWithSchema(nil))
 
 	w := httptest.NewRecorder()
@@ -86,6 +91,7 @@ func TestAdminLoginNotConfigured(t *testing.T) {
 }
 
 func TestAdminLoginEmptyJSON(t *testing.T) {
+	t.Parallel()
 	srv := newTestServerWithPassword(t, "mypassword")
 
 	w := httptest.NewRecorder()
@@ -99,6 +105,8 @@ func TestAdminLoginEmptyJSON(t *testing.T) {
 
 func TestAdminSQLRouteNotRegisteredWithoutPool(t *testing.T) {
 	// When pool is nil, the admin SQL route should not be registered.
+	t.Parallel()
+
 	srv := newTestServerWithPassword(t, "pass")
 
 	w := httptest.NewRecorder()
@@ -111,6 +119,7 @@ func TestAdminSQLRouteNotRegisteredWithoutPool(t *testing.T) {
 }
 
 func TestAdminTokenConsistency(t *testing.T) {
+	t.Parallel()
 	srv := newTestServerWithPassword(t, "pass")
 
 	// Login twice, should get same token (deterministic HMAC).
@@ -130,5 +139,5 @@ func TestAdminTokenConsistency(t *testing.T) {
 	t1 := login()
 	t2 := login()
 	testutil.Equal(t, t1, t2)
-	testutil.True(t, len(t1) == 64, "expected 64 hex chars")
+	testutil.Equal(t, 64, len(t1))
 }

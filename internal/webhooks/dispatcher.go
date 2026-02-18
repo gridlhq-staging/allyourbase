@@ -21,7 +21,8 @@ const (
 	maxRetries = 3
 )
 
-var backoff = [maxRetries]time.Duration{
+// defaultBackoff holds the production retry delays.
+var defaultBackoff = [maxRetries]time.Duration{
 	1 * time.Second,
 	5 * time.Second,
 	25 * time.Second,
@@ -36,16 +37,18 @@ type Dispatcher struct {
 	queue     chan *realtime.Event
 	done      chan struct{}
 	wg        sync.WaitGroup
+	backoff   [maxRetries]time.Duration // per-instance; tests override without touching globals
 }
 
 // NewDispatcher creates a Dispatcher and starts its background worker.
 func NewDispatcher(store WebhookLister, logger *slog.Logger) *Dispatcher {
 	d := &Dispatcher{
-		store:  store,
-		client: &http.Client{Timeout: 10 * time.Second},
-		logger: logger,
-		queue:  make(chan *realtime.Event, queueSize),
-		done:   make(chan struct{}),
+		store:   store,
+		client:  &http.Client{Timeout: 10 * time.Second},
+		logger:  logger,
+		queue:   make(chan *realtime.Event, queueSize),
+		done:    make(chan struct{}),
+		backoff: defaultBackoff,
 	}
 	d.wg.Add(1)
 	go d.run()
@@ -132,7 +135,7 @@ func contains(ss []string, s string) bool {
 func (d *Dispatcher) deliver(hook *Webhook, event *realtime.Event, payload []byte) {
 	for attempt := 0; attempt < maxRetries; attempt++ {
 		if attempt > 0 {
-			time.Sleep(backoff[attempt])
+			time.Sleep(d.backoff[attempt])
 		}
 
 		req, err := http.NewRequest(http.MethodPost, hook.URL, bytes.NewReader(payload))

@@ -10,6 +10,7 @@ import (
 )
 
 func TestSanitizeName(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		input string
 		want  string
@@ -24,12 +25,14 @@ func TestSanitizeName(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.input, func(t *testing.T) {
+			t.Parallel()
 			testutil.Equal(t, tt.want, sanitizeName(tt.input))
 		})
 	}
 }
 
 func TestCreateFile(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	r := NewUserRunner(nil, dir, testutil.DiscardLogger())
 
@@ -54,6 +57,7 @@ func TestCreateFile(t *testing.T) {
 }
 
 func TestCreateFileCreatesDir(t *testing.T) {
+	t.Parallel()
 	dir := filepath.Join(t.TempDir(), "subdir", "migrations")
 	r := NewUserRunner(nil, dir, testutil.DiscardLogger())
 
@@ -65,6 +69,7 @@ func TestCreateFileCreatesDir(t *testing.T) {
 }
 
 func TestCreateFileSanitizesName(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	r := NewUserRunner(nil, dir, testutil.DiscardLogger())
 
@@ -76,6 +81,7 @@ func TestCreateFileSanitizesName(t *testing.T) {
 }
 
 func TestListFilesEmpty(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	r := NewUserRunner(nil, dir, testutil.DiscardLogger())
 
@@ -85,6 +91,7 @@ func TestListFilesEmpty(t *testing.T) {
 }
 
 func TestListFilesNonExistentDir(t *testing.T) {
+	t.Parallel()
 	r := NewUserRunner(nil, "/tmp/nonexistent_ayb_test_dir", testutil.DiscardLogger())
 
 	files, err := r.listFiles()
@@ -93,6 +100,7 @@ func TestListFilesNonExistentDir(t *testing.T) {
 }
 
 func TestListFilesSorted(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 
 	// Create files out of order.
@@ -115,6 +123,7 @@ func TestListFilesSorted(t *testing.T) {
 }
 
 func TestListFilesIgnoresDirectories(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	os.WriteFile(filepath.Join(dir, "001_init.sql"), []byte("-- test"), 0o644)
 	os.Mkdir(filepath.Join(dir, "subdir.sql"), 0o755) // directory with .sql name

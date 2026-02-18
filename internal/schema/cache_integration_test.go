@@ -19,7 +19,7 @@ func TestCacheHolderLoad(t *testing.T) {
 	ch := schema.NewCacheHolder(sharedPG.Pool, testutil.DiscardLogger())
 
 	// Before load, Get() returns nil.
-	testutil.True(t, ch.Get() == nil, "expected nil before Load()")
+	testutil.Nil(t, ch.Get())
 
 	// Load should succeed.
 	err := ch.Load(ctx)

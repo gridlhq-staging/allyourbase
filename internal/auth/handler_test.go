@@ -16,6 +16,7 @@ import (
 // login with real users) are in the integration test file.
 
 func TestHandleRegisterValidation(t *testing.T) {
+	t.Parallel()
 	svc := newTestService()
 	h := NewHandler(svc, testutil.DiscardLogger())
 	router := h.Routes()
@@ -54,6 +55,7 @@ func TestHandleRegisterValidation(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			req := httptest.NewRequest(http.MethodPost, "/register", strings.NewReader(tt.body))
 			req.Header.Set("Content-Type", "application/json")
 			w := httptest.NewRecorder()
@@ -66,6 +68,7 @@ func TestHandleRegisterValidation(t *testing.T) {
 }
 
 func TestHandleLoginValidation(t *testing.T) {
+	t.Parallel()
 	svc := newTestService()
 	h := NewHandler(svc, testutil.DiscardLogger())
 	router := h.Routes()
@@ -82,6 +85,7 @@ func TestHandleLoginValidation(t *testing.T) {
 }
 
 func TestHandleMeWithoutToken(t *testing.T) {
+	t.Parallel()
 	svc := newTestService()
 	h := NewHandler(svc, testutil.DiscardLogger())
 	router := h.Routes()
@@ -94,6 +98,7 @@ func TestHandleMeWithoutToken(t *testing.T) {
 }
 
 func TestHandleRegisterMalformedJSON(t *testing.T) {
+	t.Parallel()
 	svc := newTestService()
 	h := NewHandler(svc, testutil.DiscardLogger())
 	router := h.Routes()
@@ -108,6 +113,7 @@ func TestHandleRegisterMalformedJSON(t *testing.T) {
 }
 
 func TestHandleRegisterBodyTooLarge(t *testing.T) {
+	t.Parallel()
 	svc := newTestService()
 	h := NewHandler(svc, testutil.DiscardLogger())
 	router := h.Routes()
@@ -132,6 +138,7 @@ func TestHandleRegisterBodyTooLarge(t *testing.T) {
 // exercising any handler. Auth response JSON shape is covered by integration tests.
 
 func TestHandleRefreshMalformedJSON(t *testing.T) {
+	t.Parallel()
 	svc := newTestService()
 	h := NewHandler(svc, testutil.DiscardLogger())
 	router := h.Routes()
@@ -146,6 +153,7 @@ func TestHandleRefreshMalformedJSON(t *testing.T) {
 }
 
 func TestHandleRefreshMissingToken(t *testing.T) {
+	t.Parallel()
 	svc := newTestService()
 	h := NewHandler(svc, testutil.DiscardLogger())
 	router := h.Routes()
@@ -160,6 +168,7 @@ func TestHandleRefreshMissingToken(t *testing.T) {
 }
 
 func TestHandleLogoutMissingToken(t *testing.T) {
+	t.Parallel()
 	svc := newTestService()
 	h := NewHandler(svc, testutil.DiscardLogger())
 	router := h.Routes()
@@ -174,6 +183,7 @@ func TestHandleLogoutMissingToken(t *testing.T) {
 }
 
 func TestHandlePasswordResetMissingEmail(t *testing.T) {
+	t.Parallel()
 	svc := newTestService()
 	h := NewHandler(svc, testutil.DiscardLogger())
 	router := h.Routes()
@@ -188,6 +198,7 @@ func TestHandlePasswordResetMissingEmail(t *testing.T) {
 }
 
 func TestHandlePasswordResetMalformedJSON(t *testing.T) {
+	t.Parallel()
 	svc := newTestService()
 	h := NewHandler(svc, testutil.DiscardLogger())
 	router := h.Routes()
@@ -202,6 +213,7 @@ func TestHandlePasswordResetMalformedJSON(t *testing.T) {
 }
 
 func TestHandlePasswordResetConfirmMissingToken(t *testing.T) {
+	t.Parallel()
 	svc := newTestService()
 	h := NewHandler(svc, testutil.DiscardLogger())
 	router := h.Routes()
@@ -217,6 +229,7 @@ func TestHandlePasswordResetConfirmMissingToken(t *testing.T) {
 }
 
 func TestHandlePasswordResetConfirmMissingPassword(t *testing.T) {
+	t.Parallel()
 	svc := newTestService()
 	h := NewHandler(svc, testutil.DiscardLogger())
 	router := h.Routes()
@@ -232,6 +245,7 @@ func TestHandlePasswordResetConfirmMissingPassword(t *testing.T) {
 }
 
 func TestHandleVerifyEmailMissingToken(t *testing.T) {
+	t.Parallel()
 	svc := newTestService()
 	h := NewHandler(svc, testutil.DiscardLogger())
 	router := h.Routes()
@@ -246,6 +260,7 @@ func TestHandleVerifyEmailMissingToken(t *testing.T) {
 }
 
 func TestHandleResendVerificationNoAuth(t *testing.T) {
+	t.Parallel()
 	svc := newTestService()
 	h := NewHandler(svc, testutil.DiscardLogger())
 	router := h.Routes()
@@ -264,6 +279,8 @@ func TestHandleResendVerificationNoAuth(t *testing.T) {
 func TestHandleDeleteMeRouteRegistered(t *testing.T) {
 	// Verify the DELETE /me route is registered and requires auth.
 	// With no auth token, we should get 401 (proving the route+middleware are wired).
+	t.Parallel()
+
 	svc := newTestService()
 	h := NewHandler(svc, testutil.DiscardLogger())
 	router := h.Routes()
@@ -280,6 +297,8 @@ func TestHandleDeleteMeRouteRegistered(t *testing.T) {
 func TestHandlePasswordResetAlwaysReturns200(t *testing.T) {
 	// Even with no DB pool (will fail internally), password-reset
 	// should always return 200 to prevent email enumeration.
+	t.Parallel()
+
 	svc := newTestService()
 	h := NewHandler(svc, testutil.DiscardLogger())
 	router := h.Routes()

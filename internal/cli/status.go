@@ -15,7 +15,7 @@ import (
 var statusCmd = &cobra.Command{
 	Use:   "status",
 	Short: "Show AYB server status",
-	Long:  `Show the running state of the AllYourBase server.`,
+	Long:  `Show the running state of the Allyourbase server.`,
 	RunE:  runStatus,
 }
 
@@ -32,8 +32,7 @@ func runStatus(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		if os.IsNotExist(err) {
 			if jsonOut {
-				json.NewEncoder(out).Encode(map[string]any{"status": "stopped"})
-				return nil
+				return json.NewEncoder(out).Encode(map[string]any{"status": "stopped"})
 			}
 			fmt.Fprintln(out, "AYB server is not running.")
 			return nil
@@ -46,8 +45,7 @@ func runStatus(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		cleanupPIDFile()
 		if jsonOut {
-			json.NewEncoder(out).Encode(map[string]any{"status": "stopped"})
-			return nil
+			return json.NewEncoder(out).Encode(map[string]any{"status": "stopped"})
 		}
 		fmt.Fprintln(out, "AYB server is not running (stale PID file cleaned up).")
 		return nil
@@ -55,8 +53,7 @@ func runStatus(cmd *cobra.Command, args []string) error {
 	if err := proc.Signal(syscall.Signal(0)); err != nil {
 		cleanupPIDFile()
 		if jsonOut {
-			json.NewEncoder(out).Encode(map[string]any{"status": "stopped"})
-			return nil
+			return json.NewEncoder(out).Encode(map[string]any{"status": "stopped"})
 		}
 		fmt.Fprintln(out, "AYB server is not running (stale PID file cleaned up).")
 		return nil
@@ -81,13 +78,12 @@ func runStatus(cmd *cobra.Command, args []string) error {
 	}
 
 	if jsonOut {
-		json.NewEncoder(out).Encode(map[string]any{
+		return json.NewEncoder(out).Encode(map[string]any{
 			"status":  "running",
 			"pid":     pid,
 			"port":    port,
 			"healthy": healthy,
 		})
-		return nil
 	}
 
 	useColor := colorEnabledFd(os.Stdout.Fd())

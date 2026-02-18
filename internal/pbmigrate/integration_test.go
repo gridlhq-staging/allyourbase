@@ -138,7 +138,7 @@ func TestE2E_AuthMigration(t *testing.T) {
 	testutil.True(t, verified)
 	testutil.Equal(t, "Alice Smith", name)
 	testutil.Equal(t, "admin", role)
-	testutil.True(t, len(passwordHash) > 0)
+	testutil.NotEqual(t, "", passwordHash)
 
 	testutil.Equal(t, 3, stats.AuthUsers) // 3 auth users migrated
 }
@@ -760,7 +760,7 @@ func verifyAuthUsersMigrated(t *testing.T, dbURL string) {
 		Scan(&email, &passwordHash, &verified)
 	testutil.NoError(t, err)
 	testutil.Equal(t, "user@example.com", email)
-	testutil.True(t, len(passwordHash) > 0)
+	testutil.NotEqual(t, "", passwordHash)
 	testutil.True(t, verified)
 }
 

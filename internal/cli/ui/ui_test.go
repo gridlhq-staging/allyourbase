@@ -212,8 +212,13 @@ func TestForcedRendererProducesANSI(t *testing.T) {
 	if !strings.Contains(out, "test") {
 		t.Error("rendered text should contain original text")
 	}
-	if !strings.Contains(out, "\033[") && !strings.Contains(out, "\x1b[") {
-		t.Error("forced renderer should produce ANSI escape codes")
+	// Verify the bold SGR attribute (1) is present, not just any ANSI code.
+	// It may appear as standalone "\033[1m", combined-start "\033[1;", or combined-end ";1m".
+	hasBoldSGR := strings.Contains(out, "\033[1m") ||
+		strings.Contains(out, "\033[1;") ||
+		strings.Contains(out, ";1m")
+	if !hasBoldSGR {
+		t.Errorf("forced renderer should produce bold SGR attribute (1), got %q", out)
 	}
 }
 

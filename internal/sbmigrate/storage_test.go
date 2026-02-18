@@ -11,6 +11,7 @@ import (
 )
 
 func TestNormalizeBucketName(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name  string
 		input string
@@ -31,6 +32,7 @@ func TestNormalizeBucketName(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			got := normalizeBucketName(tt.input)
 			testutil.Equal(t, tt.want, got)
 		})
@@ -38,7 +40,9 @@ func TestNormalizeBucketName(t *testing.T) {
 }
 
 func TestCopyFile(t *testing.T) {
+	t.Parallel()
 	t.Run("copies file contents", func(t *testing.T) {
+		t.Parallel()
 		dir := t.TempDir()
 		srcPath := filepath.Join(dir, "source.txt")
 		dstPath := filepath.Join(dir, "dest.txt")
@@ -56,6 +60,7 @@ func TestCopyFile(t *testing.T) {
 	})
 
 	t.Run("copies binary data", func(t *testing.T) {
+		t.Parallel()
 		dir := t.TempDir()
 		srcPath := filepath.Join(dir, "binary.bin")
 		dstPath := filepath.Join(dir, "copy.bin")
@@ -75,12 +80,14 @@ func TestCopyFile(t *testing.T) {
 	})
 
 	t.Run("source not found", func(t *testing.T) {
+		t.Parallel()
 		dir := t.TempDir()
 		_, err := copyFile(filepath.Join(dir, "nonexistent"), filepath.Join(dir, "dest"))
 		testutil.ErrorContains(t, err, "opening source")
 	})
 
 	t.Run("destination directory missing", func(t *testing.T) {
+		t.Parallel()
 		dir := t.TempDir()
 		srcPath := filepath.Join(dir, "source.txt")
 		testutil.NoError(t, os.WriteFile(srcPath, []byte("data"), 0644))
@@ -90,8 +97,8 @@ func TestCopyFile(t *testing.T) {
 	})
 }
 
-
 func TestPhaseCountWithStorage(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name string
 		opts MigrationOptions
@@ -120,6 +127,7 @@ func TestPhaseCountWithStorage(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			m := &Migrator{opts: tt.opts}
 			got := m.phaseCount()
 			testutil.Equal(t, tt.want, got)
@@ -128,6 +136,7 @@ func TestPhaseCountWithStorage(t *testing.T) {
 }
 
 func TestPrintStatsWithStorage(t *testing.T) {
+	t.Parallel()
 	var buf strings.Builder
 	m := &Migrator{
 		output: &buf,
@@ -144,6 +153,7 @@ func TestPrintStatsWithStorage(t *testing.T) {
 }
 
 func TestPrintStatsNoStorage(t *testing.T) {
+	t.Parallel()
 	var buf strings.Builder
 	m := &Migrator{
 		output: &buf,
@@ -155,6 +165,7 @@ func TestPrintStatsNoStorage(t *testing.T) {
 }
 
 func TestBuildValidationSummaryWithStorage(t *testing.T) {
+	t.Parallel()
 	report := &migrate.AnalysisReport{
 		AuthUsers: 10,
 		Files:     25,
@@ -178,6 +189,7 @@ func TestBuildValidationSummaryWithStorage(t *testing.T) {
 }
 
 func TestBuildValidationSummaryNoStorage(t *testing.T) {
+	t.Parallel()
 	report := &migrate.AnalysisReport{AuthUsers: 10}
 	stats := &MigrationStats{Users: 10}
 	summary := BuildValidationSummary(report, stats)

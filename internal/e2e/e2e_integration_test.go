@@ -202,7 +202,9 @@ func httpJSONArray(t *testing.T, method, url string, body any, token string) (*h
 	resp.Body.Close()
 	testutil.NoError(t, err)
 	var result []any
-	json.Unmarshal(raw, &result)
+	if err := json.Unmarshal(raw, &result); err != nil {
+		t.Fatalf("httpJSONArray: unmarshal response: %v (raw: %q)", err, raw)
+	}
 	return resp, result
 }
 
@@ -546,7 +548,7 @@ func TestE2E_BatchOperations(t *testing.T) {
 				{"method": "create", "body": map[string]any{"name": "go"}}, // duplicate
 			},
 		}
-		resp, _ := httpJSONArray(t, "POST", ts.URL+"/api/collections/tags/batch", ops, "")
+		resp, _ := httpRaw(t, "POST", ts.URL+"/api/collections/tags/batch", ops, "")
 		testutil.True(t, resp.StatusCode >= 400, "batch should fail on constraint violation")
 
 		_, after := httpJSON(t, "GET", ts.URL+"/api/collections/tags", nil, "")
@@ -960,7 +962,7 @@ func TestE2E_WebhookDelivery(t *testing.T) {
 	}
 
 	mu.Lock()
-	testutil.True(t, payload != nil, "webhook should be delivered")
+	testutil.NotNil(t, payload)
 	var webhookBody map[string]any
 	testutil.NoError(t, json.Unmarshal(payload, &webhookBody))
 	testutil.Equal(t, "create", webhookBody["action"].(string))

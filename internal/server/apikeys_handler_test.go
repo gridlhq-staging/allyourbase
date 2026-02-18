@@ -126,6 +126,7 @@ func sampleAPIKeys() []auth.APIKey {
 // --- List API keys tests ---
 
 func TestAdminListAPIKeysSuccess(t *testing.T) {
+	t.Parallel()
 	mgr := &fakeAPIKeyManager{keys: sampleAPIKeys()}
 	handler := handleAdminListAPIKeys(mgr)
 
@@ -144,6 +145,7 @@ func TestAdminListAPIKeysSuccess(t *testing.T) {
 }
 
 func TestAdminListAPIKeysWithPagination(t *testing.T) {
+	t.Parallel()
 	mgr := &fakeAPIKeyManager{keys: sampleAPIKeys()}
 	handler := handleAdminListAPIKeys(mgr)
 
@@ -177,6 +179,7 @@ func TestAdminListAPIKeysWithPagination(t *testing.T) {
 }
 
 func TestAdminListAPIKeysEmpty(t *testing.T) {
+	t.Parallel()
 	mgr := &fakeAPIKeyManager{keys: nil}
 	handler := handleAdminListAPIKeys(mgr)
 
@@ -194,6 +197,7 @@ func TestAdminListAPIKeysEmpty(t *testing.T) {
 }
 
 func TestAdminListAPIKeysServiceError(t *testing.T) {
+	t.Parallel()
 	mgr := &fakeAPIKeyManager{listErr: fmt.Errorf("db down")}
 	handler := handleAdminListAPIKeys(mgr)
 
@@ -208,6 +212,7 @@ func TestAdminListAPIKeysServiceError(t *testing.T) {
 // --- Revoke API key tests ---
 
 func TestAdminRevokeAPIKeySuccess(t *testing.T) {
+	t.Parallel()
 	mgr := &fakeAPIKeyManager{keys: sampleAPIKeys()}
 	handler := handleAdminRevokeAPIKey(mgr)
 
@@ -222,11 +227,12 @@ func TestAdminRevokeAPIKeySuccess(t *testing.T) {
 	// Verify the targeted key was revoked
 	testutil.NotNil(t, mgr.keys[1].RevokedAt)
 	// Verify other keys were NOT affected
-	testutil.True(t, mgr.keys[0].RevokedAt == nil, "key k1 should not be revoked")
-	testutil.True(t, mgr.keys[2].RevokedAt == nil, "key k3 should not be revoked")
+	testutil.Nil(t, mgr.keys[0].RevokedAt)
+	testutil.Nil(t, mgr.keys[2].RevokedAt)
 }
 
 func TestAdminRevokeAPIKeyNotFound(t *testing.T) {
+	t.Parallel()
 	mgr := &fakeAPIKeyManager{keys: sampleAPIKeys()}
 	handler := handleAdminRevokeAPIKey(mgr)
 
@@ -242,6 +248,7 @@ func TestAdminRevokeAPIKeyNotFound(t *testing.T) {
 }
 
 func TestAdminRevokeAPIKeyInvalidUUID(t *testing.T) {
+	t.Parallel()
 	mgr := &fakeAPIKeyManager{keys: sampleAPIKeys()}
 	handler := handleAdminRevokeAPIKey(mgr)
 
@@ -257,6 +264,7 @@ func TestAdminRevokeAPIKeyInvalidUUID(t *testing.T) {
 }
 
 func TestAdminRevokeAPIKeyNoID(t *testing.T) {
+	t.Parallel()
 	mgr := &fakeAPIKeyManager{keys: sampleAPIKeys()}
 	handler := handleAdminRevokeAPIKey(mgr)
 
@@ -269,6 +277,7 @@ func TestAdminRevokeAPIKeyNoID(t *testing.T) {
 }
 
 func TestAdminRevokeAPIKeyServiceError(t *testing.T) {
+	t.Parallel()
 	mgr := &fakeAPIKeyManager{
 		keys:   sampleAPIKeys(),
 		revErr: fmt.Errorf("constraint violation"),
@@ -289,6 +298,7 @@ func TestAdminRevokeAPIKeyServiceError(t *testing.T) {
 // --- Create API key tests ---
 
 func TestAdminCreateAPIKeySuccess(t *testing.T) {
+	t.Parallel()
 	mgr := &fakeAPIKeyManager{keys: sampleAPIKeys()}
 	handler := handleAdminCreateAPIKey(mgr)
 
@@ -315,6 +325,7 @@ func TestAdminCreateAPIKeySuccess(t *testing.T) {
 }
 
 func TestAdminCreateAPIKeyMissingUserID(t *testing.T) {
+	t.Parallel()
 	mgr := &fakeAPIKeyManager{}
 	handler := handleAdminCreateAPIKey(mgr)
 
@@ -329,6 +340,7 @@ func TestAdminCreateAPIKeyMissingUserID(t *testing.T) {
 }
 
 func TestAdminCreateAPIKeyMissingName(t *testing.T) {
+	t.Parallel()
 	mgr := &fakeAPIKeyManager{}
 	handler := handleAdminCreateAPIKey(mgr)
 
@@ -343,6 +355,7 @@ func TestAdminCreateAPIKeyMissingName(t *testing.T) {
 }
 
 func TestAdminCreateAPIKeyServiceError(t *testing.T) {
+	t.Parallel()
 	mgr := &fakeAPIKeyManager{createErr: fmt.Errorf("db connection failed")}
 	handler := handleAdminCreateAPIKey(mgr)
 
@@ -357,6 +370,7 @@ func TestAdminCreateAPIKeyServiceError(t *testing.T) {
 }
 
 func TestAdminCreateAPIKeyInvalidJSON(t *testing.T) {
+	t.Parallel()
 	mgr := &fakeAPIKeyManager{}
 	handler := handleAdminCreateAPIKey(mgr)
 
@@ -375,6 +389,7 @@ func TestAdminCreateAPIKeyInvalidJSON(t *testing.T) {
 }
 
 func TestAdminCreateAPIKeyEmptyBody(t *testing.T) {
+	t.Parallel()
 	mgr := &fakeAPIKeyManager{}
 	handler := handleAdminCreateAPIKey(mgr)
 
@@ -388,6 +403,7 @@ func TestAdminCreateAPIKeyEmptyBody(t *testing.T) {
 }
 
 func TestAdminCreateAPIKeyResponseFormat(t *testing.T) {
+	t.Parallel()
 	mgr := &fakeAPIKeyManager{keys: sampleAPIKeys()}
 	handler := handleAdminCreateAPIKey(mgr)
 
@@ -413,6 +429,7 @@ func TestAdminCreateAPIKeyResponseFormat(t *testing.T) {
 }
 
 func TestAdminRevokeAlreadyRevokedKey(t *testing.T) {
+	t.Parallel()
 	keys := sampleAPIKeys()
 	now := time.Now()
 	keys[0].RevokedAt = &now // mark k1 as already revoked
@@ -432,6 +449,7 @@ func TestAdminRevokeAlreadyRevokedKey(t *testing.T) {
 }
 
 func TestAdminListAPIKeysPaginationDefaults(t *testing.T) {
+	t.Parallel()
 	mgr := &fakeAPIKeyManager{keys: sampleAPIKeys()}
 	handler := handleAdminListAPIKeys(mgr)
 
@@ -450,6 +468,7 @@ func TestAdminListAPIKeysPaginationDefaults(t *testing.T) {
 }
 
 func TestAdminListAPIKeysPaginationClamp(t *testing.T) {
+	t.Parallel()
 	mgr := &fakeAPIKeyManager{keys: sampleAPIKeys()}
 	handler := handleAdminListAPIKeys(mgr)
 
@@ -467,6 +486,7 @@ func TestAdminListAPIKeysPaginationClamp(t *testing.T) {
 }
 
 func TestAdminListAPIKeysBeyondLastPage(t *testing.T) {
+	t.Parallel()
 	mgr := &fakeAPIKeyManager{keys: sampleAPIKeys()}
 	handler := handleAdminListAPIKeys(mgr)
 
@@ -485,6 +505,7 @@ func TestAdminListAPIKeysBeyondLastPage(t *testing.T) {
 }
 
 func TestAdminListAPIKeysNegativePage(t *testing.T) {
+	t.Parallel()
 	mgr := &fakeAPIKeyManager{keys: sampleAPIKeys()}
 	handler := handleAdminListAPIKeys(mgr)
 
@@ -503,6 +524,7 @@ func TestAdminListAPIKeysNegativePage(t *testing.T) {
 }
 
 func TestAdminListAPIKeysNonNumericParams(t *testing.T) {
+	t.Parallel()
 	mgr := &fakeAPIKeyManager{keys: sampleAPIKeys()}
 	handler := handleAdminListAPIKeys(mgr)
 
@@ -524,6 +546,7 @@ func TestAdminListAPIKeysNonNumericParams(t *testing.T) {
 // --- Scoped API key tests ---
 
 func TestAdminCreateAPIKeyWithReadonlyScope(t *testing.T) {
+	t.Parallel()
 	mgr := &fakeAPIKeyManager{keys: sampleAPIKeys()}
 	handler := handleAdminCreateAPIKey(mgr)
 
@@ -543,6 +566,7 @@ func TestAdminCreateAPIKeyWithReadonlyScope(t *testing.T) {
 }
 
 func TestAdminCreateAPIKeyWithReadwriteScope(t *testing.T) {
+	t.Parallel()
 	mgr := &fakeAPIKeyManager{keys: sampleAPIKeys()}
 	handler := handleAdminCreateAPIKey(mgr)
 
@@ -561,6 +585,7 @@ func TestAdminCreateAPIKeyWithReadwriteScope(t *testing.T) {
 }
 
 func TestAdminCreateAPIKeyWithAllowedTables(t *testing.T) {
+	t.Parallel()
 	mgr := &fakeAPIKeyManager{keys: sampleAPIKeys()}
 	handler := handleAdminCreateAPIKey(mgr)
 
@@ -582,6 +607,7 @@ func TestAdminCreateAPIKeyWithAllowedTables(t *testing.T) {
 }
 
 func TestAdminCreateAPIKeyInvalidScope(t *testing.T) {
+	t.Parallel()
 	mgr := &fakeAPIKeyManager{keys: sampleAPIKeys()}
 	handler := handleAdminCreateAPIKey(mgr)
 
@@ -596,6 +622,7 @@ func TestAdminCreateAPIKeyInvalidScope(t *testing.T) {
 }
 
 func TestAdminCreateAPIKeyDefaultScope(t *testing.T) {
+	t.Parallel()
 	mgr := &fakeAPIKeyManager{keys: sampleAPIKeys()}
 	handler := handleAdminCreateAPIKey(mgr)
 
@@ -616,6 +643,7 @@ func TestAdminCreateAPIKeyDefaultScope(t *testing.T) {
 }
 
 func TestAdminListAPIKeysShowsScope(t *testing.T) {
+	t.Parallel()
 	mgr := &fakeAPIKeyManager{keys: sampleAPIKeys()}
 	handler := handleAdminListAPIKeys(mgr)
 

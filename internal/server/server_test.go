@@ -37,6 +37,7 @@ func newCacheHolderWithSchema(sc *schema.SchemaCache) *schema.CacheHolder {
 }
 
 func TestHealthEndpoint(t *testing.T) {
+	t.Parallel()
 	ch := newCacheHolderWithSchema(nil)
 	srv := newTestServer(t, ch)
 
@@ -54,6 +55,7 @@ func TestHealthEndpoint(t *testing.T) {
 }
 
 func TestSchemaEndpointNotReady(t *testing.T) {
+	t.Parallel()
 	ch := newCacheHolderWithSchema(nil)
 	srv := newTestServer(t, ch)
 
@@ -74,6 +76,7 @@ func TestSchemaEndpointNotReady(t *testing.T) {
 }
 
 func TestSchemaEndpointReady(t *testing.T) {
+	t.Parallel()
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 	ch := schema.NewCacheHolder(nil, logger)
 	ch.SetForTesting(&schema.SchemaCache{
@@ -107,6 +110,7 @@ func TestSchemaEndpointReady(t *testing.T) {
 }
 
 func TestRouterSetup(t *testing.T) {
+	t.Parallel()
 	ch := newCacheHolderWithSchema(nil)
 	srv := newTestServer(t, ch)
 
@@ -129,17 +133,18 @@ func TestRouterSetup(t *testing.T) {
 	testutil.Equal(t, http.StatusNotFound, w.Code)
 }
 
-
 // TestCacheHolderGetBeforeLoad verifies that Get() returns nil before Load().
 func TestCacheHolderGetBeforeLoad(t *testing.T) {
+	t.Parallel()
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 	ch := schema.NewCacheHolder(nil, logger)
 
 	got := ch.Get()
-	testutil.True(t, got == nil, "expected nil before Load()")
+	testutil.Nil(t, got)
 }
 
 func TestOpenAPISpecEndpoint(t *testing.T) {
+	t.Parallel()
 	ch := newCacheHolderWithSchema(nil)
 	srv := newTestServer(t, ch)
 
@@ -155,6 +160,7 @@ func TestOpenAPISpecEndpoint(t *testing.T) {
 
 // TestCacheHolderReadyChannel verifies the ready channel is open before Load().
 func TestCacheHolderReadyChannel(t *testing.T) {
+	t.Parallel()
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 	ch := schema.NewCacheHolder(nil, logger)
 
@@ -172,6 +178,7 @@ func TestCacheHolderReadyChannel(t *testing.T) {
 // TestSchemaEndpointRequiresAuthWhenConfigured verifies that /api/schema returns
 // 401 when authSvc is configured and no bearer token is provided.
 func TestSchemaEndpointRequiresAuthWhenConfigured(t *testing.T) {
+	t.Parallel()
 	cfg := config.Default()
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 	ch := schema.NewCacheHolder(nil, logger)
@@ -203,6 +210,7 @@ func TestSchemaEndpointRequiresAuthWhenConfigured(t *testing.T) {
 // TestAdminAuthRateLimited verifies that the rate limiter middleware is wired
 // to the /api/admin/auth endpoint by exhausting the limit and getting 429.
 func TestAdminAuthRateLimited(t *testing.T) {
+	t.Parallel()
 	srv := newTestServerWithPassword(t, "testpass")
 
 	// Admin rate limiter is set to 5 attempts/min per IP.
@@ -229,6 +237,7 @@ func TestAdminAuthRateLimited(t *testing.T) {
 // TestStorageWriteRoutesRequireAuth verifies that storage upload and delete
 // routes return 401 when authSvc is configured but no token is provided.
 func TestStorageWriteRoutesRequireAuth(t *testing.T) {
+	t.Parallel()
 	cfg := config.Default()
 	cfg.Storage.Enabled = true
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
@@ -267,4 +276,3 @@ func TestStorageWriteRoutesRequireAuth(t *testing.T) {
 	srv.Router().ServeHTTP(w, req)
 	testutil.Equal(t, http.StatusUnauthorized, w.Code)
 }
-

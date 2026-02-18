@@ -24,8 +24,8 @@ func SetVersion(version, commit, date string) {
 
 var rootCmd = &cobra.Command{
 	Use:   "ayb",
-	Short: "AllYourBase — Backend-as-a-Service for PostgreSQL",
-	Long: `AllYourBase (AYB) connects to PostgreSQL, introspects the schema,
+	Short: "Allyourbase — Backend-as-a-Service for PostgreSQL",
+	Long: `Allyourbase (AYB) connects to PostgreSQL, introspects the schema,
 and auto-generates a REST API with an admin dashboard. Single binary. One config file.
 
 Get started (managed PostgreSQL, zero config):

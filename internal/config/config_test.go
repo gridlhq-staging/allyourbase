@@ -35,7 +35,7 @@ func TestDefault(t *testing.T) {
 	testutil.Equal(t, 8, cfg.Auth.MinPasswordLength)
 
 	testutil.Equal(t, "log", cfg.Email.Backend)
-	testutil.Equal(t, "AllYourBase", cfg.Email.FromName)
+	testutil.Equal(t, "Allyourbase", cfg.Email.FromName)
 	testutil.Equal(t, "", cfg.Email.From)
 
 	testutil.Equal(t, false, cfg.Storage.Enabled)
@@ -962,7 +962,7 @@ func TestGetValue(t *testing.T) {
 		t.Run(tt.key, func(t *testing.T) {
 			val, err := GetValue(cfg, tt.key)
 			if tt.wantErr {
-				testutil.True(t, err != nil, "expected error for key: "+tt.key)
+				testutil.NotNil(t, err)
 			} else {
 				testutil.NoError(t, err)
 				testutil.Equal(t, tt.want, val)

@@ -24,7 +24,7 @@ export async function registerUser(page: Page): Promise<string> {
   await page.getByRole("button", { name: "Create Account" }).click();
 
   // Wait for board list to load (auth succeeded).
-  // First registration can be slow due to embedded Postgres cold-start + bcrypt.
+  // First registration can be slow due to managed Postgres cold-start + bcrypt.
   await expect(page.getByText("Your Boards")).toBeVisible({ timeout: 15000 });
 
   return email;

@@ -8,7 +8,7 @@ Build a working CRUD app with Allyourbase in 5 minutes.
 # Install
 curl -fsSL https://allyourbase.io/install.sh | sh
 
-# Start with embedded PostgreSQL (zero config)
+# Start with managed PostgreSQL (zero config)
 ayb start
 ```
 

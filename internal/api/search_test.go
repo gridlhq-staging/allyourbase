@@ -40,6 +40,7 @@ func noTextTable() *schema.Table {
 }
 
 func TestIsTextColumn(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		col    *schema.Column
 		expect bool
@@ -75,6 +76,7 @@ func TestIsTextColumn(t *testing.T) {
 }
 
 func TestTextColumns(t *testing.T) {
+	t.Parallel()
 	tbl := searchableTable()
 	cols := textColumns(tbl)
 	// Should include title, body, status but not id, views, metadata, tags
@@ -85,6 +87,7 @@ func TestTextColumns(t *testing.T) {
 }
 
 func TestBuildSearchSQL(t *testing.T) {
+	t.Parallel()
 	tbl := searchableTable()
 
 	whereSQL, rankSQL, args, err := buildSearchSQL(tbl, "hello world", 1)
@@ -106,6 +109,7 @@ func TestBuildSearchSQL(t *testing.T) {
 }
 
 func TestBuildSearchSQLWithOffset(t *testing.T) {
+	t.Parallel()
 	tbl := searchableTable()
 
 	// Simulate filter already using $1, $2
@@ -125,6 +129,7 @@ func TestBuildSearchSQLWithOffset(t *testing.T) {
 }
 
 func TestBuildSearchSQLEmptyTerm(t *testing.T) {
+	t.Parallel()
 	tbl := searchableTable()
 
 	// Empty search term should still produce valid SQL (handler guards against this,
@@ -138,14 +143,16 @@ func TestBuildSearchSQLEmptyTerm(t *testing.T) {
 }
 
 func TestBuildSearchSQLNoTextColumns(t *testing.T) {
+	t.Parallel()
 	tbl := noTextTable()
 
 	_, _, _, err := buildSearchSQL(tbl, "hello", 1)
-	testutil.True(t, err != nil, "expected error for table with no text columns")
+	testutil.NotNil(t, err)
 	testutil.Contains(t, err.Error(), "no text columns")
 }
 
 func TestBuildListWithSearch(t *testing.T) {
+	t.Parallel()
 	tbl := searchableTable()
 
 	opts := listOpts{
@@ -176,6 +183,7 @@ func TestBuildListWithSearch(t *testing.T) {
 }
 
 func TestBuildListWithFilterAndSearch(t *testing.T) {
+	t.Parallel()
 	tbl := searchableTable()
 
 	opts := listOpts{
@@ -200,8 +208,8 @@ func TestBuildListWithFilterAndSearch(t *testing.T) {
 	testutil.SliceLen(t, dataArgs, 4) // filter arg + search arg + limit + offset
 	testutil.Equal(t, "published", dataArgs[0].(string))
 	testutil.Equal(t, "hello", dataArgs[1].(string))
-	testutil.Equal(t, 10, dataArgs[2].(int))  // perPage
-	testutil.Equal(t, 0, dataArgs[3].(int))   // offset (page 1)
+	testutil.Equal(t, 10, dataArgs[2].(int)) // perPage
+	testutil.Equal(t, 0, dataArgs[3].(int))  // offset (page 1)
 
 	// Count query should combine filter AND search, with args in same order.
 	testutil.Contains(t, countQ, "AND")
@@ -211,6 +219,7 @@ func TestBuildListWithFilterAndSearch(t *testing.T) {
 }
 
 func TestBuildListSearchWithExplicitSort(t *testing.T) {
+	t.Parallel()
 	tbl := searchableTable()
 
 	// When user provides explicit sort, it should override search rank

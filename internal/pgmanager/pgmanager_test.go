@@ -9,6 +9,7 @@ import (
 )
 
 func TestPIDFileRoundtrip(t *testing.T) {
+	t.Parallel()
 	path := filepath.Join(t.TempDir(), "test.pid")
 
 	err := writePID(path, 12345)
@@ -20,6 +21,7 @@ func TestPIDFileRoundtrip(t *testing.T) {
 }
 
 func TestPIDFileReadMissing(t *testing.T) {
+	t.Parallel()
 	path := filepath.Join(t.TempDir(), "nonexistent.pid")
 	pid, err := readPID(path)
 	testutil.NoError(t, err)
@@ -27,12 +29,14 @@ func TestPIDFileReadMissing(t *testing.T) {
 }
 
 func TestPIDFileRemoveMissing(t *testing.T) {
+	t.Parallel()
 	path := filepath.Join(t.TempDir(), "nonexistent.pid")
 	err := removePID(path)
 	testutil.NoError(t, err)
 }
 
 func TestPIDFileRemove(t *testing.T) {
+	t.Parallel()
 	path := filepath.Join(t.TempDir(), "test.pid")
 	err := writePID(path, 99)
 	testutil.NoError(t, err)
@@ -46,12 +50,14 @@ func TestPIDFileRemove(t *testing.T) {
 }
 
 func TestCleanupOrphanNoFile(t *testing.T) {
+	t.Parallel()
 	path := filepath.Join(t.TempDir(), "nonexistent.pid")
 	// Should not panic.
 	cleanupOrphan(path, testutil.DiscardLogger())
 }
 
 func TestCleanupOrphanDeadProcess(t *testing.T) {
+	t.Parallel()
 	path := filepath.Join(t.TempDir(), "stale.pid")
 	// Write a PID that almost certainly doesn't exist.
 	err := writePID(path, 2147483647)
@@ -65,6 +71,7 @@ func TestCleanupOrphanDeadProcess(t *testing.T) {
 }
 
 func TestLogWriter(t *testing.T) {
+	t.Parallel()
 	lw := newLogWriter(testutil.DiscardLogger())
 	n, err := lw.Write([]byte("test output\n"))
 	testutil.NoError(t, err)
@@ -72,6 +79,7 @@ func TestLogWriter(t *testing.T) {
 }
 
 func TestLogWriterEmptyLine(t *testing.T) {
+	t.Parallel()
 	lw := newLogWriter(testutil.DiscardLogger())
 	n, err := lw.Write([]byte("\n"))
 	testutil.NoError(t, err)
@@ -79,6 +87,7 @@ func TestLogWriterEmptyLine(t *testing.T) {
 }
 
 func TestConnURLFormat(t *testing.T) {
+	t.Parallel()
 	m := &Manager{
 		connURL: "postgresql://ayb:ayb@127.0.0.1:15432/ayb?sslmode=disable",
 	}
@@ -86,12 +95,14 @@ func TestConnURLFormat(t *testing.T) {
 }
 
 func TestNewDoesNotStart(t *testing.T) {
+	t.Parallel()
 	m := New(Config{Logger: testutil.DiscardLogger()})
 	testutil.False(t, m.IsRunning(), "should not be running after New()")
 	testutil.Equal(t, m.ConnURL(), "")
 }
 
 func TestAybHome(t *testing.T) {
+	t.Parallel()
 	home, err := aybHome()
 	testutil.NoError(t, err)
 	testutil.True(t, home != "", "home should not be empty")
@@ -102,6 +113,7 @@ func TestAybHome(t *testing.T) {
 }
 
 func TestReadPostmasterPID(t *testing.T) {
+	t.Parallel()
 	path := filepath.Join(t.TempDir(), "postmaster.pid")
 	// Postgres postmaster.pid has the PID on the first line.
 	err := os.WriteFile(path, []byte("42\n/some/data/dir\n5432\n"), 0o644)
@@ -113,6 +125,7 @@ func TestReadPostmasterPID(t *testing.T) {
 }
 
 func TestStopWhenNotRunning(t *testing.T) {
+	t.Parallel()
 	m := New(Config{Logger: testutil.DiscardLogger()})
 	err := m.Stop()
 	testutil.NoError(t, err)

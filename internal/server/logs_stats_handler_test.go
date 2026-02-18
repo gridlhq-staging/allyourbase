@@ -48,6 +48,7 @@ func adminLogin(t *testing.T, srv *server.Server) string {
 // --- Logs endpoint tests ---
 
 func TestAdminLogsReturnsEmptyWithoutLogBuffer(t *testing.T) {
+	t.Parallel()
 	srv := newTestServerWithPassword(t, "testpass")
 	token := adminLogin(t, srv)
 
@@ -65,6 +66,7 @@ func TestAdminLogsReturnsEmptyWithoutLogBuffer(t *testing.T) {
 }
 
 func TestAdminLogsReturnsBufferedEntries(t *testing.T) {
+	t.Parallel()
 	cfg := config.Default()
 	cfg.Admin.Password = "testpass"
 	// Create log buffer wrapping a discard handler.
@@ -108,7 +110,7 @@ func TestAdminLogsReturnsBufferedEntries(t *testing.T) {
 	first := testEntries[0]
 	testutil.Equal(t, "test message one", first["message"])
 	testutil.Equal(t, "INFO", first["level"])
-	testutil.True(t, first["time"] != nil, "entry should have time")
+	testutil.NotNil(t, first["time"])
 
 	second := testEntries[1]
 	testutil.Equal(t, "test message two", second["message"])
@@ -116,6 +118,7 @@ func TestAdminLogsReturnsBufferedEntries(t *testing.T) {
 }
 
 func TestAdminLogsRequiresAuth(t *testing.T) {
+	t.Parallel()
 	srv := newTestServerWithPassword(t, "testpass")
 
 	w := httptest.NewRecorder()
@@ -129,6 +132,7 @@ func TestAdminLogsRequiresAuth(t *testing.T) {
 // --- Stats endpoint tests ---
 
 func TestAdminStatsReturnsRuntimeInfo(t *testing.T) {
+	t.Parallel()
 	srv := newTestServerWithPassword(t, "testpass")
 	token := adminLogin(t, srv)
 
@@ -156,6 +160,7 @@ func TestAdminStatsReturnsRuntimeInfo(t *testing.T) {
 }
 
 func TestAdminStatsNoDBPoolFields(t *testing.T) {
+	t.Parallel()
 	srv := newTestServerWithPassword(t, "testpass")
 	token := adminLogin(t, srv)
 
@@ -169,10 +174,11 @@ func TestAdminStatsNoDBPoolFields(t *testing.T) {
 	testutil.NoError(t, json.Unmarshal(w.Body.Bytes(), &stats))
 
 	// Without a pool, DB stats should not be present.
-	testutil.True(t, stats["db_pool_total"] == nil, "should not have db_pool_total without pool")
+	testutil.Nil(t, stats["db_pool_total"])
 }
 
 func TestAdminStatsRequiresAuth(t *testing.T) {
+	t.Parallel()
 	srv := newTestServerWithPassword(t, "testpass")
 
 	w := httptest.NewRecorder()
@@ -186,6 +192,7 @@ func TestAdminStatsRequiresAuth(t *testing.T) {
 // --- Secrets rotate endpoint tests ---
 
 func TestAdminSecretsRotateSuccess(t *testing.T) {
+	t.Parallel()
 	srv, _ := newTestServerWithAuth(t, "testpass")
 	token := adminLogin(t, srv)
 
@@ -201,6 +208,7 @@ func TestAdminSecretsRotateSuccess(t *testing.T) {
 }
 
 func TestAdminSecretsRotateInvalidatesOldTokens(t *testing.T) {
+	t.Parallel()
 	srv, authSvc := newTestServerWithAuth(t, "testpass")
 	token := adminLogin(t, srv)
 
@@ -229,6 +237,7 @@ func TestAdminSecretsRotateInvalidatesOldTokens(t *testing.T) {
 }
 
 func TestAdminSecretsRotateRequiresAuth(t *testing.T) {
+	t.Parallel()
 	srv, _ := newTestServerWithAuth(t, "testpass")
 
 	w := httptest.NewRecorder()
@@ -241,6 +250,8 @@ func TestAdminSecretsRotateRequiresAuth(t *testing.T) {
 
 func TestAdminSecretsNotRegisteredWithoutAuthSvc(t *testing.T) {
 	// When authSvc is nil, the secrets route should not be registered.
+	t.Parallel()
+
 	srv := newTestServerWithPassword(t, "testpass")
 	token := adminLogin(t, srv)
 
@@ -255,6 +266,7 @@ func TestAdminSecretsNotRegisteredWithoutAuthSvc(t *testing.T) {
 // --- LogBuffer tests ---
 
 func TestLogBufferCapturesEntries(t *testing.T) {
+	t.Parallel()
 	inner := slog.NewTextHandler(io.Discard, nil)
 	lb := server.NewLogBuffer(inner, 5)
 	logger := slog.New(lb)
@@ -274,6 +286,7 @@ func TestLogBufferCapturesEntries(t *testing.T) {
 }
 
 func TestLogBufferRingOverflow(t *testing.T) {
+	t.Parallel()
 	inner := slog.NewTextHandler(io.Discard, nil)
 	lb := server.NewLogBuffer(inner, 3)
 	logger := slog.New(lb)
@@ -291,6 +304,7 @@ func TestLogBufferRingOverflow(t *testing.T) {
 }
 
 func TestLogBufferCapturesAttrs(t *testing.T) {
+	t.Parallel()
 	inner := slog.NewTextHandler(io.Discard, nil)
 	lb := server.NewLogBuffer(inner, 10)
 	logger := slog.New(lb)
@@ -304,6 +318,7 @@ func TestLogBufferCapturesAttrs(t *testing.T) {
 }
 
 func TestLogBufferEmptyEntries(t *testing.T) {
+	t.Parallel()
 	inner := slog.NewTextHandler(io.Discard, nil)
 	lb := server.NewLogBuffer(inner, 10)
 
@@ -312,6 +327,7 @@ func TestLogBufferEmptyEntries(t *testing.T) {
 }
 
 func TestLogBufferExactCapacity(t *testing.T) {
+	t.Parallel()
 	inner := slog.NewTextHandler(io.Discard, nil)
 	lb := server.NewLogBuffer(inner, 3)
 	logger := slog.New(lb)
@@ -328,6 +344,7 @@ func TestLogBufferExactCapacity(t *testing.T) {
 }
 
 func TestLogBufferMultipleWraps(t *testing.T) {
+	t.Parallel()
 	inner := slog.NewTextHandler(io.Discard, nil)
 	lb := server.NewLogBuffer(inner, 2)
 	logger := slog.New(lb)
@@ -344,6 +361,7 @@ func TestLogBufferMultipleWraps(t *testing.T) {
 }
 
 func TestLogBufferConcurrentLogging(t *testing.T) {
+	t.Parallel()
 	inner := slog.NewTextHandler(io.Discard, nil)
 	lb := server.NewLogBuffer(inner, 100)
 	logger := slog.New(lb)

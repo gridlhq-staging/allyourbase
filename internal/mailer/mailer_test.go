@@ -18,6 +18,7 @@ import (
 )
 
 func TestLogMailerSend(t *testing.T) {
+	t.Parallel()
 	var buf bytes.Buffer
 	logger := slog.New(slog.NewJSONHandler(&buf, nil))
 	m := NewLogMailer(logger)
@@ -37,12 +38,19 @@ func TestLogMailerSend(t *testing.T) {
 }
 
 func TestWebhookMailerSend(t *testing.T) {
+	t.Parallel()
 	var received webhookPayload
 	var gotSig string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		gotSig = r.Header.Get("X-AYB-Signature")
-		body, _ := io.ReadAll(r.Body)
-		json.Unmarshal(body, &received)
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			t.Errorf("handler: read body: %v", err)
+			return
+		}
+		if err := json.Unmarshal(body, &received); err != nil {
+			t.Errorf("handler: unmarshal payload: %v", err)
+		}
 		w.WriteHeader(http.StatusOK)
 	}))
 	defer srv.Close()
@@ -77,6 +85,7 @@ func TestWebhookMailerSend(t *testing.T) {
 }
 
 func TestWebhookMailerNoSecret(t *testing.T) {
+	t.Parallel()
 	var gotSig string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		gotSig = r.Header.Get("X-AYB-Signature")
@@ -91,16 +100,19 @@ func TestWebhookMailerNoSecret(t *testing.T) {
 }
 
 func TestWebhookMailerDefaultTimeout(t *testing.T) {
+	t.Parallel()
 	m := NewWebhookMailer(WebhookConfig{URL: "http://localhost"})
 	testutil.Equal(t, float64(10), m.client.Timeout.Seconds())
 }
 
 func TestWebhookMailerCustomTimeout(t *testing.T) {
+	t.Parallel()
 	m := NewWebhookMailer(WebhookConfig{URL: "http://localhost", Timeout: 30 * time.Second})
 	testutil.Equal(t, float64(30), m.client.Timeout.Seconds())
 }
 
 func TestWebhookMailerNon2xx(t *testing.T) {
+	t.Parallel()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)
 	}))
@@ -112,6 +124,7 @@ func TestWebhookMailerNon2xx(t *testing.T) {
 }
 
 func TestRenderPasswordReset(t *testing.T) {
+	t.Parallel()
 	html, text, err := RenderPasswordReset(TemplateData{
 		AppName:   "MyApp",
 		ActionURL: "https://example.com/reset?token=abc123",
@@ -125,6 +138,7 @@ func TestRenderPasswordReset(t *testing.T) {
 }
 
 func TestRenderVerification(t *testing.T) {
+	t.Parallel()
 	html, text, err := RenderVerification(TemplateData{
 		AppName:   "MyApp",
 		ActionURL: "https://example.com/verify?token=xyz",
@@ -137,6 +151,7 @@ func TestRenderVerification(t *testing.T) {
 }
 
 func TestRenderMagicLink(t *testing.T) {
+	t.Parallel()
 	html, text, err := RenderMagicLink(TemplateData{
 		AppName:   "Sigil",
 		ActionURL: "https://example.com/auth/magic-link/confirm?token=tok123",
@@ -150,6 +165,7 @@ func TestRenderMagicLink(t *testing.T) {
 }
 
 func TestStripHTML(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name string
 		in   string
@@ -162,6 +178,7 @@ func TestStripHTML(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			got := stripHTML(tt.in)
 			testutil.Equal(t, tt.want, got)
 		})
@@ -169,18 +186,20 @@ func TestStripHTML(t *testing.T) {
 }
 
 func TestSMTPMailerConfigStored(t *testing.T) {
+	t.Parallel()
 	m := NewSMTPMailer(SMTPConfig{
 		Host: "smtp.example.com",
 		Port: 587,
 		From: "noreply@example.com",
 	})
-	testutil.True(t, m != nil, "SMTPMailer should not be nil")
+	testutil.NotNil(t, m)
 	testutil.Equal(t, "smtp.example.com", m.cfg.Host)
 	testutil.Equal(t, 587, m.cfg.Port)
 	testutil.Equal(t, "noreply@example.com", m.cfg.From)
 }
 
 func TestSMTPMailerFormatFrom(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name     string
 		from     string
@@ -192,6 +211,7 @@ func TestSMTPMailerFormatFrom(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			m := &SMTPMailer{cfg: SMTPConfig{From: tt.from, FromName: tt.fromName}}
 			testutil.Equal(t, tt.want, m.formatFrom())
 		})
@@ -199,6 +219,7 @@ func TestSMTPMailerFormatFrom(t *testing.T) {
 }
 
 func TestSMTPMailerAuthTypes(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		method   string
 		wantSame bool // true if should return same as PLAIN (the default)
@@ -214,6 +235,7 @@ func TestSMTPMailerAuthTypes(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.method, func(t *testing.T) {
+			t.Parallel()
 			m := &SMTPMailer{cfg: SMTPConfig{AuthMethod: tt.method}}
 			result := m.authType()
 			if tt.wantSame {

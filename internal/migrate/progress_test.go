@@ -9,6 +9,7 @@ import (
 )
 
 func TestDetectSource(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name     string
 		from     string
@@ -68,6 +69,7 @@ func TestDetectSource(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			result := DetectSource(tt.from)
 			testutil.Equal(t, tt.expected, result)
 		})
@@ -75,6 +77,7 @@ func TestDetectSource(t *testing.T) {
 }
 
 func TestSourceTypeString(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		st       SourceType
 		expected string
@@ -88,13 +91,16 @@ func TestSourceTypeString(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.expected, func(t *testing.T) {
+			t.Parallel()
 			testutil.Equal(t, tt.expected, tt.st.String())
 		})
 	}
 }
 
 func TestCLIReporter(t *testing.T) {
+	t.Parallel()
 	t.Run("complete phase output", func(t *testing.T) {
+		t.Parallel()
 		var buf bytes.Buffer
 		r := NewCLIReporter(&buf)
 
@@ -111,6 +117,7 @@ func TestCLIReporter(t *testing.T) {
 	})
 
 	t.Run("zero items shows skipped", func(t *testing.T) {
+		t.Parallel()
 		var buf bytes.Buffer
 		r := NewCLIReporter(&buf)
 
@@ -123,6 +130,7 @@ func TestCLIReporter(t *testing.T) {
 	})
 
 	t.Run("seconds formatting", func(t *testing.T) {
+		t.Parallel()
 		var buf bytes.Buffer
 		r := NewCLIReporter(&buf)
 
@@ -134,6 +142,7 @@ func TestCLIReporter(t *testing.T) {
 	})
 
 	t.Run("warn output", func(t *testing.T) {
+		t.Parallel()
 		var buf bytes.Buffer
 		r := NewCLIReporter(&buf)
 
@@ -147,6 +156,8 @@ func TestCLIReporter(t *testing.T) {
 
 func TestNopReporter(t *testing.T) {
 	// NopReporter should not panic on any method call.
+	t.Parallel()
+
 	r := NopReporter{}
 	phase := Phase{Name: "test", Index: 1, Total: 1}
 	r.StartPhase(phase, 10)
@@ -156,7 +167,9 @@ func TestNopReporter(t *testing.T) {
 }
 
 func TestAnalysisReport_PrintReport(t *testing.T) {
+	t.Parallel()
 	t.Run("full report", func(t *testing.T) {
+		t.Parallel()
 		var buf bytes.Buffer
 		report := &AnalysisReport{
 			SourceType:    "PocketBase",
@@ -188,6 +201,7 @@ func TestAnalysisReport_PrintReport(t *testing.T) {
 	})
 
 	t.Run("minimal report hides zero fields", func(t *testing.T) {
+		t.Parallel()
 		var buf bytes.Buffer
 		report := &AnalysisReport{
 			SourceType: "PocketBase",
@@ -214,7 +228,9 @@ func TestAnalysisReport_PrintReport(t *testing.T) {
 }
 
 func TestValidationSummary_PrintSummary(t *testing.T) {
+	t.Parallel()
 	t.Run("matching counts", func(t *testing.T) {
+		t.Parallel()
 		var buf bytes.Buffer
 		summary := &ValidationSummary{
 			SourceLabel: "Source (PocketBase)",
@@ -236,6 +252,7 @@ func TestValidationSummary_PrintSummary(t *testing.T) {
 	})
 
 	t.Run("mismatched counts", func(t *testing.T) {
+		t.Parallel()
 		var buf bytes.Buffer
 		summary := &ValidationSummary{
 			SourceLabel: "Source (PocketBase)",
@@ -256,6 +273,7 @@ func TestValidationSummary_PrintSummary(t *testing.T) {
 	})
 
 	t.Run("with warnings", func(t *testing.T) {
+		t.Parallel()
 		var buf bytes.Buffer
 		summary := &ValidationSummary{
 			SourceLabel: "Source (PocketBase)",
@@ -275,6 +293,7 @@ func TestValidationSummary_PrintSummary(t *testing.T) {
 }
 
 func TestFormatBytes(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		bytes    int64
 		expected string
@@ -290,6 +309,7 @@ func TestFormatBytes(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.expected, func(t *testing.T) {
+			t.Parallel()
 			result := FormatBytes(tt.bytes)
 			testutil.Equal(t, tt.expected, result)
 		})
@@ -297,6 +317,7 @@ func TestFormatBytes(t *testing.T) {
 }
 
 func TestFormatDuration(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		d        time.Duration
 		expected string
@@ -310,6 +331,7 @@ func TestFormatDuration(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.expected, func(t *testing.T) {
+			t.Parallel()
 			result := formatDuration(tt.d)
 			testutil.Equal(t, tt.expected, result)
 		})

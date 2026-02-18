@@ -109,7 +109,7 @@ host = "0.0.0.0"
 port = 8090
 
 [database]
-# Leave empty for embedded Postgres (zero-config dev mode)
+# Leave empty for managed Postgres (zero-config dev mode)
 # url = "postgresql://user:pass@localhost:5432/mydb"
 
 [auth]
@@ -167,7 +167,7 @@ func envFile() string {
 # Server
 AYB_SERVER_PORT=8090
 
-# Database (leave empty for embedded Postgres)
+# Database (leave empty for managed Postgres)
 # AYB_DATABASE_URL=postgresql://user:pass@localhost:5432/mydb
 
 # Auth
@@ -198,12 +198,12 @@ dist/
 func claudeMD(opts Options) string {
 	return fmt.Sprintf(`# %s
 
-Built with [AllYourBase](https://allyourbase.io) — Backend-as-a-Service for PostgreSQL.
+Built with [Allyourbase](https://allyourbase.io) — Backend-as-a-Service for PostgreSQL.
 
 ## Quick Start
 
 `+"```"+`bash
-# Start AYB (embedded Postgres, zero config)
+# Start AYB (managed Postgres, zero config)
 ayb start
 
 # Apply schema

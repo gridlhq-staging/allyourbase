@@ -8,6 +8,7 @@ import (
 )
 
 func TestNewMigratorMissingSourceURL(t *testing.T) {
+	t.Parallel()
 	_, err := NewMigrator(MigrationOptions{
 		TargetURL: "postgres://localhost/ayb",
 	})
@@ -15,6 +16,7 @@ func TestNewMigratorMissingSourceURL(t *testing.T) {
 }
 
 func TestNewMigratorMissingTargetURL(t *testing.T) {
+	t.Parallel()
 	_, err := NewMigrator(MigrationOptions{
 		SourceURL: "postgres://localhost/supabase",
 	})
@@ -22,6 +24,7 @@ func TestNewMigratorMissingTargetURL(t *testing.T) {
 }
 
 func TestNewMigratorBadSourceURL(t *testing.T) {
+	t.Parallel()
 	_, err := NewMigrator(MigrationOptions{
 		SourceURL: "postgres://invalid:5432/nonexistent",
 		TargetURL: "postgres://localhost/ayb",
@@ -30,6 +33,7 @@ func TestNewMigratorBadSourceURL(t *testing.T) {
 }
 
 func TestExtractString(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name string
 		data map[string]any
@@ -81,6 +85,7 @@ func TestExtractString(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			got := extractString(tt.data, tt.keys...)
 			testutil.Equal(t, tt.want, got)
 		})
@@ -88,7 +93,9 @@ func TestExtractString(t *testing.T) {
 }
 
 func TestPrintStats(t *testing.T) {
+	t.Parallel()
 	t.Run("includes data fields when non-zero", func(t *testing.T) {
+		t.Parallel()
 		var buf strings.Builder
 		m := &Migrator{
 			output: &buf,
@@ -114,6 +121,7 @@ func TestPrintStats(t *testing.T) {
 	})
 
 	t.Run("omits data fields when zero", func(t *testing.T) {
+		t.Parallel()
 		var buf strings.Builder
 		m := &Migrator{
 			output: &buf,
@@ -131,6 +139,7 @@ func TestPrintStats(t *testing.T) {
 	})
 
 	t.Run("shows errors", func(t *testing.T) {
+		t.Parallel()
 		var buf strings.Builder
 		m := &Migrator{
 			output: &buf,
@@ -146,6 +155,7 @@ func TestPrintStats(t *testing.T) {
 }
 
 func TestRedactURL(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name  string
 		input string
@@ -158,6 +168,7 @@ func TestRedactURL(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			got := redactURL(tt.input)
 			testutil.Equal(t, tt.want, got)
 		})

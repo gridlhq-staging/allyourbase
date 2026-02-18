@@ -1,10 +1,10 @@
 # Comparison
 
-How AllYourBase compares to PocketBase and Supabase (self-hosted).
+How Allyourbase compares to PocketBase and Supabase (self-hosted).
 
 ## Feature matrix
 
-| Feature | PocketBase | Supabase (self-hosted) | AllYourBase |
+| Feature | PocketBase | Supabase (self-hosted) | Allyourbase |
 |---------|-----------|----------------------|-------------|
 | **Database** | SQLite | PostgreSQL | PostgreSQL |
 | **Deployment** | Single binary | 10+ Docker containers | Single binary |
@@ -31,14 +31,14 @@ How AllYourBase compares to PocketBase and Supabase (self-hosted).
 | **Binary/install size** | ~40MB | 10+ Docker images | ~36MB |
 
 ::: info OAuth Provider Roadmap
-AllYourBase currently supports Google and GitHub OAuth, which cover the majority of use cases. Additional providers (Apple, Discord, Microsoft, and others) are planned for future releases. The OAuth framework is extensible — [contributions welcome](https://github.com/gridlhq/allyourbase).
+Allyourbase currently supports Google and GitHub OAuth, which cover the majority of use cases. Additional providers (Apple, Discord, Microsoft, and others) are planned for future releases. The OAuth framework is extensible — [contributions welcome](https://github.com/gridlhq/allyourbase).
 :::
 
-## When to use AllYourBase
+## When to use Allyourbase
 
-**PocketBase simplicity + PostgreSQL power.** AllYourBase gives you a single binary with everything included — REST API, auth, realtime, storage, admin dashboard — running on top of PostgreSQL. Deploy it on a $5 VPS with 20MB of RAM, or point it at RDS for production scale.
+**PocketBase simplicity + PostgreSQL power.** Allyourbase gives you a single binary with everything included — REST API, auth, realtime, storage, admin dashboard — running on top of PostgreSQL. Deploy it on a $5 VPS with 20MB of RAM, or point it at RDS for production scale.
 
-**Choose AllYourBase if you:**
+**Choose Allyourbase if you:**
 - Want a single-command backend that runs anywhere — your laptop, a VPS, a Raspberry Pi, an air-gapped network
 - Need PostgreSQL features (RLS, extensions, concurrent writes, horizontal scaling) without managing 10+ containers
 - Are migrating from PocketBase and hit the SQLite ceiling
@@ -60,13 +60,13 @@ AllYourBase currently supports Google and GitHub OAuth, which cover the majority
 - Need advanced PostgREST features (select embedding, computed columns)
 - Want a large community and extensive documentation
 
-## Key advantages of AllYourBase
+## Key advantages of Allyourbase
 
 ### PostgreSQL without complexity
 
 Supabase self-hosted requires 10+ containers (PostgREST, GoTrue, Realtime, Storage, Kong, etc.). AYB gives you the same PostgreSQL foundation in a single binary.
 
-### Single binary + embedded PostgreSQL
+### Single binary + managed PostgreSQL
 
 For development and prototyping, `ayb start` downloads and manages its own PostgreSQL — no database setup needed. For production, point it at any PostgreSQL instance.
 

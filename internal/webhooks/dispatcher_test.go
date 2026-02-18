@@ -24,25 +24,31 @@ func (m *mockLister) ListEnabled(_ context.Context) ([]Webhook, error) {
 	return m.hooks, m.err
 }
 
+// fastBackoff is used by test dispatchers — short delays, no global mutation.
+var fastBackoff = [maxRetries]time.Duration{1 * time.Millisecond, 1 * time.Millisecond, 1 * time.Millisecond}
+
 func testDispatcher(lister WebhookLister) *Dispatcher {
 	d := &Dispatcher{
-		store:  lister,
-		client: &http.Client{Timeout: 2 * time.Second},
-		logger: testutil.DiscardLogger(),
-		queue:  make(chan *realtime.Event, queueSize),
-		done:   make(chan struct{}),
+		store:   lister,
+		client:  &http.Client{Timeout: 2 * time.Second},
+		logger:  testutil.DiscardLogger(),
+		queue:   make(chan *realtime.Event, queueSize),
+		done:    make(chan struct{}),
+		backoff: fastBackoff, // per-instance fast retries — safe to run in parallel
 	}
 	// Don't start background worker — we call processEvent directly in tests.
 	return d
 }
 
 func TestSign(t *testing.T) {
+	t.Parallel()
 	sig := Sign("my-secret", []byte(`{"action":"create","table":"posts","record":{"id":1}}`))
 	// Pre-computed with: echo -n '{"action":"create","table":"posts","record":{"id":1}}' | openssl dgst -sha256 -hmac 'my-secret'
 	testutil.Equal(t, "d09b0b97b9e912a5c0de9bd1eb4714617c7cc1b7a52e656384e76a469b4584bd", sig)
 }
 
 func TestDeliverSuccess(t *testing.T) {
+	t.Parallel()
 	var received atomic.Int32
 	var body []byte
 	var sigHeader string
@@ -75,6 +81,7 @@ func TestDeliverSuccess(t *testing.T) {
 }
 
 func TestDeliverWithSignature(t *testing.T) {
+	t.Parallel()
 	var sigHeader string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		sigHeader = r.Header.Get("X-AYB-Signature")
@@ -96,10 +103,8 @@ func TestDeliverWithSignature(t *testing.T) {
 }
 
 func TestDeliverRetryOn500(t *testing.T) {
-	// Override backoff to make test fast.
-	origBackoff := backoff
-	backoff = [maxRetries]time.Duration{1 * time.Millisecond, 1 * time.Millisecond, 1 * time.Millisecond}
-	defer func() { backoff = origBackoff }()
+	// testDispatcher uses fastBackoff — no global mutation, safe to run in parallel.
+	t.Parallel()
 
 	var attempts atomic.Int32
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -122,9 +127,8 @@ func TestDeliverRetryOn500(t *testing.T) {
 }
 
 func TestDeliverExhaustsRetries(t *testing.T) {
-	origBackoff := backoff
-	backoff = [maxRetries]time.Duration{1 * time.Millisecond, 1 * time.Millisecond, 1 * time.Millisecond}
-	defer func() { backoff = origBackoff }()
+	// testDispatcher uses fastBackoff — no global mutation, safe to run in parallel.
+	t.Parallel()
 
 	var attempts atomic.Int32
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -143,6 +147,7 @@ func TestDeliverExhaustsRetries(t *testing.T) {
 }
 
 func TestEventFilteringByTable(t *testing.T) {
+	t.Parallel()
 	var received atomic.Int32
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		received.Add(1)
@@ -165,6 +170,7 @@ func TestEventFilteringByTable(t *testing.T) {
 }
 
 func TestEventFilteringByAction(t *testing.T) {
+	t.Parallel()
 	var received atomic.Int32
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		received.Add(1)
@@ -187,6 +193,7 @@ func TestEventFilteringByAction(t *testing.T) {
 }
 
 func TestEventFilteringWildcardTables(t *testing.T) {
+	t.Parallel()
 	var received atomic.Int32
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		received.Add(1)
@@ -206,6 +213,7 @@ func TestEventFilteringWildcardTables(t *testing.T) {
 }
 
 func TestEventFilteringWildcardEvents(t *testing.T) {
+	t.Parallel()
 	var received atomic.Int32
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		received.Add(1)
@@ -225,6 +233,7 @@ func TestEventFilteringWildcardEvents(t *testing.T) {
 }
 
 func TestDeliverMultipleWebhooks(t *testing.T) {
+	t.Parallel()
 	var countA, countB atomic.Int32
 	srvA := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		countA.Add(1)
@@ -249,9 +258,8 @@ func TestDeliverMultipleWebhooks(t *testing.T) {
 }
 
 func TestDeliverConnectionError(t *testing.T) {
-	origBackoff := backoff
-	backoff = [maxRetries]time.Duration{1 * time.Millisecond, 1 * time.Millisecond, 1 * time.Millisecond}
-	defer func() { backoff = origBackoff }()
+	// testDispatcher uses fastBackoff — no global mutation, safe to run in parallel.
+	t.Parallel()
 
 	// Use a server that we immediately close — connection will be refused.
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
@@ -281,6 +289,7 @@ func TestDeliverConnectionError(t *testing.T) {
 }
 
 func TestListEnabledErrorSkipsDelivery(t *testing.T) {
+	t.Parallel()
 	var received atomic.Int32
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		received.Add(1)
@@ -299,6 +308,7 @@ func TestListEnabledErrorSkipsDelivery(t *testing.T) {
 }
 
 func TestEnqueueNonBlocking(t *testing.T) {
+	t.Parallel()
 	d := &Dispatcher{
 		logger: testutil.DiscardLogger(),
 		queue:  make(chan *realtime.Event, 2), // small buffer

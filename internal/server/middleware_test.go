@@ -17,6 +17,7 @@ import (
 // --- CORS tests ---
 
 func TestCORSHeaders(t *testing.T) {
+	t.Parallel()
 	cfg := config.Default()
 	cfg.Server.CORSAllowedOrigins = []string{"http://example.com", "http://other.com"}
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
@@ -38,6 +39,7 @@ func TestCORSHeaders(t *testing.T) {
 }
 
 func TestCORSMultiOriginSecondMatch(t *testing.T) {
+	t.Parallel()
 	cfg := config.Default()
 	cfg.Server.CORSAllowedOrigins = []string{"http://example.com", "http://other.com"}
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
@@ -54,6 +56,7 @@ func TestCORSMultiOriginSecondMatch(t *testing.T) {
 }
 
 func TestCORSNonMatchingOrigin(t *testing.T) {
+	t.Parallel()
 	cfg := config.Default()
 	cfg.Server.CORSAllowedOrigins = []string{"http://example.com"}
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
@@ -69,6 +72,7 @@ func TestCORSNonMatchingOrigin(t *testing.T) {
 }
 
 func TestCORSNoOriginHeader(t *testing.T) {
+	t.Parallel()
 	cfg := config.Default()
 	cfg.Server.CORSAllowedOrigins = []string{"http://example.com"}
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
@@ -84,6 +88,7 @@ func TestCORSNoOriginHeader(t *testing.T) {
 }
 
 func TestCORSPreflight(t *testing.T) {
+	t.Parallel()
 	cfg := config.Default() // defaults to ["*"]
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 	ch := schema.NewCacheHolder(nil, logger)
@@ -100,6 +105,7 @@ func TestCORSPreflight(t *testing.T) {
 }
 
 func TestCORSPreflightSpecificOrigin(t *testing.T) {
+	t.Parallel()
 	cfg := config.Default()
 	cfg.Server.CORSAllowedOrigins = []string{"http://example.com"}
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
@@ -117,6 +123,7 @@ func TestCORSPreflightSpecificOrigin(t *testing.T) {
 }
 
 func TestCORSWildcard(t *testing.T) {
+	t.Parallel()
 	cfg := config.Default() // defaults to ["*"]
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 	ch := schema.NewCacheHolder(nil, logger)
@@ -137,6 +144,7 @@ func TestCORSWildcard(t *testing.T) {
 // --- Admin SPA ---
 
 func TestAdminPathServesHTML(t *testing.T) {
+	t.Parallel()
 	cfg := config.Default()
 	cfg.Admin.Enabled = true
 	cfg.Admin.Path = "/admin"
@@ -153,6 +161,7 @@ func TestAdminPathServesHTML(t *testing.T) {
 }
 
 func TestAdminSPAFallback(t *testing.T) {
+	t.Parallel()
 	cfg := config.Default()
 	cfg.Admin.Enabled = true
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
@@ -169,6 +178,7 @@ func TestAdminSPAFallback(t *testing.T) {
 }
 
 func TestAdminStaticAssetCacheHeaders(t *testing.T) {
+	t.Parallel()
 	cfg := config.Default()
 	cfg.Admin.Enabled = true
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
@@ -184,6 +194,7 @@ func TestAdminStaticAssetCacheHeaders(t *testing.T) {
 }
 
 func TestAdminDisabled(t *testing.T) {
+	t.Parallel()
 	cfg := config.Default()
 	cfg.Admin.Enabled = false
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
@@ -200,6 +211,7 @@ func TestAdminDisabled(t *testing.T) {
 // --- StartWithReady ---
 
 func TestStartWithReadySignalsReady(t *testing.T) {
+	t.Parallel()
 	cfg := config.Default()
 	cfg.Server.Host = "127.0.0.1"
 	cfg.Server.Port = 19876

@@ -35,7 +35,7 @@ export default function App() {
         <div className="flex items-center gap-3">
           <h1 className="text-lg font-bold text-gray-900">Kanban Board</h1>
           <span className="text-xs text-gray-400">
-            powered by AllYourBase
+            powered by Allyourbase
           </span>
         </div>
         <button

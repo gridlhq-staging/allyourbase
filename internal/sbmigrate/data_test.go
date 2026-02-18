@@ -9,6 +9,7 @@ import (
 )
 
 func TestIsInternalTable(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name     string
 		table    string
@@ -28,6 +29,7 @@ func TestIsInternalTable(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			got := isInternalTable(tt.table)
 			testutil.Equal(t, tt.internal, got)
 		})
@@ -35,6 +37,7 @@ func TestIsInternalTable(t *testing.T) {
 }
 
 func TestIsAYBTable(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name  string
 		table string
@@ -49,6 +52,7 @@ func TestIsAYBTable(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			got := isAYBTable(tt.table)
 			testutil.Equal(t, tt.ayb, got)
 		})
@@ -56,6 +60,7 @@ func TestIsAYBTable(t *testing.T) {
 }
 
 func TestPgTypeName(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name   string
 		input  string
@@ -80,6 +85,7 @@ func TestPgTypeName(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			got := pgTypeName(tt.input)
 			testutil.Equal(t, tt.output, got)
 		})
@@ -87,7 +93,9 @@ func TestPgTypeName(t *testing.T) {
 }
 
 func TestCreateTableSQL(t *testing.T) {
+	t.Parallel()
 	t.Run("simple table with PK", func(t *testing.T) {
+		t.Parallel()
 		table := TableInfo{
 			Name: "posts",
 			Columns: []ColumnInfo{
@@ -106,6 +114,7 @@ func TestCreateTableSQL(t *testing.T) {
 	})
 
 	t.Run("table with foreign key", func(t *testing.T) {
+		t.Parallel()
 		table := TableInfo{
 			Name: "comments",
 			Columns: []ColumnInfo{
@@ -124,6 +133,7 @@ func TestCreateTableSQL(t *testing.T) {
 	})
 
 	t.Run("table with nullable columns", func(t *testing.T) {
+		t.Parallel()
 		table := TableInfo{
 			Name: "profiles",
 			Columns: []ColumnInfo{
@@ -142,6 +152,7 @@ func TestCreateTableSQL(t *testing.T) {
 	})
 
 	t.Run("table without PK", func(t *testing.T) {
+		t.Parallel()
 		table := TableInfo{
 			Name: "events",
 			Columns: []ColumnInfo{
@@ -155,6 +166,7 @@ func TestCreateTableSQL(t *testing.T) {
 	})
 
 	t.Run("table with multiple FKs", func(t *testing.T) {
+		t.Parallel()
 		table := TableInfo{
 			Name: "order_items",
 			Columns: []ColumnInfo{
@@ -174,6 +186,7 @@ func TestCreateTableSQL(t *testing.T) {
 	})
 
 	t.Run("empty table", func(t *testing.T) {
+		t.Parallel()
 		table := TableInfo{
 			Name:    "empty",
 			Columns: nil,
@@ -184,6 +197,7 @@ func TestCreateTableSQL(t *testing.T) {
 	})
 
 	t.Run("type mappings in DDL", func(t *testing.T) {
+		t.Parallel()
 		table := TableInfo{
 			Name: "typed",
 			Columns: []ColumnInfo{
@@ -202,6 +216,7 @@ func TestCreateTableSQL(t *testing.T) {
 }
 
 func TestCreateViewSQL(t *testing.T) {
+	t.Parallel()
 	view := ViewInfo{
 		Name:       "active_users",
 		Definition: "SELECT id, email FROM users WHERE active = true",
@@ -211,6 +226,7 @@ func TestCreateViewSQL(t *testing.T) {
 }
 
 func TestPhaseCount(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name string
 		opts MigrationOptions
@@ -249,6 +265,7 @@ func TestPhaseCount(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			m := &Migrator{opts: tt.opts}
 			got := m.phaseCount()
 			testutil.Equal(t, tt.want, got)
@@ -257,7 +274,9 @@ func TestPhaseCount(t *testing.T) {
 }
 
 func TestBuildValidationSummary(t *testing.T) {
+	t.Parallel()
 	t.Run("full migration", func(t *testing.T) {
+		t.Parallel()
 		report := &migrate.AnalysisReport{
 			Tables:      5,
 			Views:       2,
@@ -294,6 +313,7 @@ func TestBuildValidationSummary(t *testing.T) {
 	})
 
 	t.Run("auth only (no data)", func(t *testing.T) {
+		t.Parallel()
 		report := &migrate.AnalysisReport{
 			AuthUsers: 10,
 		}
@@ -307,6 +327,7 @@ func TestBuildValidationSummary(t *testing.T) {
 	})
 
 	t.Run("with skipped and errors", func(t *testing.T) {
+		t.Parallel()
 		report := &migrate.AnalysisReport{AuthUsers: 10}
 		stats := &MigrationStats{
 			Users:   8,
@@ -320,6 +341,7 @@ func TestBuildValidationSummary(t *testing.T) {
 	})
 
 	t.Run("mismatch counts", func(t *testing.T) {
+		t.Parallel()
 		report := &migrate.AnalysisReport{
 			Tables:    3,
 			AuthUsers: 10,
@@ -337,6 +359,7 @@ func TestBuildValidationSummary(t *testing.T) {
 }
 
 func TestQuoteLiteral(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name  string
 		input string
@@ -349,9 +372,9 @@ func TestQuoteLiteral(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			got := quoteLiteral(tt.input)
 			testutil.Equal(t, tt.want, got)
 		})
 	}
 }
-

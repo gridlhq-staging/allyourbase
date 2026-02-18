@@ -10,11 +10,14 @@ import (
 
 func TestSetRLSContextNilClaims(t *testing.T) {
 	// Nil claims should be a no-op.
+	t.Parallel()
+
 	err := SetRLSContext(context.Background(), nil, nil)
 	testutil.NoError(t, err)
 }
 
 func TestQuoteIdent(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name  string
 		input string
@@ -49,6 +52,7 @@ func TestQuoteIdent(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			got := quoteIdent(tt.input)
 			testutil.Equal(t, tt.want, got)
 		})
@@ -56,6 +60,7 @@ func TestQuoteIdent(t *testing.T) {
 }
 
 func TestEscapeLiteral(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name  string
 		input string
@@ -110,6 +115,7 @@ func TestEscapeLiteral(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			got := escapeLiteral(tt.input)
 			testutil.Equal(t, tt.want, got)
 		})
@@ -117,13 +123,14 @@ func TestEscapeLiteral(t *testing.T) {
 }
 
 func TestRLSStatements(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
-		name         string
-		userID       string
-		email        string
-		wantRole     string
-		wantUserID   string
-		wantEmail    string
+		name       string
+		userID     string
+		email      string
+		wantRole   string
+		wantUserID string
+		wantEmail  string
 	}{
 		{
 			name:       "normal values",
@@ -177,6 +184,7 @@ func TestRLSStatements(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			claims := &Claims{
 				RegisteredClaims: jwt.RegisteredClaims{Subject: tt.userID},
 				Email:            tt.email,
@@ -188,4 +196,3 @@ func TestRLSStatements(t *testing.T) {
 		})
 	}
 }
-

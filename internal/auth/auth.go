@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/allyourbase/ayb/internal/mailer"
@@ -50,6 +51,7 @@ const (
 type Service struct {
 	pool         *pgxpool.Pool
 	jwtSecret    []byte
+	jwtSecretMu  sync.RWMutex
 	tokenDur     time.Duration
 	refreshDur   time.Duration
 	minPwLen     int // minimum password length (default 8)
@@ -208,12 +210,16 @@ func (s *Service) Login(ctx context.Context, email, password string) (*User, str
 
 // ValidateToken parses and validates a JWT token string.
 func (s *Service) ValidateToken(tokenString string) (*Claims, error) {
+	s.jwtSecretMu.RLock()
+	secret := s.jwtSecret
+	s.jwtSecretMu.RUnlock()
+
 	claims := &Claims{}
 	token, err := jwt.ParseWithClaims(tokenString, claims, func(t *jwt.Token) (any, error) {
 		if _, ok := t.Method.(*jwt.SigningMethodHMAC); !ok {
 			return nil, fmt.Errorf("unexpected signing method: %v", t.Header["alg"])
 		}
-		return s.jwtSecret, nil
+		return secret, nil
 	})
 	if err != nil {
 		return nil, fmt.Errorf("invalid token: %w", err)
@@ -256,7 +262,10 @@ func (s *Service) generateToken(user *User) (string, error) {
 		Email: user.Email,
 	}
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
-	return token.SignedString(s.jwtSecret)
+	s.jwtSecretMu.RLock()
+	secret := s.jwtSecret
+	s.jwtSecretMu.RUnlock()
+	return token.SignedString(secret)
 }
 
 // IssueTestToken generates a JWT for the given user ID and email. Intended for testing.
@@ -271,7 +280,9 @@ func (s *Service) RotateJWTSecret() (string, error) {
 		return "", fmt.Errorf("generating secret: %w", err)
 	}
 	hex := fmt.Sprintf("%x", secret)
+	s.jwtSecretMu.Lock()
 	s.jwtSecret = []byte(hex)
+	s.jwtSecretMu.Unlock()
 	return hex, nil
 }
 
@@ -508,7 +519,7 @@ func (s *Service) SetMailer(m mailer.Mailer, appName, baseURL string) {
 	s.mailer = m
 	s.appName = appName
 	if appName == "" {
-		s.appName = "AllYourBase"
+		s.appName = "Allyourbase"
 	}
 	s.baseURL = strings.TrimRight(baseURL, "/")
 }

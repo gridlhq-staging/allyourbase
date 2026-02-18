@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net"
 	"os"
 	"path/filepath"
@@ -61,10 +62,12 @@ func captureStdout(t *testing.T, fn func()) string {
 	w.Close()
 	os.Stdout = old
 
-	buf := make([]byte, 64*1024)
-	n, _ := r.Read(buf)
+	out, err := io.ReadAll(r)
 	r.Close()
-	return string(buf[:n])
+	if err != nil {
+		t.Fatalf("captureStdout: read pipe: %v", err)
+	}
+	return string(out)
 }
 
 func TestVersionCommand(t *testing.T) {
@@ -73,7 +76,9 @@ func TestVersionCommand(t *testing.T) {
 
 	output := captureStdout(t, func() {
 		rootCmd.SetArgs([]string{"version"})
-		_ = rootCmd.Execute()
+		if err := rootCmd.Execute(); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
 	})
 
 	if !strings.Contains(output, "0.1.0") {
@@ -81,6 +86,9 @@ func TestVersionCommand(t *testing.T) {
 	}
 	if !strings.Contains(output, "deadbeef") {
 		t.Fatalf("expected commit in output, got %q", output)
+	}
+	if !strings.Contains(output, "2026-02-07") {
+		t.Fatalf("expected date in output, got %q", output)
 	}
 }
 
@@ -211,7 +219,7 @@ func TestPrintBanner(t *testing.T) {
 		printBanner(cfg, true, "", "")
 	})
 
-	if !strings.Contains(output, "AllYourBase v0.2.0") {
+	if !strings.Contains(output, "Allyourbase v0.2.0") {
 		t.Errorf("expected version in banner, got %q", output)
 	}
 	if !strings.Contains(output, "http://localhost:8090/api") {
@@ -553,7 +561,9 @@ func TestVersionCommandJSON(t *testing.T) {
 
 	output := captureStdout(t, func() {
 		rootCmd.SetArgs([]string{"version", "--json"})
-		_ = rootCmd.Execute()
+		if err := rootCmd.Execute(); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
 	})
 
 	var result map[string]any
@@ -562,6 +572,12 @@ func TestVersionCommandJSON(t *testing.T) {
 	}
 	if result["version"] != "1.0.0" {
 		t.Fatalf("expected version 1.0.0, got %v", result["version"])
+	}
+	if result["commit"] != "abc123" {
+		t.Fatalf("expected commit abc123, got %v", result["commit"])
+	}
+	if result["date"] != "2026-02-09" {
+		t.Fatalf("expected date 2026-02-09, got %v", result["date"])
 	}
 }
 
@@ -1858,7 +1874,7 @@ func TestUninstallCleansShellProfile(t *testing.T) {
 
 	// Create a .zshrc with AYB PATH entry (as install.sh would).
 	zshrc := filepath.Join(tmpHome, ".zshrc")
-	content := "# existing config\nexport PATH=\"/usr/bin:$PATH\"\n\n# AllYourBase\nexport PATH=\"" + binDir + ":$PATH\"\n"
+	content := "# existing config\nexport PATH=\"/usr/bin:$PATH\"\n\n# Allyourbase\nexport PATH=\"" + binDir + ":$PATH\"\n"
 	os.WriteFile(zshrc, []byte(content), 0644)
 
 	captureStdout(t, func() {
@@ -1873,8 +1889,8 @@ func TestUninstallCleansShellProfile(t *testing.T) {
 	if err != nil {
 		t.Fatalf("reading .zshrc: %v", err)
 	}
-	if strings.Contains(string(data), "AllYourBase") {
-		t.Fatalf("expected AllYourBase lines to be removed from .zshrc, got:\n%s", string(data))
+	if strings.Contains(string(data), "Allyourbase") {
+		t.Fatalf("expected Allyourbase lines to be removed from .zshrc, got:\n%s", string(data))
 	}
 	if strings.Contains(string(data), binDir) {
 		t.Fatalf("expected bin dir to be removed from .zshrc, got:\n%s", string(data))
@@ -1924,7 +1940,7 @@ func TestRemoveAYBLines(t *testing.T) {
 	content := `# some config
 export PATH="/usr/bin:$PATH"
 
-# AllYourBase
+# Allyourbase
 export PATH="/home/user/.ayb/bin:$PATH"
 
 # more config
@@ -1939,8 +1955,8 @@ alias ll='ls -la'
 
 	data, _ := os.ReadFile(profile)
 	result := string(data)
-	if strings.Contains(result, "AllYourBase") {
-		t.Fatalf("expected AllYourBase comment removed, got:\n%s", result)
+	if strings.Contains(result, "Allyourbase") {
+		t.Fatalf("expected Allyourbase comment removed, got:\n%s", result)
 	}
 	if strings.Contains(result, ".ayb/bin") {
 		t.Fatalf("expected PATH line removed, got:\n%s", result)

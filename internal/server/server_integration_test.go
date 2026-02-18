@@ -174,18 +174,18 @@ func TestAdminStatsWithDBPool(t *testing.T) {
 	testutil.NoError(t, json.Unmarshal(w.Body.Bytes(), &stats))
 
 	// With a real pool, DB stats should be present.
-	testutil.True(t, stats["db_pool_total"] != nil, "should have db_pool_total")
-	testutil.True(t, stats["db_pool_idle"] != nil, "should have db_pool_idle")
-	testutil.True(t, stats["db_pool_in_use"] != nil, "should have db_pool_in_use")
-	testutil.True(t, stats["db_pool_max"] != nil, "should have db_pool_max")
+	testutil.NotNil(t, stats["db_pool_total"])
+	testutil.NotNil(t, stats["db_pool_idle"])
+	testutil.NotNil(t, stats["db_pool_in_use"])
+	testutil.NotNil(t, stats["db_pool_max"])
 
 	// Pool max should be positive.
 	maxConns := stats["db_pool_max"].(float64)
 	testutil.True(t, maxConns > 0, "db_pool_max should be positive")
 
 	// Standard fields should also be present.
-	testutil.True(t, stats["go_version"] != nil, "should have go_version")
-	testutil.True(t, stats["goroutines"] != nil, "should have goroutines")
+	testutil.NotNil(t, stats["go_version"])
+	testutil.NotNil(t, stats["goroutines"])
 }
 
 // TestRealtimeSSEDoesNotReceiveUnsubscribedTable verifies that SSE clients

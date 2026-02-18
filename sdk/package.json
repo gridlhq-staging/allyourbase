@@ -1,7 +1,7 @@
 {
   "name": "@allyourbase/js",
   "version": "0.1.0",
-  "description": "JavaScript/TypeScript client SDK for AllYourBase",
+  "description": "JavaScript/TypeScript client SDK for Allyourbase",
   "type": "module",
   "main": "dist/index.cjs",
   "module": "dist/index.js",

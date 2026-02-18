@@ -1,6 +1,6 @@
 # @allyourbase/js
 
-JavaScript/TypeScript client SDK for [AllYourBase](https://github.com/gridlhq-staging/allyourbase) — the PostgreSQL Backend-as-a-Service.
+JavaScript/TypeScript client SDK for [Allyourbase](https://github.com/gridlhq-staging/allyourbase) — the PostgreSQL Backend-as-a-Service.
 
 ## Install
 

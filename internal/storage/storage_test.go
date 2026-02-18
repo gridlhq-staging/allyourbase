@@ -8,6 +8,7 @@ import (
 )
 
 func TestValidateBucket(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name    string
 		bucket  string
@@ -26,6 +27,7 @@ func TestValidateBucket(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			err := validateBucket(tt.bucket)
 			if tt.wantErr != "" {
 				testutil.ErrorContains(t, err, tt.wantErr)
@@ -37,6 +39,7 @@ func TestValidateBucket(t *testing.T) {
 }
 
 func TestValidateName(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name    string
 		objName string
@@ -51,6 +54,7 @@ func TestValidateName(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			err := validateName(tt.objName)
 			if tt.wantErr != "" {
 				testutil.ErrorContains(t, err, tt.wantErr)
@@ -62,6 +66,7 @@ func TestValidateName(t *testing.T) {
 }
 
 func TestSignAndValidateURL(t *testing.T) {
+	t.Parallel()
 	svc := &Service{signKey: []byte("test-secret-key-for-signing-urls")}
 
 	token := svc.SignURL("images", "photo.jpg", time.Hour)
@@ -100,6 +105,7 @@ func TestSignAndValidateURL(t *testing.T) {
 }
 
 func TestSignURLExpired(t *testing.T) {
+	t.Parallel()
 	svc := &Service{signKey: []byte("test-secret-key-for-signing-urls")}
 
 	// Generate a token that expires immediately.

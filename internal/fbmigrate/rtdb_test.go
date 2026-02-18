@@ -11,7 +11,9 @@ import (
 )
 
 func TestParseRTDBExport(t *testing.T) {
+	t.Parallel()
 	t.Run("basic export with two collections", func(t *testing.T) {
+		t.Parallel()
 		dir := t.TempDir()
 		exportPath := filepath.Join(dir, "rtdb.json")
 		data := `{
@@ -39,6 +41,7 @@ func TestParseRTDBExport(t *testing.T) {
 	})
 
 	t.Run("scalar value becomes single root row", func(t *testing.T) {
+		t.Parallel()
 		dir := t.TempDir()
 		exportPath := filepath.Join(dir, "rtdb.json")
 		data := `{
@@ -56,6 +59,7 @@ func TestParseRTDBExport(t *testing.T) {
 	})
 
 	t.Run("array value becomes single root row", func(t *testing.T) {
+		t.Parallel()
 		dir := t.TempDir()
 		exportPath := filepath.Join(dir, "rtdb.json")
 		data := `{
@@ -71,6 +75,7 @@ func TestParseRTDBExport(t *testing.T) {
 	})
 
 	t.Run("empty object", func(t *testing.T) {
+		t.Parallel()
 		dir := t.TempDir()
 		exportPath := filepath.Join(dir, "rtdb.json")
 		testutil.NoError(t, os.WriteFile(exportPath, []byte(`{}`), 0644))
@@ -81,6 +86,7 @@ func TestParseRTDBExport(t *testing.T) {
 	})
 
 	t.Run("nested objects", func(t *testing.T) {
+		t.Parallel()
 		dir := t.TempDir()
 		exportPath := filepath.Join(dir, "rtdb.json")
 		data := `{
@@ -103,11 +109,13 @@ func TestParseRTDBExport(t *testing.T) {
 	})
 
 	t.Run("nonexistent file", func(t *testing.T) {
+		t.Parallel()
 		_, err := ParseRTDBExport("/nonexistent/rtdb.json")
 		testutil.ErrorContains(t, err, "reading RTDB export")
 	})
 
 	t.Run("invalid JSON", func(t *testing.T) {
+		t.Parallel()
 		dir := t.TempDir()
 		exportPath := filepath.Join(dir, "rtdb.json")
 		testutil.NoError(t, os.WriteFile(exportPath, []byte(`{invalid`), 0644))
@@ -118,6 +126,7 @@ func TestParseRTDBExport(t *testing.T) {
 }
 
 func TestNormalizeRTDBTableName(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name  string
 		input string
@@ -139,6 +148,7 @@ func TestNormalizeRTDBTableName(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			got := NormalizeRTDBTableName(tt.input)
 			testutil.Equal(t, tt.want, got)
 		})
@@ -146,6 +156,7 @@ func TestNormalizeRTDBTableName(t *testing.T) {
 }
 
 func TestCreateRTDBTableSQL(t *testing.T) {
+	t.Parallel()
 	got := createRTDBTableSQL("users")
 	testutil.Contains(t, got, `CREATE TABLE IF NOT EXISTS "users"`)
 	testutil.Contains(t, got, `"id" text PRIMARY KEY`)
@@ -153,6 +164,7 @@ func TestCreateRTDBTableSQL(t *testing.T) {
 }
 
 func TestCreateRTDBIndexSQL(t *testing.T) {
+	t.Parallel()
 	got := createRTDBIndexSQL("users")
 	testutil.Contains(t, got, `CREATE INDEX IF NOT EXISTS "idx_users_data"`)
 	testutil.Contains(t, got, `ON "users" USING GIN ("data")`)
@@ -160,6 +172,8 @@ func TestCreateRTDBIndexSQL(t *testing.T) {
 
 func TestCreateRTDBIndexSQL_LongTableName(t *testing.T) {
 	// Table name at max 63 chars would produce a 72-char index name without truncation.
+	t.Parallel()
+
 	longName := strings.Repeat("x", 63)
 	got := createRTDBIndexSQL(longName)
 	// Extract the index name between the first pair of quotes.
@@ -171,6 +185,7 @@ func TestCreateRTDBIndexSQL_LongTableName(t *testing.T) {
 }
 
 func TestPhaseCountWithRTDB(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name string
 		opts MigrationOptions
@@ -194,6 +209,7 @@ func TestPhaseCountWithRTDB(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			m := &Migrator{opts: tt.opts}
 			got := m.phaseCount()
 			testutil.Equal(t, tt.want, got)
@@ -202,6 +218,7 @@ func TestPhaseCountWithRTDB(t *testing.T) {
 }
 
 func TestBuildValidationSummaryWithRTDB(t *testing.T) {
+	t.Parallel()
 	report := &migrate.AnalysisReport{
 		AuthUsers: 10,
 		Tables:    2,
@@ -233,6 +250,7 @@ func TestBuildValidationSummaryWithRTDB(t *testing.T) {
 }
 
 func TestBuildValidationSummaryWithStorageFiles(t *testing.T) {
+	t.Parallel()
 	report := &migrate.AnalysisReport{
 		Files: 15,
 	}

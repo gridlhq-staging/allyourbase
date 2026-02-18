@@ -8,6 +8,7 @@ import (
 )
 
 func TestConvertRuleToRLS(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name      string
 		tableName string
@@ -76,6 +77,7 @@ func TestConvertRuleToRLS(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			sql, err := ConvertRuleToRLS(tt.tableName, tt.action, tt.rule)
 			testutil.NoError(t, err)
 
@@ -94,6 +96,7 @@ func TestConvertRuleToRLS(t *testing.T) {
 }
 
 func TestConvertRuleExpression(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name     string
 		rule     string
@@ -133,6 +136,7 @@ func TestConvertRuleExpression(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			result, err := convertRuleExpression(tt.rule)
 			testutil.NoError(t, err)
 
@@ -146,6 +150,7 @@ func TestConvertRuleExpression(t *testing.T) {
 }
 
 func TestGenerateRLSPolicies(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name         string
 		coll         PBCollection
@@ -192,6 +197,7 @@ func TestGenerateRLSPolicies(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			policies, err := GenerateRLSPolicies(tt.coll)
 			testutil.NoError(t, err)
 			testutil.Equal(t, tt.expectCount, len(policies))
@@ -206,6 +212,7 @@ func TestGenerateRLSPolicies(t *testing.T) {
 }
 
 func TestEnableRLS(t *testing.T) {
+	t.Parallel()
 	sql := EnableRLS("posts")
 	testutil.Contains(t, sql, "ALTER TABLE")
 	testutil.Contains(t, sql, `"posts"`)
@@ -213,6 +220,7 @@ func TestEnableRLS(t *testing.T) {
 }
 
 func TestBuildRLSPolicy(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name       string
 		tableName  string
@@ -252,6 +260,7 @@ func TestBuildRLSPolicy(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			sql := buildRLSPolicy(tt.tableName, tt.action, tt.expression)
 
 			for _, substr := range tt.contains {

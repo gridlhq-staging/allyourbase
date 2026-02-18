@@ -60,7 +60,7 @@ func TestNewPoolInvalidURL(t *testing.T) {
 		MinConns: 0,
 	}, testutil.DiscardLogger())
 	// Should fail on ping.
-	testutil.True(t, err != nil, "expected error for invalid URL")
+	testutil.NotNil(t, err)
 }
 
 func TestPoolClose(t *testing.T) {
@@ -79,7 +79,7 @@ func TestPoolClose(t *testing.T) {
 
 	// After close, queries should fail.
 	err = pool.DB().Ping(ctx)
-	testutil.True(t, err != nil, "expected error after pool close")
+	testutil.NotNil(t, err)
 }
 
 func TestPoolWithHealthCheck(t *testing.T) {

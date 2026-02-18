@@ -10,6 +10,7 @@ import (
 )
 
 func TestHandleCreateAPIKeyNoAuth(t *testing.T) {
+	t.Parallel()
 	svc := newTestService()
 	h := NewHandler(svc, testutil.DiscardLogger())
 	router := h.Routes()
@@ -26,6 +27,7 @@ func TestHandleCreateAPIKeyNoAuth(t *testing.T) {
 }
 
 func TestHandleCreateAPIKeyMissingName(t *testing.T) {
+	t.Parallel()
 	svc := newTestService()
 	h := NewHandler(svc, testutil.DiscardLogger())
 	router := h.Routes()
@@ -43,6 +45,7 @@ func TestHandleCreateAPIKeyMissingName(t *testing.T) {
 }
 
 func TestHandleCreateAPIKeyEmptyBody(t *testing.T) {
+	t.Parallel()
 	svc := newTestService()
 	h := NewHandler(svc, testutil.DiscardLogger())
 	router := h.Routes()
@@ -60,6 +63,7 @@ func TestHandleCreateAPIKeyEmptyBody(t *testing.T) {
 }
 
 func TestHandleCreateAPIKeyMalformedJSON(t *testing.T) {
+	t.Parallel()
 	svc := newTestService()
 	h := NewHandler(svc, testutil.DiscardLogger())
 	router := h.Routes()
@@ -77,6 +81,7 @@ func TestHandleCreateAPIKeyMalformedJSON(t *testing.T) {
 }
 
 func TestHandleListAPIKeysNoAuth(t *testing.T) {
+	t.Parallel()
 	svc := newTestService()
 	h := NewHandler(svc, testutil.DiscardLogger())
 	router := h.Routes()
@@ -90,6 +95,7 @@ func TestHandleListAPIKeysNoAuth(t *testing.T) {
 }
 
 func TestHandleRevokeAPIKeyNoAuth(t *testing.T) {
+	t.Parallel()
 	svc := newTestService()
 	h := NewHandler(svc, testutil.DiscardLogger())
 	router := h.Routes()
@@ -102,7 +108,25 @@ func TestHandleRevokeAPIKeyNoAuth(t *testing.T) {
 	testutil.Contains(t, w.Body.String(), "missing or invalid authorization")
 }
 
+func TestHandleRevokeAPIKeyInvalidUUID(t *testing.T) {
+	t.Parallel()
+	svc := newTestService()
+	h := NewHandler(svc, testutil.DiscardLogger())
+	router := h.Routes()
+	token := generateTestToken(t, svc, "user-1", "test@example.com")
+
+	req := httptest.NewRequest(http.MethodDelete, "/api-keys/not-a-uuid", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	// UUID validation should return 400, not reach the service (which would 500 on a bad UUID).
+	testutil.Equal(t, http.StatusBadRequest, w.Code)
+	testutil.Contains(t, w.Body.String(), "invalid api key id format")
+}
+
 func TestHandleCreateAPIKeyInvalidScope(t *testing.T) {
+	t.Parallel()
 	svc := newTestService()
 	h := NewHandler(svc, testutil.DiscardLogger())
 	router := h.Routes()
@@ -123,6 +147,8 @@ func TestHandleCreateAPIKeyInvalidScope(t *testing.T) {
 func TestHandleAPIKeyRoutesRegistered(t *testing.T) {
 	// Verify all three API key routes are registered and accessible.
 	// Wrong methods should return 405 (Method Not Allowed), not 404.
+	t.Parallel()
+
 	svc := newTestService()
 	h := NewHandler(svc, testutil.DiscardLogger())
 	router := h.Routes()
@@ -139,6 +165,7 @@ func TestHandleAPIKeyRoutesRegistered(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			req := httptest.NewRequest(tt.method, tt.path, nil)
 			w := httptest.NewRecorder()
 			router.ServeHTTP(w, req)

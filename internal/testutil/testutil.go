@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -73,18 +74,32 @@ func False(t testing.TB, condition bool, msgAndArgs ...any) {
 	}
 }
 
-// Nil fails the test if val is not nil.
+// isNil reports whether val is nil, correctly handling the typed-nil case where
+// a non-nil interface wraps a nil pointer, slice, map, channel, or function.
+func isNil(val any) bool {
+	if val == nil {
+		return true
+	}
+	v := reflect.ValueOf(val)
+	switch v.Kind() {
+	case reflect.Ptr, reflect.Map, reflect.Slice, reflect.Chan, reflect.Func, reflect.Interface:
+		return v.IsNil()
+	}
+	return false
+}
+
+// Nil fails the test if val is not nil. Correctly handles typed nil pointers.
 func Nil(t testing.TB, val any) {
 	t.Helper()
-	if val != nil {
+	if !isNil(val) {
 		t.Errorf("expected nil, got %v", val)
 	}
 }
 
-// NotNil fails the test immediately if val is nil.
+// NotNil fails the test immediately if val is nil. Correctly handles typed nil pointers.
 func NotNil(t testing.TB, val any) {
 	t.Helper()
-	if val == nil {
+	if isNil(val) {
 		t.Fatal("expected non-nil, got nil")
 	}
 }

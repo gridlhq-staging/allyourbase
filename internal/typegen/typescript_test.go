@@ -18,6 +18,7 @@ func newCache(tables map[string]*schema.Table) *schema.SchemaCache {
 }
 
 func TestTypeScriptBasicTable(t *testing.T) {
+	t.Parallel()
 	sc := newCache(map[string]*schema.Table{
 		"public.posts": {
 			Schema: "public", Name: "posts", Kind: "table",
@@ -45,6 +46,7 @@ func TestTypeScriptBasicTable(t *testing.T) {
 }
 
 func TestTypeScriptAllJSONTypes(t *testing.T) {
+	t.Parallel()
 	sc := newCache(map[string]*schema.Table{
 		"public.all_types": {
 			Schema: "public", Name: "all_types", Kind: "table",
@@ -70,6 +72,7 @@ func TestTypeScriptAllJSONTypes(t *testing.T) {
 }
 
 func TestTypeScriptNullableColumns(t *testing.T) {
+	t.Parallel()
 	sc := newCache(map[string]*schema.Table{
 		"public.nullable": {
 			Schema: "public", Name: "nullable", Kind: "table",
@@ -89,6 +92,7 @@ func TestTypeScriptNullableColumns(t *testing.T) {
 }
 
 func TestTypeScriptNoNullableColumns(t *testing.T) {
+	t.Parallel()
 	sc := newCache(map[string]*schema.Table{
 		"public.strict": {
 			Schema: "public", Name: "strict", Kind: "table",
@@ -105,6 +109,7 @@ func TestTypeScriptNoNullableColumns(t *testing.T) {
 }
 
 func TestTypeScriptEnumType(t *testing.T) {
+	t.Parallel()
 	sc := newCache(map[string]*schema.Table{
 		"public.tasks": {
 			Schema: "public", Name: "tasks", Kind: "table",
@@ -123,6 +128,7 @@ func TestTypeScriptEnumType(t *testing.T) {
 }
 
 func TestTypeScriptSystemTablesExcluded(t *testing.T) {
+	t.Parallel()
 	sc := newCache(map[string]*schema.Table{
 		"public._ayb_users": {
 			Schema: "public", Name: "_ayb_users", Kind: "table",
@@ -152,6 +158,7 @@ func TestTypeScriptSystemTablesExcluded(t *testing.T) {
 }
 
 func TestTypeScriptEmptySchema(t *testing.T) {
+	t.Parallel()
 	sc := newCache(map[string]*schema.Table{})
 
 	out := TypeScript(sc)
@@ -162,6 +169,7 @@ func TestTypeScriptEmptySchema(t *testing.T) {
 }
 
 func TestTypeScriptCreateOmitsPKAndDefaults(t *testing.T) {
+	t.Parallel()
 	sc := newCache(map[string]*schema.Table{
 		"public.items": {
 			Schema: "public", Name: "items", Kind: "table",
@@ -181,6 +189,7 @@ func TestTypeScriptCreateOmitsPKAndDefaults(t *testing.T) {
 }
 
 func TestTypeScriptCreateNoOmitWhenNoDefaults(t *testing.T) {
+	t.Parallel()
 	sc := newCache(map[string]*schema.Table{
 		"public.tags": {
 			Schema: "public", Name: "tags", Kind: "table",
@@ -197,6 +206,7 @@ func TestTypeScriptCreateNoOmitWhenNoDefaults(t *testing.T) {
 }
 
 func TestTypeScriptComments(t *testing.T) {
+	t.Parallel()
 	sc := newCache(map[string]*schema.Table{
 		"public.docs": {
 			Schema: "public", Name: "docs", Kind: "table",
@@ -216,6 +226,7 @@ func TestTypeScriptComments(t *testing.T) {
 }
 
 func TestTypeScriptMultipleTablesSorted(t *testing.T) {
+	t.Parallel()
 	sc := newCache(map[string]*schema.Table{
 		"public.zebras": {Schema: "public", Name: "zebras", Kind: "table", Columns: []*schema.Column{{Name: "id", Position: 1, JSONType: "integer"}}},
 		"public.apples": {Schema: "public", Name: "apples", Kind: "table", Columns: []*schema.Column{{Name: "id", Position: 1, JSONType: "integer"}}},
@@ -233,6 +244,7 @@ func TestTypeScriptMultipleTablesSorted(t *testing.T) {
 }
 
 func TestPascalCase(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		in   string
 		want string
@@ -248,12 +260,14 @@ func TestPascalCase(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.in, func(t *testing.T) {
+			t.Parallel()
 			testutil.Equal(t, tt.want, pascalCase(tt.in))
 		})
 	}
 }
 
 func TestTypeScriptUnknownJSONType(t *testing.T) {
+	t.Parallel()
 	sc := newCache(map[string]*schema.Table{
 		"public.misc": {
 			Schema: "public", Name: "misc", Kind: "table",
@@ -270,6 +284,7 @@ func TestTypeScriptUnknownJSONType(t *testing.T) {
 }
 
 func TestTypeScriptNullableEnum(t *testing.T) {
+	t.Parallel()
 	sc := newCache(map[string]*schema.Table{
 		"public.jobs": {
 			Schema: "public", Name: "jobs", Kind: "table",
@@ -288,6 +303,7 @@ func TestTypeScriptNullableEnum(t *testing.T) {
 }
 
 func TestTypeScriptCompositePrimaryKey(t *testing.T) {
+	t.Parallel()
 	sc := newCache(map[string]*schema.Table{
 		"public.order_items": {
 			Schema: "public", Name: "order_items", Kind: "table",
@@ -307,6 +323,7 @@ func TestTypeScriptCompositePrimaryKey(t *testing.T) {
 }
 
 func TestIsSystemTable(t *testing.T) {
+	t.Parallel()
 	testutil.True(t, isSystemTable("_ayb_users"), "_ayb_users is system")
 	testutil.True(t, isSystemTable("_ayb_sessions"), "_ayb_sessions is system")
 	testutil.False(t, isSystemTable("posts"), "posts is not system")

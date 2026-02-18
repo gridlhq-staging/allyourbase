@@ -194,7 +194,7 @@ EOF
 ayb start
 ```
 
-Each project runs on a different port with its own embedded PostgreSQL instance and data directory.
+Each project runs on a different port with its own managed PostgreSQL instance and data directory.
 
 ### Option 2: External PostgreSQL with separate databases
 

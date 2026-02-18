@@ -1,4 +1,4 @@
-.PHONY: build dev test test-integration test-e2e test-all lint clean ui release docker help sync-openapi
+.PHONY: build dev test test-sdk test-ui test-integration test-e2e test-smoke test-browser-full test-full test-all lint clean ui release docker help sync-openapi
 
 # Build variables
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
@@ -15,28 +15,39 @@ build: ## Build the ayb binary
 dev: ## Build and run with a test database URL (set DATABASE_URL)
 	go run $(LDFLAGS) ./cmd/ayb start --database-url "$(DATABASE_URL)"
 
-test: ## Run unit tests (no DB, fast)
-	go test -count=1 ./...
+test: ## Run Go unit tests (no DB, fast)
+	go tool gotestsum --format testdox -- -count=1 ./...
 
-test-integration: ## Run integration tests (one shared Postgres container)
-	@cid=$$(docker run -d --rm \
-		-e POSTGRES_USER=test -e POSTGRES_PASSWORD=test -e POSTGRES_DB=testdb \
-		-p 0:5432 postgres:16-alpine) && \
-	trap "docker stop $$cid >/dev/null 2>&1" EXIT && \
-	port=$$(docker port $$cid 5432/tcp | cut -d: -f2) && \
-	echo "Waiting for Postgres..." && \
-	until docker exec $$cid pg_isready -U test -q 2>/dev/null; do sleep 0.1; done && \
-	echo "Postgres ready on port $$port — running integration tests..." && \
-	HOME=/tmp TEST_DATABASE_URL="postgresql://test:test@localhost:$$port/testdb?sslmode=disable" \
-		go test -tags=integration -count=1 ./...
+test-sdk: ## Run SDK unit tests (vitest, no browser)
+	cd sdk && npm test
 
-test-e2e: build ## Run Playwright e2e tests (starts ayb automatically)
+test-ui: ## Run UI component tests (vitest + jsdom, no browser)
+	cd ui && pnpm test
+
+test-integration: ## Run integration tests (uses AYB's managed Postgres — no Docker needed)
+	go run ./internal/testutil/cmd/testpg -- go tool gotestsum --format testdox -- -tags=integration -count=1 ./...
+
+test-smoke: build ## Run Playwright smoke tests — 8 critical paths, ~5 min (builds + starts server)
+	@./ayb start > /tmp/ayb-e2e.log 2>&1 & AYB_PID=$$!; \
+	trap "kill $$AYB_PID 2>/dev/null" EXIT; \
+	until curl -s http://localhost:8090/health > /dev/null 2>&1; do sleep 0.5; done; \
+	cd ui && npx playwright test --project=smoke; \
+
+test-browser-full: build ## Run Playwright full browser suite, ~15 min (builds + starts server)
+	@./ayb start > /tmp/ayb-e2e.log 2>&1 & AYB_PID=$$!; \
+	trap "kill $$AYB_PID 2>/dev/null" EXIT; \
+	until curl -s http://localhost:8090/health > /dev/null 2>&1; do sleep 0.5; done; \
+	cd ui && npx playwright test --project=full; \
+
+test-e2e: build ## Run all Playwright tests — smoke + full (builds + starts server)
 	@./ayb start > /tmp/ayb-e2e.log 2>&1 & AYB_PID=$$!; \
 	trap "kill $$AYB_PID 2>/dev/null" EXIT; \
 	until curl -s http://localhost:8090/health > /dev/null 2>&1; do sleep 0.5; done; \
 	cd ui && npx playwright test; \
 
-test-all: test test-integration ## Run unit + integration tests
+test-all: test test-integration test-sdk test-ui ## Run all fast tests: Go unit + integration + SDK + UI components
+
+test-full: test-all test-e2e ## Run every automated test: unit + integration + SDK + UI + all browser tests (~1.5 hrs)
 
 lint: ## Run linters (requires golangci-lint)
 	golangci-lint run ./...

@@ -16,7 +16,7 @@ import type {
 } from "./types";
 
 /**
- * AllYourBase JavaScript/TypeScript client.
+ * Allyourbase JavaScript/TypeScript client.
  *
  * @example
  * ```ts

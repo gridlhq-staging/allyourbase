@@ -17,7 +17,7 @@ import (
 
 func TestPortErrorAddressInUse(t *testing.T) {
 	err := portError(8090, fmt.Errorf("listen tcp :8090: bind: address already in use"))
-	testutil.True(t, err != nil, "expected non-nil error")
+	testutil.NotNil(t, err)
 
 	msg := err.Error()
 	testutil.Contains(t, msg, "port 8090 is already in use")
@@ -47,7 +47,7 @@ func TestStartupProgressHeader(t *testing.T) {
 	sp.header("0.2.0")
 
 	out := buf.String()
-	testutil.Contains(t, out, "AllYourBase v0.2.0")
+	testutil.Contains(t, out, "Allyourbase v0.2.0")
 	testutil.Contains(t, out, "👾")
 }
 
@@ -149,8 +149,8 @@ func TestNewLoggerReturnsComponents(t *testing.T) {
 	logger, lvl, logPath, closer := newLogger("info", "json")
 	defer closer()
 
-	testutil.True(t, logger != nil, "logger should not be nil")
-	testutil.True(t, lvl != nil, "level var should not be nil")
+	testutil.NotNil(t, logger)
+	testutil.NotNil(t, lvl)
 	// logPath may be empty if HOME is weird, but if present should have .log extension.
 	if logPath != "" {
 		testutil.Contains(t, logPath, ".log")
@@ -160,7 +160,7 @@ func TestNewLoggerReturnsComponents(t *testing.T) {
 func TestNewLoggerTextFormat(t *testing.T) {
 	logger, _, _, closer := newLogger("info", "text")
 	defer closer()
-	testutil.True(t, logger != nil, "text logger should not be nil")
+	testutil.NotNil(t, logger)
 }
 
 func TestNewLoggerLevelAdjustable(t *testing.T) {
@@ -181,5 +181,5 @@ func TestBannerBodyToContainsAPIURL(t *testing.T) {
 	out := buf.String()
 	testutil.Contains(t, out, "http://localhost:8090/api")
 	// Body only should NOT contain the version header.
-	testutil.False(t, strings.Contains(out, "AllYourBase v"))
+	testutil.False(t, strings.Contains(out, "Allyourbase v"))
 }

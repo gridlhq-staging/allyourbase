@@ -149,7 +149,7 @@ func TestBuildCacheColumns(t *testing.T) {
 	testutil.NotNil(t, moodCol)
 	testutil.Equal(t, "string", moodCol.JSONType)
 	testutil.True(t, moodCol.IsEnum, "mood should be enum")
-	testutil.True(t, len(moodCol.EnumValues) == 3, "mood should have 3 values")
+	testutil.SliceLen(t, moodCol.EnumValues, 3)
 
 	metaCol := users.ColumnByName("metadata")
 	testutil.NotNil(t, metaCol)

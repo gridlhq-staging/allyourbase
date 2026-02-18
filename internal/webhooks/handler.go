@@ -249,7 +249,7 @@ func (h *Handler) handleTest(w http.ResponseWriter, r *http.Request) {
 	event := &realtime.Event{
 		Action: "test",
 		Table:  "_ayb_test",
-		Record: map[string]any{"message": "Test event from AllYourBase"},
+		Record: map[string]any{"message": "Test event from Allyourbase"},
 	}
 	payload, err := json.Marshal(event)
 	if err != nil {

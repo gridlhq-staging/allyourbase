@@ -10,6 +10,7 @@ import (
 var _ Backend = (*S3Backend)(nil)
 
 func TestS3BackendKey(t *testing.T) {
+	t.Parallel()
 	b := &S3Backend{} // key() doesn't use client or bucket
 	tests := []struct {
 		name       string
@@ -25,6 +26,7 @@ func TestS3BackendKey(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			got := b.key(tt.aybBucket, tt.objectName)
 			testutil.Equal(t, tt.want, got)
 		})

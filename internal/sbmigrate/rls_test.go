@@ -8,6 +8,7 @@ import (
 )
 
 func TestRewriteRLSExpression(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name string
 		in   string
@@ -61,6 +62,7 @@ func TestRewriteRLSExpression(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			got := RewriteRLSExpression(tt.in)
 			testutil.Equal(t, tt.want, got)
 		})
@@ -68,7 +70,9 @@ func TestRewriteRLSExpression(t *testing.T) {
 }
 
 func TestGenerateRewrittenPolicy(t *testing.T) {
+	t.Parallel()
 	t.Run("SELECT with USING", func(t *testing.T) {
+		t.Parallel()
 		p := RLSPolicy{
 			PolicyName: "users_select",
 			TableName:  "posts",
@@ -83,6 +87,7 @@ func TestGenerateRewrittenPolicy(t *testing.T) {
 	})
 
 	t.Run("INSERT with WITH CHECK", func(t *testing.T) {
+		t.Parallel()
 		p := RLSPolicy{
 			PolicyName: "users_insert",
 			TableName:  "posts",
@@ -97,6 +102,7 @@ func TestGenerateRewrittenPolicy(t *testing.T) {
 	})
 
 	t.Run("RESTRICTIVE policy", func(t *testing.T) {
+		t.Parallel()
 		p := RLSPolicy{
 			PolicyName: "admin_only",
 			TableName:  "secrets",
@@ -111,6 +117,7 @@ func TestGenerateRewrittenPolicy(t *testing.T) {
 	})
 
 	t.Run("UPDATE with both USING and CHECK", func(t *testing.T) {
+		t.Parallel()
 		p := RLSPolicy{
 			PolicyName: "owner_update",
 			TableName:  "posts",
@@ -126,6 +133,7 @@ func TestGenerateRewrittenPolicy(t *testing.T) {
 	})
 
 	t.Run("no expressions", func(t *testing.T) {
+		t.Parallel()
 		p := RLSPolicy{
 			PolicyName: "open_read",
 			TableName:  "public_data",

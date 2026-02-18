@@ -11,7 +11,9 @@ import (
 )
 
 func TestNewMigratorValidation(t *testing.T) {
+	t.Parallel()
 	t.Run("no paths at all", func(t *testing.T) {
+		t.Parallel()
 		_, err := NewMigrator(MigrationOptions{
 			DatabaseURL: "postgres://localhost/test",
 		})
@@ -19,6 +21,7 @@ func TestNewMigratorValidation(t *testing.T) {
 	})
 
 	t.Run("no database URL", func(t *testing.T) {
+		t.Parallel()
 		_, err := NewMigrator(MigrationOptions{
 			AuthExportPath: "/some/file.json",
 		})
@@ -26,6 +29,7 @@ func TestNewMigratorValidation(t *testing.T) {
 	})
 
 	t.Run("auth file does not exist", func(t *testing.T) {
+		t.Parallel()
 		_, err := NewMigrator(MigrationOptions{
 			AuthExportPath: "/nonexistent/file.json",
 			DatabaseURL:    "postgres://localhost/test",
@@ -34,6 +38,7 @@ func TestNewMigratorValidation(t *testing.T) {
 	})
 
 	t.Run("Firestore path is not a directory", func(t *testing.T) {
+		t.Parallel()
 		tmp := t.TempDir()
 		f, err := writeTestFile(t, tmp, "file.txt", "data")
 		testutil.NoError(t, err)
@@ -47,6 +52,7 @@ func TestNewMigratorValidation(t *testing.T) {
 }
 
 func TestPhaseCount(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name string
 		opts MigrationOptions
@@ -70,6 +76,7 @@ func TestPhaseCount(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			m := &Migrator{opts: tt.opts}
 			testutil.Equal(t, tt.want, m.phaseCount())
 		})
@@ -77,7 +84,9 @@ func TestPhaseCount(t *testing.T) {
 }
 
 func TestBuildValidationSummary(t *testing.T) {
+	t.Parallel()
 	t.Run("full migration", func(t *testing.T) {
+		t.Parallel()
 		report := &migrate.AnalysisReport{
 			AuthUsers:  50,
 			OAuthLinks: 10,
@@ -105,6 +114,7 @@ func TestBuildValidationSummary(t *testing.T) {
 	})
 
 	t.Run("auth only", func(t *testing.T) {
+		t.Parallel()
 		report := &migrate.AnalysisReport{AuthUsers: 10}
 		stats := &MigrationStats{Users: 10}
 		summary := BuildValidationSummary(report, stats)
@@ -113,6 +123,7 @@ func TestBuildValidationSummary(t *testing.T) {
 	})
 
 	t.Run("with skipped and errors", func(t *testing.T) {
+		t.Parallel()
 		report := &migrate.AnalysisReport{AuthUsers: 10}
 		stats := &MigrationStats{Users: 8, Skipped: 2, Errors: []string{"err1"}}
 		summary := BuildValidationSummary(report, stats)
@@ -124,16 +135,18 @@ func TestBuildValidationSummary(t *testing.T) {
 
 func TestAnalyzeAuthCounts(t *testing.T) {
 	// Test the actual Analyze() method with a real auth export file.
+	t.Parallel()
+
 	export := FirebaseAuthExport{
 		Users: []FirebaseUser{
 			{LocalID: "u1", Email: "a@b.com", PasswordHash: "hash", Salt: "salt"}, // email user
-			{LocalID: "u2", Email: "b@b.com", ProviderInfo: []ProviderInfo{         // email + OAuth
+			{LocalID: "u2", Email: "b@b.com", ProviderInfo: []ProviderInfo{ // email + OAuth
 				{ProviderID: "google.com", RawID: "g1"},
 				{ProviderID: "github.com", RawID: "gh1"},
 			}},
-			{LocalID: "u3"},                                                        // anonymous — skipped
-			{LocalID: "u4", ProviderInfo: []ProviderInfo{{ProviderID: "phone"}}},   // phone-only — skipped
-			{LocalID: "u5", Email: "disabled@b.com", Disabled: true},               // disabled — skipped
+			{LocalID: "u3"}, // anonymous — skipped
+			{LocalID: "u4", ProviderInfo: []ProviderInfo{{ProviderID: "phone"}}}, // phone-only — skipped
+			{LocalID: "u5", Email: "disabled@b.com", Disabled: true},             // disabled — skipped
 		},
 		HashConfig: FirebaseHashConfig{Algorithm: "SCRYPT", Rounds: 8, MemCost: 14},
 	}
@@ -148,6 +161,7 @@ func TestAnalyzeAuthCounts(t *testing.T) {
 }
 
 func TestAnalyzeFirestoreCounts(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 
 	// Create a Firestore export directory with 2 collections.
@@ -166,13 +180,15 @@ func TestAnalyzeFirestoreCounts(t *testing.T) {
 func TestAnalyzeCountsMatchMigrateFiltering(t *testing.T) {
 	// Verify that Analyze() counts only active email users for auth and OAuth,
 	// skipping anonymous, phone-only, and disabled users.
+	t.Parallel()
+
 	export := FirebaseAuthExport{
 		Users: []FirebaseUser{
 			{LocalID: "u1", Email: "a@b.com", ProviderInfo: []ProviderInfo{
 				{ProviderID: "google.com", RawID: "g1", Email: "a@b.com"},
 			}},
 			{LocalID: "u2", Email: "b@b.com"}, // email user, no OAuth
-			{LocalID: "u3"},                    // anonymous — should be skipped
+			{LocalID: "u3"},                   // anonymous — should be skipped
 			{LocalID: "u4", ProviderInfo: []ProviderInfo{ // phone-only — should be skipped
 				{ProviderID: "phone", RawID: "p1"},
 			}},
@@ -196,7 +212,9 @@ func TestAnalyzeCountsMatchMigrateFiltering(t *testing.T) {
 }
 
 func TestPrintStats(t *testing.T) {
+	t.Parallel()
 	t.Run("shows all fields when non-zero", func(t *testing.T) {
+		t.Parallel()
 		var buf strings.Builder
 		m := &Migrator{
 			output: &buf,
@@ -218,6 +236,7 @@ func TestPrintStats(t *testing.T) {
 	})
 
 	t.Run("omits zero fields", func(t *testing.T) {
+		t.Parallel()
 		var buf strings.Builder
 		m := &Migrator{
 			output: &buf,
@@ -233,6 +252,7 @@ func TestPrintStats(t *testing.T) {
 	})
 
 	t.Run("shows errors", func(t *testing.T) {
+		t.Parallel()
 		var buf strings.Builder
 		m := &Migrator{
 			output: &buf,
@@ -248,6 +268,7 @@ func TestPrintStats(t *testing.T) {
 }
 
 func TestParseEpochMs(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name  string
 		input string
@@ -259,6 +280,7 @@ func TestParseEpochMs(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			result := parseEpochMs(tt.input)
 			testutil.Equal(t, tt.year, result.Year())
 		})

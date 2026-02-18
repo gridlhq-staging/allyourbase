@@ -140,7 +140,7 @@ func TestUserRunnerUpRollsBackOnError(t *testing.T) {
 
 	applied, err := runner.Up(ctx)
 	testutil.Equal(t, applied, 1) // First migration succeeded.
-	testutil.True(t, err != nil, "second migration should fail")
+	testutil.NotNil(t, err)
 
 	// Good table should exist, bad table should not (rolled back).
 	var exists bool
@@ -181,12 +181,12 @@ func TestUserRunnerStatus(t *testing.T) {
 
 	// First two should be applied.
 	testutil.Equal(t, "20260201_a.sql", status[0].Name)
-	testutil.True(t, status[0].AppliedAt != nil, "a should be applied")
+	testutil.NotNil(t, status[0].AppliedAt)
 
 	testutil.Equal(t, "20260202_b.sql", status[1].Name)
-	testutil.True(t, status[1].AppliedAt != nil, "b should be applied")
+	testutil.NotNil(t, status[1].AppliedAt)
 
 	// Third should be pending.
 	testutil.Equal(t, "20260203_c.sql", status[2].Name)
-	testutil.True(t, status[2].AppliedAt == nil, "c should be pending")
+	testutil.Nil(t, status[2].AppliedAt)
 }

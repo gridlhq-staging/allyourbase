@@ -83,6 +83,7 @@ func decodeError(t *testing.T, w *httptest.ResponseRecorder) httputil.ErrorRespo
 // --- Schema not ready ---
 
 func TestListSchemaCacheNotReady(t *testing.T) {
+	t.Parallel()
 	h := testHandler(nil)
 	w := doRequest(h, "GET", "/collections/users", "")
 	testutil.Equal(t, http.StatusServiceUnavailable, w.Code)
@@ -91,6 +92,7 @@ func TestListSchemaCacheNotReady(t *testing.T) {
 }
 
 func TestReadSchemaCacheNotReady(t *testing.T) {
+	t.Parallel()
 	h := testHandler(nil)
 	w := doRequest(h, "GET", "/collections/users/123", "")
 	testutil.Equal(t, http.StatusServiceUnavailable, w.Code)
@@ -101,6 +103,7 @@ func TestReadSchemaCacheNotReady(t *testing.T) {
 // --- Collection not found ---
 
 func TestListCollectionNotFound(t *testing.T) {
+	t.Parallel()
 	h := testHandler(testSchema())
 	w := doRequest(h, "GET", "/collections/nonexistent", "")
 	testutil.Equal(t, http.StatusNotFound, w.Code)
@@ -109,6 +112,7 @@ func TestListCollectionNotFound(t *testing.T) {
 }
 
 func TestReadCollectionNotFound(t *testing.T) {
+	t.Parallel()
 	h := testHandler(testSchema())
 	w := doRequest(h, "GET", "/collections/nonexistent/123", "")
 	testutil.Equal(t, http.StatusNotFound, w.Code)
@@ -117,6 +121,7 @@ func TestReadCollectionNotFound(t *testing.T) {
 }
 
 func TestCreateCollectionNotFound(t *testing.T) {
+	t.Parallel()
 	h := testHandler(testSchema())
 	w := doRequest(h, "POST", "/collections/nonexistent", `{"name":"test"}`)
 	testutil.Equal(t, http.StatusNotFound, w.Code)
@@ -127,6 +132,7 @@ func TestCreateCollectionNotFound(t *testing.T) {
 // --- Write on view ---
 
 func TestCreateOnViewNotAllowed(t *testing.T) {
+	t.Parallel()
 	h := testHandler(testSchema())
 	w := doRequest(h, "POST", "/collections/logs", `{"message":"test"}`)
 	testutil.Equal(t, http.StatusMethodNotAllowed, w.Code)
@@ -135,6 +141,7 @@ func TestCreateOnViewNotAllowed(t *testing.T) {
 }
 
 func TestUpdateOnViewNotAllowed(t *testing.T) {
+	t.Parallel()
 	h := testHandler(testSchema())
 	w := doRequest(h, "PATCH", "/collections/logs/1", `{"message":"test"}`)
 	testutil.Equal(t, http.StatusMethodNotAllowed, w.Code)
@@ -143,6 +150,7 @@ func TestUpdateOnViewNotAllowed(t *testing.T) {
 }
 
 func TestDeleteOnViewNotAllowed(t *testing.T) {
+	t.Parallel()
 	h := testHandler(testSchema())
 	w := doRequest(h, "DELETE", "/collections/logs/1", "")
 	testutil.Equal(t, http.StatusMethodNotAllowed, w.Code)
@@ -153,6 +161,7 @@ func TestDeleteOnViewNotAllowed(t *testing.T) {
 // --- No primary key ---
 
 func TestReadNoPrimaryKey(t *testing.T) {
+	t.Parallel()
 	h := testHandler(testSchema())
 	w := doRequest(h, "GET", "/collections/nopk/1", "")
 	testutil.Equal(t, http.StatusBadRequest, w.Code)
@@ -161,6 +170,7 @@ func TestReadNoPrimaryKey(t *testing.T) {
 }
 
 func TestUpdateNoPrimaryKey(t *testing.T) {
+	t.Parallel()
 	h := testHandler(testSchema())
 	w := doRequest(h, "PATCH", "/collections/nopk/1", `{"data":"test"}`)
 	testutil.Equal(t, http.StatusBadRequest, w.Code)
@@ -169,6 +179,7 @@ func TestUpdateNoPrimaryKey(t *testing.T) {
 }
 
 func TestDeleteNoPrimaryKey(t *testing.T) {
+	t.Parallel()
 	h := testHandler(testSchema())
 	w := doRequest(h, "DELETE", "/collections/nopk/1", "")
 	testutil.Equal(t, http.StatusBadRequest, w.Code)
@@ -179,6 +190,7 @@ func TestDeleteNoPrimaryKey(t *testing.T) {
 // --- Invalid body ---
 
 func TestCreateEmptyBody(t *testing.T) {
+	t.Parallel()
 	h := testHandler(testSchema())
 	w := doRequest(h, "POST", "/collections/users", `{}`)
 	testutil.Equal(t, http.StatusBadRequest, w.Code)
@@ -187,6 +199,7 @@ func TestCreateEmptyBody(t *testing.T) {
 }
 
 func TestCreateInvalidJSON(t *testing.T) {
+	t.Parallel()
 	h := testHandler(testSchema())
 	w := doRequest(h, "POST", "/collections/users", `{invalid`)
 	testutil.Equal(t, http.StatusBadRequest, w.Code)
@@ -195,6 +208,7 @@ func TestCreateInvalidJSON(t *testing.T) {
 }
 
 func TestCreateNoRecognizedColumns(t *testing.T) {
+	t.Parallel()
 	h := testHandler(testSchema())
 	w := doRequest(h, "POST", "/collections/users", `{"unknown_field":"value"}`)
 	testutil.Equal(t, http.StatusBadRequest, w.Code)
@@ -203,6 +217,7 @@ func TestCreateNoRecognizedColumns(t *testing.T) {
 }
 
 func TestUpdateEmptyBody(t *testing.T) {
+	t.Parallel()
 	h := testHandler(testSchema())
 	w := doRequest(h, "PATCH", "/collections/users/123", `{}`)
 	testutil.Equal(t, http.StatusBadRequest, w.Code)
@@ -211,6 +226,7 @@ func TestUpdateEmptyBody(t *testing.T) {
 }
 
 func TestUpdateInvalidJSON(t *testing.T) {
+	t.Parallel()
 	h := testHandler(testSchema())
 	w := doRequest(h, "PATCH", "/collections/users/123", `not-json`)
 	testutil.Equal(t, http.StatusBadRequest, w.Code)
@@ -221,6 +237,7 @@ func TestUpdateInvalidJSON(t *testing.T) {
 // --- Invalid filter ---
 
 func TestListInvalidFilter(t *testing.T) {
+	t.Parallel()
 	h := testHandler(testSchema())
 	w := doRequest(h, "GET", "/collections/users?filter=((broken", "")
 	testutil.Equal(t, http.StatusBadRequest, w.Code)
@@ -232,12 +249,14 @@ func TestListInvalidFilter(t *testing.T) {
 // --- parseFields ---
 
 func TestParseFieldsEmpty(t *testing.T) {
+	t.Parallel()
 	r := httptest.NewRequest("GET", "/?fields=", nil)
 	fields := parseFields(r)
-	testutil.True(t, fields == nil, "expected nil for empty fields")
+	testutil.Nil(t, fields)
 }
 
 func TestParseFieldsMultiple(t *testing.T) {
+	t.Parallel()
 	r := httptest.NewRequest("GET", "/?fields=id,email,name", nil)
 	fields := parseFields(r)
 	testutil.Equal(t, 3, len(fields))
@@ -247,6 +266,7 @@ func TestParseFieldsMultiple(t *testing.T) {
 }
 
 func TestParseFieldsTrimsSpaces(t *testing.T) {
+	t.Parallel()
 	r := httptest.NewRequest("GET", "/?fields=+id+,+name+", nil)
 	fields := parseFields(r)
 	testutil.Equal(t, 2, len(fields))
@@ -257,6 +277,7 @@ func TestParseFieldsTrimsSpaces(t *testing.T) {
 // --- parseSortSQL ---
 
 func TestParseSortSQLAscending(t *testing.T) {
+	t.Parallel()
 	sc := testSchema()
 	tbl := sc.TableByName("users")
 	result := parseSortSQL(tbl, "email")
@@ -264,6 +285,7 @@ func TestParseSortSQLAscending(t *testing.T) {
 }
 
 func TestParseSortSQLDescending(t *testing.T) {
+	t.Parallel()
 	sc := testSchema()
 	tbl := sc.TableByName("users")
 	result := parseSortSQL(tbl, "-email")
@@ -271,6 +293,7 @@ func TestParseSortSQLDescending(t *testing.T) {
 }
 
 func TestParseSortSQLSkipsUnknownColumns(t *testing.T) {
+	t.Parallel()
 	sc := testSchema()
 	tbl := sc.TableByName("users")
 	result := parseSortSQL(tbl, "nonexistent")
@@ -280,6 +303,7 @@ func TestParseSortSQLSkipsUnknownColumns(t *testing.T) {
 // --- Content-Type on responses ---
 
 func TestErrorResponseIsJSON(t *testing.T) {
+	t.Parallel()
 	h := testHandler(testSchema())
 	w := doRequest(h, "GET", "/collections/nonexistent", "")
 	testutil.Equal(t, "application/json", w.Header().Get("Content-Type"))
@@ -311,6 +335,7 @@ func doRequestWithClaims(handler http.Handler, method, path string, body string,
 }
 
 func TestReadonlyScopeDeniesCreate(t *testing.T) {
+	t.Parallel()
 	h := testHandler(testSchema())
 	claims := &auth.Claims{APIKeyScope: "readonly"}
 	w := doRequestWithClaims(h, "POST", "/collections/users", `{"email":"a@b.com"}`, claims)
@@ -320,6 +345,7 @@ func TestReadonlyScopeDeniesCreate(t *testing.T) {
 }
 
 func TestReadonlyScopeDeniesUpdate(t *testing.T) {
+	t.Parallel()
 	h := testHandler(testSchema())
 	claims := &auth.Claims{APIKeyScope: "readonly"}
 	w := doRequestWithClaims(h, "PATCH", "/collections/users/123", `{"email":"a@b.com"}`, claims)
@@ -329,6 +355,7 @@ func TestReadonlyScopeDeniesUpdate(t *testing.T) {
 }
 
 func TestReadonlyScopeDeniesDelete(t *testing.T) {
+	t.Parallel()
 	h := testHandler(testSchema())
 	claims := &auth.Claims{APIKeyScope: "readonly"}
 	w := doRequestWithClaims(h, "DELETE", "/collections/users/123", "", claims)
@@ -341,6 +368,7 @@ func TestReadonlyScopeDeniesDelete(t *testing.T) {
 // going through the handler. Covered by TestClaimsIsReadAllowed in auth/apikeys_test.go.
 
 func TestTableScopeDeniesUnauthorizedTable(t *testing.T) {
+	t.Parallel()
 	h := testHandler(testSchema())
 	claims := &auth.Claims{AllowedTables: []string{"logs"}}
 	w := doRequestWithClaims(h, "GET", "/collections/users", "", claims)
@@ -358,6 +386,7 @@ func TestTableScopeDeniesUnauthorizedTable(t *testing.T) {
 // --- API hardening limits ---
 
 func TestListFilterTooLong(t *testing.T) {
+	t.Parallel()
 	h := testHandler(testSchema())
 	longFilter := "name='" + strings.Repeat("a", maxFilterLen+1) + "'"
 	w := doRequest(h, "GET", "/collections/users?filter="+longFilter, "")
@@ -368,6 +397,7 @@ func TestListFilterTooLong(t *testing.T) {
 }
 
 func TestListSearchTooLong(t *testing.T) {
+	t.Parallel()
 	h := testHandler(testSchema())
 	longSearch := strings.Repeat("a", maxSearchLen+1)
 	w := doRequest(h, "GET", "/collections/users?search="+longSearch, "")
@@ -378,6 +408,7 @@ func TestListSearchTooLong(t *testing.T) {
 }
 
 func TestParseSortSQLMaxFieldsLimit(t *testing.T) {
+	t.Parallel()
 	sc := testSchema()
 	tbl := sc.TableByName("users")
 	// Build a sort string with more fields than the limit — only valid columns count.
@@ -399,6 +430,7 @@ func TestParseSortSQLMaxFieldsLimit(t *testing.T) {
 // --- Edge cases: primary key parsing ---
 
 func TestReadCompositePKMissingValue(t *testing.T) {
+	t.Parallel()
 	sc := &schema.SchemaCache{
 		Tables: map[string]*schema.Table{
 			"public.composite": {
@@ -420,4 +452,3 @@ func TestReadCompositePKMissingValue(t *testing.T) {
 	resp := decodeError(t, w)
 	testutil.Contains(t, resp.Message, "invalid primary key: expected 2 values")
 }
-

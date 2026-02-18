@@ -10,7 +10,7 @@ AYB is a single binary with no runtime dependencies. Deploy it however you deplo
 docker run -p 8090:8090 ghcr.io/gridlhq-staging/allyourbase
 ```
 
-This starts AYB with embedded PostgreSQL — no external database needed.
+This starts AYB with managed PostgreSQL — no external database needed.
 
 ### With external PostgreSQL
 

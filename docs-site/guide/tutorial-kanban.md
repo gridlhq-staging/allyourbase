@@ -1,6 +1,6 @@
 # Tutorial: Realtime Kanban Board
 
-Build a collaborative Kanban board (Trello-lite) with AllYourBase. This tutorial exercises all major features: REST API, Auth, Realtime SSE, Row-Level Security, and foreign key relationships.
+Build a collaborative Kanban board (Trello-lite) with Allyourbase. This tutorial exercises all major features: REST API, Auth, Realtime SSE, Row-Level Security, and foreign key relationships.
 
 **Source code:** [examples/kanban/](https://github.com/gridlhq/allyourbase/tree/main/examples/kanban)
 
@@ -14,10 +14,10 @@ Build a collaborative Kanban board (Trello-lite) with AllYourBase. This tutorial
 
 ## Prerequisites
 
-- [AllYourBase installed](/guide/getting-started)
+- [Allyourbase installed](/guide/getting-started)
 - Node.js 18+
 
-## 1. Configure AllYourBase
+## 1. Configure Allyourbase
 
 Create `ayb.toml` with auth enabled:
 
@@ -70,7 +70,7 @@ CREATE TABLE cards (
 );
 ```
 
-Run this against the embedded Postgres:
+Run this against the managed Postgres:
 
 ```bash
 psql "postgresql://ayb:ayb@localhost:15432/ayb" -f schema.sql

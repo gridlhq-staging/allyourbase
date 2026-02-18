@@ -9,6 +9,7 @@ import (
 )
 
 func TestWriteJSON(t *testing.T) {
+	t.Parallel()
 	w := httptest.NewRecorder()
 	WriteJSON(w, http.StatusOK, map[string]string{"hello": "world"})
 
@@ -28,6 +29,7 @@ func TestWriteJSON(t *testing.T) {
 }
 
 func TestWriteJSONCustomStatus(t *testing.T) {
+	t.Parallel()
 	w := httptest.NewRecorder()
 	WriteJSON(w, http.StatusCreated, map[string]int{"id": 1})
 	if w.Code != http.StatusCreated {
@@ -36,6 +38,7 @@ func TestWriteJSONCustomStatus(t *testing.T) {
 }
 
 func TestWriteError(t *testing.T) {
+	t.Parallel()
 	w := httptest.NewRecorder()
 	WriteError(w, http.StatusNotFound, "not found")
 
@@ -58,6 +61,7 @@ func TestWriteError(t *testing.T) {
 }
 
 func TestWriteFieldError(t *testing.T) {
+	t.Parallel()
 	w := httptest.NewRecorder()
 	WriteFieldError(w, http.StatusConflict, "unique violation", "email", "unique", "already exists")
 
@@ -91,6 +95,7 @@ func TestWriteFieldError(t *testing.T) {
 }
 
 func TestDecodeJSONValid(t *testing.T) {
+	t.Parallel()
 	body := `{"email":"test@example.com","name":"Test"}`
 	r := httptest.NewRequest("POST", "/", strings.NewReader(body))
 	r.Header.Set("Content-Type", "application/json")
@@ -107,6 +112,7 @@ func TestDecodeJSONValid(t *testing.T) {
 }
 
 func TestDecodeJSONInvalid(t *testing.T) {
+	t.Parallel()
 	r := httptest.NewRequest("POST", "/", strings.NewReader("{broken"))
 	w := httptest.NewRecorder()
 
@@ -121,6 +127,7 @@ func TestDecodeJSONInvalid(t *testing.T) {
 }
 
 func TestDecodeJSONEmptyBody(t *testing.T) {
+	t.Parallel()
 	r := httptest.NewRequest("POST", "/", strings.NewReader(""))
 	w := httptest.NewRecorder()
 
@@ -135,6 +142,7 @@ func TestDecodeJSONEmptyBody(t *testing.T) {
 }
 
 func TestExtractBearerTokenValid(t *testing.T) {
+	t.Parallel()
 	r := httptest.NewRequest("GET", "/", nil)
 	r.Header.Set("Authorization", "Bearer mytoken123")
 	token, ok := ExtractBearerToken(r)
@@ -147,6 +155,7 @@ func TestExtractBearerTokenValid(t *testing.T) {
 }
 
 func TestExtractBearerTokenMissing(t *testing.T) {
+	t.Parallel()
 	r := httptest.NewRequest("GET", "/", nil)
 	_, ok := ExtractBearerToken(r)
 	if ok {
@@ -155,6 +164,7 @@ func TestExtractBearerTokenMissing(t *testing.T) {
 }
 
 func TestExtractBearerTokenWrongScheme(t *testing.T) {
+	t.Parallel()
 	r := httptest.NewRequest("GET", "/", nil)
 	r.Header.Set("Authorization", "Basic abc123")
 	_, ok := ExtractBearerToken(r)
@@ -164,6 +174,7 @@ func TestExtractBearerTokenWrongScheme(t *testing.T) {
 }
 
 func TestExtractBearerTokenEmptyToken(t *testing.T) {
+	t.Parallel()
 	r := httptest.NewRequest("GET", "/", nil)
 	r.Header.Set("Authorization", "Bearer ")
 	_, ok := ExtractBearerToken(r)
@@ -173,6 +184,7 @@ func TestExtractBearerTokenEmptyToken(t *testing.T) {
 }
 
 func TestWriteErrorWithDocURL(t *testing.T) {
+	t.Parallel()
 	w := httptest.NewRecorder()
 	WriteErrorWithDocURL(w, http.StatusUnauthorized, "missing or invalid JWT", "https://allyourbase.io/errors/401")
 
@@ -195,6 +207,7 @@ func TestWriteErrorWithDocURL(t *testing.T) {
 }
 
 func TestWriteErrorOmitsDocURLWhenEmpty(t *testing.T) {
+	t.Parallel()
 	w := httptest.NewRecorder()
 	WriteError(w, http.StatusNotFound, "not found")
 
@@ -209,6 +222,7 @@ func TestWriteErrorOmitsDocURLWhenEmpty(t *testing.T) {
 }
 
 func TestWriteErrorDocURLInRawJSON(t *testing.T) {
+	t.Parallel()
 	w := httptest.NewRecorder()
 	WriteErrorWithDocURL(w, http.StatusBadRequest, "bad request", "https://allyourbase.io/errors/400")
 
@@ -227,6 +241,7 @@ func TestWriteErrorDocURLInRawJSON(t *testing.T) {
 }
 
 func TestIsValidUUID(t *testing.T) {
+	t.Parallel()
 	valid := []string{
 		"00000000-0000-0000-0000-000000000000",
 		"550e8400-e29b-41d4-a716-446655440000",
@@ -243,10 +258,10 @@ func TestIsValidUUID(t *testing.T) {
 		"",
 		"not-a-uuid",
 		"nonexistent-id",
-		"550e8400e29b41d4a716446655440000",  // no hyphens
-		"550e8400-e29b-41d4-a716-44665544000", // too short
+		"550e8400e29b41d4a716446655440000",      // no hyphens
+		"550e8400-e29b-41d4-a716-44665544000",   // too short
 		"550e8400-e29b-41d4-a716-4466554400000", // too long
-		"gggggggg-gggg-gggg-gggg-gggggggggggg", // not hex
+		"gggggggg-gggg-gggg-gggg-gggggggggggg",  // not hex
 	}
 	for _, s := range invalid {
 		if IsValidUUID(s) {
@@ -256,6 +271,7 @@ func TestIsValidUUID(t *testing.T) {
 }
 
 func TestMaxBodySizeConstant(t *testing.T) {
+	t.Parallel()
 	if MaxBodySize != 1<<20 {
 		t.Fatalf("expected 1MB (1048576), got %d", MaxBodySize)
 	}

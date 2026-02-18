@@ -33,6 +33,8 @@ type Handler struct {
 	auth             *Service
 	logger           *slog.Logger
 	oauthClients     map[string]OAuthClientConfig
+	oauthProviderURLs map[string]OAuthProviderConfig // per-handler provider URL overrides
+	oauthHTTPClient  *http.Client
 	oauthStateStore  *OAuthStateStore
 	oauthRedirectURL string
 	oauthPublisher   OAuthPublisher // nil when realtime hub not available
@@ -41,12 +43,30 @@ type Handler struct {
 
 // NewHandler creates a new auth handler.
 func NewHandler(svc *Service, logger *slog.Logger) *Handler {
-	return &Handler{
-		auth:            svc,
-		logger:          logger,
-		oauthClients:    make(map[string]OAuthClientConfig),
-		oauthStateStore: NewOAuthStateStore(10 * time.Minute),
+	// Initialise per-handler provider URL config from the current global state
+	// so that test overrides applied via SetProviderURLs before construction
+	// are picked up, while still allowing per-handler overrides afterwards.
+	oauthMu.RLock()
+	urls := make(map[string]OAuthProviderConfig, len(oauthProviders))
+	for k, v := range oauthProviders {
+		urls[k] = v
 	}
+	oauthMu.RUnlock()
+	return &Handler{
+		auth:              svc,
+		logger:            logger,
+		oauthClients:      make(map[string]OAuthClientConfig),
+		oauthProviderURLs: urls,
+		oauthHTTPClient:   oauthHTTPClient,
+		oauthStateStore:   NewOAuthStateStore(10 * time.Minute),
+	}
+}
+
+// SetProviderURLs overrides the OAuth endpoint URLs for a provider on this
+// handler instance. This is used in tests to point the token/userinfo
+// endpoints at a local fake server without mutating package-level globals.
+func (h *Handler) SetProviderURLs(provider string, cfg OAuthProviderConfig) {
+	h.oauthProviderURLs[provider] = cfg
 }
 
 // SetOAuthProvider registers an OAuth provider with its client credentials.
@@ -489,9 +509,16 @@ func (h *Handler) handleOAuthCallback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Exchange code for user info.
+	// Exchange code for user info using this handler's per-instance provider
+	// config and HTTP client (so tests can override without touching globals).
 	callbackURL := oauthCallbackURL(r, provider)
-	info, err := ExchangeCode(r.Context(), provider, client, code, callbackURL)
+	pc, ok := h.oauthProviderURLs[provider]
+	if !ok {
+		h.logger.Error("OAuth provider URL config missing", "provider", provider)
+		httputil.WriteError(w, http.StatusInternalServerError, "internal error")
+		return
+	}
+	info, err := exchangeCode(r.Context(), provider, client, code, callbackURL, pc, h.oauthHTTPClient)
 	if err != nil {
 		h.logger.Error("OAuth code exchange error", "provider", provider, "error", err)
 		if isSSEClient {

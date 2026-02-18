@@ -11,6 +11,7 @@ import (
 )
 
 func TestRateLimiterAllow(t *testing.T) {
+	t.Parallel()
 	rl := NewRateLimiter(3, time.Minute)
 	defer rl.Stop()
 
@@ -37,6 +38,7 @@ func TestRateLimiterAllow(t *testing.T) {
 }
 
 func TestRateLimiterWindowExpiry(t *testing.T) {
+	t.Parallel()
 	rl := NewRateLimiter(2, 20*time.Millisecond)
 	defer rl.Stop()
 
@@ -57,6 +59,7 @@ func TestRateLimiterWindowExpiry(t *testing.T) {
 }
 
 func TestRateLimiterMiddleware(t *testing.T) {
+	t.Parallel()
 	rl := NewRateLimiter(2, time.Minute)
 	defer rl.Stop()
 
@@ -85,6 +88,7 @@ func TestRateLimiterMiddleware(t *testing.T) {
 }
 
 func TestRateLimiterMiddlewareHeaders(t *testing.T) {
+	t.Parallel()
 	rl := NewRateLimiter(3, time.Minute)
 	defer rl.Stop()
 
@@ -103,6 +107,7 @@ func TestRateLimiterMiddlewareHeaders(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			// Not parallel: subtests share a rate limiter and test sequential ordering.
 			req := httptest.NewRequest(http.MethodPost, "/", nil)
 			req.RemoteAddr = "10.0.0.1:12345"
 			w := httptest.NewRecorder()
@@ -138,6 +143,8 @@ func TestRateLimiterMiddlewareHeaders(t *testing.T) {
 
 func TestClientIPFromXForwardedForTrustedProxy(t *testing.T) {
 	// XFF is trusted when RemoteAddr is a private/loopback IP (behind proxy).
+	t.Parallel()
+
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
 	req.RemoteAddr = "127.0.0.1:12345"
 	req.Header.Set("X-Forwarded-For", "203.0.113.50")
@@ -145,6 +152,7 @@ func TestClientIPFromXForwardedForTrustedProxy(t *testing.T) {
 }
 
 func TestClientIPFromXForwardedForMultipleTrustedProxy(t *testing.T) {
+	t.Parallel()
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
 	req.RemoteAddr = "10.0.0.1:12345"
 	req.Header.Set("X-Forwarded-For", "203.0.113.50, 70.41.3.18, 150.172.238.178")
@@ -152,6 +160,7 @@ func TestClientIPFromXForwardedForMultipleTrustedProxy(t *testing.T) {
 }
 
 func TestClientIPFromXForwardedForTrimsWhitespace(t *testing.T) {
+	t.Parallel()
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
 	req.RemoteAddr = "192.168.1.1:12345"
 	req.Header.Set("X-Forwarded-For", "  203.0.113.50 , 70.41.3.18")
@@ -159,6 +168,7 @@ func TestClientIPFromXForwardedForTrimsWhitespace(t *testing.T) {
 }
 
 func TestClientIPFromXRealIPTrustedProxy(t *testing.T) {
+	t.Parallel()
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
 	req.RemoteAddr = "127.0.0.1:12345"
 	req.Header.Set("X-Real-IP", "198.51.100.1")
@@ -167,6 +177,8 @@ func TestClientIPFromXRealIPTrustedProxy(t *testing.T) {
 
 func TestClientIPIgnoresXFFFromPublicIP(t *testing.T) {
 	// XFF should be ignored when RemoteAddr is a public IP (direct connection).
+	t.Parallel()
+
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
 	req.RemoteAddr = "203.0.113.1:12345"
 	req.Header.Set("X-Forwarded-For", "10.0.0.99")
@@ -174,6 +186,7 @@ func TestClientIPIgnoresXFFFromPublicIP(t *testing.T) {
 }
 
 func TestClientIPIgnoresXRealIPFromPublicIP(t *testing.T) {
+	t.Parallel()
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
 	req.RemoteAddr = "198.51.100.5:12345"
 	req.Header.Set("X-Real-IP", "10.0.0.99")
@@ -181,12 +194,14 @@ func TestClientIPIgnoresXRealIPFromPublicIP(t *testing.T) {
 }
 
 func TestClientIPFromRemoteAddr(t *testing.T) {
+	t.Parallel()
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
 	req.RemoteAddr = "192.168.1.1:54321"
 	testutil.Equal(t, "192.168.1.1", clientIP(req))
 }
 
 func TestClientIPRemoteAddrNoPort(t *testing.T) {
+	t.Parallel()
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
 	req.RemoteAddr = "192.168.1.1"
 	testutil.Equal(t, "192.168.1.1", clientIP(req))

@@ -77,13 +77,45 @@ fi
 
 section "Configuration Defaults"
 
-# Test: REPO default is set
-if grep -q 'REPO=.*stuartcrobinson/allyourbase' "$INSTALL_SCRIPT"; then
-  pass "Default REPO is stuartcrobinson/allyourbase (staging)"
-elif grep -q 'REPO=.*gridlhq/allyourbase' "$INSTALL_SCRIPT"; then
-  pass "Default REPO is gridlhq/allyourbase (prod)"
+# Test: REPO default matches the environment (staging vs prod)
+# In staging CI: expect gridlhq-staging/allyourbase
+# In prod CI: expect gridlhq/allyourbase
+# Locally: accept either (dev repo has prod default, but staging sync rewrites it)
+if [ -n "${GITHUB_REPOSITORY:-}" ]; then
+  case "$GITHUB_REPOSITORY" in
+    gridlhq-staging/allyourbase)
+      if grep -q 'REPO=.*gridlhq-staging/allyourbase' "$INSTALL_SCRIPT"; then
+        pass "Default REPO is gridlhq-staging/allyourbase (staging environment)"
+      else
+        fail "Default REPO should be gridlhq-staging/allyourbase in staging environment"
+      fi
+      ;;
+    gridlhq/allyourbase)
+      if grep -q 'REPO=.*gridlhq/allyourbase' "$INSTALL_SCRIPT" && ! grep -q 'gridlhq-staging' "$INSTALL_SCRIPT"; then
+        pass "Default REPO is gridlhq/allyourbase (production environment)"
+      else
+        fail "Default REPO should be gridlhq/allyourbase in production environment"
+      fi
+      ;;
+    gridlhq/allyourbase_dev)
+      # Dev repo: install.sh defaults to gridlhq/allyourbase (sync rewrites for staging/prod)
+      if grep -q 'REPO=.*gridlhq/allyourbase' "$INSTALL_SCRIPT"; then
+        pass "Default REPO is gridlhq/allyourbase (dev environment)"
+      else
+        fail "Default REPO should be gridlhq/allyourbase in dev environment"
+      fi
+      ;;
+    *)
+      fail "Unexpected GITHUB_REPOSITORY: $GITHUB_REPOSITORY"
+      ;;
+  esac
 else
-  fail "No recognized default REPO found"
+  # Local: accept either repo (dev has prod default, staging sync rewrites it)
+  if grep -q 'REPO=.*gridlhq/allyourbase' "$INSTALL_SCRIPT"; then
+    pass "Default REPO is set (local environment)"
+  else
+    fail "Default REPO should be gridlhq/allyourbase or gridlhq-staging/allyourbase"
+  fi
 fi
 
 # Test: BINARY_NAME is ayb
@@ -353,7 +385,42 @@ else
   fail "No mkdir -p for install directory"
 fi
 
-# ── Integration Tests (requires network + GITHUB_TOKEN for private repos) ──
+# ── Release API Reachability (public, no token needed) ────────────────────────
+
+section "Release API Reachability"
+
+# Extract the default REPO from install.sh
+default_repo=$(grep 'AYB_REPO:-' "$INSTALL_SCRIPT" | sed 's/.*AYB_REPO:-//;s/}.*//;s/"//g')
+
+# Test: GitHub API /releases/latest returns a valid tag_name
+if [ -n "${GITHUB_TOKEN:-}" ]; then
+  api_resp=$(curl -fsSL -H "Authorization: token ${GITHUB_TOKEN}" "https://api.github.com/repos/${default_repo}/releases/latest" 2>&1) || true
+else
+  api_resp=$(curl -fsSL "https://api.github.com/repos/${default_repo}/releases/latest" 2>&1) || true
+fi
+if echo "$api_resp" | grep -q '"tag_name"'; then
+  latest_tag=$(echo "$api_resp" | grep '"tag_name"' | head -1 | sed 's/.*"tag_name": *"//;s/".*//')
+  pass "GitHub API releases/latest returns tag: ${latest_tag}"
+else
+  # No release yet is acceptable (staging may not have any)
+  if echo "$api_resp" | grep -q '"message".*"Not Found"'; then
+    pass "GitHub API reachable (no releases yet for ${default_repo})"
+  else
+    fail "GitHub API releases/latest for ${default_repo} failed" \
+      "Got: $(echo "$api_resp" | head -3)"
+  fi
+fi
+
+# Test: If releases exist, check for .tar.gz assets
+if echo "$api_resp" | grep -q '"tag_name"'; then
+  if echo "$api_resp" | grep -q 'ayb_.*\.tar\.gz'; then
+    pass "Release has .tar.gz assets"
+  else
+    fail "No .tar.gz assets found in latest release"
+  fi
+fi
+
+# ── Integration Tests (requires network + GITHUB_TOKEN) ──────────────────────
 
 section "Integration Tests"
 
@@ -367,20 +434,23 @@ fi
 if [ -z "${GITHUB_TOKEN:-}" ]; then
   printf "  \033[1;33mSkipped\033[0m (set GITHUB_TOKEN or install gh CLI for integration tests)\n"
 else
-  # Check if we have any releases to test against
-  api_url="https://api.github.com/repos/stuartcrobinson/allyourbase/releases"
-  release_count=$(curl -fsSL -H "Authorization: token ${GITHUB_TOKEN}" "$api_url" 2>/dev/null | grep -c '"tag_name"' || true)
+  # Resolve a pinned version dynamically (use the latest release tag)
+  PIN_VERSION=$(curl -fsSL -H "Authorization: token ${GITHUB_TOKEN}" \
+    "https://api.github.com/repos/${default_repo}/releases/latest" 2>/dev/null \
+    | grep '"tag_name"' | head -1 | sed 's/.*"tag_name": *"//;s/".*//')
 
-  if [ "$release_count" = "0" ]; then
-    printf "  \033[1;33mSkipped\033[0m (no releases found — create a release first to test downloads)\n"
+  if [ -z "$PIN_VERSION" ]; then
+    printf "  \033[1;33mSkipped\033[0m (no releases found for ${default_repo} — create a release first)\n"
   else
-    # Test: Full install with latest version
+    # Test: Full install with version pinning
     test_dir=$(mktemp -d)
+    trap_cleanup() { rm -rf "$test_dir"; }
+    trap trap_cleanup EXIT
 
-    if NO_MODIFY_PATH=1 AYB_INSTALL="$test_dir" GITHUB_TOKEN="$GITHUB_TOKEN" sh "$INSTALL_SCRIPT" 2>&1 | grep -q "installed successfully"; then
-      pass "Full install with latest version auto-detection"
+    if NO_MODIFY_PATH=1 AYB_INSTALL="$test_dir" GITHUB_TOKEN="$GITHUB_TOKEN" sh "$INSTALL_SCRIPT" "$PIN_VERSION" 2>&1 | grep -q "installed successfully"; then
+      pass "Full install with version pinning (${PIN_VERSION})"
     else
-      fail "Full install with latest version failed"
+      fail "Full install with version pinning failed (${PIN_VERSION})"
     fi
 
     # Test: Binary exists and is executable
@@ -390,43 +460,51 @@ else
       fail "Binary not found or not executable at $test_dir/bin/ayb"
     fi
 
-    # Test: Binary runs (check version)
-    if "$test_dir/bin/ayb" version >/dev/null 2>&1; then
-      pass "Binary runs successfully (ayb version)"
+    # Test: Binary runs
+    if "$test_dir/bin/ayb" --help >/dev/null 2>&1 || "$test_dir/bin/ayb" version >/dev/null 2>&1; then
+      pass "Binary runs successfully"
     else
       fail "Binary failed to run (may be incompatible with this platform)"
     fi
 
-    # Test: Idempotent reinstall (run twice, check no errors)
+    # Test: Latest version auto-detection
     test_dir2=$(mktemp -d)
-    NO_MODIFY_PATH=1 AYB_INSTALL="$test_dir2" GITHUB_TOKEN="$GITHUB_TOKEN" sh "$INSTALL_SCRIPT" 2>&1 >/dev/null
-    output2=$(NO_MODIFY_PATH=1 AYB_INSTALL="$test_dir2" GITHUB_TOKEN="$GITHUB_TOKEN" sh "$INSTALL_SCRIPT" 2>&1)
+    if NO_MODIFY_PATH=1 AYB_INSTALL="$test_dir2" GITHUB_TOKEN="$GITHUB_TOKEN" sh "$INSTALL_SCRIPT" 2>&1 | grep -q "installed successfully"; then
+      pass "Latest version auto-detection works"
+    else
+      fail "Latest version auto-detection failed"
+    fi
+    rm -rf "$test_dir2"
+
+    # Test: Idempotent reinstall (run twice, check no errors)
+    test_dir3=$(mktemp -d)
+    NO_MODIFY_PATH=1 AYB_INSTALL="$test_dir3" GITHUB_TOKEN="$GITHUB_TOKEN" sh "$INSTALL_SCRIPT" "$PIN_VERSION" >/dev/null 2>&1 || true
+    output2=$(NO_MODIFY_PATH=1 AYB_INSTALL="$test_dir3" GITHUB_TOKEN="$GITHUB_TOKEN" sh "$INSTALL_SCRIPT" "$PIN_VERSION" 2>&1)
     if echo "$output2" | grep -q "installed successfully"; then
       pass "Idempotent reinstall works"
     else
       fail "Idempotent reinstall failed" "$output2"
     fi
-    rm -rf "$test_dir2"
+    rm -rf "$test_dir3"
 
     # Test: Custom install directory
-    test_dir3=$(mktemp -d)
-    if NO_MODIFY_PATH=1 AYB_INSTALL="$test_dir3/custom" GITHUB_TOKEN="$GITHUB_TOKEN" sh "$INSTALL_SCRIPT" 2>&1 | grep -q "installed successfully"; then
+    test_dir4=$(mktemp -d)
+    if NO_MODIFY_PATH=1 AYB_INSTALL="$test_dir4/custom" GITHUB_TOKEN="$GITHUB_TOKEN" sh "$INSTALL_SCRIPT" "$PIN_VERSION" 2>&1 | grep -q "installed successfully"; then
       pass "Custom install directory (AYB_INSTALL)"
     else
       fail "Custom install directory failed"
     fi
-    rm -rf "$test_dir3"
+    rm -rf "$test_dir4"
 
     # Test: Invalid version fails gracefully
-    test_dir4=$(mktemp -d)
-    if NO_MODIFY_PATH=1 AYB_INSTALL="$test_dir4" GITHUB_TOKEN="$GITHUB_TOKEN" sh "$INSTALL_SCRIPT" v999.999.999 2>&1 | grep -qi "error\|fail\|not found\|404"; then
+    test_dir5=$(mktemp -d)
+    if NO_MODIFY_PATH=1 AYB_INSTALL="$test_dir5" GITHUB_TOKEN="$GITHUB_TOKEN" sh "$INSTALL_SCRIPT" v999.999.999 2>&1 | grep -qi "error\|fail\|not found\|404"; then
       pass "Invalid version fails gracefully"
     else
       fail "Invalid version did not produce error"
     fi
-    rm -rf "$test_dir4"
+    rm -rf "$test_dir5"
 
-    # Cleanup
     rm -rf "$test_dir"
   fi
 fi

@@ -1,4 +1,4 @@
--- Kanban Board Demo Schema for AllYourBase
+-- Kanban Board Demo Schema for Allyourbase
 -- Run against the AYB-managed Postgres:
 --   psql "postgresql://ayb:ayb@localhost:15432/ayb" -f schema.sql
 

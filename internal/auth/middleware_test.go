@@ -31,6 +31,7 @@ func generateTestToken(t *testing.T, svc *Service, userID, email string) string 
 }
 
 func TestRequireAuthValidToken(t *testing.T) {
+	t.Parallel()
 	svc := newTestService()
 	token := generateTestToken(t, svc, "user-1", "test@example.com")
 
@@ -52,6 +53,7 @@ func TestRequireAuthValidToken(t *testing.T) {
 }
 
 func TestRequireAuthMissingHeader(t *testing.T) {
+	t.Parallel()
 	svc := newTestService()
 	called := false
 	handler := RequireAuth(svc)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -67,6 +69,7 @@ func TestRequireAuthMissingHeader(t *testing.T) {
 }
 
 func TestRequireAuthMalformedHeader(t *testing.T) {
+	t.Parallel()
 	svc := newTestService()
 	handler := RequireAuth(svc)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
@@ -82,6 +85,7 @@ func TestRequireAuthMalformedHeader(t *testing.T) {
 }
 
 func TestRequireAuthExpiredToken(t *testing.T) {
+	t.Parallel()
 	svc := &Service{
 		jwtSecret: []byte(testSecret),
 		tokenDur:  -time.Hour,
@@ -102,6 +106,7 @@ func TestRequireAuthExpiredToken(t *testing.T) {
 }
 
 func TestOptionalAuthNoHeader(t *testing.T) {
+	t.Parallel()
 	svc := newTestService()
 	var gotClaims *Claims
 	handler := OptionalAuth(svc)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -114,10 +119,11 @@ func TestOptionalAuthNoHeader(t *testing.T) {
 	handler.ServeHTTP(w, req)
 
 	testutil.Equal(t, http.StatusOK, w.Code)
-	testutil.True(t, gotClaims == nil, "claims should be nil")
+	testutil.Nil(t, gotClaims)
 }
 
 func TestOptionalAuthInvalidToken(t *testing.T) {
+	t.Parallel()
 	svc := newTestService()
 	var gotClaims *Claims
 	handler := OptionalAuth(svc)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -132,10 +138,11 @@ func TestOptionalAuthInvalidToken(t *testing.T) {
 	handler.ServeHTTP(w, req)
 
 	testutil.Equal(t, http.StatusOK, w.Code)
-	testutil.True(t, gotClaims == nil, "invalid token should result in nil claims")
+	testutil.Nil(t, gotClaims)
 }
 
 func TestOptionalAuthValidToken(t *testing.T) {
+	t.Parallel()
 	svc := newTestService()
 	token := generateTestToken(t, svc, "user-2", "other@example.com")
 
@@ -156,12 +163,14 @@ func TestOptionalAuthValidToken(t *testing.T) {
 }
 
 func TestClaimsFromContextNil(t *testing.T) {
+	t.Parallel()
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
 	claims := ClaimsFromContext(req.Context())
-	testutil.True(t, claims == nil, "claims should be nil when not set")
+	testutil.Nil(t, claims)
 }
 
 func TestRequireAuthMissingHeaderDocURL(t *testing.T) {
+	t.Parallel()
 	svc := newTestService()
 	handler := RequireAuth(svc)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
@@ -177,6 +186,7 @@ func TestRequireAuthMissingHeaderDocURL(t *testing.T) {
 }
 
 func TestRequireAuthExpiredTokenDocURL(t *testing.T) {
+	t.Parallel()
 	svc := &Service{
 		jwtSecret: []byte(testSecret),
 		tokenDur:  -time.Hour,

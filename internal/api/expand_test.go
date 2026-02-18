@@ -11,6 +11,7 @@ import (
 )
 
 func TestGetOrCreateExpand(t *testing.T) {
+	t.Parallel()
 	rec := map[string]any{"id": 1, "name": "test"}
 
 	// First call creates the expand map.
@@ -25,6 +26,7 @@ func TestGetOrCreateExpand(t *testing.T) {
 }
 
 func TestGetOrCreateExpandExisting(t *testing.T) {
+	t.Parallel()
 	existing := map[string]any{"tags": []string{"go"}}
 	rec := map[string]any{"id": 1, "expand": existing}
 
@@ -38,6 +40,7 @@ func TestGetOrCreateExpandExisting(t *testing.T) {
 }
 
 func TestFindRelationByFieldName(t *testing.T) {
+	t.Parallel()
 	tbl := &schema.Table{
 		Name:   "posts",
 		Schema: "public",
@@ -59,6 +62,7 @@ func TestFindRelationByFieldName(t *testing.T) {
 }
 
 func TestFindRelationByColumnName(t *testing.T) {
+	t.Parallel()
 	tbl := &schema.Table{
 		Name:   "posts",
 		Schema: "public",
@@ -80,6 +84,7 @@ func TestFindRelationByColumnName(t *testing.T) {
 }
 
 func TestFindRelationNotFound(t *testing.T) {
+	t.Parallel()
 	tbl := &schema.Table{
 		Name:   "posts",
 		Schema: "public",
@@ -96,10 +101,11 @@ func TestFindRelationNotFound(t *testing.T) {
 	}
 
 	found := findRelation(tbl, "nonexistent")
-	testutil.True(t, found == nil, "expected nil for nonexistent relation")
+	testutil.Nil(t, found)
 }
 
 func TestFindRelationColumnNameOnlyMatchesManyToOne(t *testing.T) {
+	t.Parallel()
 	tbl := &schema.Table{
 		Name:   "users",
 		Schema: "public",
@@ -117,7 +123,7 @@ func TestFindRelationColumnNameOnlyMatchesManyToOne(t *testing.T) {
 
 	// Column name fallback should NOT match one-to-many relationships.
 	found := findRelation(tbl, "id")
-	testutil.True(t, found == nil, "column name fallback should not match one-to-many")
+	testutil.Nil(t, found)
 
 	// But field name still matches.
 	found = findRelation(tbl, "posts")
@@ -126,6 +132,7 @@ func TestFindRelationColumnNameOnlyMatchesManyToOne(t *testing.T) {
 }
 
 func TestCountKnownColumns(t *testing.T) {
+	t.Parallel()
 	tbl := &schema.Table{
 		Columns: []*schema.Column{
 			{Name: "id"},
@@ -147,6 +154,7 @@ func TestCountKnownColumns(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			got := countKnownColumns(tbl, tt.data)
 			testutil.Equal(t, tt.want, got)
 		})
@@ -157,6 +165,7 @@ func TestCountKnownColumns(t *testing.T) {
 // attach expand data when claims restrict access to the related table.
 // This prevents API key scope bypass via expand parameters.
 func TestExpandRelationSkipsRestrictedTable(t *testing.T) {
+	t.Parallel()
 	postsTable := &schema.Table{
 		Name:   "posts",
 		Schema: "public",
@@ -216,6 +225,7 @@ func TestExpandRelationSkipsRestrictedTable(t *testing.T) {
 // if the scope check passes, expandRelation will attempt a query on the nil
 // pool and panic. We recover from the panic to prove it got past the guard.
 func TestExpandRelationAllowsUnrestrictedTable(t *testing.T) {
+	t.Parallel()
 	postsTable := &schema.Table{
 		Name:   "posts",
 		Schema: "public",

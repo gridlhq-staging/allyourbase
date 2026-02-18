@@ -11,6 +11,7 @@ import (
 )
 
 func TestHandleAdminSQLNoPool(t *testing.T) {
+	t.Parallel()
 	handler := handleAdminSQL(nil, nil)
 	req := httptest.NewRequest(http.MethodPost, "/api/admin/sql", strings.NewReader(`{"query":"SELECT 1"}`))
 	req.Header.Set("Content-Type", "application/json")
@@ -22,6 +23,7 @@ func TestHandleAdminSQLNoPool(t *testing.T) {
 }
 
 func TestHandleAdminSQLEmptyQuery(t *testing.T) {
+	t.Parallel()
 	handler := handleAdminSQL(nil, nil)
 	req := httptest.NewRequest(http.MethodPost, "/api/admin/sql", strings.NewReader(`{"query":""}`))
 	req.Header.Set("Content-Type", "application/json")
@@ -33,6 +35,7 @@ func TestHandleAdminSQLEmptyQuery(t *testing.T) {
 }
 
 func TestHandleAdminSQLInvalidJSON(t *testing.T) {
+	t.Parallel()
 	handler := handleAdminSQL(nil, nil)
 	req := httptest.NewRequest(http.MethodPost, "/api/admin/sql", strings.NewReader(`not json`))
 	req.Header.Set("Content-Type", "application/json")
@@ -44,6 +47,7 @@ func TestHandleAdminSQLInvalidJSON(t *testing.T) {
 }
 
 func TestHandleAdminSQLWhitespaceOnlyQuery(t *testing.T) {
+	t.Parallel()
 	handler := handleAdminSQL(nil, nil)
 	req := httptest.NewRequest(http.MethodPost, "/api/admin/sql", strings.NewReader(`{"query":"   "}`))
 	req.Header.Set("Content-Type", "application/json")
@@ -59,6 +63,8 @@ func TestHandleAdminSQLWhitespaceOnlyQuery(t *testing.T) {
 
 func TestToJSONSafe(t *testing.T) {
 	// nil
+	t.Parallel()
+
 	testutil.Nil(t, toJSONSafe(nil))
 
 	// time.Time → RFC3339
@@ -92,6 +98,7 @@ func TestToJSONSafe(t *testing.T) {
 }
 
 func TestIsDDL(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		query    string
 		expected bool
@@ -115,6 +122,7 @@ func TestIsDDL(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.query, func(t *testing.T) {
+			t.Parallel()
 			testutil.Equal(t, tt.expected, isDDL(tt.query))
 		})
 	}

@@ -10,6 +10,7 @@ import (
 )
 
 func TestNormalizeFirebaseBucketName(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name  string
 		input string
@@ -30,6 +31,7 @@ func TestNormalizeFirebaseBucketName(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			got := normalizeFirebaseBucketName(tt.input)
 			testutil.Equal(t, tt.want, got)
 		})
@@ -37,7 +39,9 @@ func TestNormalizeFirebaseBucketName(t *testing.T) {
 }
 
 func TestScanStorageExport(t *testing.T) {
+	t.Parallel()
 	t.Run("single bucket with files", func(t *testing.T) {
+		t.Parallel()
 		dir := t.TempDir()
 
 		// Create bucket directory with files.
@@ -60,6 +64,7 @@ func TestScanStorageExport(t *testing.T) {
 	})
 
 	t.Run("multiple buckets", func(t *testing.T) {
+		t.Parallel()
 		dir := t.TempDir()
 
 		testutil.NoError(t, os.MkdirAll(filepath.Join(dir, "avatars"), 0755))
@@ -77,6 +82,7 @@ func TestScanStorageExport(t *testing.T) {
 	})
 
 	t.Run("nested subdirectories", func(t *testing.T) {
+		t.Parallel()
 		dir := t.TempDir()
 
 		nested := filepath.Join(dir, "uploads", "images", "2024")
@@ -93,6 +99,7 @@ func TestScanStorageExport(t *testing.T) {
 	})
 
 	t.Run("empty directory", func(t *testing.T) {
+		t.Parallel()
 		dir := t.TempDir()
 
 		buckets, err := scanStorageExport(dir)
@@ -101,6 +108,7 @@ func TestScanStorageExport(t *testing.T) {
 	})
 
 	t.Run("skips top-level files", func(t *testing.T) {
+		t.Parallel()
 		dir := t.TempDir()
 
 		// File at top level (not in a bucket).
@@ -112,13 +120,16 @@ func TestScanStorageExport(t *testing.T) {
 	})
 
 	t.Run("nonexistent directory", func(t *testing.T) {
+		t.Parallel()
 		_, err := scanStorageExport("/nonexistent/path")
-		testutil.True(t, err != nil, "should error on nonexistent directory")
+		testutil.NotNil(t, err)
 	})
 }
 
 func TestCopyFileFS(t *testing.T) {
+	t.Parallel()
 	t.Run("copies content", func(t *testing.T) {
+		t.Parallel()
 		dir := t.TempDir()
 		src := filepath.Join(dir, "source.txt")
 		dst := filepath.Join(dir, "dest.txt")
@@ -135,14 +146,15 @@ func TestCopyFileFS(t *testing.T) {
 	})
 
 	t.Run("source not found", func(t *testing.T) {
+		t.Parallel()
 		dir := t.TempDir()
 		_, err := copyFileFS(filepath.Join(dir, "missing"), filepath.Join(dir, "dest"))
 		testutil.ErrorContains(t, err, "opening source")
 	})
 }
 
-
 func TestPhaseCountWithStorage(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name string
 		opts MigrationOptions
@@ -171,6 +183,7 @@ func TestPhaseCountWithStorage(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			m := &Migrator{opts: tt.opts}
 			got := m.phaseCount()
 			testutil.Equal(t, tt.want, got)
@@ -179,6 +192,7 @@ func TestPhaseCountWithStorage(t *testing.T) {
 }
 
 func TestPrintStatsWithStorageAndRTDB(t *testing.T) {
+	t.Parallel()
 	var buf strings.Builder
 	m := &Migrator{
 		output: &buf,

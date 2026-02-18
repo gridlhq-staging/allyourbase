@@ -63,6 +63,7 @@ func rpcRequest(handler http.Handler, funcName string, body string) *httptest.Re
 // --- Schema not ready ---
 
 func TestRPCSchemaCacheNotReady(t *testing.T) {
+	t.Parallel()
 	h := testHandler(nil)
 	w := rpcRequest(h, "add_numbers", `{"a": 1, "b": 2}`)
 	testutil.Equal(t, http.StatusServiceUnavailable, w.Code)
@@ -73,6 +74,7 @@ func TestRPCSchemaCacheNotReady(t *testing.T) {
 // --- Function not found ---
 
 func TestRPCFunctionNotFound(t *testing.T) {
+	t.Parallel()
 	h := testHandler(testSchemaWithFunctions())
 	w := rpcRequest(h, "nonexistent", `{}`)
 	testutil.Equal(t, http.StatusNotFound, w.Code)
@@ -83,6 +85,7 @@ func TestRPCFunctionNotFound(t *testing.T) {
 // --- Invalid body ---
 
 func TestRPCInvalidJSON(t *testing.T) {
+	t.Parallel()
 	h := testHandler(testSchemaWithFunctions())
 	w := rpcRequest(h, "add_numbers", `{broken`)
 	testutil.Equal(t, http.StatusBadRequest, w.Code)
@@ -93,6 +96,7 @@ func TestRPCInvalidJSON(t *testing.T) {
 // --- buildRPCCall ---
 
 func TestBuildRPCCallScalar(t *testing.T) {
+	t.Parallel()
 	fn := &schema.Function{
 		Schema:     "public",
 		Name:       "add_numbers",
@@ -111,6 +115,7 @@ func TestBuildRPCCallScalar(t *testing.T) {
 }
 
 func TestBuildRPCCallSetReturning(t *testing.T) {
+	t.Parallel()
 	fn := &schema.Function{
 		Schema:     "public",
 		Name:       "get_users",
@@ -128,6 +133,7 @@ func TestBuildRPCCallSetReturning(t *testing.T) {
 }
 
 func TestBuildRPCCallNoArgs(t *testing.T) {
+	t.Parallel()
 	fn := &schema.Function{
 		Schema:     "public",
 		Name:       "now_utc",
@@ -140,6 +146,7 @@ func TestBuildRPCCallNoArgs(t *testing.T) {
 }
 
 func TestBuildRPCCallMissingArgPassesNull(t *testing.T) {
+	t.Parallel()
 	fn := &schema.Function{
 		Schema:     "public",
 		Name:       "greet",
@@ -152,10 +159,11 @@ func TestBuildRPCCallMissingArgPassesNull(t *testing.T) {
 	testutil.NoError(t, err)
 	testutil.Contains(t, query, `"greet"($1::text)`)
 	testutil.Equal(t, 1, len(args))
-	testutil.True(t, args[0] == nil, "missing arg should be nil")
+	testutil.Nil(t, args[0])
 }
 
 func TestBuildRPCCallUnnamedParamErrors(t *testing.T) {
+	t.Parallel()
 	fn := &schema.Function{
 		Schema:     "public",
 		Name:       "bad_func",
@@ -165,13 +173,13 @@ func TestBuildRPCCallUnnamedParamErrors(t *testing.T) {
 		},
 	}
 	_, _, err := buildRPCCall(fn, map[string]any{})
-	testutil.True(t, err != nil, "expected error for unnamed params")
-	testutil.Contains(t, err.Error(), "unnamed parameters")
+	testutil.ErrorContains(t, err, "unnamed parameters")
 }
 
 // --- coerceRPCArg ---
 
 func TestCoerceRPCArgIntegerArray(t *testing.T) {
+	t.Parallel()
 	result := coerceRPCArg([]any{1.0, 2.0, 3.0}, "integer[]")
 	arr, ok := result.([]int32)
 	testutil.True(t, ok, "expected []int32")
@@ -182,6 +190,7 @@ func TestCoerceRPCArgIntegerArray(t *testing.T) {
 }
 
 func TestCoerceRPCArgTextArray(t *testing.T) {
+	t.Parallel()
 	result := coerceRPCArg([]any{"a", "b"}, "text[]")
 	arr, ok := result.([]string)
 	testutil.True(t, ok, "expected []string")
@@ -191,6 +200,7 @@ func TestCoerceRPCArgTextArray(t *testing.T) {
 }
 
 func TestCoerceRPCArgIntegerScalar(t *testing.T) {
+	t.Parallel()
 	result := coerceRPCArg(float64(42), "integer")
 	v, ok := result.(int64)
 	testutil.True(t, ok, "expected int64")
@@ -198,11 +208,13 @@ func TestCoerceRPCArgIntegerScalar(t *testing.T) {
 }
 
 func TestCoerceRPCArgNil(t *testing.T) {
+	t.Parallel()
 	result := coerceRPCArg(nil, "integer")
 	testutil.Nil(t, result)
 }
 
 func TestCoerceRPCArgStringPassthrough(t *testing.T) {
+	t.Parallel()
 	result := coerceRPCArg("hello", "text")
 	testutil.Equal(t, "hello", result)
 }
@@ -210,27 +222,31 @@ func TestCoerceRPCArgStringPassthrough(t *testing.T) {
 // --- FunctionByName ---
 
 func TestFunctionByNamePublic(t *testing.T) {
+	t.Parallel()
 	sc := testSchemaWithFunctions()
 	fn := sc.FunctionByName("add_numbers")
-	testutil.True(t, fn != nil, "expected to find add_numbers")
+	testutil.NotNil(t, fn)
 	testutil.Equal(t, "add_numbers", fn.Name)
 }
 
 func TestFunctionByNameNotFound(t *testing.T) {
+	t.Parallel()
 	sc := testSchemaWithFunctions()
 	fn := sc.FunctionByName("nonexistent")
-	testutil.True(t, fn == nil, "expected nil for nonexistent function")
+	testutil.Nil(t, fn)
 }
 
 func TestFunctionByNameNilMap(t *testing.T) {
+	t.Parallel()
 	sc := &schema.SchemaCache{}
 	fn := sc.FunctionByName("anything")
-	testutil.True(t, fn == nil, "expected nil when functions map is nil")
+	testutil.Nil(t, fn)
 }
 
 // --- Response format ---
 
 func TestRPCErrorResponseIsJSON(t *testing.T) {
+	t.Parallel()
 	h := testHandler(testSchemaWithFunctions())
 	w := rpcRequest(h, "nonexistent", `{}`)
 	ct := w.Header().Get("Content-Type")

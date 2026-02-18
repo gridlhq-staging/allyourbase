@@ -14,8 +14,11 @@ import (
 )
 
 func TestClose(t *testing.T) {
+	t.Parallel()
 	t.Run("close migrator", func(t *testing.T) {
 		// Create temporary PocketBase directory
+	t.Parallel()
+
 		tmpDir := t.TempDir()
 		pbDataPath := filepath.Join(tmpDir, "pb_data")
 		err := os.MkdirAll(pbDataPath, 0755)
@@ -42,6 +45,7 @@ func TestClose(t *testing.T) {
 	})
 
 	t.Run("close with nil reader", func(t *testing.T) {
+		t.Parallel()
 		m := &Migrator{
 			reader: nil,
 			db:     nil,
@@ -53,7 +57,9 @@ func TestClose(t *testing.T) {
 }
 
 func TestPrintStats(t *testing.T) {
+	t.Parallel()
 	t.Run("print all stats", func(t *testing.T) {
+		t.Parallel()
 		var buf bytes.Buffer
 
 		m := &Migrator{
@@ -83,6 +89,7 @@ func TestPrintStats(t *testing.T) {
 	})
 
 	t.Run("skip files in output", func(t *testing.T) {
+		t.Parallel()
 		var buf bytes.Buffer
 
 		m := &Migrator{
@@ -115,7 +122,9 @@ func TestPrintStats(t *testing.T) {
 }
 
 func TestNewMigrator_Errors(t *testing.T) {
+	t.Parallel()
 	t.Run("missing source path", func(t *testing.T) {
+		t.Parallel()
 		opts := MigrationOptions{
 			DatabaseURL: "postgres://localhost",
 		}
@@ -125,6 +134,7 @@ func TestNewMigrator_Errors(t *testing.T) {
 	})
 
 	t.Run("missing database URL", func(t *testing.T) {
+		t.Parallel()
 		opts := MigrationOptions{
 			SourcePath: "/tmp/pb_data",
 		}
@@ -134,6 +144,7 @@ func TestNewMigrator_Errors(t *testing.T) {
 	})
 
 	t.Run("invalid source path", func(t *testing.T) {
+		t.Parallel()
 		opts := MigrationOptions{
 			SourcePath:  "/nonexistent/path",
 			DatabaseURL: "postgres://localhost",
@@ -145,7 +156,9 @@ func TestNewMigrator_Errors(t *testing.T) {
 }
 
 func TestMigrateFiles_EdgeCases(t *testing.T) {
+	t.Parallel()
 	t.Run("no storage directory", func(t *testing.T) {
+		t.Parallel()
 		tmpDir := t.TempDir()
 		pbDataPath := filepath.Join(tmpDir, "pb_data")
 		err := os.MkdirAll(pbDataPath, 0755)
@@ -179,6 +192,7 @@ func TestMigrateFiles_EdgeCases(t *testing.T) {
 	})
 
 	t.Run("collection directory not exist", func(t *testing.T) {
+		t.Parallel()
 		tmpDir := t.TempDir()
 		pbDataPath := filepath.Join(tmpDir, "pb_data")
 		storagePath := filepath.Join(pbDataPath, "storage")
@@ -214,6 +228,7 @@ func TestMigrateFiles_EdgeCases(t *testing.T) {
 	})
 
 	t.Run("collection directory is empty", func(t *testing.T) {
+		t.Parallel()
 		tmpDir := t.TempDir()
 		pbDataPath := filepath.Join(tmpDir, "pb_data")
 		storagePath := filepath.Join(pbDataPath, "storage", "posts")
@@ -250,6 +265,7 @@ func TestMigrateFiles_EdgeCases(t *testing.T) {
 	})
 
 	t.Run("copy files successfully", func(t *testing.T) {
+		t.Parallel()
 		tmpDir := t.TempDir()
 		pbDataPath := filepath.Join(tmpDir, "pb_data")
 		storagePath := filepath.Join(pbDataPath, "storage", "posts")
@@ -313,6 +329,7 @@ func TestMigrateFiles_EdgeCases(t *testing.T) {
 	})
 
 	t.Run("s3 backend not implemented", func(t *testing.T) {
+		t.Parallel()
 		tmpDir := t.TempDir()
 		pbDataPath := filepath.Join(tmpDir, "pb_data")
 		storagePath := filepath.Join(pbDataPath, "storage")
@@ -344,7 +361,9 @@ func TestMigrateFiles_EdgeCases(t *testing.T) {
 }
 
 func TestMigrateAuthUsers_EdgeCases(t *testing.T) {
+	t.Parallel()
 	t.Run("parse users with verified as int type", func(t *testing.T) {
+		t.Parallel()
 		schema := []PBField{
 			{Name: "email", Type: "email", System: false},
 			{Name: "passwordHash", Type: "text", System: false},
@@ -369,6 +388,7 @@ func TestMigrateAuthUsers_EdgeCases(t *testing.T) {
 	})
 
 	t.Run("parse users with missing timestamps", func(t *testing.T) {
+		t.Parallel()
 		schema := []PBField{
 			{Name: "email", Type: "email", System: false},
 			{Name: "passwordHash", Type: "text", System: false},
@@ -392,6 +412,7 @@ func TestMigrateAuthUsers_EdgeCases(t *testing.T) {
 	})
 
 	t.Run("parse users with missing custom fields", func(t *testing.T) {
+		t.Parallel()
 		schema := []PBField{
 			{Name: "email", Type: "email", System: false},
 			{Name: "passwordHash", Type: "text", System: false},
@@ -421,6 +442,7 @@ func TestMigrateAuthUsers_EdgeCases(t *testing.T) {
 	})
 
 	t.Run("empty email error", func(t *testing.T) {
+		t.Parallel()
 		schema := []PBField{
 			{Name: "email", Type: "email", System: false},
 			{Name: "passwordHash", Type: "text", System: false},
@@ -444,6 +466,8 @@ func TestMigrateAuthUsers_EdgeCases(t *testing.T) {
 
 	t.Run("case insensitive standard field check", func(t *testing.T) {
 		// Test that isStandardAuthField is case-insensitive
+	t.Parallel()
+
 		testutil.True(t, isStandardAuthField("EMAIL"))
 		testutil.True(t, isStandardAuthField("Email"))
 		testutil.True(t, isStandardAuthField("PASSWORDHASH"))
@@ -454,43 +478,54 @@ func TestMigrateAuthUsers_EdgeCases(t *testing.T) {
 }
 
 func TestCoerceToBool(t *testing.T) {
+	t.Parallel()
 	t.Run("int64 truthy", func(t *testing.T) {
+		t.Parallel()
 		testutil.Equal(t, true, coerceToBool(int64(1)))
 	})
 
 	t.Run("int64 falsy", func(t *testing.T) {
+		t.Parallel()
 		testutil.Equal(t, false, coerceToBool(int64(0)))
 	})
 
 	t.Run("int truthy", func(t *testing.T) {
+		t.Parallel()
 		testutil.Equal(t, true, coerceToBool(int(1)))
 	})
 
 	t.Run("int falsy", func(t *testing.T) {
+		t.Parallel()
 		testutil.Equal(t, false, coerceToBool(int(0)))
 	})
 
 	t.Run("float64 truthy", func(t *testing.T) {
+		t.Parallel()
 		testutil.Equal(t, true, coerceToBool(float64(1)))
 	})
 
 	t.Run("float64 falsy", func(t *testing.T) {
+		t.Parallel()
 		testutil.Equal(t, false, coerceToBool(float64(0)))
 	})
 
 	t.Run("bool passthrough true", func(t *testing.T) {
+		t.Parallel()
 		testutil.Equal(t, true, coerceToBool(true))
 	})
 
 	t.Run("bool passthrough false", func(t *testing.T) {
+		t.Parallel()
 		testutil.Equal(t, false, coerceToBool(false))
 	})
 
 	t.Run("nil passthrough", func(t *testing.T) {
+		t.Parallel()
 		testutil.Nil(t, coerceToBool(nil))
 	})
 
 	t.Run("string passthrough", func(t *testing.T) {
+		t.Parallel()
 		testutil.Equal(t, "true", coerceToBool("true"))
 	})
 }
@@ -498,6 +533,8 @@ func TestCoerceToBool(t *testing.T) {
 func TestUserProfilesTableName(t *testing.T) {
 	// Verify the table name is properly constructed with the identifier quoted
 	// around the full name, not embedded inside it (bug #2).
+	t.Parallel()
+
 	tests := []struct {
 		collName string
 		want     string
@@ -508,6 +545,7 @@ func TestUserProfilesTableName(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.collName, func(t *testing.T) {
+			t.Parallel()
 			got := SanitizeIdentifier(fmt.Sprintf("_ayb_user_profiles_%s", tt.collName))
 			testutil.Equal(t, tt.want, got)
 		})
@@ -515,6 +553,7 @@ func TestUserProfilesTableName(t *testing.T) {
 }
 
 func TestCountSchemaTables(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name        string
 		collections []PBCollection
@@ -564,6 +603,7 @@ func TestCountSchemaTables(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			result := countSchemaTables(tt.collections)
 			testutil.Equal(t, tt.expected, result)
 		})
@@ -571,6 +611,7 @@ func TestCountSchemaTables(t *testing.T) {
 }
 
 func TestCountUserStats(t *testing.T) {
+	t.Parallel()
 	stats := &MigrationStats{AuthUsers: 42, Records: 100}
 	testutil.Equal(t, 42, countUserStats(stats))
 
@@ -579,6 +620,7 @@ func TestCountUserStats(t *testing.T) {
 }
 
 func TestFormatElapsed(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name     string
 		input    time.Duration
@@ -593,6 +635,7 @@ func TestFormatElapsed(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			result := formatElapsed(tt.input)
 			testutil.Equal(t, tt.expected, result)
 		})

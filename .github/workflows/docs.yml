@@ -5,13 +5,15 @@ on:
     branches: [main]
     paths:
       - "docs-site/**"
+      - "api-docs/**"
+      - "openapi/openapi.yaml"
 
 concurrency:
   group: pages
   cancel-in-progress: false
 
 jobs:
-  deploy:
+  deploy-docs-site:
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -39,3 +41,18 @@ jobs:
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           command: pages deploy .vitepress/dist --project-name=ayb-docs
           workingDirectory: docs-site
+
+  deploy-api-docs:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      deployments: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Deploy to Cloudflare Pages
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          command: pages deploy api-docs --project-name=allyourbase-api-docs

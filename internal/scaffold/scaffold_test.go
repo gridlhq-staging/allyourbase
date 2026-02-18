@@ -10,6 +10,7 @@ import (
 )
 
 func TestValidTemplates(t *testing.T) {
+	t.Parallel()
 	templates := ValidTemplates()
 	testutil.Equal(t, 4, len(templates))
 	testutil.True(t, IsValidTemplate("react"))
@@ -21,6 +22,7 @@ func TestValidTemplates(t *testing.T) {
 }
 
 func TestRun_React(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	err := Run(Options{Name: "my-app", Template: TemplateReact, Dir: dir})
 	testutil.NoError(t, err)
@@ -57,6 +59,7 @@ func TestRun_React(t *testing.T) {
 }
 
 func TestRun_Next(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	err := Run(Options{Name: "nextapp", Template: TemplateNext, Dir: dir})
 	testutil.NoError(t, err)
@@ -75,6 +78,7 @@ func TestRun_Next(t *testing.T) {
 }
 
 func TestRun_Express(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	err := Run(Options{Name: "api-server", Template: TemplateExpress, Dir: dir})
 	testutil.NoError(t, err)
@@ -90,6 +94,7 @@ func TestRun_Express(t *testing.T) {
 }
 
 func TestRun_Plain(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	err := Run(Options{Name: "plain-app", Template: TemplatePlain, Dir: dir})
 	testutil.NoError(t, err)
@@ -103,11 +108,13 @@ func TestRun_Plain(t *testing.T) {
 }
 
 func TestRun_EmptyName(t *testing.T) {
+	t.Parallel()
 	err := Run(Options{Name: "", Template: TemplateReact})
 	testutil.ErrorContains(t, err, "project name is required")
 }
 
 func TestRun_DirectoryAlreadyExists(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	os.MkdirAll(filepath.Join(dir, "existing"), 0755)
 
@@ -117,6 +124,8 @@ func TestRun_DirectoryAlreadyExists(t *testing.T) {
 
 func TestRun_DefaultDir(t *testing.T) {
 	// Verify Dir defaults to "."
+	t.Parallel()
+
 	opts := Options{Name: "test", Template: TemplatePlain}
 	// Can't actually run this without creating a dir in cwd,
 	// so just verify the option handling
@@ -124,6 +133,7 @@ func TestRun_DefaultDir(t *testing.T) {
 }
 
 func TestAybTomlContent(t *testing.T) {
+	t.Parallel()
 	content := aybToml(Options{Name: "test"})
 	// Validate all TOML sections exist
 	testutil.Contains(t, content, "[server]")
@@ -147,6 +157,7 @@ func TestAybTomlContent(t *testing.T) {
 }
 
 func TestSchemaSQL(t *testing.T) {
+	t.Parallel()
 	content := schemaSQLFile()
 	// Table structure
 	testutil.Contains(t, content, "CREATE TABLE IF NOT EXISTS items")
@@ -168,12 +179,14 @@ func TestSchemaSQL(t *testing.T) {
 }
 
 func TestGitignoreNextTemplate(t *testing.T) {
+	t.Parallel()
 	content := gitignoreFile(TemplateNext)
 	testutil.Contains(t, content, ".next/")
 	testutil.Contains(t, content, "node_modules/")
 }
 
 func TestGitignoreReactTemplate(t *testing.T) {
+	t.Parallel()
 	content := gitignoreFile(TemplateReact)
 	// React template should NOT have .next/
 	testutil.False(t, strings.Contains(content, ".next/"))
@@ -181,6 +194,7 @@ func TestGitignoreReactTemplate(t *testing.T) {
 }
 
 func TestClaudeMD(t *testing.T) {
+	t.Parallel()
 	content := claudeMD(Options{Name: "my-project"})
 	testutil.Contains(t, content, "my-project")
 	testutil.Contains(t, content, "ayb start")
@@ -188,6 +202,7 @@ func TestClaudeMD(t *testing.T) {
 }
 
 func TestAybClientBrowser(t *testing.T) {
+	t.Parallel()
 	content := aybClient()
 	testutil.Contains(t, content, "import.meta.env.VITE_AYB_URL")
 	testutil.Contains(t, content, "localStorage")
@@ -195,6 +210,7 @@ func TestAybClientBrowser(t *testing.T) {
 }
 
 func TestAybClientNode(t *testing.T) {
+	t.Parallel()
 	content := aybClientNode()
 	testutil.Contains(t, content, "process.env.AYB_URL")
 	// Node client should NOT use localStorage
@@ -202,6 +218,7 @@ func TestAybClientNode(t *testing.T) {
 }
 
 func TestEnvFileContent(t *testing.T) {
+	t.Parallel()
 	content := envFile()
 	testutil.Contains(t, content, "AYB_SERVER_PORT=8090")
 	testutil.Contains(t, content, "AYB_AUTH_ENABLED=true")
@@ -212,6 +229,7 @@ func TestEnvFileContent(t *testing.T) {
 }
 
 func TestViteConfigContent(t *testing.T) {
+	t.Parallel()
 	content := viteConfig()
 	testutil.Contains(t, content, "defineConfig")
 	testutil.Contains(t, content, "@vitejs/plugin-react")
@@ -219,6 +237,7 @@ func TestViteConfigContent(t *testing.T) {
 }
 
 func TestReactTSConfigContent(t *testing.T) {
+	t.Parallel()
 	content := tsConfigJSON()
 	testutil.Contains(t, content, `"jsx": "react-jsx"`)
 	testutil.Contains(t, content, `"target": "ES2020"`)
@@ -227,6 +246,7 @@ func TestReactTSConfigContent(t *testing.T) {
 }
 
 func TestNextTSConfigContent(t *testing.T) {
+	t.Parallel()
 	content := nextTSConfig()
 	testutil.Contains(t, content, `"jsx": "preserve"`)
 	testutil.Contains(t, content, `"target": "ES2017"`)
@@ -235,6 +255,7 @@ func TestNextTSConfigContent(t *testing.T) {
 }
 
 func TestExpressTSConfigContent(t *testing.T) {
+	t.Parallel()
 	content := expressTSConfig()
 	testutil.Contains(t, content, `"target": "ES2020"`)
 	testutil.Contains(t, content, `"outDir": "dist"`)
@@ -243,6 +264,7 @@ func TestExpressTSConfigContent(t *testing.T) {
 }
 
 func TestNextPageContent(t *testing.T) {
+	t.Parallel()
 	content := nextPage()
 	// "use client" must be the first line
 	testutil.True(t, strings.HasPrefix(content, "\"use client\""),
@@ -253,6 +275,7 @@ func TestNextPageContent(t *testing.T) {
 }
 
 func TestNextLayoutContent(t *testing.T) {
+	t.Parallel()
 	content := nextLayout(Options{Name: "myapp"})
 	testutil.Contains(t, content, `title: "myapp"`)
 	testutil.Contains(t, content, "RootLayout")
@@ -260,11 +283,13 @@ func TestNextLayoutContent(t *testing.T) {
 }
 
 func TestNextConfigContent(t *testing.T) {
+	t.Parallel()
 	content := nextConfig()
 	testutil.Contains(t, content, "module.exports = nextConfig")
 }
 
 func TestReactMainContent(t *testing.T) {
+	t.Parallel()
 	content := reactMain()
 	testutil.Contains(t, content, "ReactDOM.createRoot")
 	testutil.Contains(t, content, "React.StrictMode")
@@ -272,6 +297,7 @@ func TestReactMainContent(t *testing.T) {
 }
 
 func TestReactAppContent(t *testing.T) {
+	t.Parallel()
 	content := reactApp()
 	testutil.Contains(t, content, "useEffect")
 	testutil.Contains(t, content, "useState")
@@ -280,6 +306,7 @@ func TestReactAppContent(t *testing.T) {
 }
 
 func TestExpressMainContent(t *testing.T) {
+	t.Parallel()
 	content := expressMain()
 	testutil.Contains(t, content, `import { ayb }`)
 	testutil.Contains(t, content, "ayb.health()")
@@ -288,6 +315,7 @@ func TestExpressMainContent(t *testing.T) {
 }
 
 func TestPlainMainContent(t *testing.T) {
+	t.Parallel()
 	content := plainMain()
 	testutil.Contains(t, content, `import { ayb }`)
 	testutil.Contains(t, content, "ayb.health()")
@@ -296,6 +324,8 @@ func TestPlainMainContent(t *testing.T) {
 
 func TestPackageNameLowercase(t *testing.T) {
 	// Verify mixed-case names get lowercased in package.json
+	t.Parallel()
+
 	content := packageJSON(Options{Name: "MyApp"}, "react")
 	testutil.Contains(t, content, `"name": "myapp"`)
 	// Should NOT contain the original casing
@@ -308,7 +338,7 @@ func assertFileExists(t *testing.T, dir, path string) {
 	t.Helper()
 	fullPath := filepath.Join(dir, path)
 	_, err := os.Stat(fullPath)
-	testutil.True(t, err == nil, "expected file %s to exist", path)
+	testutil.Nil(t, err)
 }
 
 func assertFileContains(t *testing.T, dir, path, substr string) {
@@ -318,4 +348,3 @@ func assertFileContains(t *testing.T, dir, path, substr string) {
 	testutil.NoError(t, err)
 	testutil.Contains(t, string(content), substr)
 }
-

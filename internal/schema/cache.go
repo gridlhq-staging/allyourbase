@@ -14,12 +14,13 @@ import (
 // Reads are lock-free (atomic pointer load). Writes build a new immutable
 // SchemaCache and swap it in atomically.
 type CacheHolder struct {
-	cache   atomic.Pointer[SchemaCache]
-	mu      sync.Mutex   // serializes reloads
-	loading atomic.Bool  // prevents concurrent reloads
-	pool    *pgxpool.Pool
-	logger  *slog.Logger
-	ready   chan struct{} // closed after the first successful load
+	cache     atomic.Pointer[SchemaCache]
+	mu        sync.Mutex   // serializes reloads
+	loading   atomic.Bool  // prevents concurrent reloads
+	pool      *pgxpool.Pool
+	logger    *slog.Logger
+	ready     chan struct{} // closed after the first successful load
+	readyOnce sync.Once    // ensures ready is closed exactly once
 }
 
 // NewCacheHolder creates a CacheHolder. Call Load() to perform the initial introspection.
@@ -50,10 +51,9 @@ func (h *CacheHolder) Load(ctx context.Context) error {
 // SetForTesting directly sets the schema cache. Intended for unit tests that
 // cannot provide a real database connection.
 func (h *CacheHolder) SetForTesting(sc *SchemaCache) {
-	first := h.cache.Load() == nil
 	h.cache.Store(sc)
-	if first && sc != nil {
-		close(h.ready)
+	if sc != nil {
+		h.readyOnce.Do(func() { close(h.ready) })
 	}
 }
 
@@ -90,13 +90,9 @@ func (h *CacheHolder) reloadLocked(ctx context.Context) error {
 	}
 
 	tableCount := len(sc.Tables)
-	first := h.cache.Load() == nil
 	h.cache.Store(sc)
-
 	// Signal readiness on first successful load.
-	if first {
-		close(h.ready)
-	}
+	h.readyOnce.Do(func() { close(h.ready) })
 
 	h.logger.Info("schema cache loaded",
 		"tables", tableCount,

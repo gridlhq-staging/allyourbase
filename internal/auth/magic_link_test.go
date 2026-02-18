@@ -13,11 +13,13 @@ import (
 // --- Service-level unit tests ---
 
 func TestMagicLinkDurationDefault(t *testing.T) {
+	t.Parallel()
 	svc := newTestService()
 	testutil.Equal(t, magicLinkDefaultDur, svc.MagicLinkDuration())
 }
 
 func TestMagicLinkDurationCustom(t *testing.T) {
+	t.Parallel()
 	svc := newTestService()
 	svc.SetMagicLinkDuration(5 * time.Minute)
 	testutil.Equal(t, 5*time.Minute, svc.MagicLinkDuration())
@@ -25,6 +27,8 @@ func TestMagicLinkDurationCustom(t *testing.T) {
 
 func TestRequestMagicLinkNoMailer(t *testing.T) {
 	// With no mailer configured, RequestMagicLink is a no-op (returns nil).
+	t.Parallel()
+
 	svc := newTestService()
 	err := svc.RequestMagicLink(nil, "user@example.com")
 	testutil.NoError(t, err)
@@ -32,6 +36,8 @@ func TestRequestMagicLinkNoMailer(t *testing.T) {
 
 func TestErrInvalidMagicLinkToken(t *testing.T) {
 	// Verify the sentinel error has a useful message.
+	t.Parallel()
+
 	testutil.Contains(t, ErrInvalidMagicLinkToken.Error(), "invalid or expired")
 }
 
@@ -45,6 +51,7 @@ func newMagicLinkHandler(enabled bool) *Handler {
 }
 
 func TestHandleMagicLinkRequestDisabled(t *testing.T) {
+	t.Parallel()
 	h := newMagicLinkHandler(false)
 	router := h.Routes()
 
@@ -59,6 +66,7 @@ func TestHandleMagicLinkRequestDisabled(t *testing.T) {
 }
 
 func TestHandleMagicLinkConfirmDisabled(t *testing.T) {
+	t.Parallel()
 	h := newMagicLinkHandler(false)
 	router := h.Routes()
 
@@ -73,6 +81,7 @@ func TestHandleMagicLinkConfirmDisabled(t *testing.T) {
 }
 
 func TestHandleMagicLinkRequestMissingEmail(t *testing.T) {
+	t.Parallel()
 	h := newMagicLinkHandler(true)
 	router := h.Routes()
 
@@ -87,6 +96,7 @@ func TestHandleMagicLinkRequestMissingEmail(t *testing.T) {
 }
 
 func TestHandleMagicLinkRequestMalformedJSON(t *testing.T) {
+	t.Parallel()
 	h := newMagicLinkHandler(true)
 	router := h.Routes()
 
@@ -102,6 +112,8 @@ func TestHandleMagicLinkRequestMalformedJSON(t *testing.T) {
 
 func TestHandleMagicLinkRequestAlwaysReturns200(t *testing.T) {
 	// Even with no mailer/DB, the endpoint should return 200 (prevent enumeration).
+	t.Parallel()
+
 	h := newMagicLinkHandler(true)
 	router := h.Routes()
 
@@ -116,6 +128,7 @@ func TestHandleMagicLinkRequestAlwaysReturns200(t *testing.T) {
 }
 
 func TestHandleMagicLinkConfirmMissingToken(t *testing.T) {
+	t.Parallel()
 	h := newMagicLinkHandler(true)
 	router := h.Routes()
 
@@ -130,6 +143,7 @@ func TestHandleMagicLinkConfirmMissingToken(t *testing.T) {
 }
 
 func TestHandleMagicLinkConfirmMalformedJSON(t *testing.T) {
+	t.Parallel()
 	h := newMagicLinkHandler(true)
 	router := h.Routes()
 
@@ -145,6 +159,8 @@ func TestHandleMagicLinkConfirmMalformedJSON(t *testing.T) {
 
 func TestHandleMagicLinkRoutesRegistered(t *testing.T) {
 	// Verify both magic link routes are registered and respond (not 405 Method Not Allowed).
+	t.Parallel()
+
 	h := newMagicLinkHandler(true)
 	router := h.Routes()
 
@@ -170,6 +186,7 @@ func TestHandleMagicLinkRoutesRegistered(t *testing.T) {
 }
 
 func TestHandleMagicLinkRequestEmptyEmailString(t *testing.T) {
+	t.Parallel()
 	h := newMagicLinkHandler(true)
 	router := h.Routes()
 
@@ -184,6 +201,7 @@ func TestHandleMagicLinkRequestEmptyEmailString(t *testing.T) {
 }
 
 func TestSetMagicLinkEnabled(t *testing.T) {
+	t.Parallel()
 	h := NewHandler(newTestService(), testutil.DiscardLogger())
 	testutil.False(t, h.magicLinkEnabled, "magic link should be disabled by default")
 

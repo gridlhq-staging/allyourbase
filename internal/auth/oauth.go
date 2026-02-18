@@ -189,7 +189,13 @@ func ExchangeCode(ctx context.Context, provider string, client OAuthClientConfig
 	if !ok {
 		return nil, fmt.Errorf("%w: %s", ErrOAuthNotConfigured, provider)
 	}
+	return exchangeCode(ctx, provider, client, code, redirectURI, pc, oauthHTTPClient)
+}
 
+// exchangeCode is the unexported implementation of ExchangeCode. It accepts
+// explicit dependencies (provider config and HTTP client) so that tests can
+// exercise the full code path without touching package-level globals.
+func exchangeCode(ctx context.Context, provider string, client OAuthClientConfig, code, redirectURI string, pc OAuthProviderConfig, httpClient *http.Client) (*OAuthUserInfo, error) {
 	// Exchange code for access token.
 	data := url.Values{
 		"client_id":     {client.ClientID},
@@ -206,7 +212,7 @@ func ExchangeCode(ctx context.Context, provider string, client OAuthClientConfig
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	req.Header.Set("Accept", "application/json")
 
-	resp, err := oauthHTTPClient.Do(req)
+	resp, err := httpClient.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("%w: %v", ErrOAuthCodeExchange, err)
 	}
@@ -232,10 +238,10 @@ func ExchangeCode(ctx context.Context, provider string, client OAuthClientConfig
 	}
 
 	// Fetch user info.
-	return fetchUserInfo(ctx, provider, pc.UserInfoURL, tokenResp.AccessToken)
+	return fetchUserInfo(ctx, provider, pc.UserInfoURL, tokenResp.AccessToken, httpClient)
 }
 
-func fetchUserInfo(ctx context.Context, provider, userInfoURL, accessToken string) (*OAuthUserInfo, error) {
+func fetchUserInfo(ctx context.Context, provider, userInfoURL, accessToken string, httpClient *http.Client) (*OAuthUserInfo, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, userInfoURL, nil)
 	if err != nil {
 		return nil, fmt.Errorf("building userinfo request: %w", err)
@@ -243,7 +249,7 @@ func fetchUserInfo(ctx context.Context, provider, userInfoURL, accessToken strin
 	req.Header.Set("Authorization", "Bearer "+accessToken)
 	req.Header.Set("Accept", "application/json")
 
-	resp, err := oauthHTTPClient.Do(req)
+	resp, err := httpClient.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("%w: %v", ErrOAuthProviderError, err)
 	}
@@ -262,7 +268,7 @@ func fetchUserInfo(ctx context.Context, provider, userInfoURL, accessToken strin
 	case "google":
 		return parseGoogleUser(body)
 	case "github":
-		return parseGitHubUser(ctx, body, accessToken)
+		return parseGitHubUser(ctx, body, accessToken, httpClient)
 	default:
 		return nil, fmt.Errorf("%w: %s", ErrOAuthNotConfigured, provider)
 	}
@@ -287,7 +293,7 @@ func parseGoogleUser(body []byte) (*OAuthUserInfo, error) {
 	}, nil
 }
 
-func parseGitHubUser(ctx context.Context, body []byte, accessToken string) (*OAuthUserInfo, error) {
+func parseGitHubUser(ctx context.Context, body []byte, accessToken string, httpClient *http.Client) (*OAuthUserInfo, error) {
 	var u struct {
 		ID    int    `json:"id"`
 		Login string `json:"login"`
@@ -305,7 +311,7 @@ func parseGitHubUser(ctx context.Context, body []byte, accessToken string) (*OAu
 	// GitHub users can have private emails — fetch from /user/emails.
 	if email == "" {
 		var err error
-		email, err = fetchGitHubPrimaryEmail(ctx, accessToken)
+		email, err = fetchGitHubPrimaryEmail(ctx, accessToken, httpClient)
 		if err != nil {
 			// Non-fatal: proceed without email.
 			email = ""
@@ -324,7 +330,7 @@ func parseGitHubUser(ctx context.Context, body []byte, accessToken string) (*OAu
 	}, nil
 }
 
-func fetchGitHubPrimaryEmail(ctx context.Context, accessToken string) (string, error) {
+func fetchGitHubPrimaryEmail(ctx context.Context, accessToken string, httpClient *http.Client) (string, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "https://api.github.com/user/emails", nil)
 	if err != nil {
 		return "", err
@@ -332,7 +338,7 @@ func fetchGitHubPrimaryEmail(ctx context.Context, accessToken string) (string, e
 	req.Header.Set("Authorization", "Bearer "+accessToken)
 	req.Header.Set("Accept", "application/json")
 
-	resp, err := oauthHTTPClient.Do(req)
+	resp, err := httpClient.Do(req)
 	if err != nil {
 		return "", err
 	}

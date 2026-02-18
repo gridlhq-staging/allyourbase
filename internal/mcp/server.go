@@ -109,10 +109,10 @@ func NewServer(cfg Config) *mcp.Server {
 
 	server := mcp.NewServer(&mcp.Implementation{
 		Name:    "ayb-mcp",
-		Title:   "AllYourBase MCP Server",
+		Title:   "Allyourbase MCP Server",
 		Version: "v0.1.0",
 	}, &mcp.ServerOptions{
-		Instructions: "AYB MCP server — interact with your PostgreSQL database via AllYourBase. " +
+		Instructions: "AYB MCP server — interact with your PostgreSQL database via Allyourbase. " +
 			"Use tools to query data, manage schema, run SQL, and more.",
 	})
 

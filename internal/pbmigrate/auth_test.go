@@ -7,7 +7,9 @@ import (
 )
 
 func TestParseAuthUsers(t *testing.T) {
+	t.Parallel()
 	t.Run("basic auth user", func(t *testing.T) {
+		t.Parallel()
 		schema := []PBField{
 			{Name: "email", Type: "email", System: false},
 			{Name: "passwordHash", Type: "text", System: false},
@@ -41,6 +43,7 @@ func TestParseAuthUsers(t *testing.T) {
 	})
 
 	t.Run("verified as integer", func(t *testing.T) {
+		t.Parallel()
 		schema := []PBField{
 			{Name: "email", Type: "email", System: false},
 			{Name: "passwordHash", Type: "text", System: false},
@@ -67,6 +70,7 @@ func TestParseAuthUsers(t *testing.T) {
 	})
 
 	t.Run("unverified user", func(t *testing.T) {
+		t.Parallel()
 		schema := []PBField{
 			{Name: "email", Type: "email", System: false},
 			{Name: "passwordHash", Type: "text", System: false},
@@ -93,6 +97,7 @@ func TestParseAuthUsers(t *testing.T) {
 	})
 
 	t.Run("custom fields extracted", func(t *testing.T) {
+		t.Parallel()
 		schema := []PBField{
 			{Name: "email", Type: "email", System: false},
 			{Name: "passwordHash", Type: "text", System: false},
@@ -130,6 +135,7 @@ func TestParseAuthUsers(t *testing.T) {
 	})
 
 	t.Run("missing email error", func(t *testing.T) {
+		t.Parallel()
 		schema := []PBField{
 			{Name: "passwordHash", Type: "text", System: false},
 		}
@@ -148,6 +154,7 @@ func TestParseAuthUsers(t *testing.T) {
 	})
 
 	t.Run("missing password hash error", func(t *testing.T) {
+		t.Parallel()
 		schema := []PBField{
 			{Name: "email", Type: "email", System: false},
 		}
@@ -166,6 +173,7 @@ func TestParseAuthUsers(t *testing.T) {
 	})
 
 	t.Run("alternative password field name", func(t *testing.T) {
+		t.Parallel()
 		schema := []PBField{
 			{Name: "email", Type: "email", System: false},
 			{Name: "password", Type: "text", System: false},
@@ -188,6 +196,7 @@ func TestParseAuthUsers(t *testing.T) {
 	})
 
 	t.Run("multiple users", func(t *testing.T) {
+		t.Parallel()
 		schema := []PBField{
 			{Name: "email", Type: "email", System: false},
 			{Name: "passwordHash", Type: "text", System: false},
@@ -231,6 +240,7 @@ func TestParseAuthUsers(t *testing.T) {
 }
 
 func TestIsStandardAuthField(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name     string
 		expected bool
@@ -251,6 +261,7 @@ func TestIsStandardAuthField(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			result := isStandardAuthField(tt.name)
 			testutil.Equal(t, tt.expected, result)
 		})
@@ -258,7 +269,9 @@ func TestIsStandardAuthField(t *testing.T) {
 }
 
 func TestGetCustomFields(t *testing.T) {
+	t.Parallel()
 	t.Run("no custom fields", func(t *testing.T) {
+		t.Parallel()
 		schema := []PBField{
 			{Name: "id", Type: "text", System: true},
 			{Name: "email", Type: "email", System: false},
@@ -271,6 +284,7 @@ func TestGetCustomFields(t *testing.T) {
 	})
 
 	t.Run("with custom fields", func(t *testing.T) {
+		t.Parallel()
 		schema := []PBField{
 			{Name: "id", Type: "text", System: true},
 			{Name: "email", Type: "email", System: false},
@@ -289,6 +303,7 @@ func TestGetCustomFields(t *testing.T) {
 	})
 
 	t.Run("filters system fields", func(t *testing.T) {
+		t.Parallel()
 		schema := []PBField{
 			{Name: "id", Type: "text", System: true},
 			{Name: "created", Type: "date", System: true},

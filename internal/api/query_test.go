@@ -38,17 +38,20 @@ func compositePKTable() *schema.Table {
 }
 
 func TestQuoteIdent(t *testing.T) {
+	t.Parallel()
 	testutil.Equal(t, `"name"`, quoteIdent("name"))
 	testutil.Equal(t, `"user name"`, quoteIdent("user name"))
 	testutil.Equal(t, `"say""hello"`, quoteIdent(`say"hello`))
 }
 
 func TestTableRef(t *testing.T) {
+	t.Parallel()
 	tbl := testTable()
 	testutil.Equal(t, `"public"."users"`, tableRef(tbl))
 }
 
 func TestBuildSelectOne(t *testing.T) {
+	t.Parallel()
 	tbl := testTable()
 
 	q, args := buildSelectOne(tbl, nil, []string{"42"})
@@ -60,6 +63,7 @@ func TestBuildSelectOne(t *testing.T) {
 }
 
 func TestBuildSelectOneWithFields(t *testing.T) {
+	t.Parallel()
 	tbl := testTable()
 
 	q, args := buildSelectOne(tbl, []string{"id", "name"}, []string{"1"})
@@ -69,6 +73,7 @@ func TestBuildSelectOneWithFields(t *testing.T) {
 }
 
 func TestBuildSelectOneFieldValidation(t *testing.T) {
+	t.Parallel()
 	tbl := testTable()
 
 	// Unknown fields should be ignored, falls back to *.
@@ -77,6 +82,7 @@ func TestBuildSelectOneFieldValidation(t *testing.T) {
 }
 
 func TestBuildInsert(t *testing.T) {
+	t.Parallel()
 	tbl := testTable()
 
 	// Use a single key to keep output deterministic.
@@ -91,6 +97,7 @@ func TestBuildInsert(t *testing.T) {
 }
 
 func TestBuildInsertSkipsUnknownColumns(t *testing.T) {
+	t.Parallel()
 	tbl := testTable()
 
 	data := map[string]any{"name": "Alice", "nonexistent": "val"}
@@ -103,6 +110,7 @@ func TestBuildInsertSkipsUnknownColumns(t *testing.T) {
 }
 
 func TestBuildUpdate(t *testing.T) {
+	t.Parallel()
 	tbl := testTable()
 
 	data := map[string]any{"name": "Bob"}
@@ -116,6 +124,7 @@ func TestBuildUpdate(t *testing.T) {
 }
 
 func TestBuildDelete(t *testing.T) {
+	t.Parallel()
 	tbl := testTable()
 
 	q, args := buildDelete(tbl, []string{"5"})
@@ -125,6 +134,7 @@ func TestBuildDelete(t *testing.T) {
 }
 
 func TestBuildPKWhereComposite(t *testing.T) {
+	t.Parallel()
 	tbl := compositePKTable()
 
 	where, args := buildPKWhere(tbl, []string{"10", "20"})
@@ -134,12 +144,14 @@ func TestBuildPKWhereComposite(t *testing.T) {
 }
 
 func TestBuildColumnListEmpty(t *testing.T) {
+	t.Parallel()
 	tbl := testTable()
 	testutil.Equal(t, "*", buildColumnList(tbl, nil))
 	testutil.Equal(t, "*", buildColumnList(tbl, []string{}))
 }
 
 func TestBuildColumnListWithFields(t *testing.T) {
+	t.Parallel()
 	tbl := testTable()
 	result := buildColumnList(tbl, []string{"id", "name"})
 	testutil.Contains(t, result, `"id"`)
@@ -147,6 +159,7 @@ func TestBuildColumnListWithFields(t *testing.T) {
 }
 
 func TestBuildList(t *testing.T) {
+	t.Parallel()
 	tbl := testTable()
 
 	opts := listOpts{
@@ -167,6 +180,7 @@ func TestBuildList(t *testing.T) {
 }
 
 func TestBuildListWithFilter(t *testing.T) {
+	t.Parallel()
 	tbl := testTable()
 
 	opts := listOpts{
@@ -191,6 +205,7 @@ func TestBuildListWithFilter(t *testing.T) {
 }
 
 func TestBuildListSkipTotal(t *testing.T) {
+	t.Parallel()
 	tbl := testTable()
 
 	opts := listOpts{
@@ -201,10 +216,11 @@ func TestBuildListSkipTotal(t *testing.T) {
 
 	_, _, countQ, countArgs := buildList(tbl, opts)
 	testutil.Equal(t, "", countQ)
-	testutil.True(t, countArgs == nil, "countArgs should be nil")
+	testutil.Nil(t, countArgs)
 }
 
 func TestBuildListWithSort(t *testing.T) {
+	t.Parallel()
 	tbl := testTable()
 
 	opts := listOpts{
@@ -219,6 +235,8 @@ func TestBuildListWithSort(t *testing.T) {
 
 func TestParsePKValues(t *testing.T) {
 	// Single PK.
+	t.Parallel()
+
 	vals := parsePKValues("42", 1)
 	testutil.SliceLen(t, vals, 1)
 	testutil.Equal(t, "42", vals[0])

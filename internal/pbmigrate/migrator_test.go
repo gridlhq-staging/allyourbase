@@ -7,6 +7,7 @@ import (
 )
 
 func TestNewMigrator_MissingSourcePath(t *testing.T) {
+	t.Parallel()
 	_, err := NewMigrator(MigrationOptions{
 		DatabaseURL: "postgres://localhost/test",
 	})
@@ -14,6 +15,7 @@ func TestNewMigrator_MissingSourcePath(t *testing.T) {
 }
 
 func TestNewMigrator_MissingDatabaseURL(t *testing.T) {
+	t.Parallel()
 	_, err := NewMigrator(MigrationOptions{
 		SourcePath: "/tmp/pb_data",
 	})
@@ -21,6 +23,7 @@ func TestNewMigrator_MissingDatabaseURL(t *testing.T) {
 }
 
 func TestNewMigrator_InvalidSourcePath(t *testing.T) {
+	t.Parallel()
 	_, err := NewMigrator(MigrationOptions{
 		SourcePath:  "/nonexistent/path",
 		DatabaseURL: "postgres://localhost/test",
@@ -29,6 +32,7 @@ func TestNewMigrator_InvalidSourcePath(t *testing.T) {
 }
 
 func TestJoinQuoted(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name     string
 		input    []string
@@ -53,6 +57,7 @@ func TestJoinQuoted(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			result := joinQuoted(tt.input)
 			testutil.Equal(t, tt.expected, result)
 		})
@@ -60,6 +65,7 @@ func TestJoinQuoted(t *testing.T) {
 }
 
 func TestJoin(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name     string
 		input    []string
@@ -94,6 +100,7 @@ func TestJoin(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			result := join(tt.input, tt.sep)
 			testutil.Equal(t, tt.expected, result)
 		})

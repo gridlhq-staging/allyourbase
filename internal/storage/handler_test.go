@@ -72,6 +72,7 @@ func testRouter(h *Handler) *chi.Mux {
 }
 
 func TestHandleUploadMissingFile(t *testing.T) {
+	t.Parallel()
 	h := NewHandler(newTestService(), testutil.DiscardLogger(), 10<<20)
 	router := testRouter(h)
 
@@ -90,6 +91,7 @@ func TestHandleUploadMissingFile(t *testing.T) {
 }
 
 func TestHandleUploadInvalidBucket(t *testing.T) {
+	t.Parallel()
 	h := NewHandler(newTestService(), testutil.DiscardLogger(), 10<<20)
 	router := testRouter(h)
 
@@ -108,6 +110,7 @@ func TestHandleUploadInvalidBucket(t *testing.T) {
 }
 
 func TestHandleSignedURLInvalid(t *testing.T) {
+	t.Parallel()
 	h := NewHandler(newTestService(), testutil.DiscardLogger(), 10<<20)
 	router := testRouter(h)
 
@@ -125,6 +128,7 @@ func TestHandleSignedURLInvalid(t *testing.T) {
 }
 
 func TestHandleSignedURLExpired(t *testing.T) {
+	t.Parallel()
 	svc := newTestService()
 	h := NewHandler(svc, testutil.DiscardLogger(), 10<<20)
 	router := testRouter(h)
@@ -139,6 +143,7 @@ func TestHandleSignedURLExpired(t *testing.T) {
 }
 
 func TestHandleUploadNoContentType(t *testing.T) {
+	t.Parallel()
 	h := NewHandler(newTestService(), testutil.DiscardLogger(), 10<<20)
 	router := testRouter(h)
 
@@ -188,6 +193,7 @@ func makeHandlerTestPNG(t *testing.T, w, h int) []byte {
 }
 
 func TestHasTransformParams(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name string
 		url  string
@@ -204,6 +210,7 @@ func TestHasTransformParams(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			req := httptest.NewRequest(http.MethodGet, tc.url, nil)
 			testutil.Equal(t, tc.want, hasTransformParams(req))
 		})
@@ -211,6 +218,7 @@ func TestHasTransformParams(t *testing.T) {
 }
 
 func TestParseTransformOptions(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name      string
 		query     string
@@ -285,6 +293,7 @@ func TestParseTransformOptions(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			vals, _ := url.ParseQuery(tc.query)
 			opts, err := parseTransformOptions(vals, tc.srcFormat)
 			if tc.wantErr != "" {
@@ -310,6 +319,7 @@ func TestParseTransformOptions(t *testing.T) {
 }
 
 func TestServeTransformedJPEG(t *testing.T) {
+	t.Parallel()
 	h := NewHandler(newTestService(), testutil.DiscardLogger(), 10<<20)
 	imgData := makeHandlerTestJPEG(t, 800, 600)
 	obj := &Object{Bucket: "img", Name: "photo.jpg", Size: int64(len(imgData)), ContentType: "image/jpeg"}
@@ -331,6 +341,7 @@ func TestServeTransformedJPEG(t *testing.T) {
 }
 
 func TestServeTransformedFormatConversion(t *testing.T) {
+	t.Parallel()
 	h := NewHandler(newTestService(), testutil.DiscardLogger(), 10<<20)
 	imgData := makeHandlerTestJPEG(t, 400, 300)
 	obj := &Object{Bucket: "img", Name: "photo.jpg", Size: int64(len(imgData)), ContentType: "image/jpeg"}
@@ -350,6 +361,7 @@ func TestServeTransformedFormatConversion(t *testing.T) {
 }
 
 func TestServeTransformedPNG(t *testing.T) {
+	t.Parallel()
 	h := NewHandler(newTestService(), testutil.DiscardLogger(), 10<<20)
 	imgData := makeHandlerTestPNG(t, 600, 400)
 	obj := &Object{Bucket: "img", Name: "icon.png", Size: int64(len(imgData)), ContentType: "image/png"}
@@ -364,6 +376,7 @@ func TestServeTransformedPNG(t *testing.T) {
 }
 
 func TestServeTransformedCoverMode(t *testing.T) {
+	t.Parallel()
 	h := NewHandler(newTestService(), testutil.DiscardLogger(), 10<<20)
 	imgData := makeHandlerTestJPEG(t, 800, 600)
 	obj := &Object{Bucket: "img", Name: "photo.jpg", Size: int64(len(imgData)), ContentType: "image/jpeg"}
@@ -381,6 +394,7 @@ func TestServeTransformedCoverMode(t *testing.T) {
 }
 
 func TestServeTransformedNonImage(t *testing.T) {
+	t.Parallel()
 	h := NewHandler(newTestService(), testutil.DiscardLogger(), 10<<20)
 	obj := &Object{Bucket: "docs", Name: "readme.txt", Size: 100, ContentType: "text/plain"}
 	reader := io.NopCloser(bytes.NewReader([]byte("hello world")))
@@ -394,6 +408,7 @@ func TestServeTransformedNonImage(t *testing.T) {
 }
 
 func TestServeTransformedInvalidParams(t *testing.T) {
+	t.Parallel()
 	h := NewHandler(newTestService(), testutil.DiscardLogger(), 10<<20)
 	imgData := makeHandlerTestJPEG(t, 400, 300)
 	obj := &Object{Bucket: "img", Name: "photo.jpg", Size: int64(len(imgData)), ContentType: "image/jpeg"}
@@ -410,6 +425,7 @@ func TestServeTransformedInvalidParams(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			reader := io.NopCloser(bytes.NewReader(imgData))
 			req := httptest.NewRequest(http.MethodGet, "/api/storage/img/photo.jpg"+tc.query, nil)
 			rec := httptest.NewRecorder()
@@ -421,6 +437,7 @@ func TestServeTransformedInvalidParams(t *testing.T) {
 }
 
 func TestServeTransformedCacheHeader(t *testing.T) {
+	t.Parallel()
 	h := NewHandler(newTestService(), testutil.DiscardLogger(), 10<<20)
 	imgData := makeHandlerTestJPEG(t, 400, 300)
 	obj := &Object{Bucket: "img", Name: "photo.jpg", Size: int64(len(imgData)), ContentType: "image/jpeg"}

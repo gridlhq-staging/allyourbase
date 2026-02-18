@@ -10,6 +10,7 @@ import (
 )
 
 func TestSubscribeAndPublish(t *testing.T) {
+	t.Parallel()
 	hub := realtime.NewHub(testutil.DiscardLogger())
 
 	client := hub.Subscribe(map[string]bool{"posts": true})
@@ -35,6 +36,7 @@ func TestSubscribeAndPublish(t *testing.T) {
 }
 
 func TestPublishToNonSubscribedTable(t *testing.T) {
+	t.Parallel()
 	hub := realtime.NewHub(testutil.DiscardLogger())
 
 	client := hub.Subscribe(map[string]bool{"posts": true})
@@ -55,6 +57,7 @@ func TestPublishToNonSubscribedTable(t *testing.T) {
 }
 
 func TestUnsubscribeRemovesClient(t *testing.T) {
+	t.Parallel()
 	hub := realtime.NewHub(testutil.DiscardLogger())
 
 	client := hub.Subscribe(map[string]bool{"posts": true})
@@ -69,6 +72,7 @@ func TestUnsubscribeRemovesClient(t *testing.T) {
 }
 
 func TestUnsubscribeIdempotent(t *testing.T) {
+	t.Parallel()
 	hub := realtime.NewHub(testutil.DiscardLogger())
 
 	client := hub.Subscribe(map[string]bool{"posts": true})
@@ -78,6 +82,7 @@ func TestUnsubscribeIdempotent(t *testing.T) {
 }
 
 func TestMultipleClients(t *testing.T) {
+	t.Parallel()
 	hub := realtime.NewHub(testutil.DiscardLogger())
 
 	c1 := hub.Subscribe(map[string]bool{"posts": true})
@@ -110,6 +115,7 @@ func TestMultipleClients(t *testing.T) {
 }
 
 func TestPublishMultipleActions(t *testing.T) {
+	t.Parallel()
 	hub := realtime.NewHub(testutil.DiscardLogger())
 
 	client := hub.Subscribe(map[string]bool{"posts": true})
@@ -136,6 +142,7 @@ func TestPublishMultipleActions(t *testing.T) {
 }
 
 func TestClientIDsAreUnique(t *testing.T) {
+	t.Parallel()
 	hub := realtime.NewHub(testutil.DiscardLogger())
 
 	c1 := hub.Subscribe(map[string]bool{"posts": true})
@@ -147,6 +154,7 @@ func TestClientIDsAreUnique(t *testing.T) {
 }
 
 func TestPublishNoClientsIsNoop(t *testing.T) {
+	t.Parallel()
 	hub := realtime.NewHub(testutil.DiscardLogger())
 
 	// Should not panic.
@@ -154,6 +162,7 @@ func TestPublishNoClientsIsNoop(t *testing.T) {
 }
 
 func TestBufferFullDropsEvent(t *testing.T) {
+	t.Parallel()
 	hub := realtime.NewHub(testutil.DiscardLogger())
 
 	client := hub.Subscribe(map[string]bool{"posts": true})
@@ -188,6 +197,7 @@ func TestBufferFullDropsEvent(t *testing.T) {
 }
 
 func TestCloseDisconnectsAllClients(t *testing.T) {
+	t.Parallel()
 	hub := realtime.NewHub(testutil.DiscardLogger())
 
 	c1 := hub.Subscribe(map[string]bool{"posts": true})
@@ -205,6 +215,7 @@ func TestCloseDisconnectsAllClients(t *testing.T) {
 }
 
 func TestCloseIdempotent(t *testing.T) {
+	t.Parallel()
 	hub := realtime.NewHub(testutil.DiscardLogger())
 
 	hub.Subscribe(map[string]bool{"posts": true})
@@ -216,6 +227,7 @@ func TestCloseIdempotent(t *testing.T) {
 // --- OAuth Hub Tests ---
 
 func TestSubscribeOAuthCreatesClient(t *testing.T) {
+	t.Parallel()
 	hub := realtime.NewHub(testutil.DiscardLogger())
 
 	client := hub.SubscribeOAuth()
@@ -227,6 +239,7 @@ func TestSubscribeOAuthCreatesClient(t *testing.T) {
 }
 
 func TestSubscribeOAuthUniqueIDs(t *testing.T) {
+	t.Parallel()
 	hub := realtime.NewHub(testutil.DiscardLogger())
 
 	c1 := hub.SubscribeOAuth()
@@ -238,6 +251,7 @@ func TestSubscribeOAuthUniqueIDs(t *testing.T) {
 }
 
 func TestHasClientReturnsTrue(t *testing.T) {
+	t.Parallel()
 	hub := realtime.NewHub(testutil.DiscardLogger())
 
 	client := hub.SubscribeOAuth()
@@ -247,12 +261,14 @@ func TestHasClientReturnsTrue(t *testing.T) {
 }
 
 func TestHasClientReturnsFalse(t *testing.T) {
+	t.Parallel()
 	hub := realtime.NewHub(testutil.DiscardLogger())
 
 	testutil.False(t, hub.HasClient("nonexistent"), "HasClient should return false for unknown client")
 }
 
 func TestHasClientAfterUnsubscribe(t *testing.T) {
+	t.Parallel()
 	hub := realtime.NewHub(testutil.DiscardLogger())
 
 	client := hub.SubscribeOAuth()
@@ -262,6 +278,7 @@ func TestHasClientAfterUnsubscribe(t *testing.T) {
 }
 
 func TestPublishOAuthTargetedDelivery(t *testing.T) {
+	t.Parallel()
 	hub := realtime.NewHub(testutil.DiscardLogger())
 
 	c1 := hub.SubscribeOAuth()
@@ -294,6 +311,7 @@ func TestPublishOAuthTargetedDelivery(t *testing.T) {
 }
 
 func TestPublishOAuthWithError(t *testing.T) {
+	t.Parallel()
 	hub := realtime.NewHub(testutil.DiscardLogger())
 
 	client := hub.SubscribeOAuth()
@@ -311,6 +329,7 @@ func TestPublishOAuthWithError(t *testing.T) {
 }
 
 func TestPublishOAuthToUnknownClientIsNoop(t *testing.T) {
+	t.Parallel()
 	hub := realtime.NewHub(testutil.DiscardLogger())
 
 	// Should not panic.
@@ -318,6 +337,7 @@ func TestPublishOAuthToUnknownClientIsNoop(t *testing.T) {
 }
 
 func TestPublishOAuthToNonOAuthClientIsNoop(t *testing.T) {
+	t.Parallel()
 	hub := realtime.NewHub(testutil.DiscardLogger())
 
 	// Subscribe a regular (non-OAuth) client.
@@ -329,6 +349,7 @@ func TestPublishOAuthToNonOAuthClientIsNoop(t *testing.T) {
 }
 
 func TestOAuthClientUnsubscribeClosesChannels(t *testing.T) {
+	t.Parallel()
 	hub := realtime.NewHub(testutil.DiscardLogger())
 
 	client := hub.SubscribeOAuth()
@@ -343,15 +364,17 @@ func TestOAuthClientUnsubscribeClosesChannels(t *testing.T) {
 }
 
 func TestRegularClientHasNilOAuthEvents(t *testing.T) {
+	t.Parallel()
 	hub := realtime.NewHub(testutil.DiscardLogger())
 
 	client := hub.Subscribe(map[string]bool{"posts": true})
 	defer hub.Unsubscribe(client.ID)
 
-	testutil.True(t, client.OAuthEvents() == nil, "regular client should have nil oauth channel")
+	testutil.Nil(t, client.OAuthEvents())
 }
 
 func TestConcurrentSubscribeOAuthCreatesDistinctClients(t *testing.T) {
+	t.Parallel()
 	hub := realtime.NewHub(testutil.DiscardLogger())
 
 	// Subscribe 10 OAuth clients concurrently.
@@ -385,6 +408,7 @@ func TestConcurrentSubscribeOAuthCreatesDistinctClients(t *testing.T) {
 }
 
 func TestPublishOAuthAfterClientDisconnectIsNoop(t *testing.T) {
+	t.Parallel()
 	hub := realtime.NewHub(testutil.DiscardLogger())
 
 	client := hub.SubscribeOAuth()
@@ -399,6 +423,7 @@ func TestPublishOAuthAfterClientDisconnectIsNoop(t *testing.T) {
 }
 
 func TestPublishOAuthBufferFullDropsEvent(t *testing.T) {
+	t.Parallel()
 	hub := realtime.NewHub(testutil.DiscardLogger())
 
 	client := hub.SubscribeOAuth()

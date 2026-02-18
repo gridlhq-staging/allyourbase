@@ -3,6 +3,7 @@ package auth
 import (
 	"encoding/hex"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -21,6 +22,7 @@ func init() {
 }
 
 func TestHashAndVerifyPassword(t *testing.T) {
+	t.Parallel()
 	hash, err := hashPassword("mypassword123")
 	testutil.NoError(t, err)
 	testutil.True(t, len(hash) > 0, "hash should not be empty")
@@ -32,6 +34,7 @@ func TestHashAndVerifyPassword(t *testing.T) {
 }
 
 func TestVerifyPasswordWrong(t *testing.T) {
+	t.Parallel()
 	hash, err := hashPassword("mypassword123")
 	testutil.NoError(t, err)
 
@@ -41,12 +44,14 @@ func TestVerifyPasswordWrong(t *testing.T) {
 }
 
 func TestVerifyPasswordUnsupportedFormat(t *testing.T) {
+	t.Parallel()
 	ok, err := verifyPassword("not-a-valid-hash", "password")
 	testutil.False(t, ok, "should return false for unsupported format")
 	testutil.ErrorContains(t, err, "unsupported hash format")
 }
 
 func TestVerifyBcryptPassword(t *testing.T) {
+	t.Parallel()
 	hash, err := bcrypt.GenerateFromPassword([]byte("mypassword123"), bcrypt.MinCost)
 	testutil.NoError(t, err)
 
@@ -56,6 +61,7 @@ func TestVerifyBcryptPassword(t *testing.T) {
 }
 
 func TestVerifyBcryptPasswordWrong(t *testing.T) {
+	t.Parallel()
 	hash, err := bcrypt.GenerateFromPassword([]byte("mypassword123"), bcrypt.MinCost)
 	testutil.NoError(t, err)
 
@@ -66,6 +72,8 @@ func TestVerifyBcryptPasswordWrong(t *testing.T) {
 
 func TestVerifyBcrypt2bPrefix(t *testing.T) {
 	// Go's bcrypt generates $2a$ hashes; verify $2b$ variant also works.
+	t.Parallel()
+
 	hash, err := bcrypt.GenerateFromPassword([]byte("testpass"), bcrypt.MinCost)
 	testutil.NoError(t, err)
 	hashStr := strings.Replace(string(hash), "$2a$", "$2b$", 1)
@@ -76,6 +84,7 @@ func TestVerifyBcrypt2bPrefix(t *testing.T) {
 }
 
 func TestIsBcryptHash(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		hash string
 		want bool
@@ -89,12 +98,14 @@ func TestIsBcryptHash(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.hash[:min(len(tt.hash), 4)], func(t *testing.T) {
+			t.Parallel()
 			testutil.Equal(t, tt.want, isBcryptHash(tt.hash))
 		})
 	}
 }
 
 func TestGenerateAndValidateToken(t *testing.T) {
+	t.Parallel()
 	svc := &Service{
 		jwtSecret: []byte(testSecret),
 		tokenDur:  time.Hour,
@@ -123,6 +134,7 @@ func TestGenerateAndValidateToken(t *testing.T) {
 }
 
 func TestValidateTokenExpired(t *testing.T) {
+	t.Parallel()
 	svc := &Service{
 		jwtSecret: []byte(testSecret),
 		tokenDur:  -time.Hour, // expired immediately
@@ -137,6 +149,7 @@ func TestValidateTokenExpired(t *testing.T) {
 }
 
 func TestValidateTokenTampered(t *testing.T) {
+	t.Parallel()
 	svc := &Service{
 		jwtSecret: []byte(testSecret),
 		tokenDur:  time.Hour,
@@ -155,6 +168,8 @@ func TestValidateTokenTampered(t *testing.T) {
 
 func TestValidateTokenWrongSigningMethod(t *testing.T) {
 	// Create a token signed with a different method (none).
+	t.Parallel()
+
 	claims := &Claims{
 		RegisteredClaims: jwt.RegisteredClaims{
 			Subject:   "test-id",
@@ -172,6 +187,7 @@ func TestValidateTokenWrongSigningMethod(t *testing.T) {
 }
 
 func TestValidateTokenWrongSecret(t *testing.T) {
+	t.Parallel()
 	svc1 := &Service{jwtSecret: []byte(testSecret), tokenDur: time.Hour}
 	svc2 := &Service{jwtSecret: []byte("different-secret-that-is-also-32-chars-long!!")}
 
@@ -184,6 +200,7 @@ func TestValidateTokenWrongSecret(t *testing.T) {
 }
 
 func TestValidateEmail(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name    string
 		email   string
@@ -198,6 +215,7 @@ func TestValidateEmail(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			err := validateEmail(tt.email)
 			if tt.wantErr == "" {
 				testutil.NoError(t, err)
@@ -209,6 +227,7 @@ func TestValidateEmail(t *testing.T) {
 }
 
 func TestValidatePassword(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name     string
 		password string
@@ -228,6 +247,7 @@ func TestValidatePassword(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			err := validatePassword(tt.password, tt.minLen)
 			if tt.wantErr == "" {
 				testutil.NoError(t, err)
@@ -239,6 +259,7 @@ func TestValidatePassword(t *testing.T) {
 }
 
 func TestPasswordHashUniqueSalt(t *testing.T) {
+	t.Parallel()
 	h1, err := hashPassword("same-password")
 	testutil.NoError(t, err)
 	h2, err := hashPassword("same-password")
@@ -247,6 +268,7 @@ func TestPasswordHashUniqueSalt(t *testing.T) {
 }
 
 func TestVerifyPasswordCorruptedHash(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name    string
 		hash    string
@@ -260,6 +282,7 @@ func TestVerifyPasswordCorruptedHash(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			ok, err := verifyPassword(tt.hash, "password")
 			testutil.False(t, ok, "corrupted hash should return false")
 			testutil.ErrorContains(t, err, tt.wantErr)
@@ -268,6 +291,7 @@ func TestVerifyPasswordCorruptedHash(t *testing.T) {
 }
 
 func TestRotateJWTSecretChangesSecret(t *testing.T) {
+	t.Parallel()
 	svc := &Service{jwtSecret: []byte(testSecret), tokenDur: time.Hour}
 
 	// Issue a token with the old secret.
@@ -301,6 +325,7 @@ func TestRotateJWTSecretChangesSecret(t *testing.T) {
 }
 
 func TestRotateJWTSecretProducesDifferentSecrets(t *testing.T) {
+	t.Parallel()
 	svc := &Service{jwtSecret: []byte(testSecret), tokenDur: time.Hour}
 
 	s1, err := svc.RotateJWTSecret()
@@ -310,7 +335,55 @@ func TestRotateJWTSecretProducesDifferentSecrets(t *testing.T) {
 	testutil.NotEqual(t, s1, s2)
 }
 
+// TestRotateJWTSecretConcurrentSafe verifies that concurrent RotateJWTSecret
+// and ValidateToken calls are data-race-free. Run with -race to validate the
+// jwtSecretMu RWMutex properly protects concurrent access.
+func TestRotateJWTSecretConcurrentSafe(t *testing.T) {
+	t.Parallel()
+	svc := &Service{jwtSecret: []byte(testSecret), tokenDur: time.Hour}
+	user := &User{ID: "concurrent-test", Email: "concurrent@example.com"}
+
+	var wg sync.WaitGroup
+	const workers = 8
+
+	// Issue a token before the goroutines start so validators have something to work with.
+	initialToken, err := svc.generateToken(user)
+	testutil.NoError(t, err)
+
+	// Goroutines that continuously rotate the secret.
+	for i := 0; i < workers/2; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for j := 0; j < 10; j++ {
+				_, _ = svc.RotateJWTSecret()
+			}
+		}()
+	}
+
+	// Goroutines that continuously generate and validate tokens.
+	// Validation may fail (wrong secret after rotation) — that's expected.
+	// What we're checking is no data race, not that all validations succeed.
+	for i := 0; i < workers/2; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for j := 0; j < 10; j++ {
+				tok, err := svc.generateToken(user)
+				if err == nil && tok != "" {
+					_, _ = svc.ValidateToken(tok)
+				}
+				// Also validate the initial token (may have been invalidated by rotation).
+				_, _ = svc.ValidateToken(initialToken)
+			}
+		}()
+	}
+
+	wg.Wait()
+}
+
 func TestIssueTestToken(t *testing.T) {
+	t.Parallel()
 	svc := &Service{jwtSecret: []byte(testSecret), tokenDur: time.Hour}
 
 	token, err := svc.IssueTestToken("user-123", "test@example.com")
@@ -333,6 +406,7 @@ func TestIssueTestToken(t *testing.T) {
 // TestValidateTokenBoundaryConditions tests JWT validation at expiry boundaries.
 // Uses generous margins to avoid flaky failures under load.
 func TestValidateTokenBoundaryConditions(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name       string
 		tokenDur   time.Duration
@@ -361,6 +435,7 @@ func TestValidateTokenBoundaryConditions(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			svc := &Service{
 				jwtSecret: []byte(testSecret),
 				tokenDur:  tt.tokenDur,
@@ -386,6 +461,7 @@ func TestValidateTokenBoundaryConditions(t *testing.T) {
 
 // TestHashTokenDeterministic verifies that hashToken produces deterministic output.
 func TestHashTokenDeterministic(t *testing.T) {
+	t.Parallel()
 	h1 := hashToken("test-token-value")
 	h2 := hashToken("test-token-value")
 	testutil.Equal(t, h1, h2)
@@ -394,6 +470,7 @@ func TestHashTokenDeterministic(t *testing.T) {
 
 // TestHashTokenDifferentInputs verifies that different inputs produce different hashes.
 func TestHashTokenDifferentInputs(t *testing.T) {
+	t.Parallel()
 	h1 := hashToken("token-a")
 	h2 := hashToken("token-b")
 	testutil.NotEqual(t, h1, h2)

@@ -14,6 +14,7 @@ import (
 )
 
 func TestMapPGError(t *testing.T) {
+	t.Parallel()
 	constraintDoc := httputil.DocURL("/guide/api-reference#error-format")
 
 	tests := []struct {
@@ -113,6 +114,7 @@ func TestMapPGError(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			w := httptest.NewRecorder()
 			result := mapPGError(w, tt.err)
 			testutil.Equal(t, tt.wantResult, result)
@@ -132,6 +134,7 @@ func TestMapPGError(t *testing.T) {
 }
 
 func TestFriendlyTypeError(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		pgMsg string
 		want  string
@@ -174,6 +177,7 @@ func TestFriendlyTypeError(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.pgMsg, func(t *testing.T) {
+			t.Parallel()
 			got := friendlyTypeError(tt.pgMsg)
 			testutil.Equal(t, tt.want, got)
 		})

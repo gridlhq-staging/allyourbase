@@ -12,6 +12,7 @@ import (
 )
 
 func TestOAuthStateStoreGenerateAndValidate(t *testing.T) {
+	t.Parallel()
 	store := NewOAuthStateStore(time.Minute)
 
 	token, err := store.Generate()
@@ -26,6 +27,7 @@ func TestOAuthStateStoreGenerateAndValidate(t *testing.T) {
 }
 
 func TestOAuthStateStoreExpiry(t *testing.T) {
+	t.Parallel()
 	store := NewOAuthStateStore(1 * time.Millisecond)
 
 	token, err := store.Generate()
@@ -36,11 +38,13 @@ func TestOAuthStateStoreExpiry(t *testing.T) {
 }
 
 func TestOAuthStateStoreInvalid(t *testing.T) {
+	t.Parallel()
 	store := NewOAuthStateStore(time.Minute)
 	testutil.False(t, store.Validate("nonexistent"), "unknown token should fail")
 }
 
 func TestAuthorizationURLGoogle(t *testing.T) {
+	t.Parallel()
 	client := OAuthClientConfig{ClientID: "my-id", ClientSecret: "my-secret"}
 	u, err := AuthorizationURL("google", client, "http://localhost/callback", "test-state")
 	testutil.NoError(t, err)
@@ -53,6 +57,7 @@ func TestAuthorizationURLGoogle(t *testing.T) {
 }
 
 func TestAuthorizationURLGitHub(t *testing.T) {
+	t.Parallel()
 	client := OAuthClientConfig{ClientID: "gh-id", ClientSecret: "gh-secret"}
 	u, err := AuthorizationURL("github", client, "http://localhost/callback", "test-state")
 	testutil.NoError(t, err)
@@ -62,12 +67,14 @@ func TestAuthorizationURLGitHub(t *testing.T) {
 }
 
 func TestAuthorizationURLUnsupported(t *testing.T) {
+	t.Parallel()
 	client := OAuthClientConfig{ClientID: "id", ClientSecret: "secret"}
 	_, err := AuthorizationURL("twitter", client, "http://localhost/callback", "state")
 	testutil.ErrorContains(t, err, "not configured")
 }
 
 func TestParseGoogleUser(t *testing.T) {
+	t.Parallel()
 	body := `{"id":"12345","email":"user@gmail.com","name":"Test User"}`
 	info, err := parseGoogleUser([]byte(body))
 	testutil.NoError(t, err)
@@ -77,15 +84,16 @@ func TestParseGoogleUser(t *testing.T) {
 }
 
 func TestParseGoogleUserMissingID(t *testing.T) {
+	t.Parallel()
 	body := `{"email":"user@gmail.com"}`
 	_, err := parseGoogleUser([]byte(body))
 	testutil.ErrorContains(t, err, "missing user ID")
 }
 
 func TestParseGitHubUser(t *testing.T) {
-	// Set up a mock emails endpoint for the case where email is empty.
+	t.Parallel()
 	body := `{"id":42,"login":"octocat","email":"octocat@github.com","name":"The Octocat"}`
-	info, err := parseGitHubUser(context.Background(), []byte(body), "unused-token")
+	info, err := parseGitHubUser(context.Background(), []byte(body), "unused-token", oauthHTTPClient)
 	testutil.NoError(t, err)
 	testutil.Equal(t, "42", info.ProviderUserID)
 	testutil.Equal(t, "octocat@github.com", info.Email)
@@ -93,19 +101,22 @@ func TestParseGitHubUser(t *testing.T) {
 }
 
 func TestParseGitHubUserFallbackLoginAsName(t *testing.T) {
+	t.Parallel()
 	body := `{"id":42,"login":"octocat","email":"octocat@github.com","name":""}`
-	info, err := parseGitHubUser(context.Background(), []byte(body), "unused-token")
+	info, err := parseGitHubUser(context.Background(), []byte(body), "unused-token", oauthHTTPClient)
 	testutil.NoError(t, err)
 	testutil.Equal(t, "octocat", info.Name)
 }
 
 func TestParseGitHubUserMissingID(t *testing.T) {
+	t.Parallel()
 	body := `{"login":"octocat"}`
-	_, err := parseGitHubUser(context.Background(), []byte(body), "token")
+	_, err := parseGitHubUser(context.Background(), []byte(body), "token", oauthHTTPClient)
 	testutil.ErrorContains(t, err, "missing user ID")
 }
 
 func TestHandleOAuthRedirectUnknownProvider(t *testing.T) {
+	t.Parallel()
 	svc := newTestService()
 	h := NewHandler(svc, testutil.DiscardLogger())
 	router := h.Routes()
@@ -119,6 +130,7 @@ func TestHandleOAuthRedirectUnknownProvider(t *testing.T) {
 }
 
 func TestHandleOAuthRedirectConfiguredProvider(t *testing.T) {
+	t.Parallel()
 	svc := newTestService()
 	h := NewHandler(svc, testutil.DiscardLogger())
 	h.SetOAuthProvider("google", OAuthClientConfig{ClientID: "test-id", ClientSecret: "test-secret"})
@@ -137,6 +149,7 @@ func TestHandleOAuthRedirectConfiguredProvider(t *testing.T) {
 }
 
 func TestHandleOAuthCallbackMissingState(t *testing.T) {
+	t.Parallel()
 	svc := newTestService()
 	h := NewHandler(svc, testutil.DiscardLogger())
 	h.SetOAuthProvider("google", OAuthClientConfig{ClientID: "id", ClientSecret: "secret"})
@@ -151,6 +164,7 @@ func TestHandleOAuthCallbackMissingState(t *testing.T) {
 }
 
 func TestHandleOAuthCallbackMissingCode(t *testing.T) {
+	t.Parallel()
 	svc := newTestService()
 	h := NewHandler(svc, testutil.DiscardLogger())
 	h.SetOAuthProvider("google", OAuthClientConfig{ClientID: "id", ClientSecret: "secret"})
@@ -169,6 +183,7 @@ func TestHandleOAuthCallbackMissingCode(t *testing.T) {
 }
 
 func TestHandleOAuthCallbackProviderError(t *testing.T) {
+	t.Parallel()
 	svc := newTestService()
 	h := NewHandler(svc, testutil.DiscardLogger())
 	h.SetOAuthProvider("google", OAuthClientConfig{ClientID: "id", ClientSecret: "secret"})
@@ -183,6 +198,7 @@ func TestHandleOAuthCallbackProviderError(t *testing.T) {
 }
 
 func TestOAuthCallbackURLDerivation(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name     string
 		host     string
@@ -207,6 +223,7 @@ func TestOAuthCallbackURLDerivation(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			req := httptest.NewRequest(http.MethodGet, "/", nil)
 			req.Host = tt.host
 			if tt.proto != "" {
@@ -219,11 +236,13 @@ func TestOAuthCallbackURLDerivation(t *testing.T) {
 }
 
 func TestOAuthHTTPClientTimeout(t *testing.T) {
+	t.Parallel()
 	testutil.True(t, oauthHTTPClient.Timeout > 0, "oauthHTTPClient should have a timeout")
 	testutil.Equal(t, 10*time.Second, oauthHTTPClient.Timeout)
 }
 
 func TestExchangeCodeTimesOut(t *testing.T) {
+	t.Parallel()
 	// Server that delays until unblocked — allows clean shutdown after
 	// the HTTP client timeout fires.
 	done := make(chan struct{})
@@ -238,27 +257,17 @@ func TestExchangeCodeTimesOut(t *testing.T) {
 		slowServer.Close()
 	}()
 
-	// Save and restore originals.
-	origClient := oauthHTTPClient
-	origProvider := oauthProviders["google"]
-	defer func() {
-		oauthHTTPClient = origClient
-		oauthProviders["google"] = origProvider
-	}()
-
-	oauthHTTPClient = &http.Client{Timeout: 50 * time.Millisecond}
-
-	modified := origProvider
-	modified.TokenURL = slowServer.URL
-	oauthProviders["google"] = modified
-
+	// Use explicit deps — no global mutation, safe to run in parallel.
+	fastClient := &http.Client{Timeout: 50 * time.Millisecond}
+	pc := OAuthProviderConfig{TokenURL: slowServer.URL}
 	client := OAuthClientConfig{ClientID: "id", ClientSecret: "secret"}
-	_, err := ExchangeCode(context.Background(), "google", client, "code", "http://localhost/callback")
-	testutil.True(t, err != nil, "should error on timeout")
+	_, err := exchangeCode(context.Background(), "google", client, "code", "http://localhost/callback", pc, fastClient)
+	testutil.NotNil(t, err)
 	testutil.ErrorContains(t, err, "code exchange failed")
 }
 
 func TestOAuthCallbackWithCodeExchangeFailure(t *testing.T) {
+	t.Parallel()
 	// Start a fake token endpoint that returns an error.
 	fakeServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusBadRequest)
@@ -266,16 +275,11 @@ func TestOAuthCallbackWithCodeExchangeFailure(t *testing.T) {
 	}))
 	defer fakeServer.Close()
 
-	// Temporarily override Google's token URL.
-	orig := oauthProviders["google"]
-	modified := orig
-	modified.TokenURL = fakeServer.URL
-	oauthProviders["google"] = modified
-	defer func() { oauthProviders["google"] = orig }()
-
 	svc := newTestService()
 	h := NewHandler(svc, testutil.DiscardLogger())
 	h.SetOAuthProvider("google", OAuthClientConfig{ClientID: "id", ClientSecret: "secret"})
+	// Override just the token URL on this handler instance — no global mutation.
+	h.SetProviderURLs("google", OAuthProviderConfig{TokenURL: fakeServer.URL})
 
 	state, err := h.oauthStateStore.Generate()
 	testutil.NoError(t, err)
@@ -313,6 +317,7 @@ func (f *fakeOAuthPublisher) PublishOAuth(clientID string, event *OAuthEvent) {
 }
 
 func TestRegisterExternalState(t *testing.T) {
+	t.Parallel()
 	store := NewOAuthStateStore(time.Minute)
 
 	store.RegisterExternalState("sse-client-1")
@@ -325,6 +330,7 @@ func TestRegisterExternalState(t *testing.T) {
 }
 
 func TestRegisterExternalStateExpires(t *testing.T) {
+	t.Parallel()
 	store := NewOAuthStateStore(1 * time.Millisecond)
 
 	store.RegisterExternalState("sse-client-1")
@@ -334,6 +340,7 @@ func TestRegisterExternalStateExpires(t *testing.T) {
 }
 
 func TestHandleOAuthRedirectWithSSEState(t *testing.T) {
+	t.Parallel()
 	svc := newTestService()
 	h := NewHandler(svc, testutil.DiscardLogger())
 	h.SetOAuthProvider("google", OAuthClientConfig{ClientID: "test-id", ClientSecret: "test-secret"})
@@ -358,6 +365,7 @@ func TestHandleOAuthRedirectWithSSEState(t *testing.T) {
 }
 
 func TestHandleOAuthRedirectIgnoresUnknownState(t *testing.T) {
+	t.Parallel()
 	svc := newTestService()
 	h := NewHandler(svc, testutil.DiscardLogger())
 	h.SetOAuthProvider("google", OAuthClientConfig{ClientID: "test-id", ClientSecret: "test-secret"})
@@ -399,6 +407,7 @@ func searchString(s, substr string) bool {
 }
 
 func TestOAuthCallbackPublishesErrorViaSSEOnExchangeFailure(t *testing.T) {
+	t.Parallel()
 	// Token endpoint returns an error — code exchange fails.
 	fakeServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusBadRequest)
@@ -406,18 +415,11 @@ func TestOAuthCallbackPublishesErrorViaSSEOnExchangeFailure(t *testing.T) {
 	}))
 	defer fakeServer.Close()
 
-	orig := oauthProviders["google"]
-	oauthProviders["google"] = OAuthProviderConfig{
-		AuthURL:     orig.AuthURL,
-		TokenURL:    fakeServer.URL,
-		UserInfoURL: fakeServer.URL,
-		Scopes:      orig.Scopes,
-	}
-	defer func() { oauthProviders["google"] = orig }()
-
 	svc := newTestService()
 	h := NewHandler(svc, testutil.DiscardLogger())
 	h.SetOAuthProvider("google", OAuthClientConfig{ClientID: "id", ClientSecret: "secret"})
+	// Override token and userinfo URLs on this handler instance — no global mutation.
+	h.SetProviderURLs("google", OAuthProviderConfig{TokenURL: fakeServer.URL, UserInfoURL: fakeServer.URL})
 
 	pub := newFakeOAuthPublisher()
 	pub.clients["sse-client-99"] = true
@@ -438,12 +440,13 @@ func TestOAuthCallbackPublishesErrorViaSSEOnExchangeFailure(t *testing.T) {
 	testutil.Contains(t, w.Body.String(), "window.close()")
 
 	// Verify the publisher received an error event.
-	testutil.True(t, len(pub.published) == 1, "should publish one event")
+	testutil.SliceLen(t, pub.published, 1)
 	testutil.Equal(t, "sse-client-99", pub.lastTarget)
 	testutil.Contains(t, pub.published[0].Error, "failed to authenticate")
 }
 
 func TestOAuthCallbackFallsBackToJSONWithoutSSE(t *testing.T) {
+	t.Parallel()
 	// When the state doesn't match an SSE client, callback should behave
 	// as before (JSON or redirect). We test the error path here.
 	fakeServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -452,18 +455,11 @@ func TestOAuthCallbackFallsBackToJSONWithoutSSE(t *testing.T) {
 	}))
 	defer fakeServer.Close()
 
-	orig := oauthProviders["google"]
-	oauthProviders["google"] = OAuthProviderConfig{
-		AuthURL:     orig.AuthURL,
-		TokenURL:    fakeServer.URL,
-		UserInfoURL: fakeServer.URL,
-		Scopes:      orig.Scopes,
-	}
-	defer func() { oauthProviders["google"] = orig }()
-
 	svc := newTestService()
 	h := NewHandler(svc, testutil.DiscardLogger())
 	h.SetOAuthProvider("google", OAuthClientConfig{ClientID: "id", ClientSecret: "secret"})
+	// Override token and userinfo URLs on this handler instance — no global mutation.
+	h.SetProviderURLs("google", OAuthProviderConfig{TokenURL: fakeServer.URL, UserInfoURL: fakeServer.URL})
 
 	pub := newFakeOAuthPublisher()
 	h.SetOAuthPublisher(pub)
@@ -482,10 +478,11 @@ func TestOAuthCallbackFallsBackToJSONWithoutSSE(t *testing.T) {
 	testutil.Contains(t, w.Body.String(), "failed to authenticate")
 
 	// Publisher should not have been called.
-	testutil.True(t, len(pub.published) == 0, "should not publish when not SSE flow")
+	testutil.SliceLen(t, pub.published, 0)
 }
 
 func TestOAuthProviderErrorPublishesViaSSEWhenPopup(t *testing.T) {
+	t.Parallel()
 	svc := newTestService()
 	h := NewHandler(svc, testutil.DiscardLogger())
 	h.SetOAuthProvider("google", OAuthClientConfig{ClientID: "id", ClientSecret: "secret"})
@@ -505,11 +502,12 @@ func TestOAuthProviderErrorPublishesViaSSEWhenPopup(t *testing.T) {
 	testutil.Contains(t, w.Body.String(), "window.close()")
 
 	// Should publish error via SSE.
-	testutil.True(t, len(pub.published) == 1, "should publish error event")
+	testutil.SliceLen(t, pub.published, 1)
 	testutil.Contains(t, pub.published[0].Error, "denied or failed")
 }
 
 func TestOAuthCompletePage(t *testing.T) {
+	t.Parallel()
 	svc := newTestService()
 	h := NewHandler(svc, testutil.DiscardLogger())
 
@@ -524,6 +522,7 @@ func TestOAuthCompletePage(t *testing.T) {
 }
 
 func TestHandleOAuthCallbackEmptyCodeParam(t *testing.T) {
+	t.Parallel()
 	svc := newTestService()
 	h := NewHandler(svc, testutil.DiscardLogger())
 	h.SetOAuthProvider("google", OAuthClientConfig{ClientID: "id", ClientSecret: "secret"})
@@ -542,6 +541,7 @@ func TestHandleOAuthCallbackEmptyCodeParam(t *testing.T) {
 }
 
 func TestOAuthStateStoreConcurrentAccess(t *testing.T) {
+	t.Parallel()
 	store := NewOAuthStateStore(time.Minute)
 
 	// Generate and validate tokens concurrently.
@@ -578,6 +578,7 @@ func TestOAuthStateStoreConcurrentAccess(t *testing.T) {
 }
 
 func TestOAuthCallbackProviderErrorWithDescriptionParam(t *testing.T) {
+	t.Parallel()
 	svc := newTestService()
 	h := NewHandler(svc, testutil.DiscardLogger())
 	h.SetOAuthProvider("google", OAuthClientConfig{ClientID: "id", ClientSecret: "secret"})
@@ -593,6 +594,7 @@ func TestOAuthCallbackProviderErrorWithDescriptionParam(t *testing.T) {
 }
 
 func TestOAuthCallbackProviderErrorWithoutDescription(t *testing.T) {
+	t.Parallel()
 	svc := newTestService()
 	h := NewHandler(svc, testutil.DiscardLogger())
 	h.SetOAuthProvider("google", OAuthClientConfig{ClientID: "id", ClientSecret: "secret"})
@@ -610,6 +612,7 @@ func TestOAuthCallbackProviderErrorWithoutDescription(t *testing.T) {
 // --- OAuth state parameter security tests ---
 
 func TestOAuthStateTampering(t *testing.T) {
+	t.Parallel()
 	store := NewOAuthStateStore(time.Minute)
 
 	// Generate a valid state.
@@ -627,6 +630,7 @@ func TestOAuthStateTampering(t *testing.T) {
 }
 
 func TestOAuthStateReuse(t *testing.T) {
+	t.Parallel()
 	store := NewOAuthStateStore(time.Minute)
 
 	state, err := store.Generate()
@@ -643,6 +647,7 @@ func TestOAuthStateReuse(t *testing.T) {
 }
 
 func TestOAuthCallbackWithTamperedState(t *testing.T) {
+	t.Parallel()
 	svc := newTestService()
 	h := NewHandler(svc, testutil.DiscardLogger())
 	h.SetOAuthProvider("google", OAuthClientConfig{ClientID: "id", ClientSecret: "secret"})
@@ -665,6 +670,7 @@ func TestOAuthCallbackWithTamperedState(t *testing.T) {
 }
 
 func TestOAuthCallbackStateReuseAfterSuccess(t *testing.T) {
+	t.Parallel()
 	svc := newTestService()
 	h := NewHandler(svc, testutil.DiscardLogger())
 	h.SetOAuthProvider("google", OAuthClientConfig{ClientID: "id", ClientSecret: "secret"})
@@ -692,6 +698,7 @@ func TestOAuthCallbackStateReuseAfterSuccess(t *testing.T) {
 }
 
 func TestOAuthStateMissingParameter(t *testing.T) {
+	t.Parallel()
 	svc := newTestService()
 	h := NewHandler(svc, testutil.DiscardLogger())
 	h.SetOAuthProvider("google", OAuthClientConfig{ClientID: "id", ClientSecret: "secret"})
@@ -707,6 +714,7 @@ func TestOAuthStateMissingParameter(t *testing.T) {
 }
 
 func TestOAuthStateEmptyParameter(t *testing.T) {
+	t.Parallel()
 	svc := newTestService()
 	h := NewHandler(svc, testutil.DiscardLogger())
 	h.SetOAuthProvider("google", OAuthClientConfig{ClientID: "id", ClientSecret: "secret"})

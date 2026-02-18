@@ -10,7 +10,9 @@ import (
 )
 
 func TestGetCollectionsWithFiles(t *testing.T) {
+	t.Parallel()
 	t.Run("no file fields", func(t *testing.T) {
+		t.Parallel()
 		collections := []PBCollection{
 			{
 				Name:   "posts",
@@ -28,6 +30,7 @@ func TestGetCollectionsWithFiles(t *testing.T) {
 	})
 
 	t.Run("single file field", func(t *testing.T) {
+		t.Parallel()
 		collections := []PBCollection{
 			{
 				Name:   "posts",
@@ -46,6 +49,7 @@ func TestGetCollectionsWithFiles(t *testing.T) {
 	})
 
 	t.Run("multiple collections with files", func(t *testing.T) {
+		t.Parallel()
 		collections := []PBCollection{
 			{
 				Name:   "posts",
@@ -82,6 +86,7 @@ func TestGetCollectionsWithFiles(t *testing.T) {
 	})
 
 	t.Run("skip system collections", func(t *testing.T) {
+		t.Parallel()
 		collections := []PBCollection{
 			{
 				Name:   "_internal",
@@ -107,6 +112,7 @@ func TestGetCollectionsWithFiles(t *testing.T) {
 	})
 
 	t.Run("skip view collections", func(t *testing.T) {
+		t.Parallel()
 		collections := []PBCollection{
 			{
 				Name:   "stats_view",
@@ -132,6 +138,7 @@ func TestGetCollectionsWithFiles(t *testing.T) {
 	})
 
 	t.Run("multiple file fields in one collection", func(t *testing.T) {
+		t.Parallel()
 		collections := []PBCollection{
 			{
 				Name:   "posts",
@@ -152,7 +159,9 @@ func TestGetCollectionsWithFiles(t *testing.T) {
 }
 
 func TestCopyFile(t *testing.T) {
+	t.Parallel()
 	t.Run("copy simple file", func(t *testing.T) {
+		t.Parallel()
 		tmpDir := t.TempDir()
 
 		// Create source file
@@ -174,6 +183,7 @@ func TestCopyFile(t *testing.T) {
 	})
 
 	t.Run("copy large file", func(t *testing.T) {
+		t.Parallel()
 		tmpDir := t.TempDir()
 
 		// Create source file with 1MB of data
@@ -198,6 +208,7 @@ func TestCopyFile(t *testing.T) {
 	})
 
 	t.Run("missing source file", func(t *testing.T) {
+		t.Parallel()
 		tmpDir := t.TempDir()
 		srcPath := filepath.Join(tmpDir, "missing.txt")
 		dstPath := filepath.Join(tmpDir, "dest.txt")
@@ -207,6 +218,7 @@ func TestCopyFile(t *testing.T) {
 	})
 
 	t.Run("create destination directory", func(t *testing.T) {
+		t.Parallel()
 		tmpDir := t.TempDir()
 
 		// Create source file
@@ -229,6 +241,7 @@ func TestCopyFile(t *testing.T) {
 	})
 
 	t.Run("empty file", func(t *testing.T) {
+		t.Parallel()
 		tmpDir := t.TempDir()
 
 		// Create empty source file
@@ -249,6 +262,7 @@ func TestCopyFile(t *testing.T) {
 	})
 
 	t.Run("overwrite existing file", func(t *testing.T) {
+		t.Parallel()
 		tmpDir := t.TempDir()
 
 		// Create source file
@@ -274,6 +288,7 @@ func TestCopyFile(t *testing.T) {
 	})
 
 	t.Run("binary file", func(t *testing.T) {
+		t.Parallel()
 		tmpDir := t.TempDir()
 
 		// Create binary source file
@@ -299,6 +314,7 @@ func TestCopyFile(t *testing.T) {
 }
 
 func TestMigrateFiles_NoStorageDirectory(t *testing.T) {
+	t.Parallel()
 	tmpDir := t.TempDir()
 
 	// Create pb_data without storage directory
@@ -325,6 +341,7 @@ func TestMigrateFiles_NoStorageDirectory(t *testing.T) {
 }
 
 func TestMigrateFiles_NoCollectionsWithFiles(t *testing.T) {
+	t.Parallel()
 	tmpDir := t.TempDir()
 
 	// Create pb_data with storage directory

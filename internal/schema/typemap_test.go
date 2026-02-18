@@ -7,6 +7,7 @@ import (
 )
 
 func TestPgTypeToJSON(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name    string
 		typ     string
@@ -90,6 +91,7 @@ func TestPgTypeToJSON(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			got := pgTypeToJSON(tt.typ, tt.isArray, tt.isEnum, tt.isJSON)
 			testutil.Equal(t, tt.want, got)
 		})

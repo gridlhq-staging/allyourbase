@@ -9,12 +9,14 @@ import (
 )
 
 func TestRequireAdminTokenMiddleware(t *testing.T) {
+	t.Parallel()
 	okHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		w.Write([]byte("ok"))
 	})
 
 	t.Run("passthrough when admin auth not configured", func(t *testing.T) {
+		t.Parallel()
 		s := &Server{} // adminAuth is nil
 		handler := s.requireAdminToken(okHandler)
 
@@ -26,6 +28,7 @@ func TestRequireAdminTokenMiddleware(t *testing.T) {
 	})
 
 	t.Run("valid token passes", func(t *testing.T) {
+		t.Parallel()
 		s := &Server{adminAuth: newAdminAuth("secret")}
 		handler := s.requireAdminToken(okHandler)
 		token := s.adminAuth.token()
@@ -39,6 +42,7 @@ func TestRequireAdminTokenMiddleware(t *testing.T) {
 	})
 
 	t.Run("invalid token rejected", func(t *testing.T) {
+		t.Parallel()
 		s := &Server{adminAuth: newAdminAuth("secret")}
 		handler := s.requireAdminToken(okHandler)
 
@@ -52,6 +56,7 @@ func TestRequireAdminTokenMiddleware(t *testing.T) {
 	})
 
 	t.Run("missing token rejected", func(t *testing.T) {
+		t.Parallel()
 		s := &Server{adminAuth: newAdminAuth("secret")}
 		handler := s.requireAdminToken(okHandler)
 

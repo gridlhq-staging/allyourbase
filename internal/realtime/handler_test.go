@@ -80,6 +80,7 @@ func expiredToken() string {
 
 // TestSSEMissingTablesParam tests that the handler returns 400 when tables param is missing.
 func TestSSEMissingTablesParam(t *testing.T) {
+	t.Parallel()
 	hub := realtime.NewHub(testutil.DiscardLogger())
 	h := realtime.NewHandler(hub, nil, nil, testSchemaCache("posts"), testutil.DiscardLogger())
 
@@ -93,6 +94,7 @@ func TestSSEMissingTablesParam(t *testing.T) {
 
 // TestSSEUnknownTable tests that the handler returns 400 for unknown table names.
 func TestSSEUnknownTable(t *testing.T) {
+	t.Parallel()
 	hub := realtime.NewHub(testutil.DiscardLogger())
 	h := realtime.NewHandler(hub, nil, nil, testSchemaCache("posts"), testutil.DiscardLogger())
 
@@ -106,6 +108,7 @@ func TestSSEUnknownTable(t *testing.T) {
 
 // TestSSEAuthRequired tests that auth is enforced when authSvc is non-nil.
 func TestSSEAuthRequired(t *testing.T) {
+	t.Parallel()
 	hub := realtime.NewHub(testutil.DiscardLogger())
 	h := realtime.NewHandler(hub, nil, testAuthService(), testSchemaCache("posts"), testutil.DiscardLogger())
 
@@ -119,6 +122,7 @@ func TestSSEAuthRequired(t *testing.T) {
 
 // TestSSEExpiredToken tests that expired tokens are rejected.
 func TestSSEExpiredToken(t *testing.T) {
+	t.Parallel()
 	hub := realtime.NewHub(testutil.DiscardLogger())
 	h := realtime.NewHandler(hub, nil, testAuthService(), testSchemaCache("posts"), testutil.DiscardLogger())
 
@@ -132,6 +136,7 @@ func TestSSEExpiredToken(t *testing.T) {
 
 // TestSSENoAuthWhenDisabled tests that no auth is required when authSvc is nil.
 func TestSSENoAuthWhenDisabled(t *testing.T) {
+	t.Parallel()
 	hub := realtime.NewHub(testutil.DiscardLogger())
 	h := realtime.NewHandler(hub, nil, nil, testSchemaCache("posts"), testutil.DiscardLogger())
 
@@ -160,11 +165,12 @@ func TestSSENoAuthWhenDisabled(t *testing.T) {
 	testutil.True(t, len(lines) >= 2, "should have at least event + data lines")
 	testutil.Equal(t, "event: connected", lines[0])
 	data := parseSSEData(t, lines[1])
-	testutil.True(t, data["clientId"] != nil && data["clientId"] != "", "connected event should contain non-empty clientId")
+	testutil.NotNil(t, data["clientId"])
 }
 
 // TestSSETokenInHeader tests auth via Authorization header.
 func TestSSETokenInHeader(t *testing.T) {
+	t.Parallel()
 	hub := realtime.NewHub(testutil.DiscardLogger())
 	authSvc := testAuthService()
 	h := realtime.NewHandler(hub, nil, authSvc, testSchemaCache("posts"), testutil.DiscardLogger())
@@ -195,11 +201,12 @@ func TestSSETokenInHeader(t *testing.T) {
 	testutil.True(t, len(lines) >= 2, "should have at least event + data lines")
 	testutil.Equal(t, "event: connected", lines[0])
 	data := parseSSEData(t, lines[1])
-	testutil.True(t, data["clientId"] != nil && data["clientId"] != "", "connected event should contain non-empty clientId")
+	testutil.NotNil(t, data["clientId"])
 }
 
 // TestSSETokenInQueryParam tests auth via token query parameter.
 func TestSSETokenInQueryParam(t *testing.T) {
+	t.Parallel()
 	hub := realtime.NewHub(testutil.DiscardLogger())
 	authSvc := testAuthService()
 	h := realtime.NewHandler(hub, nil, authSvc, testSchemaCache("posts"), testutil.DiscardLogger())
@@ -227,12 +234,13 @@ func TestSSETokenInQueryParam(t *testing.T) {
 	testutil.True(t, len(lines) >= 2, "should have at least event + data lines")
 	testutil.Equal(t, "event: connected", lines[0])
 	data := parseSSEData(t, lines[1])
-	testutil.True(t, data["clientId"] != nil && data["clientId"] != "", "connected event should contain non-empty clientId")
+	testutil.NotNil(t, data["clientId"])
 }
 
 // TestSSEReceivesPublishedEvents tests that events published to the hub
 // are delivered to connected SSE clients.
 func TestSSEReceivesPublishedEvents(t *testing.T) {
+	t.Parallel()
 	hub := realtime.NewHub(testutil.DiscardLogger())
 	h := realtime.NewHandler(hub, nil, nil, testSchemaCache("posts"), testutil.DiscardLogger())
 
@@ -282,6 +290,7 @@ func TestSSEReceivesPublishedEvents(t *testing.T) {
 
 // TestSSEMultipleTables tests subscribing to multiple tables.
 func TestSSEMultipleTables(t *testing.T) {
+	t.Parallel()
 	hub := realtime.NewHub(testutil.DiscardLogger())
 	h := realtime.NewHandler(hub, nil, nil, testSchemaCache("posts", "comments"), testutil.DiscardLogger())
 
@@ -336,6 +345,7 @@ func TestSSEMultipleTables(t *testing.T) {
 
 // TestOAuthSSEConnected tests that oauth=true creates a client and returns clientId.
 func TestOAuthSSEConnected(t *testing.T) {
+	t.Parallel()
 	hub := realtime.NewHub(testutil.DiscardLogger())
 	h := realtime.NewHandler(hub, nil, nil, testSchemaCache("posts"), testutil.DiscardLogger())
 
@@ -361,11 +371,12 @@ func TestOAuthSSEConnected(t *testing.T) {
 	testutil.True(t, len(lines) >= 2, "should have event + data lines")
 	testutil.Equal(t, "event: connected", lines[0])
 	data := parseSSEData(t, lines[1])
-	testutil.True(t, data["clientId"] != nil && data["clientId"] != "", "connected event should contain non-empty clientId")
+	testutil.NotNil(t, data["clientId"])
 }
 
 // TestOAuthSSENoAuthRequired tests that oauth=true bypasses JWT auth even when auth is enabled.
 func TestOAuthSSENoAuthRequired(t *testing.T) {
+	t.Parallel()
 	hub := realtime.NewHub(testutil.DiscardLogger())
 	// Auth service is non-nil (auth enabled), but OAuth SSE should still work without a token.
 	h := realtime.NewHandler(hub, nil, testAuthService(), testSchemaCache("posts"), testutil.DiscardLogger())
@@ -393,11 +404,12 @@ func TestOAuthSSENoAuthRequired(t *testing.T) {
 	testutil.True(t, len(lines) >= 2, "should have at least event + data lines")
 	testutil.Equal(t, "event: connected", lines[0])
 	data := parseSSEData(t, lines[1])
-	testutil.True(t, data["clientId"] != nil && data["clientId"] != "", "connected event should contain non-empty clientId")
+	testutil.NotNil(t, data["clientId"])
 }
 
 // TestOAuthSSEReceivesOAuthEvent tests that publishing an OAuth event delivers it to the SSE client.
 func TestOAuthSSEReceivesOAuthEvent(t *testing.T) {
+	t.Parallel()
 	hub := realtime.NewHub(testutil.DiscardLogger())
 	h := realtime.NewHandler(hub, nil, nil, testSchemaCache("posts"), testutil.DiscardLogger())
 
@@ -454,6 +466,7 @@ func TestOAuthSSEReceivesOAuthEvent(t *testing.T) {
 
 // TestOAuthSSEClientCleanupOnDisconnect tests that OAuth SSE clients are cleaned up.
 func TestOAuthSSEClientCleanupOnDisconnect(t *testing.T) {
+	t.Parallel()
 	hub := realtime.NewHub(testutil.DiscardLogger())
 	h := realtime.NewHandler(hub, nil, nil, testSchemaCache("posts"), testutil.DiscardLogger())
 
@@ -482,6 +495,7 @@ func TestOAuthSSEClientCleanupOnDisconnect(t *testing.T) {
 
 // TestSSEClientCleanupOnDisconnect tests that disconnecting cleans up the client.
 func TestSSEClientCleanupOnDisconnect(t *testing.T) {
+	t.Parallel()
 	hub := realtime.NewHub(testutil.DiscardLogger())
 	h := realtime.NewHandler(hub, nil, nil, testSchemaCache("posts"), testutil.DiscardLogger())
 

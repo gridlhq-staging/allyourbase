@@ -1,6 +1,6 @@
 # Kanban Board Demo
 
-A realtime collaborative Kanban board (Trello-lite) built with AllYourBase. Demonstrates:
+A realtime collaborative Kanban board (Trello-lite) built with Allyourbase. Demonstrates:
 
 - **REST API** — CRUD operations on boards, columns, and cards
 - **Authentication** — Email/password registration and login with JWT
@@ -11,7 +11,7 @@ A realtime collaborative Kanban board (Trello-lite) built with AllYourBase. Demo
 
 ## Quick Start
 
-### 1. Start AllYourBase
+### 1. Start Allyourbase
 
 ```bash
 # Install AYB (if you haven't already)
@@ -29,7 +29,7 @@ enabled = true
 jwt_secret = "change-me-to-a-secret-at-least-32-chars-long!!"
 
 [database]
-# Leave empty for embedded PostgreSQL (zero config)
+# Leave empty for managed PostgreSQL (zero config)
 EOF
 
 # Start AYB

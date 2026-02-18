@@ -28,6 +28,7 @@ func filterTestTable() *schema.Table {
 // --- Tokenizer tests ---
 
 func TestTokenizeSimple(t *testing.T) {
+	t.Parallel()
 	tokens, err := tokenize("name='Alice'")
 	testutil.NoError(t, err)
 	testutil.SliceLen(t, tokens, 3)
@@ -40,6 +41,7 @@ func TestTokenizeSimple(t *testing.T) {
 }
 
 func TestTokenizeWithSpaces(t *testing.T) {
+	t.Parallel()
 	tokens, err := tokenize("age > 25")
 	testutil.NoError(t, err)
 	testutil.SliceLen(t, tokens, 3)
@@ -50,6 +52,7 @@ func TestTokenizeWithSpaces(t *testing.T) {
 }
 
 func TestTokenizeAnd(t *testing.T) {
+	t.Parallel()
 	tokens, err := tokenize("a=1 && b=2")
 	testutil.NoError(t, err)
 	testutil.SliceLen(t, tokens, 7)
@@ -57,6 +60,7 @@ func TestTokenizeAnd(t *testing.T) {
 }
 
 func TestTokenizeOr(t *testing.T) {
+	t.Parallel()
 	tokens, err := tokenize("a=1 || b=2")
 	testutil.NoError(t, err)
 	testutil.SliceLen(t, tokens, 7)
@@ -64,6 +68,7 @@ func TestTokenizeOr(t *testing.T) {
 }
 
 func TestTokenizeAndKeyword(t *testing.T) {
+	t.Parallel()
 	tokens, err := tokenize("a=1 AND b=2")
 	testutil.NoError(t, err)
 	testutil.SliceLen(t, tokens, 7)
@@ -71,6 +76,7 @@ func TestTokenizeAndKeyword(t *testing.T) {
 }
 
 func TestTokenizeOrKeyword(t *testing.T) {
+	t.Parallel()
 	tokens, err := tokenize("a=1 OR b=2")
 	testutil.NoError(t, err)
 	testutil.SliceLen(t, tokens, 7)
@@ -78,6 +84,7 @@ func TestTokenizeOrKeyword(t *testing.T) {
 }
 
 func TestTokenizeParens(t *testing.T) {
+	t.Parallel()
 	tokens, err := tokenize("(a=1)")
 	testutil.NoError(t, err)
 	testutil.SliceLen(t, tokens, 5)
@@ -86,6 +93,7 @@ func TestTokenizeParens(t *testing.T) {
 }
 
 func TestTokenizeBool(t *testing.T) {
+	t.Parallel()
 	tokens, err := tokenize("active=true")
 	testutil.NoError(t, err)
 	testutil.SliceLen(t, tokens, 3)
@@ -94,6 +102,7 @@ func TestTokenizeBool(t *testing.T) {
 }
 
 func TestTokenizeNull(t *testing.T) {
+	t.Parallel()
 	tokens, err := tokenize("name=null")
 	testutil.NoError(t, err)
 	testutil.SliceLen(t, tokens, 3)
@@ -101,6 +110,7 @@ func TestTokenizeNull(t *testing.T) {
 }
 
 func TestTokenizeIn(t *testing.T) {
+	t.Parallel()
 	tokens, err := tokenize("status IN ('a','b','c')")
 	testutil.NoError(t, err)
 	testutil.Equal(t, tokIn, tokens[1].kind)
@@ -108,6 +118,7 @@ func TestTokenizeIn(t *testing.T) {
 }
 
 func TestTokenizeOperators(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		input string
 		op    string
@@ -131,6 +142,7 @@ func TestTokenizeOperators(t *testing.T) {
 }
 
 func TestTokenizeFloat(t *testing.T) {
+	t.Parallel()
 	tokens, err := tokenize("age>3.14")
 	testutil.NoError(t, err)
 	testutil.Equal(t, "3.14", tokens[2].value)
@@ -138,6 +150,7 @@ func TestTokenizeFloat(t *testing.T) {
 }
 
 func TestTokenizeEscapedQuote(t *testing.T) {
+	t.Parallel()
 	tokens, err := tokenize(`name='it\'s'`)
 	testutil.NoError(t, err)
 	testutil.SliceLen(t, tokens, 3)
@@ -146,6 +159,7 @@ func TestTokenizeEscapedQuote(t *testing.T) {
 }
 
 func TestTokenizeEscapedBackslash(t *testing.T) {
+	t.Parallel()
 	tokens, err := tokenize(`name='a\\b'`)
 	testutil.NoError(t, err)
 	testutil.SliceLen(t, tokens, 3)
@@ -153,20 +167,21 @@ func TestTokenizeEscapedBackslash(t *testing.T) {
 }
 
 func TestTokenizeUnterminatedString(t *testing.T) {
+	t.Parallel()
 	_, err := tokenize("name='unterminated")
-	testutil.True(t, err != nil, "expected error for unterminated string")
-	testutil.Contains(t, err.Error(), "unterminated")
+	testutil.ErrorContains(t, err, "unterminated")
 }
 
 func TestTokenizeUnexpectedChar(t *testing.T) {
+	t.Parallel()
 	_, err := tokenize("name=$1")
-	testutil.True(t, err != nil, "expected error for unexpected char")
-	testutil.Contains(t, err.Error(), "unexpected")
+	testutil.ErrorContains(t, err, "unexpected")
 }
 
 // --- Parser tests ---
 
 func TestParseFilterSimpleEquals(t *testing.T) {
+	t.Parallel()
 	tbl := filterTestTable()
 	sql, args, err := parseFilter(tbl, "name='Alice'")
 	testutil.NoError(t, err)
@@ -176,6 +191,7 @@ func TestParseFilterSimpleEquals(t *testing.T) {
 }
 
 func TestParseFilterNumber(t *testing.T) {
+	t.Parallel()
 	tbl := filterTestTable()
 	sql, args, err := parseFilter(tbl, "age>25")
 	testutil.NoError(t, err)
@@ -185,6 +201,7 @@ func TestParseFilterNumber(t *testing.T) {
 }
 
 func TestParseFilterFloat(t *testing.T) {
+	t.Parallel()
 	tbl := filterTestTable()
 	sql, args, err := parseFilter(tbl, "age>3.14")
 	testutil.NoError(t, err)
@@ -193,6 +210,7 @@ func TestParseFilterFloat(t *testing.T) {
 }
 
 func TestParseFilterBool(t *testing.T) {
+	t.Parallel()
 	tbl := filterTestTable()
 	sql, args, err := parseFilter(tbl, "active=true")
 	testutil.NoError(t, err)
@@ -201,6 +219,7 @@ func TestParseFilterBool(t *testing.T) {
 }
 
 func TestParseFilterNull(t *testing.T) {
+	t.Parallel()
 	tbl := filterTestTable()
 	sql, args, err := parseFilter(tbl, "name=null")
 	testutil.NoError(t, err)
@@ -209,6 +228,7 @@ func TestParseFilterNull(t *testing.T) {
 }
 
 func TestParseFilterNotNull(t *testing.T) {
+	t.Parallel()
 	tbl := filterTestTable()
 	sql, args, err := parseFilter(tbl, "name!=null")
 	testutil.NoError(t, err)
@@ -217,6 +237,7 @@ func TestParseFilterNotNull(t *testing.T) {
 }
 
 func TestParseFilterAnd(t *testing.T) {
+	t.Parallel()
 	tbl := filterTestTable()
 	sql, args, err := parseFilter(tbl, "name='Alice' && age>25")
 	testutil.NoError(t, err)
@@ -225,6 +246,7 @@ func TestParseFilterAnd(t *testing.T) {
 }
 
 func TestParseFilterOr(t *testing.T) {
+	t.Parallel()
 	tbl := filterTestTable()
 	sql, args, err := parseFilter(tbl, "name='Alice' || name='Bob'")
 	testutil.NoError(t, err)
@@ -233,6 +255,7 @@ func TestParseFilterOr(t *testing.T) {
 }
 
 func TestParseFilterAndKeyword(t *testing.T) {
+	t.Parallel()
 	tbl := filterTestTable()
 	sql, args, err := parseFilter(tbl, "name='Alice' AND age>25")
 	testutil.NoError(t, err)
@@ -241,6 +264,7 @@ func TestParseFilterAndKeyword(t *testing.T) {
 }
 
 func TestParseFilterOrKeyword(t *testing.T) {
+	t.Parallel()
 	tbl := filterTestTable()
 	sql, args, err := parseFilter(tbl, "name='Alice' OR name='Bob'")
 	testutil.NoError(t, err)
@@ -249,6 +273,7 @@ func TestParseFilterOrKeyword(t *testing.T) {
 }
 
 func TestParseFilterParens(t *testing.T) {
+	t.Parallel()
 	tbl := filterTestTable()
 	sql, args, err := parseFilter(tbl, "(name='Alice' || name='Bob') && age>25")
 	testutil.NoError(t, err)
@@ -257,6 +282,7 @@ func TestParseFilterParens(t *testing.T) {
 }
 
 func TestParseFilterLike(t *testing.T) {
+	t.Parallel()
 	tbl := filterTestTable()
 	sql, args, err := parseFilter(tbl, "name~'%Ali%'")
 	testutil.NoError(t, err)
@@ -265,6 +291,7 @@ func TestParseFilterLike(t *testing.T) {
 }
 
 func TestParseFilterNotLike(t *testing.T) {
+	t.Parallel()
 	tbl := filterTestTable()
 	sql, args, err := parseFilter(tbl, "name!~'%Ali%'")
 	testutil.NoError(t, err)
@@ -273,6 +300,7 @@ func TestParseFilterNotLike(t *testing.T) {
 }
 
 func TestParseFilterIn(t *testing.T) {
+	t.Parallel()
 	tbl := filterTestTable()
 	sql, args, err := parseFilter(tbl, "status IN ('active','inactive')")
 	testutil.NoError(t, err)
@@ -283,6 +311,7 @@ func TestParseFilterIn(t *testing.T) {
 }
 
 func TestParseFilterComplex(t *testing.T) {
+	t.Parallel()
 	tbl := filterTestTable()
 	sql, args, err := parseFilter(tbl, "status='active' && (age>=18 || name='admin')")
 	testutil.NoError(t, err)
@@ -291,6 +320,7 @@ func TestParseFilterComplex(t *testing.T) {
 }
 
 func TestParseFilterEscapedQuote(t *testing.T) {
+	t.Parallel()
 	tbl := filterTestTable()
 	sql, args, err := parseFilter(tbl, `name='it\'s'`)
 	testutil.NoError(t, err)
@@ -300,35 +330,37 @@ func TestParseFilterEscapedQuote(t *testing.T) {
 }
 
 func TestParseFilterUnknownColumn(t *testing.T) {
+	t.Parallel()
 	tbl := filterTestTable()
 	_, _, err := parseFilter(tbl, "nonexistent='x'")
-	testutil.True(t, err != nil, "expected error for unknown column")
-	testutil.Contains(t, err.Error(), "unknown column")
+	testutil.ErrorContains(t, err, "unknown column")
 }
 
 func TestParseFilterEmpty(t *testing.T) {
+	t.Parallel()
 	tbl := filterTestTable()
 	sql, args, err := parseFilter(tbl, "")
 	testutil.NoError(t, err)
 	testutil.Equal(t, "", sql)
-	testutil.True(t, args == nil, "expected nil args")
+	testutil.Nil(t, args)
 }
 
 func TestParseFilterMissingOperator(t *testing.T) {
+	t.Parallel()
 	tbl := filterTestTable()
 	_, _, err := parseFilter(tbl, "name 'Alice'")
-	testutil.True(t, err != nil, "expected error for missing operator")
-	testutil.Contains(t, err.Error(), "expected")
+	testutil.ErrorContains(t, err, "expected")
 }
 
 func TestParseFilterUnclosedParen(t *testing.T) {
+	t.Parallel()
 	tbl := filterTestTable()
 	_, _, err := parseFilter(tbl, "(name='Alice'")
-	testutil.True(t, err != nil, "expected error for unclosed paren")
-	testutil.Contains(t, err.Error(), "closing parenthesis")
+	testutil.ErrorContains(t, err, "closing parenthesis")
 }
 
 func TestParseFilterMultipleAnd(t *testing.T) {
+	t.Parallel()
 	tbl := filterTestTable()
 	sql, args, err := parseFilter(tbl, "name='A' && age>1 && active=true")
 	testutil.NoError(t, err)
@@ -337,6 +369,7 @@ func TestParseFilterMultipleAnd(t *testing.T) {
 }
 
 func TestParseFilterOperatorPrecedence(t *testing.T) {
+	t.Parallel()
 	tbl := filterTestTable()
 	// OR has lower precedence than AND, so "a || b && c" should be "a || (b && c)"
 	// But our grammar is: or_expr = and_expr (OR and_expr)*
@@ -350,31 +383,37 @@ func TestParseFilterOperatorPrecedence(t *testing.T) {
 // --- parseSortSQL tests ---
 
 func TestParseSortSQLEmpty(t *testing.T) {
+	t.Parallel()
 	tbl := filterTestTable()
 	testutil.Equal(t, "", parseSortSQL(tbl, ""))
 }
 
 func TestParseSortSQLSingleAsc(t *testing.T) {
+	t.Parallel()
 	tbl := filterTestTable()
 	testutil.Equal(t, `"name" ASC`, parseSortSQL(tbl, "name"))
 }
 
 func TestParseSortSQLSingleDesc(t *testing.T) {
+	t.Parallel()
 	tbl := filterTestTable()
 	testutil.Equal(t, `"name" DESC`, parseSortSQL(tbl, "-name"))
 }
 
 func TestParseSortSQLExplicitAsc(t *testing.T) {
+	t.Parallel()
 	tbl := filterTestTable()
 	testutil.Equal(t, `"name" ASC`, parseSortSQL(tbl, "+name"))
 }
 
 func TestParseSortSQLMultiple(t *testing.T) {
+	t.Parallel()
 	tbl := filterTestTable()
 	testutil.Equal(t, `"age" DESC, "name" ASC`, parseSortSQL(tbl, "-age,+name"))
 }
 
 func TestParseSortSQLIgnoresInvalidColumns(t *testing.T) {
+	t.Parallel()
 	tbl := filterTestTable()
 	testutil.Equal(t, `"name" ASC`, parseSortSQL(tbl, "-nonexistent,name"))
 }
@@ -382,15 +421,16 @@ func TestParseSortSQLIgnoresInvalidColumns(t *testing.T) {
 // --- Filter depth limit ---
 
 func TestFilterDepthLimit(t *testing.T) {
+	t.Parallel()
 	tbl := filterTestTable()
 	// Build deeply nested expression: (((((...(id=1)...))))
 	nested := strings.Repeat("(", maxFilterDepth+1) + "id=1" + strings.Repeat(")", maxFilterDepth+1)
 	_, _, err := parseFilter(tbl, nested)
-	testutil.True(t, err != nil, "deeply nested filter should be rejected")
 	testutil.ErrorContains(t, err, "too deeply nested")
 }
 
 func TestFilterDepthAtLimit(t *testing.T) {
+	t.Parallel()
 	tbl := filterTestTable()
 	// Build expression at exactly the limit — should succeed.
 	nested := strings.Repeat("(", maxFilterDepth) + "id=1" + strings.Repeat(")", maxFilterDepth)

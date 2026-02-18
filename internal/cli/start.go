@@ -37,7 +37,7 @@ import (
 var startCmd = &cobra.Command{
 	Use:   "start",
 	Short: "Start the AYB server",
-	Long: `Start the AllYourBase server. If no database URL is configured,
+	Long: `Start the Allyourbase server. If no database URL is configured,
 AYB starts a managed PostgreSQL instance automatically.
 
 With external database:
@@ -127,11 +127,11 @@ func runStart(cmd *cobra.Command, args []string) error {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	// Start embedded PostgreSQL if no database URL is configured.
+	// Start managed PostgreSQL if no database URL is configured.
 	var pgMgr *pgmanager.Manager
 	if cfg.Database.URL == "" {
 		sp.step("Starting managed PostgreSQL...")
-		logger.Info("no database URL configured, starting embedded PostgreSQL")
+		logger.Info("no database URL configured, starting managed PostgreSQL")
 		pgMgr = pgmanager.New(pgmanager.Config{
 			Port:    uint32(cfg.Database.EmbeddedPort),
 			DataDir: cfg.Database.EmbeddedDataDir,
@@ -140,7 +140,7 @@ func runStart(cmd *cobra.Command, args []string) error {
 		connURL, err := pgMgr.Start(ctx)
 		if err != nil {
 			sp.fail()
-			return fmt.Errorf("starting embedded postgres: %w", err)
+			return fmt.Errorf("starting managed postgres: %w", err)
 		}
 		cfg.Database.URL = connURL
 		sp.done()
@@ -183,7 +183,7 @@ func runStart(cmd *cobra.Command, args []string) error {
 		if err := runFromMigration(ctx, fromValue, cfg.Database.URL, logger); err != nil {
 			if pgMgr != nil {
 				if stopErr := pgMgr.Stop(); stopErr != nil {
-					logger.Error("error stopping embedded postgres", "error", stopErr)
+					logger.Error("error stopping managed postgres", "error", stopErr)
 				}
 			}
 			return fmt.Errorf("migration failed: %w", err)
@@ -363,7 +363,7 @@ func runStart(cmd *cobra.Command, args []string) error {
 		sp.fail()
 		if pgMgr != nil {
 			if stopErr := pgMgr.Stop(); stopErr != nil {
-				logger.Error("error stopping embedded postgres", "error", stopErr)
+				logger.Error("error stopping managed postgres", "error", stopErr)
 			}
 		}
 		return portError(cfg.Server.Port, err)
@@ -373,7 +373,7 @@ func runStart(cmd *cobra.Command, args []string) error {
 	case err := <-errCh:
 		if pgMgr != nil {
 			if stopErr := pgMgr.Stop(); stopErr != nil {
-				logger.Error("error stopping embedded postgres", "error", stopErr)
+				logger.Error("error stopping managed postgres", "error", stopErr)
 			}
 		}
 		return err
@@ -385,7 +385,7 @@ func runStart(cmd *cobra.Command, args []string) error {
 		}
 		if pgMgr != nil {
 			if stopErr := pgMgr.Stop(); stopErr != nil {
-				logger.Error("error stopping embedded postgres", "error", stopErr)
+				logger.Error("error stopping managed postgres", "error", stopErr)
 			}
 		}
 		return nil
@@ -634,7 +634,7 @@ func (sp *startupProgress) header(version string) {
 	}
 	fmt.Fprintf(sp.w, "\n  %s %s\n\n",
 		ui.BrandEmoji,
-		boldCyan(fmt.Sprintf("AllYourBase v%s", version), sp.useColor))
+		boldCyan(fmt.Sprintf("Allyourbase v%s", version), sp.useColor))
 }
 
 func (sp *startupProgress) step(msg string) {
@@ -681,7 +681,7 @@ func printBannerTo(w io.Writer, cfg *config.Config, embeddedPG bool, useColor bo
 	ver := bannerVersion(buildVersion)
 	fmt.Fprintln(w)
 	fmt.Fprintf(w, "  %s %s\n", ui.BrandEmoji,
-		boldCyan(fmt.Sprintf("AllYourBase v%s", ver), useColor))
+		boldCyan(fmt.Sprintf("Allyourbase v%s", ver), useColor))
 	printBannerBodyTo(w, cfg, embeddedPG, useColor, generatedPassword, logPath)
 }
 

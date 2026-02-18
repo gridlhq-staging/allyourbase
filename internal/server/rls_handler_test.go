@@ -67,7 +67,7 @@ func (r *fakeRows) Scan(dest ...any) error {
 	return nil
 }
 
-func (r *fakeRows) Close() {}
+func (r *fakeRows) Close()     {}
 func (r *fakeRows) Err() error { return nil }
 
 func (f *fakeRlsQuerier) QueryRow(_ context.Context, sql string, args ...any) pgxRow {
@@ -91,6 +91,7 @@ func strPtr(s string) *string { return &s }
 // --- List policies tests ---
 
 func TestListRlsPoliciesEmpty(t *testing.T) {
+	t.Parallel()
 	q := &fakeRlsQuerier{policies: nil}
 	handler := handleListRlsPoliciesWithQuerier(q)
 
@@ -107,6 +108,7 @@ func TestListRlsPoliciesEmpty(t *testing.T) {
 }
 
 func TestListRlsPoliciesWithData(t *testing.T) {
+	t.Parallel()
 	using := "(user_id = current_setting('app.user_id')::uuid)"
 	q := &fakeRlsQuerier{policies: []RlsPolicy{
 		{
@@ -152,10 +154,11 @@ func TestListRlsPoliciesWithData(t *testing.T) {
 	testutil.Equal(t, "PUBLIC", policies[1].Roles[0])
 	testutil.NotNil(t, policies[1].UsingExpr)
 	testutil.Equal(t, "true", *policies[1].UsingExpr)
-	testutil.True(t, policies[1].WithCheckExpr == nil, "WithCheckExpr should be nil")
+	testutil.Nil(t, policies[1].WithCheckExpr)
 }
 
 func TestListRlsPoliciesByTable(t *testing.T) {
+	t.Parallel()
 	q := &fakeRlsQuerier{policies: []RlsPolicy{
 		{TableSchema: "public", TableName: "posts", PolicyName: "p1", Command: "ALL", Permissive: "PERMISSIVE", Roles: []string{}},
 	}}
@@ -178,6 +181,7 @@ func TestListRlsPoliciesByTable(t *testing.T) {
 }
 
 func TestListRlsPoliciesQueryError(t *testing.T) {
+	t.Parallel()
 	q := &fakeRlsQuerier{queryErr: fmt.Errorf("connection refused")}
 	handler := handleListRlsPoliciesWithQuerier(q)
 
@@ -192,6 +196,7 @@ func TestListRlsPoliciesQueryError(t *testing.T) {
 // --- RLS status tests ---
 
 func TestGetRlsStatusEnabled(t *testing.T) {
+	t.Parallel()
 	q := &fakeRlsQuerier{status: &RlsTableStatus{RlsEnabled: true, ForceRls: false}}
 
 	r := chi.NewRouter()
@@ -211,6 +216,7 @@ func TestGetRlsStatusEnabled(t *testing.T) {
 }
 
 func TestGetRlsStatusTableNotFound(t *testing.T) {
+	t.Parallel()
 	q := &fakeRlsQuerier{status: nil, scanErr: fmt.Errorf("no rows")}
 
 	r := chi.NewRouter()
@@ -225,6 +231,7 @@ func TestGetRlsStatusTableNotFound(t *testing.T) {
 }
 
 func TestGetRlsStatusInvalidTable(t *testing.T) {
+	t.Parallel()
 	q := &fakeRlsQuerier{}
 
 	r := chi.NewRouter()
@@ -241,6 +248,7 @@ func TestGetRlsStatusInvalidTable(t *testing.T) {
 // --- Create policy tests ---
 
 func TestCreateRlsPolicySuccess(t *testing.T) {
+	t.Parallel()
 	q := &fakeRlsQuerier{}
 	handler := handleCreateRlsPolicyWithQuerier(q)
 
@@ -264,6 +272,7 @@ func TestCreateRlsPolicySuccess(t *testing.T) {
 }
 
 func TestCreateRlsPolicyWithRoles(t *testing.T) {
+	t.Parallel()
 	q := &fakeRlsQuerier{}
 	handler := handleCreateRlsPolicyWithQuerier(q)
 
@@ -279,6 +288,7 @@ func TestCreateRlsPolicyWithRoles(t *testing.T) {
 }
 
 func TestCreateRlsPolicyRestrictive(t *testing.T) {
+	t.Parallel()
 	q := &fakeRlsQuerier{}
 	handler := handleCreateRlsPolicyWithQuerier(q)
 
@@ -293,6 +303,7 @@ func TestCreateRlsPolicyRestrictive(t *testing.T) {
 }
 
 func TestCreateRlsPolicyMissingTable(t *testing.T) {
+	t.Parallel()
 	q := &fakeRlsQuerier{}
 	handler := handleCreateRlsPolicyWithQuerier(q)
 
@@ -307,6 +318,7 @@ func TestCreateRlsPolicyMissingTable(t *testing.T) {
 }
 
 func TestCreateRlsPolicyMissingName(t *testing.T) {
+	t.Parallel()
 	q := &fakeRlsQuerier{}
 	handler := handleCreateRlsPolicyWithQuerier(q)
 
@@ -321,6 +333,7 @@ func TestCreateRlsPolicyMissingName(t *testing.T) {
 }
 
 func TestCreateRlsPolicyInvalidCommand(t *testing.T) {
+	t.Parallel()
 	q := &fakeRlsQuerier{}
 	handler := handleCreateRlsPolicyWithQuerier(q)
 
@@ -335,6 +348,7 @@ func TestCreateRlsPolicyInvalidCommand(t *testing.T) {
 }
 
 func TestCreateRlsPolicySqlInjectionInTableName(t *testing.T) {
+	t.Parallel()
 	q := &fakeRlsQuerier{}
 	handler := handleCreateRlsPolicyWithQuerier(q)
 
@@ -349,6 +363,7 @@ func TestCreateRlsPolicySqlInjectionInTableName(t *testing.T) {
 }
 
 func TestCreateRlsPolicyExecError(t *testing.T) {
+	t.Parallel()
 	q := &fakeRlsQuerier{execErr: fmt.Errorf("policy already exists")}
 	handler := handleCreateRlsPolicyWithQuerier(q)
 
@@ -365,6 +380,7 @@ func TestCreateRlsPolicyExecError(t *testing.T) {
 // --- Delete policy tests ---
 
 func TestDeleteRlsPolicySuccess(t *testing.T) {
+	t.Parallel()
 	q := &fakeRlsQuerier{}
 
 	r := chi.NewRouter()
@@ -380,6 +396,7 @@ func TestDeleteRlsPolicySuccess(t *testing.T) {
 }
 
 func TestDeleteRlsPolicyInvalidName(t *testing.T) {
+	t.Parallel()
 	q := &fakeRlsQuerier{}
 
 	r := chi.NewRouter()
@@ -394,6 +411,7 @@ func TestDeleteRlsPolicyInvalidName(t *testing.T) {
 }
 
 func TestDeleteRlsPolicyExecError(t *testing.T) {
+	t.Parallel()
 	q := &fakeRlsQuerier{execErr: fmt.Errorf("policy does not exist")}
 
 	r := chi.NewRouter()
@@ -410,6 +428,7 @@ func TestDeleteRlsPolicyExecError(t *testing.T) {
 // --- Enable/Disable RLS tests ---
 
 func TestEnableRlsSuccess(t *testing.T) {
+	t.Parallel()
 	q := &fakeRlsQuerier{}
 
 	r := chi.NewRouter()
@@ -425,6 +444,7 @@ func TestEnableRlsSuccess(t *testing.T) {
 }
 
 func TestDisableRlsSuccess(t *testing.T) {
+	t.Parallel()
 	q := &fakeRlsQuerier{}
 
 	r := chi.NewRouter()
@@ -440,6 +460,7 @@ func TestDisableRlsSuccess(t *testing.T) {
 }
 
 func TestEnableRlsInvalidTable(t *testing.T) {
+	t.Parallel()
 	q := &fakeRlsQuerier{}
 
 	r := chi.NewRouter()
@@ -454,6 +475,7 @@ func TestEnableRlsInvalidTable(t *testing.T) {
 }
 
 func TestEnableRlsExecError(t *testing.T) {
+	t.Parallel()
 	q := &fakeRlsQuerier{execErr: fmt.Errorf("table not found")}
 
 	r := chi.NewRouter()
@@ -470,6 +492,7 @@ func TestEnableRlsExecError(t *testing.T) {
 // --- Identifier validation tests ---
 
 func TestIdentifierValidation(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name  string
 		input string
@@ -494,6 +517,7 @@ func TestIdentifierValidation(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			testutil.Equal(t, tt.want, isValidIdentifier(tt.input))
 		})
 	}
@@ -502,6 +526,7 @@ func TestIdentifierValidation(t *testing.T) {
 // --- SQL injection tests for additional vectors ---
 
 func TestCreateRlsPolicySqlInjectionInPolicyName(t *testing.T) {
+	t.Parallel()
 	q := &fakeRlsQuerier{}
 	handler := handleCreateRlsPolicyWithQuerier(q)
 
@@ -516,6 +541,7 @@ func TestCreateRlsPolicySqlInjectionInPolicyName(t *testing.T) {
 }
 
 func TestCreateRlsPolicySqlInjectionInSchema(t *testing.T) {
+	t.Parallel()
 	q := &fakeRlsQuerier{}
 	handler := handleCreateRlsPolicyWithQuerier(q)
 
@@ -530,6 +556,7 @@ func TestCreateRlsPolicySqlInjectionInSchema(t *testing.T) {
 }
 
 func TestCreateRlsPolicyInvalidRole(t *testing.T) {
+	t.Parallel()
 	q := &fakeRlsQuerier{}
 	handler := handleCreateRlsPolicyWithQuerier(q)
 
@@ -544,6 +571,7 @@ func TestCreateRlsPolicyInvalidRole(t *testing.T) {
 }
 
 func TestCreateRlsPolicyPublicRole(t *testing.T) {
+	t.Parallel()
 	q := &fakeRlsQuerier{}
 	handler := handleCreateRlsPolicyWithQuerier(q)
 
@@ -558,6 +586,7 @@ func TestCreateRlsPolicyPublicRole(t *testing.T) {
 }
 
 func TestCreateRlsPolicyDefaultsToAllCommand(t *testing.T) {
+	t.Parallel()
 	q := &fakeRlsQuerier{}
 	handler := handleCreateRlsPolicyWithQuerier(q)
 
@@ -573,6 +602,7 @@ func TestCreateRlsPolicyDefaultsToAllCommand(t *testing.T) {
 }
 
 func TestCreateRlsPolicyDefaultsToPublicSchema(t *testing.T) {
+	t.Parallel()
 	q := &fakeRlsQuerier{}
 	handler := handleCreateRlsPolicyWithQuerier(q)
 
@@ -588,6 +618,7 @@ func TestCreateRlsPolicyDefaultsToPublicSchema(t *testing.T) {
 }
 
 func TestCreateRlsPolicyCustomSchema(t *testing.T) {
+	t.Parallel()
 	q := &fakeRlsQuerier{}
 	handler := handleCreateRlsPolicyWithQuerier(q)
 
@@ -602,6 +633,7 @@ func TestCreateRlsPolicyCustomSchema(t *testing.T) {
 }
 
 func TestCreateRlsPolicyWithCheckOnly(t *testing.T) {
+	t.Parallel()
 	q := &fakeRlsQuerier{}
 	handler := handleCreateRlsPolicyWithQuerier(q)
 
@@ -618,6 +650,7 @@ func TestCreateRlsPolicyWithCheckOnly(t *testing.T) {
 }
 
 func TestCreateRlsPolicyLowercaseCommand(t *testing.T) {
+	t.Parallel()
 	q := &fakeRlsQuerier{}
 	handler := handleCreateRlsPolicyWithQuerier(q)
 
@@ -632,6 +665,7 @@ func TestCreateRlsPolicyLowercaseCommand(t *testing.T) {
 }
 
 func TestCreateRlsPolicyPermissiveDefault(t *testing.T) {
+	t.Parallel()
 	q := &fakeRlsQuerier{}
 	handler := handleCreateRlsPolicyWithQuerier(q)
 
@@ -647,6 +681,7 @@ func TestCreateRlsPolicyPermissiveDefault(t *testing.T) {
 }
 
 func TestDeleteRlsPolicySqlInjectionInTable(t *testing.T) {
+	t.Parallel()
 	q := &fakeRlsQuerier{}
 
 	r := chi.NewRouter()
@@ -661,6 +696,7 @@ func TestDeleteRlsPolicySqlInjectionInTable(t *testing.T) {
 }
 
 func TestDisableRlsInvalidTable(t *testing.T) {
+	t.Parallel()
 	q := &fakeRlsQuerier{}
 
 	r := chi.NewRouter()
@@ -675,6 +711,7 @@ func TestDisableRlsInvalidTable(t *testing.T) {
 }
 
 func TestDisableRlsExecError(t *testing.T) {
+	t.Parallel()
 	q := &fakeRlsQuerier{execErr: fmt.Errorf("table not found")}
 
 	r := chi.NewRouter()
@@ -689,6 +726,7 @@ func TestDisableRlsExecError(t *testing.T) {
 }
 
 func TestGetRlsStatusDisabled(t *testing.T) {
+	t.Parallel()
 	q := &fakeRlsQuerier{status: &RlsTableStatus{RlsEnabled: false, ForceRls: false}}
 
 	r := chi.NewRouter()
@@ -708,6 +746,7 @@ func TestGetRlsStatusDisabled(t *testing.T) {
 }
 
 func TestGetRlsStatusWithForceRls(t *testing.T) {
+	t.Parallel()
 	q := &fakeRlsQuerier{status: &RlsTableStatus{RlsEnabled: true, ForceRls: true}}
 
 	r := chi.NewRouter()
@@ -727,6 +766,7 @@ func TestGetRlsStatusWithForceRls(t *testing.T) {
 }
 
 func TestListRlsPoliciesNilRolesReturnsEmptyArray(t *testing.T) {
+	t.Parallel()
 	q := &fakeRlsQuerier{policies: []RlsPolicy{
 		{
 			TableSchema: "public", TableName: "posts", PolicyName: "open_policy",
@@ -747,13 +787,15 @@ func TestListRlsPoliciesNilRolesReturnsEmptyArray(t *testing.T) {
 	testutil.NoError(t, err)
 	testutil.Equal(t, 1, len(policies))
 	testutil.Equal(t, 0, len(policies[0].Roles))
-	testutil.True(t, policies[0].WithCheckExpr == nil, "WithCheckExpr should be nil")
+	testutil.Nil(t, policies[0].WithCheckExpr)
 }
 
 func TestCreateRlsPolicyAllValidCommands(t *testing.T) {
+	t.Parallel()
 	commands := []string{"ALL", "SELECT", "INSERT", "UPDATE", "DELETE"}
 	for _, cmd := range commands {
 		t.Run(cmd, func(t *testing.T) {
+			t.Parallel()
 			q := &fakeRlsQuerier{}
 			handler := handleCreateRlsPolicyWithQuerier(q)
 
@@ -770,6 +812,7 @@ func TestCreateRlsPolicyAllValidCommands(t *testing.T) {
 }
 
 func TestEnableRlsVerifiesSQL(t *testing.T) {
+	t.Parallel()
 	q := &fakeRlsQuerier{}
 
 	r := chi.NewRouter()
@@ -784,6 +827,7 @@ func TestEnableRlsVerifiesSQL(t *testing.T) {
 }
 
 func TestDisableRlsVerifiesSQL(t *testing.T) {
+	t.Parallel()
 	q := &fakeRlsQuerier{}
 
 	r := chi.NewRouter()
@@ -798,6 +842,7 @@ func TestDisableRlsVerifiesSQL(t *testing.T) {
 }
 
 func TestCreateRlsPolicySqlInjectionInRole(t *testing.T) {
+	t.Parallel()
 	q := &fakeRlsQuerier{}
 	handler := handleCreateRlsPolicyWithQuerier(q)
 
@@ -812,6 +857,7 @@ func TestCreateRlsPolicySqlInjectionInRole(t *testing.T) {
 }
 
 func TestCreateRlsPolicyMultipleRoles(t *testing.T) {
+	t.Parallel()
 	q := &fakeRlsQuerier{}
 	handler := handleCreateRlsPolicyWithQuerier(q)
 
@@ -826,6 +872,7 @@ func TestCreateRlsPolicyMultipleRoles(t *testing.T) {
 }
 
 func TestCreateRlsPolicyBothExpressions(t *testing.T) {
+	t.Parallel()
 	q := &fakeRlsQuerier{}
 	handler := handleCreateRlsPolicyWithQuerier(q)
 
@@ -844,6 +891,7 @@ func TestCreateRlsPolicyBothExpressions(t *testing.T) {
 }
 
 func TestDeleteRlsPolicyVerifiesSQL(t *testing.T) {
+	t.Parallel()
 	q := &fakeRlsQuerier{}
 
 	r := chi.NewRouter()

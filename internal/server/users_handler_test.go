@@ -109,6 +109,7 @@ func sampleUsers() []auth.AdminUser {
 // --- List users tests ---
 
 func TestListUsersSuccess(t *testing.T) {
+	t.Parallel()
 	mgr := &fakeUserManager{users: sampleUsers()}
 	handler := handleAdminListUsers(mgr)
 
@@ -127,6 +128,7 @@ func TestListUsersSuccess(t *testing.T) {
 }
 
 func TestListUsersWithSearch(t *testing.T) {
+	t.Parallel()
 	mgr := &fakeUserManager{users: sampleUsers()}
 	handler := handleAdminListUsers(mgr)
 
@@ -144,6 +146,7 @@ func TestListUsersWithSearch(t *testing.T) {
 }
 
 func TestListUsersWithPagination(t *testing.T) {
+	t.Parallel()
 	mgr := &fakeUserManager{users: sampleUsers()}
 	handler := handleAdminListUsers(mgr)
 
@@ -164,6 +167,7 @@ func TestListUsersWithPagination(t *testing.T) {
 }
 
 func TestListUsersEmptyResult(t *testing.T) {
+	t.Parallel()
 	mgr := &fakeUserManager{users: nil}
 	handler := handleAdminListUsers(mgr)
 
@@ -181,6 +185,7 @@ func TestListUsersEmptyResult(t *testing.T) {
 }
 
 func TestListUsersServiceError(t *testing.T) {
+	t.Parallel()
 	mgr := &fakeUserManager{listErr: fmt.Errorf("db connection lost")}
 	handler := handleAdminListUsers(mgr)
 
@@ -195,6 +200,7 @@ func TestListUsersServiceError(t *testing.T) {
 // --- Delete user tests ---
 
 func TestDeleteUserSuccess(t *testing.T) {
+	t.Parallel()
 	mgr := &fakeUserManager{users: sampleUsers()}
 	handler := handleAdminDeleteUser(mgr)
 
@@ -213,6 +219,7 @@ func TestDeleteUserSuccess(t *testing.T) {
 }
 
 func TestDeleteUserNotFound(t *testing.T) {
+	t.Parallel()
 	mgr := &fakeUserManager{users: sampleUsers()}
 	handler := handleAdminDeleteUser(mgr)
 
@@ -228,6 +235,7 @@ func TestDeleteUserNotFound(t *testing.T) {
 }
 
 func TestDeleteUserServiceError(t *testing.T) {
+	t.Parallel()
 	mgr := &fakeUserManager{
 		users:  sampleUsers(),
 		delErr: fmt.Errorf("foreign key constraint"),
@@ -246,6 +254,7 @@ func TestDeleteUserServiceError(t *testing.T) {
 }
 
 func TestDeleteUserInvalidUUID(t *testing.T) {
+	t.Parallel()
 	mgr := &fakeUserManager{users: sampleUsers()}
 	handler := handleAdminDeleteUser(mgr)
 
@@ -261,6 +270,7 @@ func TestDeleteUserInvalidUUID(t *testing.T) {
 }
 
 func TestDeleteUserNoID(t *testing.T) {
+	t.Parallel()
 	mgr := &fakeUserManager{users: sampleUsers()}
 	handler := handleAdminDeleteUser(mgr)
 
@@ -274,6 +284,7 @@ func TestDeleteUserNoID(t *testing.T) {
 }
 
 func TestListUsersResponseIncludesEmailVerified(t *testing.T) {
+	t.Parallel()
 	mgr := &fakeUserManager{users: sampleUsers()}
 	handler := handleAdminListUsers(mgr)
 

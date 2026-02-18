@@ -5,7 +5,6 @@ package auth_test
 import (
 	"bytes"
 	"context"
-	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -79,7 +78,10 @@ func doJSON(t *testing.T, srv *server.Server, method, path string, body any, tok
 	t.Helper()
 	var reqBody *bytes.Reader
 	if body != nil {
-		b, _ := json.Marshal(body)
+		b, err := json.Marshal(body)
+		if err != nil {
+			t.Fatalf("doJSON: marshal body: %v", err)
+		}
 		reqBody = bytes.NewReader(b)
 	} else {
 		reqBody = bytes.NewReader(nil)
@@ -588,15 +590,19 @@ func TestOAuthHandlerFullFlowMocked(t *testing.T) {
 	fakeProvider := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/token":
-			json.NewEncoder(w).Encode(map[string]string{
+			if err := json.NewEncoder(w).Encode(map[string]string{
 				"access_token": "fake-access-token",
-			})
+			}); err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+			}
 		case "/userinfo":
-			json.NewEncoder(w).Encode(map[string]any{
+			if err := json.NewEncoder(w).Encode(map[string]any{
 				"id":    "12345",
 				"email": "fakeuser@example.com",
 				"name":  "Fake User",
-			})
+			}); err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+			}
 		default:
 			w.WriteHeader(http.StatusNotFound)
 		}
@@ -818,7 +824,7 @@ func TestVerificationTokenReuse(t *testing.T) {
 
 	// Manually insert a verification token (simulating SendVerificationEmail).
 	token := "test-verification-token-12345"
-	hash := hashTokenForTest(token)
+	hash := auth.HashTokenForTest(token)
 	_, err = sharedPG.Pool.Exec(ctx,
 		`INSERT INTO _ayb_email_verifications (user_id, token_hash, expires_at)
 		 VALUES ($1, $2, $3)`,
@@ -855,7 +861,7 @@ func TestVerificationTokenExpiry(t *testing.T) {
 
 	// Insert an expired verification token.
 	token := "expired-token-12345"
-	hash := hashTokenForTest(token)
+	hash := auth.HashTokenForTest(token)
 	_, err = sharedPG.Pool.Exec(ctx,
 		`INSERT INTO _ayb_email_verifications (user_id, token_hash, expires_at)
 		 VALUES ($1, $2, $3)`,
@@ -1021,7 +1027,7 @@ func TestAPIKeyRevokeSuccess(t *testing.T) {
 	}
 	testutil.NoError(t, json.Unmarshal(w.Body.Bytes(), &keys))
 	testutil.Equal(t, 1, len(keys))
-	testutil.True(t, keys[0].RevokedAt != nil, "key should have revokedAt set")
+	testutil.NotNil(t, keys[0].RevokedAt)
 }
 
 func TestAPIKeyRevokeNotFound(t *testing.T) {
@@ -1156,7 +1162,7 @@ func TestMagicLinkFullFlowNewUser(t *testing.T) {
 
 	// Insert a magic link token directly (simulating what RequestMagicLink does).
 	token := "test-magic-token-new-user"
-	hash := hashTokenForTest(token)
+	hash := auth.HashTokenForTest(token)
 	_, err = sharedPG.Pool.Exec(ctx,
 		`INSERT INTO _ayb_magic_links (email, token_hash, expires_at)
 		 VALUES ($1, $2, $3)`,
@@ -1199,7 +1205,7 @@ func TestMagicLinkFullFlowExistingUser(t *testing.T) {
 
 	// Insert a magic link token for the existing user's email.
 	token := "test-magic-token-existing"
-	hash := hashTokenForTest(token)
+	hash := auth.HashTokenForTest(token)
 	_, err = sharedPG.Pool.Exec(ctx,
 		`INSERT INTO _ayb_magic_links (email, token_hash, expires_at)
 		 VALUES ($1, $2, $3)`,
@@ -1231,7 +1237,7 @@ func TestMagicLinkTokenConsumedAfterUse(t *testing.T) {
 
 	email := "consumed@example.com"
 	token := "test-magic-token-consumed"
-	hash := hashTokenForTest(token)
+	hash := auth.HashTokenForTest(token)
 	_, err := sharedPG.Pool.Exec(ctx,
 		`INSERT INTO _ayb_magic_links (email, token_hash, expires_at)
 		 VALUES ($1, $2, $3)`,
@@ -1256,7 +1262,7 @@ func TestMagicLinkTokenExpired(t *testing.T) {
 
 	email := "expired-magic@example.com"
 	token := "test-magic-token-expired"
-	hash := hashTokenForTest(token)
+	hash := auth.HashTokenForTest(token)
 	_, err := sharedPG.Pool.Exec(ctx,
 		`INSERT INTO _ayb_magic_links (email, token_hash, expires_at)
 		 VALUES ($1, $2, $3)`,
@@ -1285,7 +1291,7 @@ func TestMagicLinkHandlerConfirmFullFlow(t *testing.T) {
 	// Insert a token directly.
 	email := "handler-flow@example.com"
 	token := "test-handler-magic-token"
-	hash := hashTokenForTest(token)
+	hash := auth.HashTokenForTest(token)
 	_, err := sharedPG.Pool.Exec(ctx,
 		`INSERT INTO _ayb_magic_links (email, token_hash, expires_at)
 		 VALUES ($1, $2, $3)`,
@@ -1352,7 +1358,7 @@ func TestMagicLinkRequestMagicLinkDeletesPreviousTokens(t *testing.T) {
 
 	// Insert two tokens for the same email.
 	for _, tok := range []string{"old-token-1", "old-token-2"} {
-		hash := hashTokenForTest(tok)
+		hash := auth.HashTokenForTest(tok)
 		_, err := sharedPG.Pool.Exec(ctx,
 			`INSERT INTO _ayb_magic_links (email, token_hash, expires_at)
 			 VALUES ($1, $2, $3)`,
@@ -1381,8 +1387,3 @@ func TestMagicLinkRequestMagicLinkDeletesPreviousTokens(t *testing.T) {
 	testutil.Equal(t, 1, count)
 }
 
-// hashTokenForTest computes SHA-256 hash of a token (same as internal/auth/auth.go).
-func hashTokenForTest(token string) string {
-	h := fmt.Sprintf("%x", sha256.Sum256([]byte(token)))
-	return h
-}

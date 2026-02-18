@@ -10,7 +10,9 @@ import (
 )
 
 func TestParseFirestoreExport(t *testing.T) {
+	t.Parallel()
 	t.Run("valid export with two collections", func(t *testing.T) {
+		t.Parallel()
 		dir := t.TempDir()
 
 		// users.json
@@ -42,6 +44,7 @@ func TestParseFirestoreExport(t *testing.T) {
 	})
 
 	t.Run("empty directory", func(t *testing.T) {
+		t.Parallel()
 		dir := t.TempDir()
 		collections, err := ParseFirestoreExport(dir)
 		testutil.NoError(t, err)
@@ -49,6 +52,7 @@ func TestParseFirestoreExport(t *testing.T) {
 	})
 
 	t.Run("skips non-json files", func(t *testing.T) {
+		t.Parallel()
 		dir := t.TempDir()
 		err := os.WriteFile(filepath.Join(dir, "readme.txt"), []byte("ignore me"), 0644)
 		testutil.NoError(t, err)
@@ -61,6 +65,7 @@ func TestParseFirestoreExport(t *testing.T) {
 	})
 
 	t.Run("skips subdirectories", func(t *testing.T) {
+		t.Parallel()
 		dir := t.TempDir()
 		err := os.Mkdir(filepath.Join(dir, "subdir.json"), 0755)
 		testutil.NoError(t, err)
@@ -71,11 +76,13 @@ func TestParseFirestoreExport(t *testing.T) {
 	})
 
 	t.Run("invalid directory", func(t *testing.T) {
+		t.Parallel()
 		_, err := ParseFirestoreExport("/nonexistent/dir")
-		testutil.True(t, err != nil, "should fail for missing directory")
+		testutil.NotNil(t, err)
 	})
 
 	t.Run("invalid json file", func(t *testing.T) {
+		t.Parallel()
 		dir := t.TempDir()
 		err := os.WriteFile(filepath.Join(dir, "bad.json"), []byte("not json"), 0644)
 		testutil.NoError(t, err)
@@ -85,6 +92,7 @@ func TestParseFirestoreExport(t *testing.T) {
 }
 
 func TestCreateCollectionTableSQL(t *testing.T) {
+	t.Parallel()
 	sql := CreateCollectionTableSQL("users")
 	testutil.Contains(t, sql, `CREATE TABLE IF NOT EXISTS "users"`)
 	testutil.Contains(t, sql, `"id" text NOT NULL`)
@@ -95,12 +103,14 @@ func TestCreateCollectionTableSQL(t *testing.T) {
 }
 
 func TestCreateCollectionIndexSQL(t *testing.T) {
+	t.Parallel()
 	sql := CreateCollectionIndexSQL("users")
 	testutil.Contains(t, sql, `CREATE INDEX IF NOT EXISTS "idx_users_data"`)
 	testutil.Contains(t, sql, `ON "users" USING GIN ("data")`)
 }
 
 func TestNormalizeCollectionName(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		input string
 		want  string
@@ -112,54 +122,66 @@ func TestNormalizeCollectionName(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.input, func(t *testing.T) {
+			t.Parallel()
 			testutil.Equal(t, tt.want, NormalizeCollectionName(tt.input))
 		})
 	}
 }
 
 func TestFlattenFirestoreValue(t *testing.T) {
+	t.Parallel()
 	t.Run("string value", func(t *testing.T) {
+		t.Parallel()
 		v := FlattenFirestoreValue(map[string]any{"stringValue": "hello"})
 		testutil.Equal(t, "hello", v)
 	})
 
 	t.Run("integer value", func(t *testing.T) {
+		t.Parallel()
 		v := FlattenFirestoreValue(map[string]any{"integerValue": "42"})
 		testutil.Equal(t, "42", v)
 	})
 
 	t.Run("double value", func(t *testing.T) {
+		t.Parallel()
 		v := FlattenFirestoreValue(map[string]any{"doubleValue": 3.14})
 		testutil.Equal(t, 3.14, v)
 	})
 
 	t.Run("boolean value", func(t *testing.T) {
+		t.Parallel()
 		v := FlattenFirestoreValue(map[string]any{"booleanValue": true})
 		testutil.Equal(t, true, v)
 	})
 
 	t.Run("null value nil", func(t *testing.T) {
+		t.Parallel()
 		v := FlattenFirestoreValue(map[string]any{"nullValue": nil})
-		testutil.True(t, v == nil, "should be nil")
+		testutil.Nil(t, v)
 	})
 
 	t.Run("null value NULL_VALUE string", func(t *testing.T) {
 		// Firestore exports represent null as {"nullValue": "NULL_VALUE"}
+	t.Parallel()
+
 		v := FlattenFirestoreValue(map[string]any{"nullValue": "NULL_VALUE"})
-		testutil.True(t, v == nil, "NULL_VALUE string should flatten to nil")
+		testutil.Nil(t, v)
 	})
 
 	t.Run("timestamp value", func(t *testing.T) {
+		t.Parallel()
 		v := FlattenFirestoreValue(map[string]any{"timestampValue": "2024-01-01T00:00:00Z"})
 		testutil.Equal(t, "2024-01-01T00:00:00Z", v)
 	})
 
 	t.Run("reference value", func(t *testing.T) {
+		t.Parallel()
 		v := FlattenFirestoreValue(map[string]any{"referenceValue": "projects/p/databases/d/documents/c/id"})
 		testutil.Equal(t, "projects/p/databases/d/documents/c/id", v)
 	})
 
 	t.Run("array value", func(t *testing.T) {
+		t.Parallel()
 		v := FlattenFirestoreValue(map[string]any{
 			"arrayValue": map[string]any{
 				"values": []any{
@@ -176,6 +198,7 @@ func TestFlattenFirestoreValue(t *testing.T) {
 	})
 
 	t.Run("empty array", func(t *testing.T) {
+		t.Parallel()
 		v := FlattenFirestoreValue(map[string]any{
 			"arrayValue": map[string]any{},
 		})
@@ -185,6 +208,7 @@ func TestFlattenFirestoreValue(t *testing.T) {
 	})
 
 	t.Run("map value", func(t *testing.T) {
+		t.Parallel()
 		v := FlattenFirestoreValue(map[string]any{
 			"mapValue": map[string]any{
 				"fields": map[string]any{
@@ -200,6 +224,7 @@ func TestFlattenFirestoreValue(t *testing.T) {
 	})
 
 	t.Run("geoPoint value", func(t *testing.T) {
+		t.Parallel()
 		geo := map[string]any{"latitude": 40.7128, "longitude": -74.006}
 		v := FlattenFirestoreValue(map[string]any{"geoPointValue": geo})
 		m, ok := v.(map[string]any)
@@ -209,6 +234,7 @@ func TestFlattenFirestoreValue(t *testing.T) {
 	})
 
 	t.Run("empty map value", func(t *testing.T) {
+		t.Parallel()
 		v := FlattenFirestoreValue(map[string]any{
 			"mapValue": map[string]any{},
 		})
@@ -218,11 +244,13 @@ func TestFlattenFirestoreValue(t *testing.T) {
 	})
 
 	t.Run("non-map passthrough", func(t *testing.T) {
+		t.Parallel()
 		v := FlattenFirestoreValue("plain string")
 		testutil.Equal(t, "plain string", v)
 	})
 
 	t.Run("unknown typed value passthrough", func(t *testing.T) {
+		t.Parallel()
 		v := FlattenFirestoreValue(map[string]any{"unknownType": "foo"})
 		m, ok := v.(map[string]any)
 		testutil.True(t, ok, "should return original map")
@@ -231,10 +259,11 @@ func TestFlattenFirestoreValue(t *testing.T) {
 }
 
 func TestFlattenFirestoreFields(t *testing.T) {
+	t.Parallel()
 	fields := map[string]any{
-		"name":    map[string]any{"stringValue": "Alice"},
-		"age":     map[string]any{"integerValue": "30"},
-		"active":  map[string]any{"booleanValue": true},
+		"name":   map[string]any{"stringValue": "Alice"},
+		"age":    map[string]any{"integerValue": "30"},
+		"active": map[string]any{"booleanValue": true},
 		"address": map[string]any{
 			"mapValue": map[string]any{
 				"fields": map[string]any{

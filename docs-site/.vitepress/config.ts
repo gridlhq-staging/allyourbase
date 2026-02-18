@@ -1,7 +1,7 @@
 import { defineConfig } from "vitepress";
 
 export default defineConfig({
-  title: "Allyourbase",
+  title: "👾 Allyourbase",
   description: "Backend-as-a-Service for PostgreSQL",
   head: [["link", { rel: "icon", href: "/favicon.ico" }]],
 

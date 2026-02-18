@@ -2,7 +2,7 @@
 layout: home
 
 hero:
-  name: Allyourbase
+  name: "👾 Allyourbase"
   text: PostgreSQL backend in one binary
   tagline: "Auto-generated REST API. Auth. Realtime. File storage. Admin dashboard. Open source."
   actions:
@@ -99,7 +99,7 @@ go install github.com/allyourbase/ayb/cmd/ayb@latest
 ayb start
 ```
 
-AYB starts with embedded PostgreSQL. No database setup needed.
+AYB starts with managed PostgreSQL. No database setup needed.
 
 **2. Create a table**
 
@@ -179,11 +179,11 @@ Most single-binary backends use SQLite. AYB uses PostgreSQL instead, giving you:
 - **Concurrent writes** — no single-writer bottleneck
 - **The full PostgreSQL ecosystem** — extensions, tooling, monitoring, backups, replication
 
-AYB keeps the single-binary simplicity. For development, `ayb start` runs its own embedded PostgreSQL with zero config. For production, point it at any PostgreSQL instance.
+AYB keeps the single-binary simplicity. For development, `ayb start` runs its own managed PostgreSQL with zero config. For production, point it at any PostgreSQL instance.
 
 <div class="why-table">
 
-| | PocketBase | Supabase (self-hosted) | AllYourBase |
+| | PocketBase | Supabase (self-hosted) | Allyourbase |
 |---|---|---|---|
 | **Database** | SQLite | PostgreSQL | PostgreSQL |
 | **Deployment** | Single binary | 10+ Docker containers | Single binary |
@@ -198,6 +198,6 @@ AYB keeps the single-binary simplicity. For development, `ayb start` runs its ow
 
 ## License
 
-AllYourBase is open source under the [MIT License](https://github.com/gridlhq-staging/allyourbase/blob/main/LICENSE).
+Allyourbase is open source under the [MIT License](https://github.com/gridlhq-staging/allyourbase/blob/main/LICENSE).
 
 </div>

@@ -14,7 +14,7 @@ import (
 	embeddedpostgres "github.com/fergusstrange/embedded-postgres"
 )
 
-// Config holds settings for the embedded Postgres manager.
+// Config holds settings for the managed Postgres manager.
 type Config struct {
 	Port        uint32 // default 15432
 	DataDir     string // persistent data directory (default ~/.ayb/data)
@@ -23,7 +23,7 @@ type Config struct {
 	Logger      *slog.Logger
 }
 
-// Manager manages the lifecycle of an embedded PostgreSQL child process.
+// Manager manages the lifecycle of an managed PostgreSQL child process.
 type Manager struct {
 	cfg     Config
 	db      *embeddedpostgres.EmbeddedPostgres
@@ -114,7 +114,7 @@ func (m *Manager) Start(ctx context.Context) (string, error) {
 		StartTimeout(60 * time.Second))
 
 	if err := m.db.Start(); err != nil {
-		return "", fmt.Errorf("starting embedded postgres: %w", err)
+		return "", fmt.Errorf("starting managed postgres: %w", err)
 	}
 
 	// Write our PID file by reading the Postgres postmaster.pid.
@@ -127,20 +127,20 @@ func (m *Manager) Start(ctx context.Context) (string, error) {
 		dbUser, dbPass, port, dbName)
 	m.running = true
 
-	m.logger.Info("embedded postgres started",
+	m.logger.Info("managed postgres started",
 		"port", port,
 		"data", dataDir,
 	)
 	return m.connURL, nil
 }
 
-// Stop gracefully shuts down the embedded PostgreSQL child process.
+// Stop gracefully shuts down the managed PostgreSQL child process.
 func (m *Manager) Stop() error {
 	if !m.running || m.db == nil {
 		return nil
 	}
 
-	m.logger.Info("stopping embedded postgres")
+	m.logger.Info("stopping managed postgres")
 	err := m.db.Stop()
 	m.running = false
 
@@ -148,9 +148,9 @@ func (m *Manager) Stop() error {
 	_ = removePID(m.pidFile)
 
 	if err != nil {
-		return fmt.Errorf("stopping embedded postgres: %w", err)
+		return fmt.Errorf("stopping managed postgres: %w", err)
 	}
-	m.logger.Info("embedded postgres stopped")
+	m.logger.Info("managed postgres stopped")
 	return nil
 }
 
@@ -159,7 +159,7 @@ func (m *Manager) ConnURL() string {
 	return m.connURL
 }
 
-// IsRunning returns true if the embedded Postgres is currently running.
+// IsRunning returns true if the managed Postgres is currently running.
 func (m *Manager) IsRunning() bool {
 	return m.running
 }

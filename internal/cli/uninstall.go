@@ -15,7 +15,7 @@ import (
 var uninstallCmd = &cobra.Command{
 	Use:   "uninstall",
 	Short: "Remove AYB from your system",
-	Long: `Remove AllYourBase from your system. Removes the binary, cached Postgres
+	Long: `Remove Allyourbase from your system. Removes the binary, cached Postgres
 binaries, and cleans up PATH entries from your shell profile.
 
 Your database data (~/.ayb/data) is preserved by default. Use --purge to
@@ -44,11 +44,10 @@ func runUninstall(cmd *cobra.Command, args []string) error {
 	// Check if server is running.
 	if isServerRunning() {
 		if jsonOut {
-			json.NewEncoder(os.Stdout).Encode(map[string]any{
+			return json.NewEncoder(os.Stdout).Encode(map[string]any{
 				"status":  "error",
 				"message": "AYB server is running — stop it first with: ayb stop",
 			})
-			return nil
 		}
 		return fmt.Errorf("AYB server is running — stop it first with: ayb stop")
 	}
@@ -56,11 +55,10 @@ func runUninstall(cmd *cobra.Command, args []string) error {
 	// Check if there's anything to uninstall.
 	if _, err := os.Stat(aybDir); os.IsNotExist(err) {
 		if jsonOut {
-			json.NewEncoder(os.Stdout).Encode(map[string]any{
+			return json.NewEncoder(os.Stdout).Encode(map[string]any{
 				"status":  "not_installed",
 				"message": "nothing to uninstall",
 			})
-			return nil
 		}
 		fmt.Println("Nothing to uninstall (~/.ayb does not exist).")
 		return nil
@@ -141,14 +139,12 @@ func runUninstall(cmd *cobra.Command, args []string) error {
 	profilesCleaned := cleanShellProfiles(home, filepath.Join(aybDir, "bin"))
 
 	if jsonOut {
-		result := map[string]any{
+		return json.NewEncoder(os.Stdout).Encode(map[string]any{
 			"status":           "uninstalled",
 			"removed":          removed,
 			"profiles_cleaned": profilesCleaned,
 			"data_preserved":   dataPreserved,
-		}
-		json.NewEncoder(os.Stdout).Encode(result)
-		return nil
+		})
 	}
 
 	fmt.Println("AYB uninstalled.")
@@ -205,7 +201,7 @@ func cleanShellProfiles(home, binDir string) []string {
 	return cleaned
 }
 
-// removeAYBLines removes the "# AllYourBase" comment and the PATH export line
+// removeAYBLines removes the "# Allyourbase" comment and the PATH export line
 // from the given file. Returns true if the file was modified.
 func removeAYBLines(path, binDir string) bool {
 	data, err := os.ReadFile(path)
@@ -220,8 +216,8 @@ func removeAYBLines(path, binDir string) bool {
 	for i := 0; i < len(lines); i++ {
 		trimmed := strings.TrimSpace(lines[i])
 
-		// Skip "# AllYourBase" comment followed by a PATH line containing our bin dir.
-		if trimmed == "# AllYourBase" && i+1 < len(lines) && strings.Contains(lines[i+1], binDir) {
+		// Skip "# Allyourbase" comment followed by a PATH line containing our bin dir.
+		if trimmed == "# Allyourbase" && i+1 < len(lines) && strings.Contains(lines[i+1], binDir) {
 			i++ // skip the export line too
 			modified = true
 			// Also skip a leading blank line if we left one.

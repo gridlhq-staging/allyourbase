@@ -8,6 +8,7 @@ import (
 )
 
 func TestBuildVisibilityCheckSinglePK(t *testing.T) {
+	t.Parallel()
 	tbl := &schema.Table{
 		Schema:     "public",
 		Name:       "posts",
@@ -22,6 +23,7 @@ func TestBuildVisibilityCheckSinglePK(t *testing.T) {
 }
 
 func TestBuildVisibilityCheckCompositePK(t *testing.T) {
+	t.Parallel()
 	tbl := &schema.Table{
 		Schema:     "public",
 		Name:       "order_items",
@@ -37,6 +39,7 @@ func TestBuildVisibilityCheckCompositePK(t *testing.T) {
 }
 
 func TestBuildVisibilityCheckMissingPK(t *testing.T) {
+	t.Parallel()
 	tbl := &schema.Table{
 		Schema:     "public",
 		Name:       "posts",
@@ -46,11 +49,13 @@ func TestBuildVisibilityCheckMissingPK(t *testing.T) {
 	query, args := buildVisibilityCheck(tbl, record)
 
 	testutil.Equal(t, "", query)
-	testutil.True(t, args == nil, "args should be nil when PK is missing")
+	testutil.Nil(t, args)
 }
 
 func TestCanSeeRecordNilPool(t *testing.T) {
 	// When pool is nil, RLS filtering is disabled — all events pass through.
+	t.Parallel()
+
 	h := &Handler{pool: nil}
 	event := &Event{Action: "create", Table: "posts", Record: map[string]any{"id": 1}}
 	testutil.True(t, h.canSeeRecord(nil, nil, event), "nil pool should allow all events")
@@ -58,6 +63,8 @@ func TestCanSeeRecordNilPool(t *testing.T) {
 
 func TestCanSeeRecordNilPoolAllActions(t *testing.T) {
 	// Verify nil pool allows all event types.
+	t.Parallel()
+
 	h := &Handler{pool: nil}
 	for _, action := range []string{"create", "update", "delete"} {
 		event := &Event{Action: action, Table: "posts", Record: map[string]any{"id": 1}}
@@ -68,6 +75,8 @@ func TestCanSeeRecordNilPoolAllActions(t *testing.T) {
 
 func TestBuildVisibilityCheckQuotesIdentifiers(t *testing.T) {
 	// Verify schema, table, and column names are properly double-quoted.
+	t.Parallel()
+
 	tbl := &schema.Table{
 		Schema:     "my_schema",
 		Name:       "my_table",

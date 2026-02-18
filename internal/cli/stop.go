@@ -14,7 +14,7 @@ import (
 var stopCmd = &cobra.Command{
 	Use:   "stop",
 	Short: "Stop the AYB server",
-	Long:  `Stop a running AllYourBase server gracefully.`,
+	Long:  `Stop a running Allyourbase server gracefully.`,
 	RunE:  runStop,
 }
 
@@ -26,8 +26,7 @@ func runStop(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		if os.IsNotExist(err) {
 			if jsonOut {
-				json.NewEncoder(out).Encode(map[string]any{"status": "not_running", "message": "no AYB server is running"})
-				return nil
+				return json.NewEncoder(out).Encode(map[string]any{"status": "not_running", "message": "no AYB server is running"})
 			}
 			fmt.Fprintln(out, "No AYB server is running (no PID file found).")
 			return nil
@@ -41,8 +40,7 @@ func runStop(cmd *cobra.Command, args []string) error {
 		// Process doesn't exist — clean up stale PID file.
 		cleanupPIDFile()
 		if jsonOut {
-			json.NewEncoder(out).Encode(map[string]any{"status": "not_running", "message": "stale PID file cleaned up"})
-			return nil
+			return json.NewEncoder(out).Encode(map[string]any{"status": "not_running", "message": "stale PID file cleaned up"})
 		}
 		fmt.Fprintln(out, "No AYB server is running (stale PID file cleaned up).")
 		return nil
@@ -51,8 +49,7 @@ func runStop(cmd *cobra.Command, args []string) error {
 	if err := proc.Signal(syscall.Signal(0)); err != nil {
 		cleanupPIDFile()
 		if jsonOut {
-			json.NewEncoder(out).Encode(map[string]any{"status": "not_running", "message": "stale PID file cleaned up"})
-			return nil
+			return json.NewEncoder(out).Encode(map[string]any{"status": "not_running", "message": "stale PID file cleaned up"})
 		}
 		fmt.Fprintln(out, "No AYB server is running (stale PID file cleaned up).")
 		return nil
@@ -76,8 +73,7 @@ func runStop(cmd *cobra.Command, args []string) error {
 			cleanupPIDFile()
 			sp.Done()
 			if jsonOut {
-				json.NewEncoder(out).Encode(map[string]any{"status": "stopped", "pid": pid})
-				return nil
+				return json.NewEncoder(out).Encode(map[string]any{"status": "stopped", "pid": pid})
 			}
 			fmt.Fprintf(out, "AYB server (PID %d) stopped.\n", pid)
 			return nil
@@ -86,8 +82,7 @@ func runStop(cmd *cobra.Command, args []string) error {
 
 	sp.Fail()
 	if jsonOut {
-		json.NewEncoder(out).Encode(map[string]any{"status": "timeout", "pid": pid, "message": "server did not stop within 10s"})
-		return nil
+		return json.NewEncoder(out).Encode(map[string]any{"status": "timeout", "pid": pid, "message": "server did not stop within 10s"})
 	}
 	fmt.Fprintf(out, "AYB server (PID %d) did not stop within 10 seconds. You may need to kill it manually.\n", pid)
 	return nil

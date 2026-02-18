@@ -28,7 +28,7 @@ This command reads PocketBase's data.db SQLite file and migrates:
 
 Example:
   ayb migrate pocketbase --source ./pb_data --database-url postgres://...
-  ayb migrate pocketbase --source ./pb_data  # uses embedded Postgres
+  ayb migrate pocketbase --source ./pb_data  # uses managed Postgres
 
 The migration runs in a single transaction, so either everything succeeds or
 nothing is changed. Use --dry-run to preview what would be migrated.`,
@@ -39,7 +39,7 @@ func init() {
 	migrateCmd.AddCommand(migratePocketbaseCmd)
 
 	migratePocketbaseCmd.Flags().String("source", "", "Path to PocketBase data directory (pb_data)")
-	migratePocketbaseCmd.Flags().String("database-url", "", "PostgreSQL connection URL (default: embedded Postgres)")
+	migratePocketbaseCmd.Flags().String("database-url", "", "PostgreSQL connection URL (default: managed Postgres)")
 	migratePocketbaseCmd.Flags().Bool("dry-run", false, "Show what would be migrated without making changes")
 	migratePocketbaseCmd.Flags().Bool("skip-files", false, "Skip file migration (only migrate schema and data)")
 	migratePocketbaseCmd.Flags().Bool("force", false, "Allow migration to non-empty database")
@@ -84,9 +84,9 @@ func runMigratePocketbase(cmd *cobra.Command, args []string) error {
 		fmt.Fprintln(os.Stderr)
 	}
 
-	// If no database URL, report that embedded Postgres is needed
+	// If no database URL, report that managed Postgres is needed
 	if databaseURL == "" {
-		return fmt.Errorf("--database-url is required for standalone migration (use 'ayb start --from %s' for embedded Postgres)", sourcePath)
+		return fmt.Errorf("--database-url is required for standalone migration (use 'ayb start --from %s' for managed Postgres)", sourcePath)
 	}
 
 	// Set up progress reporter

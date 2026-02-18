@@ -64,7 +64,7 @@ func defaultTestConfig() *config.Config {
 func TestBannerContainsVersion(t *testing.T) {
 	cfg := defaultTestConfig()
 	out := bannerToString(cfg, false, false)
-	testutil.Contains(t, out, "AllYourBase v")
+	testutil.Contains(t, out, "Allyourbase v")
 }
 
 func TestBannerContainsBrandEmoji(t *testing.T) {
@@ -198,7 +198,7 @@ func TestBannerStripsDoubleV(t *testing.T) {
 
 	cfg := defaultTestConfig()
 	out := bannerToString(cfg, false, false)
-	testutil.Contains(t, out, "AllYourBase v0.1.0")
+	testutil.Contains(t, out, "Allyourbase v0.1.0")
 	testutil.False(t, strings.Contains(out, "vv0.1.0"))
 }
 
@@ -209,7 +209,7 @@ func TestBannerDevBuildShowsDev(t *testing.T) {
 
 	cfg := defaultTestConfig()
 	out := bannerToString(cfg, false, false)
-	testutil.Contains(t, out, "AllYourBase v0.1.0-dev")
+	testutil.Contains(t, out, "Allyourbase v0.1.0-dev")
 	testutil.False(t, strings.Contains(out, "ge534c04"))
 }
 

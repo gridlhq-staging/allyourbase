@@ -8,6 +8,7 @@ import (
 )
 
 func TestFieldTypeToPgType(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name     string
 		field    PBField
@@ -92,6 +93,7 @@ func TestFieldTypeToPgType(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			result := FieldTypeToPgType(tt.field)
 			testutil.Equal(t, tt.expected, result)
 		})
@@ -99,6 +101,7 @@ func TestFieldTypeToPgType(t *testing.T) {
 }
 
 func TestBuildCreateTableSQL(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name     string
 		coll     PBCollection
@@ -175,6 +178,7 @@ func TestBuildCreateTableSQL(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			sql := BuildCreateTableSQL(tt.coll)
 
 			for _, substr := range tt.contains {
@@ -187,6 +191,7 @@ func TestBuildCreateTableSQL(t *testing.T) {
 }
 
 func TestBuildCreateViewSQL(t *testing.T) {
+	t.Parallel()
 	coll := PBCollection{
 		Name:      "active_users",
 		Type:      "view",
@@ -201,6 +206,7 @@ func TestBuildCreateViewSQL(t *testing.T) {
 }
 
 func TestSanitizeIdentifier(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		input    string
 		expected string
@@ -213,6 +219,7 @@ func TestSanitizeIdentifier(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.input, func(t *testing.T) {
+			t.Parallel()
 			result := SanitizeIdentifier(tt.input)
 			testutil.Equal(t, tt.expected, result)
 		})
@@ -220,6 +227,7 @@ func TestSanitizeIdentifier(t *testing.T) {
 }
 
 func TestIsReservedWord(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		word     string
 		reserved bool
@@ -233,6 +241,7 @@ func TestIsReservedWord(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.word, func(t *testing.T) {
+			t.Parallel()
 			result := IsReservedWord(tt.word)
 			testutil.Equal(t, tt.reserved, result)
 		})

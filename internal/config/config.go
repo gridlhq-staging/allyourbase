@@ -140,7 +140,7 @@ func Default() *Config {
 		},
 		Email: EmailConfig{
 			Backend:  "log",
-			FromName: "AllYourBase",
+			FromName: "Allyourbase",
 		},
 		Storage: StorageConfig{
 			Backend:     "local",
@@ -693,7 +693,7 @@ func coerceValue(key, value string) any {
 	return value
 }
 
-const defaultTOML = `# AllYourBase (AYB) Configuration
+const defaultTOML = `# Allyourbase (AYB) Configuration
 # Documentation: https://allyourbase.io/docs/config
 
 [server]
@@ -730,10 +730,10 @@ health_check_interval = 30
 migrations_dir = "./migrations"
 
 # Embedded PostgreSQL settings (used when url is not set).
-# Port for embedded PostgreSQL.
+# Port for managed PostgreSQL.
 # embedded_port = 15432
 #
-# Data directory for embedded PostgreSQL (default: ~/.ayb/data).
+# Data directory for managed PostgreSQL (default: ~/.ayb/data).
 # embedded_data_dir = ""
 
 [admin]
@@ -791,7 +791,7 @@ backend = "log"
 
 # Sender address and display name.
 # from = "noreply@example.com"
-from_name = "AllYourBase"
+from_name = "Allyourbase"
 
 # SMTP settings (backend = "smtp").
 # Provider presets — just paste your API key as the password:
