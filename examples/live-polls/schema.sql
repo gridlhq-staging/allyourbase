@@ -61,7 +61,7 @@ CREATE POLICY votes_insert ON votes FOR INSERT WITH CHECK (
 CREATE OR REPLACE FUNCTION cast_vote(p_poll_id UUID, p_option_id UUID)
 RETURNS TABLE(id UUID, poll_id UUID, option_id UUID, user_id UUID, created_at TIMESTAMPTZ) AS $$
 DECLARE
-    v_user_id UUID := current_setting('request.jwt.sub')::uuid;
+    v_user_id UUID := current_setting('ayb.user_id')::uuid;
 BEGIN
     -- Reject if poll is closed.
     IF (SELECT is_closed FROM polls WHERE polls.id = p_poll_id) THEN

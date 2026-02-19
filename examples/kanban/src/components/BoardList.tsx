@@ -101,6 +101,7 @@ export default function BoardList({ onSelectBoard }: Props) {
             <button
               key={board.id}
               onClick={() => onSelectBoard(board)}
+              aria-label={`Open board ${board.title}`}
               className="flex items-center justify-between bg-white p-4 rounded-xl shadow-sm hover:shadow-md transition-shadow text-left group"
             >
               <div>
@@ -111,6 +112,7 @@ export default function BoardList({ onSelectBoard }: Props) {
               </div>
               <button
                 onClick={(e) => deleteBoard(board, e)}
+                aria-label={`Delete board ${board.title}`}
                 className="text-gray-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-all p-1"
                 title="Delete board"
               >

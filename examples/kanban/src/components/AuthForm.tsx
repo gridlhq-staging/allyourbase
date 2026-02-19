@@ -43,10 +43,11 @@ export default function AuthForm({ onAuth }: Props) {
 
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
+            <label htmlFor="auth-email" className="block text-sm font-medium text-gray-700 mb-1">
               Email
             </label>
             <input
+              id="auth-email"
               type="email"
               required
               value={email}
@@ -57,10 +58,11 @@ export default function AuthForm({ onAuth }: Props) {
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
+            <label htmlFor="auth-password" className="block text-sm font-medium text-gray-700 mb-1">
               Password
             </label>
             <input
+              id="auth-password"
               type="password"
               required
               minLength={8}
@@ -72,7 +74,7 @@ export default function AuthForm({ onAuth }: Props) {
           </div>
 
           {error && (
-            <p className="text-sm text-red-600 bg-red-50 rounded-lg px-3 py-2">
+            <p role="alert" className="text-sm text-red-600 bg-red-50 rounded-lg px-3 py-2">
               {error}
             </p>
           )}

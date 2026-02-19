@@ -1,8 +1,23 @@
 # Pixel Art Canvas (r/place clone)
 
-A collaborative pixel art canvas powered by AYB. Exercises REST API, Auth, Realtime SSE, RLS, and Database RPC.
+A collaborative pixel art canvas powered by AYB.
 
-Deploy at `place.allyourbase.io` for viral marketing.
+## Quick Start
+
+```bash
+ayb demo pixel-canvas
+```
+
+Open http://localhost:5174, register an account, and start placing pixels!
+
+### Manual Setup
+
+```bash
+ayb start
+ayb sql < schema.sql
+npm install
+npm run dev
+```
 
 ## Features
 
@@ -15,7 +30,7 @@ Deploy at `place.allyourbase.io` for viral marketing.
 - **Optimistic updates** — pixel appears instantly, reverts on server error
 - **Atomic upsert** via `place_pixel()` RPC function (avoids race conditions)
 
-## AYB Features Showcased
+## Demonstrates
 
 | Feature | How it's used |
 |---------|--------------|
@@ -24,22 +39,6 @@ Deploy at `place.allyourbase.io` for viral marketing.
 | Realtime SSE | Live pixel updates from other users |
 | RLS | Public read, authenticated-only write |
 | Database RPC | `place_pixel()` function for atomic upsert |
-
-## Setup
-
-```bash
-# 1. Start AYB
-ayb start
-
-# 2. Apply schema
-psql $DATABASE_URL -f schema.sql
-
-# 3. Install and run
-npm install
-npm run dev
-```
-
-Open http://localhost:5174
 
 ## Testing
 

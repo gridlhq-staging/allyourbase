@@ -54,14 +54,15 @@ export default function KanbanColumn({
   }
 
   return (
-    <div className="bg-gray-100 rounded-xl p-3 w-72 flex-shrink-0 flex flex-col max-h-[calc(100vh-10rem)]">
+    <div data-testid={`column-${column.title}`} className="bg-gray-100 rounded-xl p-3 w-72 flex-shrink-0 flex flex-col max-h-[calc(100vh-10rem)]">
       <div className="flex items-center justify-between mb-3 px-1">
         <h3 className="font-semibold text-sm text-gray-700 uppercase tracking-wide">
           {column.title}
-          <span className="ml-2 text-gray-400 font-normal">{cards.length}</span>
+          <span data-testid="card-count" className="ml-2 text-gray-400 font-normal">{cards.length}</span>
         </h3>
         <button
           onClick={handleDeleteColumn}
+          aria-label={`Delete column ${column.title}`}
           className="text-gray-300 hover:text-red-500 transition-colors"
           title="Delete column"
         >

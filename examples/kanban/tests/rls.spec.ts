@@ -107,11 +107,11 @@ test.describe("Row-Level Security", () => {
     await createBoard(page, "Will Delete");
     await expect(page.getByText("Will Delete")).toBeVisible();
 
-    // Delete the board
+    // Delete the board (use aria-label on delete button)
     page.on("dialog", (dialog) => dialog.accept());
-    const boardCard = page.getByRole("heading", { name: "Will Delete" }).locator("../..");
+    const boardCard = page.getByRole("button", { name: /Open board Will Delete/ });
     await boardCard.hover();
-    await boardCard.getByRole("button", { name: "Delete board" }).click();
+    await page.getByRole("button", { name: "Delete board Will Delete" }).click();
     await expect(page.getByText("Will Delete")).not.toBeVisible();
 
     // Logout and re-login

@@ -128,11 +128,11 @@ test.describe("Realtime SSE", () => {
     ).toBeVisible({ timeout: 5000 });
     await expect(page2.getByText("Original Name")).toBeVisible({ timeout: 5000 });
 
-    // Edit the card in tab 1
+    // Edit the card in tab 1 (use role="dialog" and label)
     await page1.getByText("Original Name").click();
     await expect(page1.getByText("Edit Card")).toBeVisible();
-    const modal = page1.locator(".fixed.inset-0");
-    const titleInput = modal.locator("input").first();
+    const modal = page1.getByRole("dialog");
+    const titleInput = modal.getByLabel("Title");
     await titleInput.clear();
     await titleInput.fill("Renamed Card");
     await page1.getByRole("button", { name: "Save" }).click();
@@ -165,10 +165,9 @@ test.describe("Realtime SSE", () => {
     ).toBeVisible({ timeout: 5000 });
     await expect(page2.getByText("Ephemeral")).toBeVisible({ timeout: 5000 });
 
-    // Delete column in tab 1
+    // Delete column in tab 1 (use aria-label on delete button)
     page1.on("dialog", (dialog) => dialog.accept());
-    const colHeader = page1.getByText("Ephemeral").locator("..");
-    await colHeader.locator("button").click();
+    await page1.getByRole("button", { name: "Delete column Ephemeral" }).click();
     await expect(page1.getByText("Ephemeral")).not.toBeVisible();
 
     // Column should disappear from tab 2 via SSE

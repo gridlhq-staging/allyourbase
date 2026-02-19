@@ -73,7 +73,10 @@ func runSQL(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("query is required (pass as argument or pipe to stdin)")
 	}
 
-	body, _ := json.Marshal(map[string]string{"query": query})
+	body, err := json.Marshal(map[string]string{"query": query})
+	if err != nil {
+		return fmt.Errorf("encoding request: %w", err)
+	}
 	req, err := http.NewRequest("POST", baseURL+"/api/admin/sql/", bytes.NewReader(body))
 	if err != nil {
 		return fmt.Errorf("creating request: %w", err)
@@ -89,7 +92,10 @@ func runSQL(cmd *cobra.Command, args []string) error {
 	}
 	defer resp.Body.Close()
 
-	respBody, _ := io.ReadAll(resp.Body)
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return fmt.Errorf("reading server response: %w", err)
+	}
 	if resp.StatusCode != http.StatusOK {
 		var errResp map[string]any
 		if json.Unmarshal(respBody, &errResp) == nil {
@@ -156,7 +162,10 @@ func runSQL(cmd *cobra.Command, args []string) error {
 
 // adminLogin exchanges an admin password for a bearer token via /api/admin/auth.
 func adminLogin(baseURL, password string) (string, error) {
-	body, _ := json.Marshal(map[string]string{"password": password})
+	body, err := json.Marshal(map[string]string{"password": password})
+	if err != nil {
+		return "", fmt.Errorf("encoding login request: %w", err)
+	}
 	resp, err := http.Post(baseURL+"/api/admin/auth", "application/json", bytes.NewReader(body))
 	if err != nil {
 		return "", err

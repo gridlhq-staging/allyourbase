@@ -35,9 +35,9 @@ test.describe("Columns", () => {
 
   test("shows card count in column header", async ({ page }) => {
     await addColumn(page, "To Do");
-    // Initially 0 cards — scoped to the column header's count span
-    const columnHeader = page.locator("h3").filter({ hasText: "To Do" });
-    await expect(columnHeader.locator("span")).toHaveText("0");
+    // Initially 0 cards — scoped via data-testid
+    const cardCount = page.getByTestId("column-To Do").getByTestId("card-count");
+    await expect(cardCount).toHaveText("0");
   });
 
   test("can delete a column", async ({ page }) => {
@@ -47,9 +47,8 @@ test.describe("Columns", () => {
     // Accept the confirm dialog
     page.on("dialog", (dialog) => dialog.accept());
 
-    // Click the X button in the column header
-    const columnHeader = page.getByText("Delete Me").locator("..");
-    await columnHeader.locator("button").click();
+    // Click the delete button (has aria-label)
+    await page.getByRole("button", { name: "Delete column Delete Me" }).click();
 
     await expect(page.getByText("Delete Me")).not.toBeVisible();
   });
@@ -61,8 +60,7 @@ test.describe("Columns", () => {
     // Dismiss the confirm dialog
     page.on("dialog", (dialog) => dialog.dismiss());
 
-    const columnHeader = page.getByText("Keep This").locator("..");
-    await columnHeader.locator("button").click();
+    await page.getByRole("button", { name: "Delete column Keep This" }).click();
 
     // Column should still be visible
     await expect(page.getByText("Keep This")).toBeVisible();
@@ -85,14 +83,14 @@ test.describe("Columns", () => {
     await addColumn(page, "Counting");
 
     // Start at 0
-    const columnHeader = page.locator("h3").filter({ hasText: "Counting" });
-    await expect(columnHeader.locator("span")).toHaveText("0");
+    const cardCount = page.getByTestId("column-Counting").getByTestId("card-count");
+    await expect(cardCount).toHaveText("0");
 
     await addCard(page, "Counting", "Card 1");
-    await expect(columnHeader.locator("span")).toHaveText("1");
+    await expect(cardCount).toHaveText("1");
 
     await addCard(page, "Counting", "Card 2");
-    await expect(columnHeader.locator("span")).toHaveText("2");
+    await expect(cardCount).toHaveText("2");
   });
 
   test("deleting column removes its cards too", async ({ page }) => {
@@ -105,8 +103,7 @@ test.describe("Columns", () => {
 
     // Delete the column
     page.on("dialog", (dialog) => dialog.accept());
-    const columnHeader = page.getByText("Doomed").locator("..");
-    await columnHeader.locator("button").click();
+    await page.getByRole("button", { name: "Delete column Doomed" }).click();
 
     // Column and its cards should be gone
     await expect(page.getByText("Doomed")).not.toBeVisible();

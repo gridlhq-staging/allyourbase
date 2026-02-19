@@ -73,11 +73,8 @@ export async function addCard(
   columnTitle: string,
   cardTitle: string,
 ): Promise<void> {
-  // Find the column container: h3 title → header row → column div
-  const column = page
-    .locator("h3")
-    .filter({ hasText: columnTitle })
-    .locator("../..");
+  // Scope to column via data-testid added to the column container
+  const column = page.getByTestId(`column-${columnTitle}`);
   await column.getByText("+ Add a card").click();
   await column.getByPlaceholder("Card title...").fill(cardTitle);
   await column.getByRole("button", { name: "Add" }).click();

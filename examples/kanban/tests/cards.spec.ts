@@ -31,39 +31,38 @@ test.describe("Cards", () => {
   });
 
   test("updates column card count after adding cards", async ({ page }) => {
-    const columnHeader = page.locator("h3").filter({ hasText: "To Do" });
+    const column = page.getByTestId("column-To Do");
+    const cardCount = column.getByTestId("card-count");
 
     await addCard(page, "To Do", "Card 1");
-    await expect(columnHeader.locator("span")).toHaveText("1");
+    await expect(cardCount).toHaveText("1");
 
     await addCard(page, "To Do", "Card 2");
-    await expect(columnHeader.locator("span")).toHaveText("2");
+    await expect(cardCount).toHaveText("2");
   });
 
   test("can open card edit modal by clicking a card", async ({ page }) => {
     await addCard(page, "To Do", "Editable Card");
     await page.getByText("Editable Card").click();
 
-    // Modal should open
-    const modal = page.locator(".fixed.inset-0");
+    // Modal should open (role="dialog" on the modal content)
+    const modal = page.getByRole("dialog");
     await expect(page.getByText("Edit Card")).toBeVisible();
-    await expect(modal.locator("input").first()).toHaveValue(
-      "Editable Card",
-    );
+    await expect(modal.getByLabel("Title")).toHaveValue("Editable Card");
   });
 
   test("can edit card title and description", async ({ page }) => {
     await addCard(page, "To Do", "Original Title");
     await page.getByText("Original Title").click();
 
-    // Edit title (scope to modal to avoid matching the column input)
-    const modal = page.locator(".fixed.inset-0");
-    const titleInput = modal.locator("input").first();
+    // Edit title (scoped to modal via role="dialog")
+    const modal = page.getByRole("dialog");
+    const titleInput = modal.getByLabel("Title");
     await titleInput.clear();
     await titleInput.fill("Updated Title");
 
     // Add description
-    await page.getByPlaceholder("Add a description...").fill("My description");
+    await modal.getByLabel("Description").fill("My description");
 
     // Save
     await page.getByRole("button", { name: "Save" }).click();
@@ -105,7 +104,7 @@ test.describe("Cards", () => {
   });
 
   test("can cancel adding a card", async ({ page }) => {
-    const column = page.locator("h3").filter({ hasText: "To Do" }).locator("../..");
+    const column = page.getByTestId("column-To Do");
     await column.getByText("+ Add a card").click();
     await expect(column.getByPlaceholder("Card title...")).toBeVisible();
 
@@ -113,13 +112,13 @@ test.describe("Cards", () => {
     await expect(column.getByPlaceholder("Card title...")).not.toBeVisible();
   });
 
-  test("can close card modal by clicking backdrop", async ({ page }) => {
-    await addCard(page, "To Do", "Backdrop Test");
-    await page.getByText("Backdrop Test").click();
+  test("can close card modal by clicking Close button", async ({ page }) => {
+    await addCard(page, "To Do", "Close Test");
+    await page.getByText("Close Test").click();
     await expect(page.getByText("Edit Card")).toBeVisible();
 
-    // Click the backdrop (the fixed overlay outside the modal content)
-    await page.locator(".fixed.inset-0").click({ position: { x: 10, y: 10 } });
+    // Click the Close button (has aria-label="Close")
+    await page.getByRole("button", { name: "Close" }).click();
     await expect(page.getByText("Edit Card")).not.toBeVisible();
   });
 
@@ -128,7 +127,8 @@ test.describe("Cards", () => {
     await page.getByText("Desc Card").click();
 
     // Add description and save
-    await page.getByPlaceholder("Add a description...").fill("Some details here");
+    const modal = page.getByRole("dialog");
+    await modal.getByLabel("Description").fill("Some details here");
     await page.getByRole("button", { name: "Save" }).click();
     await expect(page.getByText("Edit Card")).not.toBeVisible();
 
@@ -156,9 +156,9 @@ test.describe("Cards", () => {
     await page.getByText("Empty Title Test").click();
     await expect(page.getByText("Edit Card")).toBeVisible();
 
-    // Clear the title (scope to modal to avoid matching the column input)
-    const modal = page.locator(".fixed.inset-0");
-    const titleInput = modal.locator("input").first();
+    // Clear the title (scoped to modal via label)
+    const modal = page.getByRole("dialog");
+    const titleInput = modal.getByLabel("Title");
     await titleInput.clear();
 
     // Save button should be disabled
@@ -173,27 +173,28 @@ test.describe("Cards", () => {
     await addCard(page, "To Do", "Persist Edit");
     await page.getByText("Persist Edit").click();
 
-    // Edit title and description (scope to modal to avoid matching the column input)
-    const modal = page.locator(".fixed.inset-0");
-    const titleInput = modal.locator("input").first();
+    // Edit title and description (scoped to modal)
+    const modal = page.getByRole("dialog");
+    const titleInput = modal.getByLabel("Title");
     await titleInput.clear();
     await titleInput.fill("Edited Title");
-    await page.getByPlaceholder("Add a description...").fill("Edited desc");
+    await modal.getByLabel("Description").fill("Edited desc");
     await page.getByRole("button", { name: "Save" }).click();
     await expect(page.getByText("Edit Card")).not.toBeVisible();
 
     // Reopen the card
     await page.getByText("Edited Title").click();
-    await expect(page.locator(".fixed.inset-0 input").first()).toHaveValue("Edited Title");
-    await expect(page.getByPlaceholder("Add a description...")).toHaveValue("Edited desc");
+    const reopenedModal = page.getByRole("dialog");
+    await expect(reopenedModal.getByLabel("Title")).toHaveValue("Edited Title");
+    await expect(reopenedModal.getByLabel("Description")).toHaveValue("Edited desc");
   });
 
   test("card column count decrements after card deletion", async ({ page }) => {
     await addCard(page, "To Do", "Count Card 1");
     await addCard(page, "To Do", "Count Card 2");
 
-    const columnHeader = page.locator("h3").filter({ hasText: "To Do" });
-    await expect(columnHeader.locator("span")).toHaveText("2");
+    const cardCount = page.getByTestId("column-To Do").getByTestId("card-count");
+    await expect(cardCount).toHaveText("2");
 
     // Delete one card
     await page.getByText("Count Card 1").click();
@@ -201,11 +202,11 @@ test.describe("Cards", () => {
     await page.getByText("Delete card").click();
     await expect(page.getByText("Edit Card")).not.toBeVisible();
 
-    await expect(columnHeader.locator("span")).toHaveText("1");
+    await expect(cardCount).toHaveText("1");
   });
 
   test("add card button shows input form on click", async ({ page }) => {
-    const column = page.locator("h3").filter({ hasText: "To Do" }).locator("../..");
+    const column = page.getByTestId("column-To Do");
 
     // Initially shows the "+ Add a card" button, not the input
     await expect(column.getByText("+ Add a card")).toBeVisible();

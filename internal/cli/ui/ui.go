@@ -82,6 +82,13 @@ func ForcedRenderer() *lipgloss.Renderer {
 	return forcedRenderer
 }
 
+// StderrIsTTY returns whether stderr is connected to a terminal.
+// Unlike ColorEnabled, this does not respect NO_COLOR — use it for
+// deciding whether to animate spinners (which don't use color).
+func StderrIsTTY() bool {
+	return isatty.IsTerminal(os.Stderr.Fd()) || isatty.IsCygwinTerminal(os.Stderr.Fd())
+}
+
 // ColorEnabled returns whether stderr is a TTY that supports color.
 // Respects NO_COLOR (https://no-color.org/).
 func ColorEnabled() bool {

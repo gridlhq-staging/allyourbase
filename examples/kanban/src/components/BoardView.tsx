@@ -196,6 +196,7 @@ export default function BoardView({ board, onBack }: Props) {
       <div className="bg-white border-b px-6 py-3 flex items-center gap-4 flex-shrink-0">
         <button
           onClick={onBack}
+          aria-label="Back to boards"
           className="text-gray-500 hover:text-gray-700 transition-colors"
         >
           <svg

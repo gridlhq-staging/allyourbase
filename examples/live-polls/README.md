@@ -1,6 +1,23 @@
 # Live Polls (Slido-lite)
 
-A real-time polling app powered by AYB. Audience members vote on polls and see live results update via SSE. Exercises REST API, Auth, Realtime SSE, RLS, and Database RPC.
+A real-time polling app powered by AYB. Audience members vote on polls and see live results update via SSE.
+
+## Quick Start
+
+```bash
+ayb demo live-polls
+```
+
+Open http://localhost:5175, register an account, and start creating polls!
+
+### Manual Setup
+
+```bash
+ayb start
+ayb sql < schema.sql
+npm install
+npm run dev
+```
 
 ## Features
 
@@ -11,7 +28,7 @@ A real-time polling app powered by AYB. Audience members vote on polls and see l
 - **Close polls** — poll creator can close voting
 - **Auth-gated** — sign up to create polls and vote
 
-## AYB Features Showcased
+## Demonstrates
 
 | Feature | How it's used |
 |---------|--------------|
@@ -20,22 +37,6 @@ A real-time polling app powered by AYB. Audience members vote on polls and see l
 | Realtime SSE | Live vote count updates across all connected clients |
 | RLS | Public read; only creator can update polls; one vote per user |
 | Database RPC | `cast_vote()` function for atomic vote with duplicate enforcement |
-
-## Setup
-
-```bash
-# 1. Start AYB with auth enabled
-ayb start
-
-# 2. Apply schema
-psql $DATABASE_URL -f schema.sql
-
-# 3. Install and run
-npm install
-npm run dev
-```
-
-Open http://localhost:5175
 
 ## Testing
 

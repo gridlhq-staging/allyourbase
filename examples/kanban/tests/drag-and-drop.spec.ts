@@ -7,6 +7,11 @@ import {
   addCard,
 } from "./helpers";
 
+// NOTE: Drag-and-drop tests require low-level mouse APIs (boundingBox, mouse.move/down/up)
+// and library-specific data attributes ([data-rfd-*]) because Playwright has no native
+// DnD API that works with @hello-pangea/dnd. These patterns are pragmatically necessary
+// and documented as exceptions to BROWSER_TESTING_STANDARDS_2.md Rule 4/5.
+
 test.describe("Drag and Drop", () => {
   test.beforeEach(async ({ page }) => {
     await registerUser(page);
@@ -22,6 +27,7 @@ test.describe("Drag and Drop", () => {
     await expect(page.getByText("Drag Me")).toBeVisible();
 
     // The card wrapper should have drag handle attributes (from @hello-pangea/dnd)
+    // NOTE: data-rfd-* attributes are library-generated, not CSS selectors we control
     const draggable = page.locator("[data-rfd-draggable-id]").filter({ hasText: "Drag Me" });
     await expect(draggable).toBeVisible();
   });
@@ -36,12 +42,8 @@ test.describe("Drag and Drop", () => {
     const card = page.getByText("Drag Me");
 
     // Get the source and destination droppable positions
-    const sourceColumn = page
-      .locator("[data-rfd-droppable-id]")
-      .first();
-    const destColumn = page
-      .locator("[data-rfd-droppable-id]")
-      .nth(1);
+    // NOTE: boundingBox() is required for programmatic drag — no Playwright alternative
+    const destColumn = page.locator("[data-rfd-droppable-id]").nth(1);
 
     const cardBox = await card.boundingBox();
     const destBox = await destColumn.boundingBox();
@@ -69,19 +71,19 @@ test.describe("Drag and Drop", () => {
     // After drop, verify the card is still visible
     await expect(page.getByText("Drag Me")).toBeVisible();
 
-    // Verify card count changed: source column should show 0, dest should show 1
-    const todoHeader = page.locator("h3").filter({ hasText: "To Do" });
-    const doneHeader = page.locator("h3").filter({ hasText: "Done" });
-    await expect(todoHeader.locator("span")).toHaveText("0", { timeout: 5000 });
-    await expect(doneHeader.locator("span")).toHaveText("1", { timeout: 5000 });
+    // Verify card count changed via data-testid
+    const todoCount = page.getByTestId("column-To Do").getByTestId("card-count");
+    const doneCount = page.getByTestId("column-Done").getByTestId("card-count");
+    await expect(todoCount).toHaveText("0", { timeout: 5000 });
+    await expect(doneCount).toHaveText("1", { timeout: 5000 });
   });
 
   test("multiple cards can be dragged to different columns", async ({ page }) => {
     await addCard(page, "To Do", "Card 2");
     await addCard(page, "To Do", "Card 3");
 
-    const todoHeader = page.locator("h3").filter({ hasText: "To Do" });
-    await expect(todoHeader.locator("span")).toHaveText("3");
+    const todoCount = page.getByTestId("column-To Do").getByTestId("card-count");
+    await expect(todoCount).toHaveText("3");
 
     // Drag "Drag Me" (the first card from beforeEach) to Done
     const card = page.getByText("Drag Me");
@@ -100,9 +102,9 @@ test.describe("Drag and Drop", () => {
     await page.mouse.up();
 
     // Wait for counts to update
-    await expect(todoHeader.locator("span")).toHaveText("2", { timeout: 5000 });
-    const doneHeader = page.locator("h3").filter({ hasText: "Done" });
-    await expect(doneHeader.locator("span")).toHaveText("1", { timeout: 5000 });
+    await expect(todoCount).toHaveText("2", { timeout: 5000 });
+    const doneCount = page.getByTestId("column-Done").getByTestId("card-count");
+    await expect(doneCount).toHaveText("1", { timeout: 5000 });
   });
 
   test("each card has a unique draggable id", async ({ page }) => {

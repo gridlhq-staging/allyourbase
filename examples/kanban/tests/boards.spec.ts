@@ -43,8 +43,8 @@ test.describe("Boards", () => {
     await createBoard(page, "Back Test");
     await openBoard(page, "Back Test");
 
-    // Click the back arrow
-    await page.locator("button").filter({ has: page.locator("svg") }).first().click();
+    // Click the back arrow (has aria-label)
+    await page.getByRole("button", { name: "Back to boards" }).click();
 
     // Should be back on the board list
     await expect(page.getByText("Your Boards")).toBeVisible();
@@ -56,9 +56,9 @@ test.describe("Boards", () => {
 
     // Hover to reveal delete button, then click
     page.on("dialog", (dialog) => dialog.accept());
-    const boardCard = page.getByRole("heading", { name: "Delete Me" }).locator("../..");
+    const boardCard = page.getByRole("button", { name: /Open board Delete Me/ });
     await boardCard.hover();
-    await boardCard.getByRole("button", { name: "Delete board" }).click();
+    await page.getByRole("button", { name: "Delete board Delete Me" }).click();
 
     await expect(page.getByText("Delete Me")).not.toBeVisible();
   });
@@ -69,9 +69,9 @@ test.describe("Boards", () => {
 
     // Dismiss the confirm dialog
     page.on("dialog", (dialog) => dialog.dismiss());
-    const boardCard = page.getByRole("heading", { name: "Keep Me" }).locator("../..");
+    const boardCard = page.getByRole("button", { name: /Open board Keep Me/ });
     await boardCard.hover();
-    await boardCard.getByRole("button", { name: "Delete board" }).click();
+    await page.getByRole("button", { name: "Delete board Keep Me" }).click();
 
     // Board should still be there
     await expect(page.getByText("Keep Me")).toBeVisible();
@@ -101,9 +101,9 @@ test.describe("Boards", () => {
   test("board shows creation date", async ({ page }) => {
     await createBoard(page, "Dated Board");
 
-    // The board card should display today's date, scoped to the specific card
+    // The board card should display today's date
     const today = new Date().toLocaleDateString("en-US");
-    const boardCard = page.getByRole("heading", { name: "Dated Board" }).locator("../..");
+    const boardCard = page.getByRole("button", { name: /Open board Dated Board/ });
     await expect(boardCard.getByText(today)).toBeVisible();
   });
 
@@ -128,7 +128,7 @@ test.describe("Boards", () => {
     await expect(page.getByRole("heading", { name: "Board Alpha" })).toBeVisible();
 
     // Go back
-    await page.locator("button").filter({ has: page.locator("svg") }).first().click();
+    await page.getByRole("button", { name: "Back to boards" }).click();
     await expect(page.getByText("Your Boards")).toBeVisible();
 
     // Open second board
@@ -136,7 +136,7 @@ test.describe("Boards", () => {
     await expect(page.getByRole("heading", { name: "Board Beta" })).toBeVisible();
 
     // Go back again
-    await page.locator("button").filter({ has: page.locator("svg") }).first().click();
+    await page.getByRole("button", { name: "Back to boards" }).click();
     await expect(page.getByText("Your Boards")).toBeVisible();
 
     // Both boards should still be listed

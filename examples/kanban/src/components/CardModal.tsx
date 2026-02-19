@@ -56,13 +56,17 @@ export default function CardModal({ card, onClose, onUpdate, onDelete }: Props) 
       onClick={onClose}
     >
       <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="card-modal-title"
         className="bg-white rounded-xl shadow-2xl p-6 w-full max-w-lg mx-4"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between mb-4">
-          <h3 className="text-lg font-semibold text-gray-900">Edit Card</h3>
+          <h3 id="card-modal-title" className="text-lg font-semibold text-gray-900">Edit Card</h3>
           <button
             onClick={onClose}
+            aria-label="Close"
             className="text-gray-400 hover:text-gray-600"
           >
             <svg
@@ -83,10 +87,11 @@ export default function CardModal({ card, onClose, onUpdate, onDelete }: Props) 
 
         <div className="space-y-4">
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
+            <label htmlFor="card-title" className="block text-sm font-medium text-gray-700 mb-1">
               Title
             </label>
             <input
+              id="card-title"
               type="text"
               value={title}
               onChange={(e) => setTitle(e.target.value)}
@@ -95,10 +100,11 @@ export default function CardModal({ card, onClose, onUpdate, onDelete }: Props) 
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
+            <label htmlFor="card-description" className="block text-sm font-medium text-gray-700 mb-1">
               Description
             </label>
             <textarea
+              id="card-description"
               value={description}
               onChange={(e) => setDescription(e.target.value)}
               rows={4}

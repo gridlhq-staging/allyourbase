@@ -64,6 +64,7 @@ func init() {
 	rootCmd.AddCommand(statsCmd)
 	rootCmd.AddCommand(secretsCmd)
 	rootCmd.AddCommand(uninstallCmd)
+	rootCmd.AddCommand(demoCmd)
 }
 
 // Execute runs the root command.

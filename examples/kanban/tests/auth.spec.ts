@@ -4,7 +4,7 @@ import { uniqueEmail, TEST_PASSWORD, registerUser, loginUser } from "./helpers";
 test.describe("Authentication", () => {
   test("shows login form by default", async ({ page }) => {
     await page.goto("/");
-    await expect(page.getByText("Kanban Board")).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Kanban Board" })).toBeVisible();
     await expect(page.getByRole("button", { name: "Sign In" })).toBeVisible();
     await expect(page.getByPlaceholder("you@example.com")).toBeVisible();
     await expect(
@@ -53,8 +53,8 @@ test.describe("Authentication", () => {
     await page.getByPlaceholder("At least 8 characters").fill("wrongpassword");
     await page.getByRole("button", { name: "Sign In" }).click();
 
-    // Should show an error message
-    await expect(page.locator(".text-red-600")).toBeVisible({ timeout: 5000 });
+    // Should show an error message (role="alert" on the error element)
+    await expect(page.getByRole("alert")).toBeVisible({ timeout: 5000 });
   });
 
   test("can logout", async ({ page }) => {
@@ -77,11 +77,11 @@ test.describe("Authentication", () => {
     await page.getByPlaceholder("you@example.com").fill("wrong@example.com");
     await page.getByPlaceholder("At least 8 characters").fill("wrongpassword");
     await page.getByRole("button", { name: "Sign In" }).click();
-    await expect(page.locator(".text-red-600")).toBeVisible({ timeout: 5000 });
+    await expect(page.getByRole("alert")).toBeVisible({ timeout: 5000 });
 
     // Toggle to register mode — error should disappear
     await page.getByRole("button", { name: "Sign up" }).click();
-    await expect(page.locator(".text-red-600")).not.toBeVisible();
+    await expect(page.getByRole("alert")).not.toBeVisible();
   });
 
   test("shows error when registering with duplicate email", async ({ page }) => {
@@ -98,7 +98,7 @@ test.describe("Authentication", () => {
     await page.getByRole("button", { name: "Create Account" }).click();
 
     // Should show an error
-    await expect(page.locator(".text-red-600")).toBeVisible({ timeout: 5000 });
+    await expect(page.getByRole("alert")).toBeVisible({ timeout: 5000 });
   });
 
   test("can login, logout, then login again", async ({ page }) => {
