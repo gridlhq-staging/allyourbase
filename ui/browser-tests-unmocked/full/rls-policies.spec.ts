@@ -78,7 +78,7 @@ test.describe("RLS Policies (Full E2E)", () => {
     // Navigate to SQL Editor via sidebar
     await sidebar.getByRole("button", { name: /^SQL Editor$/i }).click();
 
-    const sqlInput = page.locator('.cm-content[contenteditable="true"]');
+    const sqlInput = page.getByLabel("SQL query");
     await expect(sqlInput).toBeVisible({ timeout: 5000 });
 
     // Create test table with user_id column for RLS testing

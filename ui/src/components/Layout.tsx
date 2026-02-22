@@ -7,9 +7,17 @@ import { Webhooks } from "./Webhooks";
 import { StorageBrowser } from "./StorageBrowser";
 import { Users } from "./Users";
 import { FunctionBrowser } from "./FunctionBrowser";
+import { SMSHealth } from "./SMSHealth";
+import { SMSMessages } from "./SMSMessages";
 import { ApiKeys } from "./ApiKeys";
+import { Apps } from "./Apps";
+import { OAuthClients } from "./OAuthClients";
 import { ApiExplorer } from "./ApiExplorer";
 import { RlsPolicies } from "./RlsPolicies";
+import { Jobs } from "./Jobs";
+import { Schedules } from "./Schedules";
+import { MatviewsAdmin } from "./MatviewsAdmin";
+import { EmailTemplates } from "./EmailTemplates";
 import { CommandPalette, CommandPaletteHint } from "./CommandPalette";
 import type { CommandAction } from "./CommandPalette";
 import {
@@ -27,10 +35,18 @@ import {
   Shield,
   Plus,
   TableProperties,
+  MessageCircle,
+  MessageSquare,
+  Box,
+  Fingerprint,
+  CalendarClock,
+  ListTodo,
+  Layers,
+  Mail,
 } from "lucide-react";
 import { cn } from "../lib/utils";
 
-type View = "data" | "schema" | "sql" | "webhooks" | "storage" | "users" | "functions" | "api-keys" | "api-explorer" | "rls" | "sql-editor";
+type View = "data" | "schema" | "sql" | "webhooks" | "storage" | "users" | "functions" | "apps" | "api-keys" | "oauth-clients" | "api-explorer" | "rls" | "sql-editor" | "sms-health" | "sms-messages" | "email-templates" | "jobs" | "schedules" | "matviews";
 
 interface LayoutProps {
   schema: SchemaCache;
@@ -53,7 +69,7 @@ export function Layout({ schema, onLogout, onRefresh }: LayoutProps) {
     setView("data");
   }, []);
 
-  const handleAdminView = useCallback((v: "webhooks" | "storage" | "users" | "functions" | "api-keys" | "api-explorer" | "rls" | "sql-editor") => {
+  const handleAdminView = useCallback((v: "webhooks" | "storage" | "users" | "functions" | "apps" | "api-keys" | "oauth-clients" | "api-explorer" | "rls" | "sql-editor" | "sms-health" | "sms-messages" | "email-templates" | "jobs" | "schedules" | "matviews") => {
     setSelected(null);
     setView(v);
   }, []);
@@ -78,7 +94,7 @@ export function Layout({ schema, onLogout, onRefresh }: LayoutProps) {
     return () => window.removeEventListener("keydown", handler);
   }, []);
 
-  const isAdminView = view === "webhooks" || view === "storage" || view === "users" || view === "functions" || view === "api-keys" || view === "api-explorer" || view === "rls" || view === "sql-editor";
+  const isAdminView = view === "webhooks" || view === "storage" || view === "users" || view === "functions" || view === "apps" || view === "api-keys" || view === "oauth-clients" || view === "api-explorer" || view === "rls" || view === "sql-editor" || view === "sms-health" || view === "sms-messages" || view === "email-templates" || view === "jobs" || view === "schedules" || view === "matviews";
 
   return (
     <div className="flex h-screen">
@@ -192,6 +208,16 @@ export function Layout({ schema, onLogout, onRefresh }: LayoutProps) {
               <Shield className="w-3.5 h-3.5 text-gray-400 shrink-0" />
               RLS Policies
             </button>
+            <button
+              onClick={() => handleAdminView("matviews")}
+              className={cn(
+                "w-full text-left px-4 py-1.5 text-sm flex items-center gap-2 hover:bg-gray-100 rounded",
+                view === "matviews" && "bg-gray-100 font-medium",
+              )}
+            >
+              <Layers className="w-3.5 h-3.5 text-gray-400 shrink-0" />
+              Matviews
+            </button>
           </div>
 
           {/* Services section */}
@@ -221,6 +247,43 @@ export function Layout({ schema, onLogout, onRefresh }: LayoutProps) {
             </button>
           </div>
 
+          {/* Messaging section */}
+          <div className="mt-3 pt-3 border-t mx-3">
+            <p className="px-1 pb-1 text-[10px] font-medium text-gray-400 uppercase tracking-wider">
+              Messaging
+            </p>
+            <button
+              onClick={() => handleAdminView("sms-health")}
+              className={cn(
+                "w-full text-left px-4 py-1.5 text-sm flex items-center gap-2 hover:bg-gray-100 rounded",
+                view === "sms-health" && "bg-gray-100 font-medium",
+              )}
+            >
+              <MessageCircle className="w-3.5 h-3.5 text-gray-400 shrink-0" />
+              SMS Health
+            </button>
+            <button
+              onClick={() => handleAdminView("sms-messages")}
+              className={cn(
+                "w-full text-left px-4 py-1.5 text-sm flex items-center gap-2 hover:bg-gray-100 rounded",
+                view === "sms-messages" && "bg-gray-100 font-medium",
+              )}
+            >
+              <MessageSquare className="w-3.5 h-3.5 text-gray-400 shrink-0" />
+              SMS Messages
+            </button>
+            <button
+              onClick={() => handleAdminView("email-templates")}
+              className={cn(
+                "w-full text-left px-4 py-1.5 text-sm flex items-center gap-2 hover:bg-gray-100 rounded",
+                view === "email-templates" && "bg-gray-100 font-medium",
+              )}
+            >
+              <Mail className="w-3.5 h-3.5 text-gray-400 shrink-0" />
+              Email Templates
+            </button>
+          </div>
+
           {/* Admin section */}
           <div className="mt-3 pt-3 border-t mx-3">
             <p className="px-1 pb-1 text-[10px] font-medium text-gray-400 uppercase tracking-wider">
@@ -237,6 +300,16 @@ export function Layout({ schema, onLogout, onRefresh }: LayoutProps) {
               Users
             </button>
             <button
+              onClick={() => handleAdminView("apps")}
+              className={cn(
+                "w-full text-left px-4 py-1.5 text-sm flex items-center gap-2 hover:bg-gray-100 rounded",
+                view === "apps" && "bg-gray-100 font-medium",
+              )}
+            >
+              <Box className="w-3.5 h-3.5 text-gray-400 shrink-0" />
+              Apps
+            </button>
+            <button
               onClick={() => handleAdminView("api-keys")}
               className={cn(
                 "w-full text-left px-4 py-1.5 text-sm flex items-center gap-2 hover:bg-gray-100 rounded",
@@ -247,6 +320,16 @@ export function Layout({ schema, onLogout, onRefresh }: LayoutProps) {
               API Keys
             </button>
             <button
+              onClick={() => handleAdminView("oauth-clients")}
+              className={cn(
+                "w-full text-left px-4 py-1.5 text-sm flex items-center gap-2 hover:bg-gray-100 rounded",
+                view === "oauth-clients" && "bg-gray-100 font-medium",
+              )}
+            >
+              <Fingerprint className="w-3.5 h-3.5 text-gray-400 shrink-0" />
+              OAuth Clients
+            </button>
+            <button
               onClick={() => handleAdminView("api-explorer")}
               className={cn(
                 "w-full text-left px-4 py-1.5 text-sm flex items-center gap-2 hover:bg-gray-100 rounded",
@@ -255,6 +338,26 @@ export function Layout({ schema, onLogout, onRefresh }: LayoutProps) {
             >
               <Compass className="w-3.5 h-3.5 text-gray-400 shrink-0" />
               API Explorer
+            </button>
+            <button
+              onClick={() => handleAdminView("jobs")}
+              className={cn(
+                "w-full text-left px-4 py-1.5 text-sm flex items-center gap-2 hover:bg-gray-100 rounded",
+                view === "jobs" && "bg-gray-100 font-medium",
+              )}
+            >
+              <ListTodo className="w-3.5 h-3.5 text-gray-400 shrink-0" />
+              Jobs
+            </button>
+            <button
+              onClick={() => handleAdminView("schedules")}
+              className={cn(
+                "w-full text-left px-4 py-1.5 text-sm flex items-center gap-2 hover:bg-gray-100 rounded",
+                view === "schedules" && "bg-gray-100 font-medium",
+              )}
+            >
+              <CalendarClock className="w-3.5 h-3.5 text-gray-400 shrink-0" />
+              Schedules
             </button>
           </div>
         </nav>
@@ -289,14 +392,30 @@ export function Layout({ schema, onLogout, onRefresh }: LayoutProps) {
               <StorageBrowser />
             ) : view === "functions" ? (
               <FunctionBrowser functions={schema.functions || {}} />
+            ) : view === "apps" ? (
+              <Apps />
             ) : view === "api-keys" ? (
               <ApiKeys />
+            ) : view === "oauth-clients" ? (
+              <OAuthClients />
             ) : view === "api-explorer" ? (
               <ApiExplorer schema={schema} />
             ) : view === "rls" ? (
               <RlsPolicies schema={schema} />
             ) : view === "sql-editor" ? (
               <SqlEditor onSchemaChange={onRefresh} />
+            ) : view === "sms-health" ? (
+              <SMSHealth />
+            ) : view === "sms-messages" ? (
+              <SMSMessages />
+            ) : view === "email-templates" ? (
+              <EmailTemplates />
+            ) : view === "jobs" ? (
+              <Jobs />
+            ) : view === "schedules" ? (
+              <Schedules />
+            ) : view === "matviews" ? (
+              <MatviewsAdmin schema={schema} />
             ) : (
               <Users />
             )}

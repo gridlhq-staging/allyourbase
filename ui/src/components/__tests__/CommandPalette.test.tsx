@@ -43,11 +43,119 @@ describe("CommandPalette", () => {
     );
     expect(screen.getByRole("dialog")).toBeInTheDocument();
     expect(screen.getByPlaceholderText("Search tables, pages...")).toBeInTheDocument();
-    // All 4 tables + 8 navigation items
+    // All 4 tables + 13 navigation items
     expect(screen.getByText("users")).toBeInTheDocument();
     expect(screen.getByText("posts")).toBeInTheDocument();
     expect(screen.getByText("SQL Editor")).toBeInTheDocument();
     expect(screen.getByText("API Explorer")).toBeInTheDocument();
+  });
+
+  it("includes SMS Health and SMS Messages in navigation items", () => {
+    render(
+      <CommandPalette open={true} onClose={onClose} onSelect={onSelect} tables={tables} />,
+    );
+    expect(screen.getByText("SMS Health")).toBeInTheDocument();
+    expect(screen.getByText("SMS Messages")).toBeInTheDocument();
+  });
+
+  it("includes Jobs and Schedules in navigation items", () => {
+    render(
+      <CommandPalette open={true} onClose={onClose} onSelect={onSelect} tables={tables} />,
+    );
+    expect(screen.getByText("Jobs")).toBeInTheDocument();
+    expect(screen.getByText("Schedules")).toBeInTheDocument();
+  });
+
+  it("includes Email Templates in navigation items", () => {
+    render(
+      <CommandPalette open={true} onClose={onClose} onSelect={onSelect} tables={tables} />,
+    );
+    expect(screen.getByText("Email Templates")).toBeInTheDocument();
+  });
+
+  it("calls onSelect with sms-health view when SMS Health clicked", async () => {
+    const user = userEvent.setup();
+    render(
+      <CommandPalette open={true} onClose={onClose} onSelect={onSelect} tables={tables} />,
+    );
+
+    await user.click(screen.getByText("SMS Health"));
+
+    expect(onSelect).toHaveBeenCalledOnce();
+    const action: CommandAction = onSelect.mock.calls[0][0];
+    expect(action.kind).toBe("view");
+    if (action.kind === "view") {
+      expect(action.view).toBe("sms-health");
+    }
+    expect(onClose).toHaveBeenCalledOnce();
+  });
+
+  it("calls onSelect with sms-messages view when SMS Messages clicked", async () => {
+    const user = userEvent.setup();
+    render(
+      <CommandPalette open={true} onClose={onClose} onSelect={onSelect} tables={tables} />,
+    );
+
+    await user.click(screen.getByText("SMS Messages"));
+
+    expect(onSelect).toHaveBeenCalledOnce();
+    const action: CommandAction = onSelect.mock.calls[0][0];
+    expect(action.kind).toBe("view");
+    if (action.kind === "view") {
+      expect(action.view).toBe("sms-messages");
+    }
+    expect(onClose).toHaveBeenCalledOnce();
+  });
+
+  it("calls onSelect with jobs view when Jobs clicked", async () => {
+    const user = userEvent.setup();
+    render(
+      <CommandPalette open={true} onClose={onClose} onSelect={onSelect} tables={tables} />,
+    );
+
+    await user.click(screen.getByText("Jobs"));
+
+    expect(onSelect).toHaveBeenCalledOnce();
+    const action: CommandAction = onSelect.mock.calls[0][0];
+    expect(action.kind).toBe("view");
+    if (action.kind === "view") {
+      expect(action.view).toBe("jobs");
+    }
+    expect(onClose).toHaveBeenCalledOnce();
+  });
+
+  it("calls onSelect with schedules view when Schedules clicked", async () => {
+    const user = userEvent.setup();
+    render(
+      <CommandPalette open={true} onClose={onClose} onSelect={onSelect} tables={tables} />,
+    );
+
+    await user.click(screen.getByText("Schedules"));
+
+    expect(onSelect).toHaveBeenCalledOnce();
+    const action: CommandAction = onSelect.mock.calls[0][0];
+    expect(action.kind).toBe("view");
+    if (action.kind === "view") {
+      expect(action.view).toBe("schedules");
+    }
+    expect(onClose).toHaveBeenCalledOnce();
+  });
+
+  it("calls onSelect with email-templates view when Email Templates clicked", async () => {
+    const user = userEvent.setup();
+    render(
+      <CommandPalette open={true} onClose={onClose} onSelect={onSelect} tables={tables} />,
+    );
+
+    await user.click(screen.getByText("Email Templates"));
+
+    expect(onSelect).toHaveBeenCalledOnce();
+    const action: CommandAction = onSelect.mock.calls[0][0];
+    expect(action.kind).toBe("view");
+    if (action.kind === "view") {
+      expect(action.view).toBe("email-templates");
+    }
+    expect(onClose).toHaveBeenCalledOnce();
   });
 
   it("filters items as user types", async () => {

@@ -42,4 +42,4 @@ Initial release.
 - Type generation from live schema (`ayb types typescript`)
 - Email backends: log, SMTP, webhook
 - Password hashing: argon2id, bcrypt, firebase-scrypt with progressive re-hashing
-- Three example apps: Live Polls, Pixel Canvas, Kanban Board
+- Two example apps: Live Polls, Kanban Board

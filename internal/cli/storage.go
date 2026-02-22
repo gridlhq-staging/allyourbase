@@ -81,12 +81,15 @@ func storageRequest(cmd *cobra.Command, method, path string, body io.Reader, con
 		req.Header.Set("Authorization", "Bearer "+token)
 	}
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := cliHTTPClient.Do(req)
 	if err != nil {
 		return nil, nil, fmt.Errorf("connecting to server: %w", err)
 	}
 	defer resp.Body.Close()
-	respBody, _ := io.ReadAll(resp.Body)
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, nil, fmt.Errorf("reading response: %w", err)
+	}
 	return resp, respBody, nil
 }
 
@@ -192,12 +195,15 @@ func runStorageUpload(cmd *cobra.Command, args []string) error {
 		req.Header.Set("Authorization", "Bearer "+token)
 	}
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := cliHTTPClient.Do(req)
 	if err != nil {
 		return fmt.Errorf("connecting to server: %w", err)
 	}
 	defer resp.Body.Close()
-	respBody, _ := io.ReadAll(resp.Body)
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return fmt.Errorf("reading response: %w", err)
+	}
 
 	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
 		return serverError(resp.StatusCode, respBody)
@@ -213,7 +219,9 @@ func runStorageUpload(cmd *cobra.Command, args []string) error {
 		Name string `json:"name"`
 		Size int64  `json:"size"`
 	}
-	json.Unmarshal(respBody, &uploaded)
+	if err := json.Unmarshal(respBody, &uploaded); err != nil {
+		return fmt.Errorf("parsing upload response: %w", err)
+	}
 	fmt.Printf("Uploaded %s (%s) to %s\n", uploaded.Name, formatBytes(uploaded.Size), bucket)
 	return nil
 }
@@ -240,7 +248,7 @@ func runStorageDownload(cmd *cobra.Command, args []string) error {
 		req.Header.Set("Authorization", "Bearer "+token)
 	}
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := cliHTTPClient.Do(req)
 	if err != nil {
 		return fmt.Errorf("connecting to server: %w", err)
 	}

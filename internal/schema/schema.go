@@ -1,6 +1,7 @@
 package schema
 
 import (
+	"sort"
 	"time"
 )
 
@@ -8,8 +9,8 @@ import (
 // A new one is built on each reload and swapped in atomically.
 type SchemaCache struct {
 	Tables    map[string]*Table    `json:"tables"`    // key: "schema.table"
-	Functions map[string]*Function `json:"functions"`  // key: "schema.function"
-	Enums     map[uint32]*EnumType `json:"-"`          // lookup by OID (internal)
+	Functions map[string]*Function `json:"functions"` // key: "schema.function"
+	Enums     map[uint32]*EnumType `json:"-"`         // lookup by OID (internal)
 	Schemas   []string             `json:"schemas"`
 	BuiltAt   time.Time            `json:"builtAt"`
 }
@@ -34,6 +35,12 @@ func (sc *SchemaCache) TableList() []*Table {
 	for _, t := range sc.Tables {
 		tables = append(tables, t)
 	}
+	sort.Slice(tables, func(i, j int) bool {
+		if tables[i].Schema != tables[j].Schema {
+			return tables[i].Schema < tables[j].Schema
+		}
+		return tables[i].Name < tables[j].Name
+	})
 	return tables
 }
 

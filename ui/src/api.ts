@@ -7,11 +7,39 @@ import type {
   WebhookTestResult,
   DeliveryListResponse,
   UserListResponse,
+  AppResponse,
+  AppListResponse,
   APIKeyListResponse,
   APIKeyCreateResponse,
   ApiExplorerResponse,
   StorageListResponse,
   StorageObject,
+  SMSHealthResponse,
+  SMSMessageListResponse,
+  SMSSendResponse,
+  OAuthClientResponse,
+  OAuthClientListResponse,
+  OAuthClientCreateResponse,
+  OAuthClientRotateSecretResponse,
+  JobListResponse,
+  JobResponse,
+  QueueStats,
+  ScheduleListResponse,
+  ScheduleResponse,
+  CreateScheduleRequest,
+  UpdateScheduleRequest,
+  EmailTemplateListResponse,
+  EmailTemplateEffective,
+  UpsertEmailTemplateRequest,
+  UpsertEmailTemplateResponse,
+  SetEmailTemplateEnabledResponse,
+  PreviewEmailTemplateRequest,
+  PreviewEmailTemplateResponse,
+  SendTemplateEmailRequest,
+  SendTemplateEmailResponse,
+  MatviewListResponse,
+  MatviewRegistration,
+  MatviewRefreshResult,
 } from "./types";
 
 const TOKEN_KEY = "ayb_admin_token";
@@ -314,6 +342,7 @@ export async function createApiKey(data: {
   name: string;
   scope?: string;
   allowedTables?: string[];
+  appId?: string;
 }): Promise<APIKeyCreateResponse> {
   return request("/api/admin/api-keys", {
     method: "POST",
@@ -337,6 +366,168 @@ export async function revokeApiKey(id: string): Promise<void> {
     const body = await res.json().catch(() => ({ message: res.statusText }));
     throw new ApiError(res.status, body.message || res.statusText);
   }
+}
+
+// --- Apps ---
+
+export async function listApps(
+  params: { page?: number; perPage?: number } = {},
+): Promise<AppListResponse> {
+  const qs = new URLSearchParams();
+  if (params.page) qs.set("page", String(params.page));
+  if (params.perPage) qs.set("perPage", String(params.perPage));
+  const suffix = qs.toString() ? `?${qs}` : "";
+  return request(`/api/admin/apps${suffix}`);
+}
+
+export async function createApp(data: {
+  name: string;
+  description?: string;
+  ownerUserId: string;
+}): Promise<AppResponse> {
+  return request("/api/admin/apps", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(data),
+  });
+}
+
+export async function updateApp(
+  id: string,
+  data: {
+    name: string;
+    description?: string;
+    rateLimitRps?: number;
+    rateLimitWindowSeconds?: number;
+  },
+): Promise<AppResponse> {
+  return request(`/api/admin/apps/${id}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(data),
+  });
+}
+
+export async function deleteApp(id: string): Promise<void> {
+  const headers: Record<string, string> = {};
+  const token = getToken();
+  if (token) {
+    headers["Authorization"] = `Bearer ${token}`;
+  }
+  const res = await fetch(`/api/admin/apps/${id}`, {
+    method: "DELETE",
+    headers,
+  });
+  if (!res.ok) {
+    if (res.status === 401) emitUnauthorized();
+    const body = await res.json().catch(() => ({ message: res.statusText }));
+    throw new ApiError(res.status, body.message || res.statusText);
+  }
+}
+
+// --- OAuth Consent ---
+
+export interface OAuthConsentPrompt {
+  requires_consent: boolean;
+  redirect_to?: string;
+  client_id: string;
+  client_name: string;
+  redirect_uri: string;
+  scope: string;
+  state: string;
+  code_challenge: string;
+  code_challenge_method: string;
+  allowed_tables?: string[];
+}
+
+export interface OAuthConsentResult {
+  redirect_to: string;
+}
+
+export async function checkOAuthAuthorize(
+  params: URLSearchParams,
+): Promise<OAuthConsentPrompt> {
+  return request(`/api/auth/authorize?${params.toString()}`);
+}
+
+export async function submitOAuthConsent(data: {
+  decision: "approve" | "deny";
+  response_type: string;
+  client_id: string;
+  redirect_uri: string;
+  scope: string;
+  state: string;
+  code_challenge: string;
+  code_challenge_method: string;
+  allowed_tables?: string[];
+}): Promise<OAuthConsentResult> {
+  return request("/api/auth/authorize/consent", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(data),
+  });
+}
+
+// --- OAuth Clients ---
+
+export async function listOAuthClients(
+  params: { page?: number; perPage?: number } = {},
+): Promise<OAuthClientListResponse> {
+  const qs = new URLSearchParams();
+  if (params.page) qs.set("page", String(params.page));
+  if (params.perPage) qs.set("perPage", String(params.perPage));
+  const suffix = qs.toString() ? `?${qs}` : "";
+  return request(`/api/admin/oauth/clients${suffix}`);
+}
+
+export async function createOAuthClient(data: {
+  appId: string;
+  name: string;
+  clientType: string;
+  redirectUris: string[];
+  scopes: string[];
+}): Promise<OAuthClientCreateResponse> {
+  return request("/api/admin/oauth/clients", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(data),
+  });
+}
+
+export async function updateOAuthClient(
+  clientId: string,
+  data: { name: string; redirectUris: string[]; scopes: string[] },
+): Promise<OAuthClientResponse> {
+  return request(`/api/admin/oauth/clients/${clientId}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(data),
+  });
+}
+
+export async function revokeOAuthClient(clientId: string): Promise<void> {
+  const headers: Record<string, string> = {};
+  const token = getToken();
+  if (token) {
+    headers["Authorization"] = `Bearer ${token}`;
+  }
+  const res = await fetch(`/api/admin/oauth/clients/${clientId}`, {
+    method: "DELETE",
+    headers,
+  });
+  if (!res.ok) {
+    if (res.status === 401) emitUnauthorized();
+    const body = await res.json().catch(() => ({ message: res.statusText }));
+    throw new ApiError(res.status, body.message || res.statusText);
+  }
+}
+
+export async function rotateOAuthClientSecret(
+  clientId: string,
+): Promise<OAuthClientRotateSecretResponse> {
+  return request(`/api/admin/oauth/clients/${clientId}/rotate-secret`, {
+    method: "POST",
+  });
 }
 
 // --- Storage ---
@@ -527,4 +718,234 @@ export async function disableRls(table: string): Promise<{ message: string }> {
   return request(`/api/admin/rls/${encodeURIComponent(table)}/disable`, {
     method: "POST",
   });
+}
+
+// --- SMS ---
+
+export async function getSMSHealth(): Promise<SMSHealthResponse> {
+  return request("/api/admin/sms/health");
+}
+
+export async function listAdminSMSMessages(
+  params: { page?: number; perPage?: number } = {},
+): Promise<SMSMessageListResponse> {
+  const qs = new URLSearchParams();
+  if (params.page) qs.set("page", String(params.page));
+  if (params.perPage) qs.set("perPage", String(params.perPage));
+  const suffix = qs.toString() ? `?${qs}` : "";
+  return request(`/api/admin/sms/messages${suffix}`);
+}
+
+export async function adminSendSMS(
+  to: string,
+  body: string,
+): Promise<SMSSendResponse> {
+  return request("/api/admin/sms/send", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ to, body }),
+  });
+}
+
+// --- Job Queue ---
+
+export async function listJobs(params: {
+  state?: string;
+  type?: string;
+  limit?: number;
+  offset?: number;
+} = {}): Promise<JobListResponse> {
+  const qs = new URLSearchParams();
+  if (params.state) qs.set("state", params.state);
+  if (params.type) qs.set("type", params.type);
+  if (params.limit) qs.set("limit", String(params.limit));
+  if (params.offset) qs.set("offset", String(params.offset));
+  const suffix = qs.toString() ? `?${qs}` : "";
+  return request(`/api/admin/jobs${suffix}`);
+}
+
+export async function getJob(id: string): Promise<JobResponse> {
+  return request(`/api/admin/jobs/${id}`);
+}
+
+export async function retryJob(id: string): Promise<JobResponse> {
+  return request(`/api/admin/jobs/${id}/retry`, { method: "POST" });
+}
+
+export async function cancelJob(id: string): Promise<JobResponse> {
+  return request(`/api/admin/jobs/${id}/cancel`, { method: "POST" });
+}
+
+export async function getQueueStats(): Promise<QueueStats> {
+  return request("/api/admin/jobs/stats");
+}
+
+export async function listSchedules(): Promise<ScheduleListResponse> {
+  return request("/api/admin/schedules");
+}
+
+export async function createSchedule(
+  data: CreateScheduleRequest,
+): Promise<ScheduleResponse> {
+  return request("/api/admin/schedules", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(data),
+  });
+}
+
+export async function updateSchedule(
+  id: string,
+  data: UpdateScheduleRequest,
+): Promise<ScheduleResponse> {
+  return request(`/api/admin/schedules/${id}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(data),
+  });
+}
+
+export async function deleteSchedule(id: string): Promise<void> {
+  const headers: Record<string, string> = {};
+  const token = getToken();
+  if (token) headers["Authorization"] = `Bearer ${token}`;
+  const res = await fetch(`/api/admin/schedules/${id}`, {
+    method: "DELETE",
+    headers,
+  });
+  if (!res.ok) {
+    if (res.status === 401) emitUnauthorized();
+    const body = await res.json().catch(() => ({ message: res.statusText }));
+    throw new ApiError(res.status, body.message || res.statusText);
+  }
+}
+
+export async function enableSchedule(
+  id: string,
+): Promise<ScheduleResponse> {
+  return request(`/api/admin/schedules/${id}/enable`, { method: "POST" });
+}
+
+export async function disableSchedule(
+  id: string,
+): Promise<ScheduleResponse> {
+  return request(`/api/admin/schedules/${id}/disable`, { method: "POST" });
+}
+
+// --- Email Templates ---
+
+export async function listEmailTemplates(): Promise<EmailTemplateListResponse> {
+  return request("/api/admin/email/templates");
+}
+
+export async function getEmailTemplate(
+  key: string,
+): Promise<EmailTemplateEffective> {
+  return request(`/api/admin/email/templates/${encodeURIComponent(key)}`);
+}
+
+export async function upsertEmailTemplate(
+  key: string,
+  data: UpsertEmailTemplateRequest,
+): Promise<UpsertEmailTemplateResponse> {
+  return request(`/api/admin/email/templates/${encodeURIComponent(key)}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(data),
+  });
+}
+
+export async function deleteEmailTemplate(key: string): Promise<void> {
+  const headers: Record<string, string> = {};
+  const token = getToken();
+  if (token) headers["Authorization"] = `Bearer ${token}`;
+  const res = await fetch(`/api/admin/email/templates/${encodeURIComponent(key)}`, {
+    method: "DELETE",
+    headers,
+  });
+  if (!res.ok) {
+    if (res.status === 401) emitUnauthorized();
+    const body = await res.json().catch(() => ({ message: res.statusText }));
+    throw new ApiError(res.status, body.message || res.statusText);
+  }
+}
+
+export async function setEmailTemplateEnabled(
+  key: string,
+  enabled: boolean,
+): Promise<SetEmailTemplateEnabledResponse> {
+  return request(`/api/admin/email/templates/${encodeURIComponent(key)}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ enabled }),
+  });
+}
+
+export async function previewEmailTemplate(
+  key: string,
+  data: PreviewEmailTemplateRequest,
+): Promise<PreviewEmailTemplateResponse> {
+  return request(`/api/admin/email/templates/${encodeURIComponent(key)}/preview`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(data),
+  });
+}
+
+export async function sendTemplateEmail(
+  data: SendTemplateEmailRequest,
+): Promise<SendTemplateEmailResponse> {
+  return request("/api/admin/email/send", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(data),
+  });
+}
+
+// --- Materialized Views ---
+
+export async function listMatviews(): Promise<MatviewListResponse> {
+  return request("/api/admin/matviews");
+}
+
+export async function registerMatview(data: {
+  schema: string;
+  viewName: string;
+  refreshMode: string;
+}): Promise<MatviewRegistration> {
+  return request("/api/admin/matviews", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(data),
+  });
+}
+
+export async function updateMatview(
+  id: string,
+  data: { refreshMode: string },
+): Promise<MatviewRegistration> {
+  return request(`/api/admin/matviews/${id}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(data),
+  });
+}
+
+export async function deleteMatview(id: string): Promise<void> {
+  const headers: Record<string, string> = {};
+  const token = getToken();
+  if (token) headers["Authorization"] = `Bearer ${token}`;
+  const res = await fetch(`/api/admin/matviews/${id}`, {
+    method: "DELETE",
+    headers,
+  });
+  if (!res.ok) {
+    if (res.status === 401) emitUnauthorized();
+    const body = await res.json().catch(() => ({ message: res.statusText }));
+    throw new ApiError(res.status, body.message || res.statusText);
+  }
+}
+
+export async function refreshMatview(id: string): Promise<MatviewRefreshResult> {
+  return request(`/api/admin/matviews/${id}/refresh`, { method: "POST" });
 }

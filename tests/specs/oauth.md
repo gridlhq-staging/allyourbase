@@ -456,5 +456,105 @@ fixture.metadata.expected_user_fields.forEach(field => {
 
 ---
 
-**Spec Version:** 1.0
-**Last Updated:** 2026-02-13 (Session 076)
+## OAuth 2.0 Provider Mode Test Cases
+
+AYB's OAuth provider mode (Stage 2) is tested at the Go unit/integration level. All tests are in `internal/auth/` and `internal/server/`.
+
+### Authorization Code Flow
+
+| Test | File | Description |
+|------|------|-------------|
+| Happy path | `oauth_authorize_handler_test.go` | Authorize with valid params + prior consent → redirect with code+state |
+| Missing params | `oauth_authorize_handler_test.go` | Missing client_id, redirect_uri, scope, state, code_challenge → error |
+| Invalid response_type | `oauth_authorize_handler_test.go` | response_type != "code" → error |
+| Unknown client | `oauth_authorize_handler_test.go` | Non-existent client_id → invalid_client |
+| Revoked client | `oauth_authorize_handler_test.go` | Revoked client rejected at authorize + consent |
+| Redirect URI mismatch | `oauth_authorize_handler_test.go` | URI not in registered list → error |
+| Scope exceeds client | `oauth_authorize_handler_test.go` | Requested scope not in client's scopes → invalid_scope |
+| PKCE S256 only | `oauth_authorize_handler_test.go` | plain method rejected, missing challenge rejected |
+| Consent prompt | `oauth_authorize_handler_test.go` | No prior consent → returns consent prompt JSON |
+| Consent deny | `oauth_authorize_handler_test.go` | User denies → redirect with error=access_denied |
+| Consent approve | `oauth_authorize_handler_test.go` | User approves → consent saved, redirect with code |
+| Unauthenticated | `oauth_authorize_handler_test.go` | No session → 401 |
+
+### Token Endpoint
+
+| Test | File | Description |
+|------|------|-------------|
+| Auth code exchange | `oauth_token_handler_test.go` | Valid code+PKCE+redirect → access+refresh token pair |
+| PKCE verification | `oauth_provider_test.go` | Wrong code_verifier → invalid_grant |
+| Code replay | `oauth_provider_test.go` | Code already used (used_at set) → invalid_grant |
+| Expired code | `oauth_provider_test.go` | Code past TTL → invalid_grant |
+| Client mismatch | `oauth_provider_test.go` | Different client_id than code's → invalid_grant |
+| Redirect URI mismatch | `oauth_provider_test.go` | Different redirect_uri → invalid_grant |
+| Client credentials | `oauth_token_handler_test.go` | Confidential client + secret → access token (no refresh) |
+| Client credentials public | `oauth_token_handler_test.go` | Public client → unauthorized_client |
+| Missing grant_type | `oauth_token_handler_test.go` | No grant_type → invalid_request |
+| Missing params | `oauth_token_handler_test.go` | Missing code/redirect_uri/code_verifier/refresh_token → invalid_request |
+| Invalid scope | `oauth_token_handler_test.go` | Scope not in client's registered scopes → invalid_scope |
+| Unknown client | `oauth_token_handler_test.go` | Non-existent client_id → invalid_client |
+| Unsupported grant | `oauth_token_handler_test.go` | Unknown grant_type → unsupported_grant_type |
+| Client auth (Basic) | `oauth_token_handler_test.go` | HTTP Basic auth with client_id:client_secret |
+| Client auth (POST) | `oauth_token_handler_test.go` | POST body client_id + client_secret |
+| Dual auth rejected | `oauth_token_handler_test.go` | Both Basic + POST body → invalid_request |
+
+### Refresh Token
+
+| Test | File | Description |
+|------|------|-------------|
+| Rotation | `oauth_provider_test.go` | Use refresh → old revoked, new pair issued |
+| Reuse detection | `oauth_provider_test.go` | Reuse rotated token → ALL grant tokens revoked |
+| Expired refresh | `oauth_provider_test.go` | Expired refresh → invalid_grant |
+| Client mismatch | `oauth_provider_test.go` | Wrong client_id → invalid_grant |
+
+### Token Revocation (RFC 7009)
+
+| Test | File | Description |
+|------|------|-------------|
+| Revoke access token | `oauth_revoke_handler_test.go` | Access token revoked, validation fails after |
+| Revoke refresh token | `oauth_revoke_handler_test.go` | Refresh token + all grant tokens revoked |
+| Unknown token | `oauth_revoke_handler_test.go` | Non-existent token → 200 OK (per RFC 7009) |
+| Service error | `oauth_revoke_handler_test.go` | DB unavailable → 200 OK (return-safe) |
+
+### Token Validation & Middleware
+
+| Test | File | Description |
+|------|------|-------------|
+| Valid OAuth token | `oauth_provider_test.go` | Valid access token → scope + user + app info |
+| Revoked token | `oauth_provider_test.go` | Revoked token → rejected |
+| Expired token | `oauth_provider_test.go` | Expired token → rejected |
+| Scope enforcement | `oauth_provider_integration_test.go` | readonly → GET only; readwrite → all CRUD |
+| allowed_tables | `oauth_provider_integration_test.go` | Access restricted to specified tables |
+| Rate limiting | `oauth_provider_integration_test.go` | Inherits app rate limits → 429 when exceeded |
+| CORS headers | `oauth_provider_integration_test.go` | Token + revoke endpoints allow cross-origin POST |
+| Mixed auth compat | `oauth_provider_integration_test.go` | OAuth + API key + JWT session all work |
+
+### Client Registration (Admin)
+
+| Test | File | Description |
+|------|------|-------------|
+| Create confidential | `oauth_clients_test.go` | Returns client_id + one-time client_secret |
+| Create public | `oauth_clients_test.go` | No secret returned or stored |
+| Client ID format | `oauth_clients_test.go` | ayb_cid_ + 48 lowercase hex |
+| Redirect URI validation | `oauth_clients_test.go` | HTTPS required, no wildcards, localhost allowed |
+| Scope validation | `oauth_clients_test.go` | Only readonly/readwrite/* allowed |
+| Update client | `oauth_clients_test.go` | Name, redirect URIs, scopes updatable |
+| Revoke client | `oauth_clients_test.go` | Soft-delete via revoked_at |
+| Rotate secret | `oauth_clients_test.go` | New secret, old invalidated |
+| Admin handler CRUD | `internal/server/oauth_clients_handler_test.go` | HTTP handler tests for all admin endpoints |
+
+### Consent
+
+| Test | File | Description |
+|------|------|-------------|
+| New consent prompt | `oauth_authorize_handler_test.go` | No prior consent → consent prompt response |
+| Prior consent skip | `oauth_authorize_handler_test.go` | Matching consent → immediate redirect |
+| Consent persistence | `oauth_provider_test.go` | Consent saved and retrieved correctly |
+| UI redirect-to-login | `OAuthConsent.test.tsx` | 401 → redirect to login with return_to |
+| UI scope display | `OAuthConsent.test.tsx` | Scope descriptions rendered correctly |
+| UI approve/deny | `OAuthConsent.test.tsx` | Approve and deny interactions |
+
+---
+
+**Spec Version:** 2.0
+**Last Updated:** 2026-02-22 (Session 040)

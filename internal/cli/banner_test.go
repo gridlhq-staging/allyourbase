@@ -110,7 +110,7 @@ func TestBannerContainsHints(t *testing.T) {
 	testutil.Contains(t, out, "Try:")
 	testutil.Contains(t, out, "ayb sql")
 	testutil.Contains(t, out, "CREATE TABLE")
-	testutil.Contains(t, out, "curl")
+	testutil.Contains(t, out, "ayb schema")
 }
 
 func TestBannerContainsDocsLink(t *testing.T) {
@@ -254,10 +254,49 @@ func TestBannerCodeLinesNoPadding(t *testing.T) {
 		if strings.Contains(line, "ayb sql") {
 			testutil.True(t, strings.HasPrefix(line, "ayb"), "code line should start at column 0, got: %q", line)
 		}
-		if strings.Contains(line, "curl ") {
-			testutil.True(t, strings.HasPrefix(line, "curl"), "curl line should start at column 0, got: %q", line)
+		if strings.Contains(line, "ayb schema") {
+			testutil.True(t, strings.HasPrefix(line, "ayb"), "ayb schema line should start at column 0, got: %q", line)
 		}
 	}
+}
+
+// --- TLS banner tests ---
+
+func TestBannerUsesHTTPSWhenTLSEnabled(t *testing.T) {
+	cfg := defaultTestConfig()
+	cfg.Server.TLSEnabled = true
+	cfg.Server.TLSDomain = "api.myapp.com"
+	out := bannerToString(cfg, false, false)
+	testutil.Contains(t, out, "https://api.myapp.com/api")
+	testutil.False(t, strings.Contains(out, "http://"), "banner should not contain http:// when TLS enabled")
+}
+
+func TestBannerAdminUsesHTTPSWhenTLSEnabled(t *testing.T) {
+	cfg := defaultTestConfig()
+	cfg.Server.TLSEnabled = true
+	cfg.Server.TLSDomain = "api.myapp.com"
+	out := bannerToString(cfg, false, false)
+	testutil.Contains(t, out, "https://api.myapp.com/admin")
+}
+
+func TestBannerHintsAppearWhenTLSEnabled(t *testing.T) {
+	cfg := defaultTestConfig()
+	cfg.Server.TLSEnabled = true
+	cfg.Server.TLSDomain = "api.myapp.com"
+	out := bannerToString(cfg, false, false)
+	// CLI hints should still appear with TLS enabled.
+	testutil.Contains(t, out, "ayb schema")
+	testutil.Contains(t, out, "ayb sql")
+}
+
+func TestBannerUsesHTTPWhenTLSDisabled(t *testing.T) {
+	cfg := defaultTestConfig()
+	// TLS not configured — should use http:// with host:port as before.
+	out := bannerToString(cfg, false, false)
+	testutil.Contains(t, out, "http://localhost:8090/api")
+	// API/admin URLs must not be https:// when TLS is off.
+	// (The docs link is always https://allyourbase.io, which is fine.)
+	testutil.False(t, strings.Contains(out, "https://localhost"), "API URL should not use https:// when TLS disabled")
 }
 
 func TestBannerHintNeverShowsToken(t *testing.T) {

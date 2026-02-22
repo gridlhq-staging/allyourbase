@@ -26,19 +26,25 @@ type OAuthEvent struct {
 	RefreshToken string `json:"refreshToken,omitempty"`
 	User         any    `json:"user,omitempty"`
 	Error        string `json:"error,omitempty"`
+	MFAPending   bool   `json:"mfa_pending,omitempty"`
+	MFAToken     string `json:"mfa_token,omitempty"`
 }
 
 // Handler serves auth HTTP endpoints.
 type Handler struct {
-	auth             *Service
-	logger           *slog.Logger
-	oauthClients     map[string]OAuthClientConfig
+	auth              *Service
+	oauthAuthorize    oauthAuthorizationProvider
+	oauthToken        oauthTokenProvider
+	oauthRevoke       oauthRevokeProvider
+	logger            *slog.Logger
+	oauthClients      map[string]OAuthClientConfig
 	oauthProviderURLs map[string]OAuthProviderConfig // per-handler provider URL overrides
-	oauthHTTPClient  *http.Client
-	oauthStateStore  *OAuthStateStore
-	oauthRedirectURL string
-	oauthPublisher   OAuthPublisher // nil when realtime hub not available
-	magicLinkEnabled bool
+	oauthHTTPClient   *http.Client
+	oauthStateStore   *OAuthStateStore
+	oauthRedirectURL  string
+	oauthPublisher    OAuthPublisher // nil when realtime hub not available
+	magicLinkEnabled  bool
+	smsEnabled        bool
 }
 
 // NewHandler creates a new auth handler.
@@ -54,6 +60,9 @@ func NewHandler(svc *Service, logger *slog.Logger) *Handler {
 	oauthMu.RUnlock()
 	return &Handler{
 		auth:              svc,
+		oauthAuthorize:    svc,
+		oauthToken:        svc,
+		oauthRevoke:       svc,
 		logger:            logger,
 		oauthClients:      make(map[string]OAuthClientConfig),
 		oauthProviderURLs: urls,
@@ -89,6 +98,11 @@ func (h *Handler) SetMagicLinkEnabled(enabled bool) {
 	h.magicLinkEnabled = enabled
 }
 
+// SetSMSEnabled enables or disables the SMS authentication endpoints.
+func (h *Handler) SetSMSEnabled(enabled bool) {
+	h.smsEnabled = enabled
+}
+
 // Routes returns a chi.Router with auth endpoints mounted.
 func (h *Handler) Routes() chi.Router {
 	r := chi.NewRouter()
@@ -106,6 +120,21 @@ func (h *Handler) Routes() chi.Router {
 	r.Post("/magic-link/confirm", h.handleMagicLinkConfirm)
 	r.Get("/oauth/{provider}", h.handleOAuthRedirect)
 	r.Get("/oauth/{provider}/callback", h.handleOAuthCallback)
+	r.Post("/token", h.handleOAuthToken)
+	r.Post("/revoke", h.handleOAuthRevoke)
+	r.With(RequireAuth(h.auth)).Get("/authorize", h.handleOAuthAuthorize)
+	r.With(RequireAuth(h.auth)).Post("/authorize/consent", h.handleOAuthConsent)
+	r.Post("/sms", h.handleSMSRequest)
+	r.Post("/sms/confirm", h.handleSMSConfirm)
+
+	// MFA endpoints — gated behind smsEnabled check before auth middleware.
+	r.Route("/mfa/sms", func(mfa chi.Router) {
+		mfa.Use(h.requireSMSEnabled)
+		mfa.With(RequireAuth(h.auth)).Post("/enroll", h.handleMFAEnroll)
+		mfa.With(RequireAuth(h.auth)).Post("/enroll/confirm", h.handleMFAEnrollConfirm)
+		mfa.With(RequireMFAPending(h.auth)).Post("/challenge", h.handleMFAChallenge)
+		mfa.With(RequireMFAPending(h.auth)).Post("/verify", h.handleMFAVerify)
+	})
 
 	// API key management (requires JWT auth — not API key auth, to prevent key bootstrapping).
 	r.Route("/api-keys", func(r chi.Router) {
@@ -176,6 +205,15 @@ func (h *Handler) handleLogin(w http.ResponseWriter, r *http.Request) {
 		}
 		h.logger.Error("login error", "error", err)
 		httputil.WriteError(w, http.StatusInternalServerError, "internal error")
+		return
+	}
+
+	// When MFA is required, Login() returns a pending token with empty refresh token.
+	if refreshToken == "" {
+		httputil.WriteJSON(w, http.StatusOK, mfaPendingResponse{
+			MFAPending: true,
+			MFAToken:   token,
+		})
 		return
 	}
 
@@ -366,6 +404,18 @@ func (h *Handler) handleResendVerification(w http.ResponseWriter, r *http.Reques
 	httputil.WriteJSON(w, http.StatusOK, map[string]string{"message": "verification email sent"})
 }
 
+// requireSMSEnabled is middleware that returns 404 when SMS is not configured.
+func (h *Handler) requireSMSEnabled(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !h.smsEnabled {
+			httputil.WriteErrorWithDocURL(w, http.StatusNotFound, "SMS MFA is not enabled",
+				"https://allyourbase.io/guide/authentication#sms")
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
 func decodeBody(w http.ResponseWriter, r *http.Request, v any) bool {
 	return httputil.DecodeJSON(w, r, v)
 }
@@ -423,6 +473,14 @@ func (h *Handler) handleMagicLinkConfirm(w http.ResponseWriter, r *http.Request)
 		}
 		h.logger.Error("magic link confirm error", "error", err)
 		httputil.WriteError(w, http.StatusInternalServerError, "internal error")
+		return
+	}
+
+	if refreshToken == "" {
+		httputil.WriteJSON(w, http.StatusOK, mfaPendingResponse{
+			MFAPending: true,
+			MFAToken:   accessToken,
+		})
 		return
 	}
 
@@ -546,19 +604,38 @@ func (h *Handler) handleOAuthCallback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// When MFA is required, OAuthLogin returns a pending token with empty refresh token.
+	isMFAPending := refreshToken == ""
+
 	// SSE popup flow: publish tokens via SSE and show auto-close page.
 	if isSSEClient {
-		h.oauthPublisher.PublishOAuth(state, &OAuthEvent{
+		evt := &OAuthEvent{
 			Token:        accessToken,
 			RefreshToken: refreshToken,
 			User:         user,
-		})
+		}
+		if isMFAPending {
+			evt.MFAPending = true
+			evt.MFAToken = accessToken
+			evt.Token = ""
+			evt.User = nil
+		}
+		h.oauthPublisher.PublishOAuth(state, evt)
 		h.writeOAuthCompletePage(w)
 		return
 	}
 
 	// If a redirect URL is configured, redirect with tokens in hash fragment.
 	if h.oauthRedirectURL != "" {
+		if isMFAPending {
+			fragment := url.Values{
+				"mfa_pending": {"true"},
+				"mfa_token":   {accessToken},
+			}
+			dest := h.oauthRedirectURL + "#" + fragment.Encode()
+			http.Redirect(w, r, dest, http.StatusTemporaryRedirect)
+			return
+		}
 		fragment := url.Values{
 			"token":        {accessToken},
 			"refreshToken": {refreshToken},
@@ -569,6 +646,13 @@ func (h *Handler) handleOAuthCallback(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// No redirect URL — return JSON directly.
+	if isMFAPending {
+		httputil.WriteJSON(w, http.StatusOK, mfaPendingResponse{
+			MFAPending: true,
+			MFAToken:   accessToken,
+		})
+		return
+	}
 	httputil.WriteJSON(w, http.StatusOK, authResponse{
 		Token:        accessToken,
 		RefreshToken: refreshToken,

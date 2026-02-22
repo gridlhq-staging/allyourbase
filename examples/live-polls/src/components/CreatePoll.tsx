@@ -3,10 +3,11 @@ import { ayb } from "../lib/ayb";
 import type { Poll, PollOption } from "../types";
 
 interface Props {
+  userId: string;
   onCreated: (poll: Poll, options: PollOption[]) => void;
 }
 
-export default function CreatePoll({ onCreated }: Props) {
+export default function CreatePoll({ userId, onCreated }: Props) {
   const [question, setQuestion] = useState("");
   const [options, setOptions] = useState(["", ""]);
   const [error, setError] = useState("");
@@ -40,17 +41,20 @@ export default function CreatePoll({ onCreated }: Props) {
 
     setLoading(true);
     try {
-      const poll = await ayb.records.create<Poll>("polls", { question: question.trim() });
+      const poll = await ayb.records.create<Poll>("polls", {
+        question: question.trim(),
+        user_id: userId,
+      });
 
-      const createdOptions: PollOption[] = [];
-      for (let i = 0; i < trimmedOptions.length; i++) {
-        const opt = await ayb.records.create<PollOption>("poll_options", {
-          poll_id: poll.id,
-          label: trimmedOptions[i],
-          position: i,
-        });
-        createdOptions.push(opt);
-      }
+      const createdOptions = await Promise.all(
+        trimmedOptions.map((label, i) =>
+          ayb.records.create<PollOption>("poll_options", {
+            poll_id: poll.id,
+            label,
+            position: i,
+          }),
+        ),
+      );
 
       setQuestion("");
       setOptions(["", ""]);
@@ -63,7 +67,7 @@ export default function CreatePoll({ onCreated }: Props) {
   }
 
   return (
-    <form onSubmit={handleSubmit} className="bg-gray-900 border border-gray-700 rounded-xl p-5">
+    <form onSubmit={handleSubmit} aria-label="New Poll" className="bg-gray-900 border border-gray-700 rounded-xl p-5">
       <h2 className="text-lg font-bold mb-3">New Poll</h2>
       <input
         type="text"

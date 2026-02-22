@@ -10,6 +10,43 @@
 
 ## Test Cases
 
+## Stage 4 Additions (2026-02-22)
+
+These cases are implemented in `internal/realtime/visibility_integration_test.go`.
+
+### TC-REAL-S4-001: Joined-Table RLS Membership Allow/Deny
+
+**Type:** Integration (`-tags integration`)
+
+**Setup:**
+1. Create `secure_docs` with RLS enabled.
+2. Add `USING (EXISTS (... project_memberships ... current_setting('ayb.user_id', true)))` policy.
+3. Insert a secured doc row.
+
+**Assertions:**
+1. User with matching membership returns `true` from `canSeeRecord`.
+2. User without membership returns `false` from `canSeeRecord`.
+
+### TC-REAL-S4-002: Membership Transition Semantics
+
+**Type:** Integration (`-tags integration`)
+
+**Assertions (same subscription context):**
+1. Before membership insert: event filtered (`false`).
+2. After membership insert: subsequent event visible (`true`).
+3. After membership delete: subsequent event filtered again (`false`).
+
+This verifies evaluation is per-event at delivery time.
+
+### TC-REAL-S4-003: Delete Event Pass-Through
+
+**Type:** Integration (`-tags integration`)
+
+**Assertion:**
+1. `delete` events return `true` from `canSeeRecord` even when user does not currently satisfy join-policy membership.
+
+Rationale: deleted rows cannot be checked via `SELECT ... WHERE pk = ...` and delete payloads do not include full sensitive row data.
+
 ### TC-REAL-001: Subscribe to Table — INSERT Event
 
 **Story:** B-REAL-001

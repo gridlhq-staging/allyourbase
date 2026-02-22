@@ -27,7 +27,7 @@ test.describe("Functions Browser (Full E2E)", () => {
     const sidebar = page.locator("aside");
     await sidebar.getByRole("button", { name: /^SQL Editor$/i }).click();
 
-    const sqlInput = page.locator('.cm-content[contenteditable="true"]');
+    const sqlInput = page.getByLabel("SQL query");
     await expect(sqlInput).toBeVisible({ timeout: 5000 });
 
     await sqlInput.fill(
@@ -94,7 +94,7 @@ test.describe("Functions Browser (Full E2E)", () => {
     // Cleanup: Drop test function via SQL
     // ============================================================
     await sidebar.getByRole("button", { name: /^SQL Editor$/i }).click();
-    const cleanupSql = page.locator('.cm-content[contenteditable="true"]');
+    const cleanupSql = page.getByLabel("SQL query");
     await expect(cleanupSql).toBeVisible({ timeout: 5000 });
     await cleanupSql.fill(`DROP FUNCTION IF EXISTS ${funcName}(integer, integer);`);
     await page.getByRole("button", { name: /run|execute/i }).click();

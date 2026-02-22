@@ -1,4 +1,15 @@
+# Dev artifacts
+/testpg
+/temptodo*.md
+/live-polls/
 
+# Live migration runtime artifacts (large binaries/data/logs)
+_dev/migration_test/work/
+_dev/migration_test/results/*.log
+_dev/migration_test/results/*.txt
+_dev/migration_test/results/*.json
+_dev/migration_test/results/*.csv
+_dev/migration_test/results/*.out
 
 ayb-linux-amd64
 
@@ -111,9 +122,15 @@ composer.lock
 # Build output (all subprojects)
 **/dist/
 
+# Demo build output is committed (used by go:embed)
+!examples/kanban/dist/
+!examples/live-polls/dist/
+
 # Lock files for dependencies (keep Cargo.lock for binaries, ignore others)
 **/package-lock.json
 !sdk/package-lock.json
+!examples/kanban/package-lock.json
+!examples/live-polls/package-lock.json
 
 # ML model caches
 **/.fastembed_cache/

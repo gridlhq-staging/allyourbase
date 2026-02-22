@@ -43,9 +43,17 @@ func (m *Migrator) listStorageBuckets(ctx context.Context) ([]StorageBucket, err
 		return nil, nil // no storage schema = no buckets
 	}
 
-	rows, err := m.source.QueryContext(ctx, `
-		SELECT id, name, public FROM storage.buckets ORDER BY name
-	`)
+	hasPublic, err := m.sourceColumnExists(ctx, "storage", "buckets", "public")
+	if err != nil {
+		return nil, fmt.Errorf("checking storage.buckets.public column: %w", err)
+	}
+
+	query := `SELECT id, name, false FROM storage.buckets ORDER BY name`
+	if hasPublic {
+		query = `SELECT id, name, COALESCE(public, false) FROM storage.buckets ORDER BY name`
+	}
+
+	rows, err := m.source.QueryContext(ctx, query)
 	if err != nil {
 		return nil, fmt.Errorf("querying storage.buckets: %w", err)
 	}
@@ -262,4 +270,3 @@ func normalizeBucketName(name string) string {
 	}
 	return result
 }
-

@@ -296,11 +296,11 @@ func createPocketBaseFixture(t *testing.T) string {
 
 	// Insert collections
 	insertCollection(t, db, PBCollection{
-		ID:         "posts123",
-		Name:       "posts",
-		Type:       "base",
-		System:     false,
-		Schema:     []PBField{
+		ID:     "posts123",
+		Name:   "posts",
+		Type:   "base",
+		System: false,
+		Schema: []PBField{
 			{Name: "title", Type: "text", Required: true},
 			{Name: "body", Type: "editor", Required: false},
 			{Name: "image", Type: "file", Required: false},
@@ -314,11 +314,11 @@ func createPocketBaseFixture(t *testing.T) string {
 	})
 
 	insertCollection(t, db, PBCollection{
-		ID:         "users123",
-		Name:       "users",
-		Type:       "auth",
-		System:     false,
-		Schema:     []PBField{
+		ID:     "users123",
+		Name:   "users",
+		Type:   "auth",
+		System: false,
+		Schema: []PBField{
 			{Name: "email", Type: "email", Required: true, System: true},
 			{Name: "passwordHash", Type: "text", Required: true, System: true},
 			{Name: "verified", Type: "bool", Required: false, System: true},
@@ -331,11 +331,11 @@ func createPocketBaseFixture(t *testing.T) string {
 	})
 
 	insertCollection(t, db, PBCollection{
-		ID:         "comments123",
-		Name:       "comments",
-		Type:       "base",
-		System:     false,
-		Schema:     []PBField{
+		ID:     "comments123",
+		Name:   "comments",
+		Type:   "base",
+		System: false,
+		Schema: []PBField{
 			{Name: "text", Type: "text", Required: true},
 			{Name: "post", Type: "relation", Required: true},
 		},
@@ -347,11 +347,11 @@ func createPocketBaseFixture(t *testing.T) string {
 	})
 
 	insertCollection(t, db, PBCollection{
-		ID:         "stats123",
-		Name:       "stats_view",
-		Type:       "view",
-		System:     false,
-		Schema:     []PBField{
+		ID:     "stats123",
+		Name:   "stats_view",
+		Type:   "view",
+		System: false,
+		Schema: []PBField{
 			{Name: "count", Type: "number", Required: false},
 		},
 		ViewQuery: "SELECT COUNT(*) as count FROM posts",

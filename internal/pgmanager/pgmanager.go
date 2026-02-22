@@ -34,9 +34,9 @@ type Manager struct {
 }
 
 const (
-	dbName   = "ayb"
-	dbUser   = "ayb"
-	dbPass   = "ayb"
+	dbName    = "ayb"
+	dbUser    = "ayb"
+	dbPass    = "ayb"
 	pgVersion = "16"
 )
 
@@ -82,8 +82,10 @@ func (m *Manager) Start(ctx context.Context) (string, error) {
 		port = 15432
 	}
 
+	binDir := filepath.Join(home, "pgbin")
+
 	// Ensure directories exist.
-	for _, dir := range []string{dataDir, runtimeDir, cacheDir} {
+	for _, dir := range []string{dataDir, runtimeDir, cacheDir, binDir} {
 		if err := os.MkdirAll(dir, 0o755); err != nil {
 			return "", fmt.Errorf("creating directory %s: %w", dir, err)
 		}
@@ -105,6 +107,7 @@ func (m *Manager) Start(ctx context.Context) (string, error) {
 		Port(port).
 		DataPath(dataDir).
 		RuntimePath(runtimeDir).
+		BinariesPath(binDir).
 		CachePath(cacheDir).
 		Version(embeddedpostgres.V16).
 		Database(dbName).

@@ -265,6 +265,94 @@ DROP TABLE test_table;
 
 ---
 
+## Stage 1 Additions: Per-App API Key Scoping
+
+These test cases define required coverage for app-scoped API keys and app-level
+rate limiting introduced in Stage 1.
+
+### TC-ADMIN-APP-001: Apps CRUD via Admin API
+
+**Type:** Integration  
+**Coverage target:** `internal/server/apps_handler_test.go`, `internal/auth/apps_test.go`
+
+**Steps:**
+1. Create app with owner user id and optional description.
+2. List apps with pagination params.
+3. Fetch created app by id.
+4. Update app name/description/rate-limit fields.
+5. Delete app and verify subsequent get returns not found.
+
+**Assertions:**
+- CRUD status codes and payloads are correct.
+- Invalid UUIDs return 400.
+- Missing owner user returns 404.
+- Negative rate-limit values return validation error.
+
+### TC-ADMIN-APP-002: Create App-Scoped API Key
+
+**Type:** Integration + Component + Browser (unmocked)  
+**Coverage target:** `internal/server/apikeys_handler_test.go`, `ui/src/components/__tests__/ApiKeys.test.tsx`, `ui/browser-tests-unmocked/full/api-keys-lifecycle.spec.ts`
+
+**Steps:**
+1. Create app and user fixtures.
+2. Create API key with `appId`.
+3. Verify response includes key and `apiKey.appId`.
+4. Verify admin UI create modal allows selecting app scope.
+5. Verify created modal and list row show app name and rate limit.
+
+**Assertions:**
+- `appId` is persisted and returned.
+- App metadata is rendered in UI.
+- User-scoped option remains available for legacy behavior.
+
+### TC-ADMIN-APP-003: Scope Enforcement for App-Scoped Keys
+
+**Type:** Integration  
+**Coverage target:** `internal/server/admin_middleware_test.go`, `internal/auth/apikeys_test.go`
+
+**Steps:**
+1. Create app-scoped key with restricted table/write permissions.
+2. Attempt allowed operation.
+3. Attempt out-of-scope table/operation.
+
+**Assertions:**
+- Allowed operations succeed.
+- Out-of-scope operations are denied.
+- Legacy keys with `appId = null` keep backward-compatible behavior.
+
+### TC-ADMIN-APP-004: App Rate-Limit Enforcement
+
+**Type:** Integration  
+**Coverage target:** `internal/auth/app_ratelimit_test.go`, `internal/server/admin_middleware_test.go`
+
+**Steps:**
+1. Create app with finite rate-limit settings.
+2. Send requests with app-scoped key until threshold exceeded.
+3. Send request with admin token for same route.
+
+**Assertions:**
+- Over-limit request returns 429 and retry metadata.
+- Rate limiting is isolated per app id.
+- Admin-authenticated requests bypass app limiter.
+
+### TC-ADMIN-APP-005: Browser-Unmocked Lifecycle (App-Scoped Key)
+
+**Type:** Browser (unmocked)  
+**Coverage target:** `ui/browser-tests-unmocked/full/api-keys-lifecycle.spec.ts`
+
+**Steps:**
+1. Seed user/app/key via fixture helper APIs.
+2. Navigate to API Keys view and verify seeded row renders.
+3. Create key through UI selecting app scope.
+4. Revoke key through UI.
+
+**Assertions:**
+- No direct API shortcuts are used in spec act/assert phases.
+- App name and app rate-limit render in modal and list row.
+- Revoked status is visible after confirmation.
+
+---
+
 ## Fixture Requirements
 
 1. `tests/fixtures/admin/login-valid.json` — Valid admin password

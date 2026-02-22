@@ -20,8 +20,18 @@ func TestRewriteRLSExpression(t *testing.T) {
 			want: "current_setting('ayb.user_id', true)::uuid = user_id",
 		},
 		{
+			name: "uid() to uuid",
+			in:   "uid() = user_id",
+			want: "current_setting('ayb.user_id', true)::uuid = user_id",
+		},
+		{
 			name: "auth.uid() cast to text",
 			in:   "(auth.uid())::text = user_id",
+			want: "current_setting('ayb.user_id', true) = user_id",
+		},
+		{
+			name: "uid() cast to text",
+			in:   "(uid())::text = user_id",
 			want: "current_setting('ayb.user_id', true) = user_id",
 		},
 		{
@@ -30,8 +40,18 @@ func TestRewriteRLSExpression(t *testing.T) {
 			want: "current_setting('ayb.user_role', true) = 'authenticated'",
 		},
 		{
+			name: "role()",
+			in:   "role() = 'authenticated'",
+			want: "current_setting('ayb.user_role', true) = 'authenticated'",
+		},
+		{
 			name: "auth.jwt() email",
 			in:   "auth.jwt() ->> 'email' = email",
+			want: "current_setting('ayb.user_email', true) = email",
+		},
+		{
+			name: "jwt() email",
+			in:   "jwt() ->> 'email' = email",
 			want: "current_setting('ayb.user_email', true) = email",
 		},
 		{

@@ -22,11 +22,10 @@ type ListResponse struct {
 // Package-level aliases for the shared HTTP helpers so existing call sites
 // within this package continue to compile without changes.
 var (
-	writeJSON           = httputil.WriteJSON
-	writeError          = httputil.WriteError
-	writeErrorWithDoc   = httputil.WriteErrorWithDocURL
-	writeFieldError     = httputil.WriteFieldError
-	docURL              = httputil.DocURL
+	writeJSON         = httputil.WriteJSON
+	writeError        = httputil.WriteError
+	writeErrorWithDoc = httputil.WriteErrorWithDocURL
+	docURL            = httputil.DocURL
 )
 
 // WriteFieldErrorWithDocURL writes an error response with field-level validation detail and a doc URL.
@@ -80,6 +79,8 @@ func mapPGError(w http.ResponseWriter, err error) bool {
 			pgErr.ConstraintName, "check_violation", pgErr.Detail, constraintDoc)
 	case "22P02": // invalid_text_representation
 		writeErrorWithDoc(w, http.StatusBadRequest, friendlyTypeError(pgErr.Message), constraintDoc)
+	case "42501": // insufficient_privilege — raised by RLS WITH CHECK policy violations
+		writeError(w, http.StatusForbidden, "insufficient permissions")
 	default:
 		return false
 	}
@@ -88,23 +89,23 @@ func mapPGError(w http.ResponseWriter, err error) bool {
 
 // typeFormatHints maps PostgreSQL type names to human-friendly format examples.
 var typeFormatHints = map[string]string{
-	"uuid":             "expected format: 550e8400-e29b-41d4-a716-446655440000",
-	"integer":          "expected a whole number, e.g. 42",
-	"smallint":         "expected a whole number (-32768 to 32767)",
-	"bigint":           "expected a whole number, e.g. 42",
-	"numeric":          "expected a number, e.g. 3.14",
-	"real":             "expected a number, e.g. 3.14",
-	"double precision": "expected a number, e.g. 3.14",
-	"boolean":          "expected true or false",
-	"json":             `expected valid JSON, e.g. {"key": "value"}`,
-	"jsonb":            `expected valid JSON, e.g. {"key": "value"}`,
+	"uuid":                        "expected format: 550e8400-e29b-41d4-a716-446655440000",
+	"integer":                     "expected a whole number, e.g. 42",
+	"smallint":                    "expected a whole number (-32768 to 32767)",
+	"bigint":                      "expected a whole number, e.g. 42",
+	"numeric":                     "expected a number, e.g. 3.14",
+	"real":                        "expected a number, e.g. 3.14",
+	"double precision":            "expected a number, e.g. 3.14",
+	"boolean":                     "expected true or false",
+	"json":                        `expected valid JSON, e.g. {"key": "value"}`,
+	"jsonb":                       `expected valid JSON, e.g. {"key": "value"}`,
 	"timestamp without time zone": "expected format: 2024-01-15 09:30:00",
 	"timestamp with time zone":    "expected format: 2024-01-15T09:30:00Z",
-	"date":   "expected format: 2024-01-15",
-	"time":   "expected format: 09:30:00",
-	"inet":   "expected an IP address, e.g. 192.168.1.1",
-	"cidr":   "expected a network range, e.g. 192.168.1.0/24",
-	"macaddr": "expected format: 08:00:2b:01:02:03",
+	"date":                        "expected format: 2024-01-15",
+	"time":                        "expected format: 09:30:00",
+	"inet":                        "expected an IP address, e.g. 192.168.1.1",
+	"cidr":                        "expected a network range, e.g. 192.168.1.0/24",
+	"macaddr":                     "expected format: 08:00:2b:01:02:03",
 }
 
 // friendlyTypeError rewrites a Postgres 22P02 "invalid input syntax for type X"

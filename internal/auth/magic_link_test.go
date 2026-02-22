@@ -1,6 +1,7 @@
 package auth
 
 import (
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -30,7 +31,7 @@ func TestRequestMagicLinkNoMailer(t *testing.T) {
 	t.Parallel()
 
 	svc := newTestService()
-	err := svc.RequestMagicLink(nil, "user@example.com")
+	err := svc.RequestMagicLink(context.TODO(), "user@example.com")
 	testutil.NoError(t, err)
 }
 

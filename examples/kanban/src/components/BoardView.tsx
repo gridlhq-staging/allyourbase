@@ -48,7 +48,8 @@ export default function BoardView({ board, onBack }: Props) {
     }
   }
 
-  // Realtime: update local state when SSE events arrive
+  // Realtime: update local state when SSE events arrive.
+  // Filter events to only process those belonging to the current board.
   const handleRealtime = useCallback(
     (event: { action: string; table: string; record: Record<string, unknown> }) => {
       if (event.table === "cards") {
@@ -59,6 +60,8 @@ export default function BoardView({ board, onBack }: Props) {
             return [...prev, card];
           }
           if (event.action === "update") {
+            // Only update cards already tracked (belonging to this board).
+            if (!prev.find((c) => c.id === card.id)) return prev;
             return prev.map((c) => (c.id === card.id ? card : c));
           }
           if (event.action === "delete") {
@@ -69,6 +72,14 @@ export default function BoardView({ board, onBack }: Props) {
       }
       if (event.table === "columns") {
         const col = event.record as unknown as Column;
+        if (event.action === "delete") {
+          // Delete events only contain PK fields (no board_id), so just
+          // remove the column if it's currently tracked.
+          setColumns((prev) => prev.filter((c) => c.id !== col.id));
+          return;
+        }
+        // Ignore columns from other boards.
+        if (col.board_id !== board.id) return;
         setColumns((prev) => {
           if (event.action === "create") {
             if (prev.find((c) => c.id === col.id)) return prev;
@@ -79,14 +90,11 @@ export default function BoardView({ board, onBack }: Props) {
               .map((c) => (c.id === col.id ? col : c))
               .sort((a, b) => a.position - b.position);
           }
-          if (event.action === "delete") {
-            return prev.filter((c) => c.id !== col.id);
-          }
           return prev;
         });
       }
     },
-    [],
+    [board.id],
   );
 
   useRealtime(["cards", "columns"], handleRealtime);

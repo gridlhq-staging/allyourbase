@@ -89,6 +89,7 @@ func (f *fakeAPIKeyManager) CreateAPIKey(_ context.Context, userID, name string,
 
 	scope := "*"
 	var allowedTables []string
+	var appID *string
 	if len(opts) > 0 {
 		if opts[0].Scope != "" {
 			scope = opts[0].Scope
@@ -97,6 +98,7 @@ func (f *fakeAPIKeyManager) CreateAPIKey(_ context.Context, userID, name string,
 			return "", nil, auth.ErrInvalidScope
 		}
 		allowedTables = opts[0].AllowedTables
+		appID = opts[0].AppID
 	}
 	if allowedTables == nil {
 		allowedTables = []string{}
@@ -109,6 +111,7 @@ func (f *fakeAPIKeyManager) CreateAPIKey(_ context.Context, userID, name string,
 		KeyPrefix:     "ayb_abcd1234",
 		Scope:         scope,
 		AllowedTables: allowedTables,
+		AppID:         appID,
 		CreatedAt:     time.Date(2026, 2, 10, 12, 0, 0, 0, time.UTC),
 	}
 	return "ayb_aabbccdd11223344aabbccdd11223344aabbccdd11223344", &key, nil
@@ -302,7 +305,7 @@ func TestAdminCreateAPIKeySuccess(t *testing.T) {
 	mgr := &fakeAPIKeyManager{keys: sampleAPIKeys()}
 	handler := handleAdminCreateAPIKey(mgr)
 
-	body := `{"userId":"u1","name":"Deploy Key"}`
+	body := `{"userId":"00000000-0000-0000-0000-000000000011","name":"Deploy Key"}`
 	req := httptest.NewRequest(http.MethodPost, "/api/admin/api-keys", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
@@ -317,7 +320,7 @@ func TestAdminCreateAPIKeySuccess(t *testing.T) {
 	// Key should be exactly 52 chars: "ayb_" (4) + 48 hex chars
 	testutil.Equal(t, 52, len(resp.Key))
 	testutil.Equal(t, "Deploy Key", resp.APIKey.Name)
-	testutil.Equal(t, "u1", resp.APIKey.UserID)
+	testutil.Equal(t, "00000000-0000-0000-0000-000000000011", resp.APIKey.UserID)
 	testutil.Equal(t, "key-new", resp.APIKey.ID)
 	testutil.True(t, strings.HasPrefix(resp.APIKey.KeyPrefix, "ayb_"), "prefix should start with ayb_")
 	testutil.Equal(t, 1, len(mgr.created))
@@ -339,12 +342,28 @@ func TestAdminCreateAPIKeyMissingUserID(t *testing.T) {
 	testutil.Contains(t, w.Body.String(), "userId is required")
 }
 
+func TestAdminCreateAPIKeyInvalidUserIDFormat(t *testing.T) {
+	t.Parallel()
+	mgr := &fakeAPIKeyManager{}
+	handler := handleAdminCreateAPIKey(mgr)
+
+	body := `{"userId":"not-a-uuid","name":"Bad User Key"}`
+	req := httptest.NewRequest(http.MethodPost, "/api/admin/api-keys", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+
+	testutil.Equal(t, http.StatusBadRequest, w.Code)
+	testutil.Contains(t, w.Body.String(), "invalid userId format")
+	testutil.Equal(t, 0, len(mgr.created))
+}
+
 func TestAdminCreateAPIKeyMissingName(t *testing.T) {
 	t.Parallel()
 	mgr := &fakeAPIKeyManager{}
 	handler := handleAdminCreateAPIKey(mgr)
 
-	body := `{"userId":"u1"}`
+	body := `{"userId":"00000000-0000-0000-0000-000000000011"}`
 	req := httptest.NewRequest(http.MethodPost, "/api/admin/api-keys", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
@@ -359,7 +378,7 @@ func TestAdminCreateAPIKeyServiceError(t *testing.T) {
 	mgr := &fakeAPIKeyManager{createErr: fmt.Errorf("db connection failed")}
 	handler := handleAdminCreateAPIKey(mgr)
 
-	body := `{"userId":"u1","name":"Test Key"}`
+	body := `{"userId":"00000000-0000-0000-0000-000000000011","name":"Test Key"}`
 	req := httptest.NewRequest(http.MethodPost, "/api/admin/api-keys", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
@@ -400,32 +419,6 @@ func TestAdminCreateAPIKeyEmptyBody(t *testing.T) {
 
 	testutil.Equal(t, http.StatusBadRequest, w.Code)
 	testutil.Contains(t, w.Body.String(), "userId is required")
-}
-
-func TestAdminCreateAPIKeyResponseFormat(t *testing.T) {
-	t.Parallel()
-	mgr := &fakeAPIKeyManager{keys: sampleAPIKeys()}
-	handler := handleAdminCreateAPIKey(mgr)
-
-	body := `{"userId":"u1","name":"Deploy Key"}`
-	req := httptest.NewRequest(http.MethodPost, "/api/admin/api-keys", strings.NewReader(body))
-	req.Header.Set("Content-Type", "application/json")
-	w := httptest.NewRecorder()
-	handler.ServeHTTP(w, req)
-
-	testutil.Equal(t, http.StatusCreated, w.Code)
-
-	var resp adminCreateAPIKeyResponse
-	err := json.NewDecoder(w.Body).Decode(&resp)
-	testutil.NoError(t, err)
-
-	// Verify key has expected prefix
-	testutil.True(t, strings.HasPrefix(resp.Key, "ayb_"), "key should start with ayb_")
-	testutil.True(t, len(resp.Key) > len("ayb_"), "key should be longer than prefix")
-	// Verify api key record
-	testutil.Equal(t, "u1", resp.APIKey.UserID)
-	testutil.Equal(t, "Deploy Key", resp.APIKey.Name)
-	testutil.True(t, strings.HasPrefix(resp.APIKey.KeyPrefix, "ayb_"), "prefix should start with ayb_")
 }
 
 func TestAdminRevokeAlreadyRevokedKey(t *testing.T) {
@@ -550,7 +543,7 @@ func TestAdminCreateAPIKeyWithReadonlyScope(t *testing.T) {
 	mgr := &fakeAPIKeyManager{keys: sampleAPIKeys()}
 	handler := handleAdminCreateAPIKey(mgr)
 
-	body := `{"userId":"u1","name":"Read Key","scope":"readonly"}`
+	body := `{"userId":"00000000-0000-0000-0000-000000000011","name":"Read Key","scope":"readonly"}`
 	req := httptest.NewRequest(http.MethodPost, "/api/admin/api-keys", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
@@ -570,7 +563,7 @@ func TestAdminCreateAPIKeyWithReadwriteScope(t *testing.T) {
 	mgr := &fakeAPIKeyManager{keys: sampleAPIKeys()}
 	handler := handleAdminCreateAPIKey(mgr)
 
-	body := `{"userId":"u1","name":"RW Key","scope":"readwrite"}`
+	body := `{"userId":"00000000-0000-0000-0000-000000000011","name":"RW Key","scope":"readwrite"}`
 	req := httptest.NewRequest(http.MethodPost, "/api/admin/api-keys", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
@@ -589,7 +582,7 @@ func TestAdminCreateAPIKeyWithAllowedTables(t *testing.T) {
 	mgr := &fakeAPIKeyManager{keys: sampleAPIKeys()}
 	handler := handleAdminCreateAPIKey(mgr)
 
-	body := `{"userId":"u1","name":"Table Key","scope":"readwrite","allowedTables":["posts","comments"]}`
+	body := `{"userId":"00000000-0000-0000-0000-000000000011","name":"Table Key","scope":"readwrite","allowedTables":["posts","comments"]}`
 	req := httptest.NewRequest(http.MethodPost, "/api/admin/api-keys", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
@@ -611,7 +604,7 @@ func TestAdminCreateAPIKeyInvalidScope(t *testing.T) {
 	mgr := &fakeAPIKeyManager{keys: sampleAPIKeys()}
 	handler := handleAdminCreateAPIKey(mgr)
 
-	body := `{"userId":"u1","name":"Bad Key","scope":"admin"}`
+	body := `{"userId":"00000000-0000-0000-0000-000000000011","name":"Bad Key","scope":"admin"}`
 	req := httptest.NewRequest(http.MethodPost, "/api/admin/api-keys", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
@@ -627,7 +620,7 @@ func TestAdminCreateAPIKeyDefaultScope(t *testing.T) {
 	handler := handleAdminCreateAPIKey(mgr)
 
 	// No scope specified — should default to "*"
-	body := `{"userId":"u1","name":"Default Key"}`
+	body := `{"userId":"00000000-0000-0000-0000-000000000011","name":"Default Key"}`
 	req := httptest.NewRequest(http.MethodPost, "/api/admin/api-keys", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
@@ -640,6 +633,97 @@ func TestAdminCreateAPIKeyDefaultScope(t *testing.T) {
 	testutil.NoError(t, err)
 	testutil.Equal(t, "*", resp.APIKey.Scope)
 	testutil.Equal(t, 0, len(resp.APIKey.AllowedTables))
+}
+
+func TestAdminCreateAPIKeyWithAppID(t *testing.T) {
+	t.Parallel()
+	mgr := &fakeAPIKeyManager{keys: sampleAPIKeys()}
+	handler := handleAdminCreateAPIKey(mgr)
+
+	body := `{"userId":"00000000-0000-0000-0000-000000000011","name":"App Key","appId":"00000000-0000-0000-0000-000000000001"}`
+	req := httptest.NewRequest(http.MethodPost, "/api/admin/api-keys", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+
+	testutil.Equal(t, http.StatusCreated, w.Code)
+
+	var resp adminCreateAPIKeyResponse
+	err := json.NewDecoder(w.Body).Decode(&resp)
+	testutil.NoError(t, err)
+	testutil.Equal(t, "App Key", resp.APIKey.Name)
+	testutil.NotNil(t, resp.APIKey.AppID)
+	testutil.Equal(t, "00000000-0000-0000-0000-000000000001", *resp.APIKey.AppID)
+}
+
+func TestAdminCreateAPIKeyWithoutAppID(t *testing.T) {
+	t.Parallel()
+	mgr := &fakeAPIKeyManager{keys: sampleAPIKeys()}
+	handler := handleAdminCreateAPIKey(mgr)
+
+	// No appId field — should create a legacy user-scoped key.
+	body := `{"userId":"00000000-0000-0000-0000-000000000011","name":"Legacy Key"}`
+	req := httptest.NewRequest(http.MethodPost, "/api/admin/api-keys", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+
+	testutil.Equal(t, http.StatusCreated, w.Code)
+
+	var resp adminCreateAPIKeyResponse
+	err := json.NewDecoder(w.Body).Decode(&resp)
+	testutil.NoError(t, err)
+	testutil.Equal(t, "Legacy Key", resp.APIKey.Name)
+	testutil.Nil(t, resp.APIKey.AppID)
+}
+
+func TestAdminCreateAPIKeyInvalidAppID(t *testing.T) {
+	t.Parallel()
+	// Use a valid UUID format that doesn't exist — service returns ErrInvalidAppID.
+	mgr := &fakeAPIKeyManager{createErr: auth.ErrInvalidAppID}
+	handler := handleAdminCreateAPIKey(mgr)
+
+	body := `{"userId":"00000000-0000-0000-0000-000000000011","name":"Bad App Key","appId":"00000000-0000-0000-0000-aaaaaaaaa099"}`
+	req := httptest.NewRequest(http.MethodPost, "/api/admin/api-keys", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+
+	testutil.Equal(t, http.StatusBadRequest, w.Code)
+	testutil.Contains(t, w.Body.String(), "app not found")
+}
+
+func TestAdminCreateAPIKeyNonUUIDAppID(t *testing.T) {
+	t.Parallel()
+	mgr := &fakeAPIKeyManager{keys: sampleAPIKeys()}
+	handler := handleAdminCreateAPIKey(mgr)
+
+	// Non-UUID appId should be rejected at the handler level with 400, not reach the DB.
+	body := `{"userId":"00000000-0000-0000-0000-000000000011","name":"Bad Key","appId":"not-a-uuid"}`
+	req := httptest.NewRequest(http.MethodPost, "/api/admin/api-keys", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+
+	testutil.Equal(t, http.StatusBadRequest, w.Code)
+	testutil.Contains(t, w.Body.String(), "invalid appId format")
+	// Verify the service was never called (no created keys).
+	testutil.Equal(t, 0, len(mgr.created))
+}
+
+func TestAdminCreateAPIKeyUserNotFound(t *testing.T) {
+	t.Parallel()
+	mgr := &fakeAPIKeyManager{createErr: auth.ErrUserNotFound}
+	handler := handleAdminCreateAPIKey(mgr)
+
+	body := `{"userId":"00000000-0000-0000-0000-000000000099","name":"Missing User Key"}`
+	req := httptest.NewRequest(http.MethodPost, "/api/admin/api-keys", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+
+	testutil.Equal(t, http.StatusBadRequest, w.Code)
+	testutil.Contains(t, w.Body.String(), "user not found")
 }
 
 func TestAdminListAPIKeysShowsScope(t *testing.T) {

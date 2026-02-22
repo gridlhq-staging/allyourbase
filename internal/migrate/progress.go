@@ -79,10 +79,10 @@ func (r *CLIReporter) Warn(msg string) {
 // NopReporter discards all progress updates (used in tests and --json mode).
 type NopReporter struct{}
 
-func (NopReporter) StartPhase(Phase, int)                    {}
-func (NopReporter) Progress(Phase, int, int)                 {}
-func (NopReporter) CompletePhase(Phase, int, time.Duration)  {}
-func (NopReporter) Warn(string)                              {}
+func (NopReporter) StartPhase(Phase, int)                   {}
+func (NopReporter) Progress(Phase, int, int)                {}
+func (NopReporter) CompletePhase(Phase, int, time.Duration) {}
+func (NopReporter) Warn(string)                             {}
 
 func formatDuration(d time.Duration) string {
 	if d < time.Second {
@@ -155,17 +155,17 @@ func DetectSource(from string) SourceType {
 
 // AnalysisReport summarizes what a migration will do, shown before proceeding.
 type AnalysisReport struct {
-	SourceType  string `json:"sourceType"`
-	SourceInfo  string `json:"sourceInfo"` // e.g., "PocketBase v0.22, SQLite 7.2 MB"
-	Tables      int    `json:"tables"`
-	Views       int    `json:"views"`
-	Records     int    `json:"records"`
-	AuthUsers   int    `json:"authUsers"`
-	OAuthLinks  int    `json:"oauthLinks"`
-	RLSPolicies int    `json:"rlsPolicies"`
-	Files       int    `json:"files"`
-	FileSizeBytes int64 `json:"fileSizeBytes"`
-	Warnings    []string `json:"warnings,omitempty"`
+	SourceType    string   `json:"sourceType"`
+	SourceInfo    string   `json:"sourceInfo"` // e.g., "PocketBase v0.22, SQLite 7.2 MB"
+	Tables        int      `json:"tables"`
+	Views         int      `json:"views"`
+	Records       int      `json:"records"`
+	AuthUsers     int      `json:"authUsers"`
+	OAuthLinks    int      `json:"oauthLinks"`
+	RLSPolicies   int      `json:"rlsPolicies"`
+	Files         int      `json:"files"`
+	FileSizeBytes int64    `json:"fileSizeBytes"`
+	Warnings      []string `json:"warnings,omitempty"`
 }
 
 // PrintReport writes a formatted pre-flight report to w.

@@ -162,7 +162,7 @@ func TestFlattenFirestoreValue(t *testing.T) {
 
 	t.Run("null value NULL_VALUE string", func(t *testing.T) {
 		// Firestore exports represent null as {"nullValue": "NULL_VALUE"}
-	t.Parallel()
+		t.Parallel()
 
 		v := FlattenFirestoreValue(map[string]any{"nullValue": "NULL_VALUE"})
 		testutil.Nil(t, v)

@@ -67,6 +67,7 @@ type adminCreateAPIKeyRequest struct {
 	Name          string   `json:"name"`
 	Scope         string   `json:"scope"`         // "*", "readonly", "readwrite"; defaults to "*"
 	AllowedTables []string `json:"allowedTables"` // empty = all tables
+	AppID         *string  `json:"appId"`         // nil = user-scoped key; non-nil = app-scoped key
 }
 
 type adminCreateAPIKeyResponse struct {
@@ -85,20 +86,37 @@ func handleAdminCreateAPIKey(svc apiKeyManager) http.HandlerFunc {
 			httputil.WriteError(w, http.StatusBadRequest, "userId is required")
 			return
 		}
+		if !httputil.IsValidUUID(req.UserID) {
+			httputil.WriteError(w, http.StatusBadRequest, "invalid userId format")
+			return
+		}
 		if req.Name == "" {
 			httputil.WriteError(w, http.StatusBadRequest, "name is required")
+			return
+		}
+		if req.AppID != nil && !httputil.IsValidUUID(*req.AppID) {
+			httputil.WriteError(w, http.StatusBadRequest, "invalid appId format")
 			return
 		}
 
 		opts := auth.CreateAPIKeyOptions{
 			Scope:         req.Scope,
 			AllowedTables: req.AllowedTables,
+			AppID:         req.AppID,
 		}
 
 		plaintext, key, err := svc.CreateAPIKey(r.Context(), req.UserID, req.Name, opts)
 		if err != nil {
 			if errors.Is(err, auth.ErrInvalidScope) {
 				httputil.WriteError(w, http.StatusBadRequest, err.Error())
+				return
+			}
+			if errors.Is(err, auth.ErrInvalidAppID) {
+				httputil.WriteError(w, http.StatusBadRequest, "app not found")
+				return
+			}
+			if errors.Is(err, auth.ErrUserNotFound) {
+				httputil.WriteError(w, http.StatusBadRequest, "user not found")
 				return
 			}
 			httputil.WriteError(w, http.StatusInternalServerError, "failed to create api key")

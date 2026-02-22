@@ -17,7 +17,7 @@ func TestClose(t *testing.T) {
 	t.Parallel()
 	t.Run("close migrator", func(t *testing.T) {
 		// Create temporary PocketBase directory
-	t.Parallel()
+		t.Parallel()
 
 		tmpDir := t.TempDir()
 		pbDataPath := filepath.Join(tmpDir, "pb_data")
@@ -466,7 +466,7 @@ func TestMigrateAuthUsers_EdgeCases(t *testing.T) {
 
 	t.Run("case insensitive standard field check", func(t *testing.T) {
 		// Test that isStandardAuthField is case-insensitive
-	t.Parallel()
+		t.Parallel()
 
 		testutil.True(t, isStandardAuthField("EMAIL"))
 		testutil.True(t, isStandardAuthField("Email"))

@@ -3,7 +3,6 @@ package cli
 import (
 	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
 	"net/url"
 	"os"
@@ -43,35 +42,6 @@ func init() {
 	usersCmd.AddCommand(usersDeleteCmd)
 }
 
-func usersAdminRequest(cmd *cobra.Command, method, path string, body io.Reader) (*http.Response, []byte, error) {
-	token, _ := cmd.Flags().GetString("admin-token")
-	baseURL, _ := cmd.Flags().GetString("url")
-
-	if token == "" {
-		token = os.Getenv("AYB_ADMIN_TOKEN")
-	}
-	if baseURL == "" {
-		baseURL = serverURL()
-	}
-
-	req, err := http.NewRequest(method, baseURL+path, body)
-	if err != nil {
-		return nil, nil, fmt.Errorf("creating request: %w", err)
-	}
-	req.Header.Set("Content-Type", "application/json")
-	if token != "" {
-		req.Header.Set("Authorization", "Bearer "+token)
-	}
-
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return nil, nil, fmt.Errorf("connecting to server: %w", err)
-	}
-	defer resp.Body.Close()
-	respBody, _ := io.ReadAll(resp.Body)
-	return resp, respBody, nil
-}
-
 func runUsersList(cmd *cobra.Command, args []string) error {
 	outFmt := outputFormat(cmd)
 	search, _ := cmd.Flags().GetString("search")
@@ -85,7 +55,7 @@ func runUsersList(cmd *cobra.Command, args []string) error {
 		qs.Set("search", search)
 	}
 
-	resp, body, err := usersAdminRequest(cmd, "GET", "/api/admin/users?"+qs.Encode(), nil)
+	resp, body, err := adminRequest(cmd, "GET", "/api/admin/users?"+qs.Encode(), nil)
 	if err != nil {
 		return err
 	}
@@ -149,7 +119,7 @@ func runUsersList(cmd *cobra.Command, args []string) error {
 func runUsersDelete(cmd *cobra.Command, args []string) error {
 	id := args[0]
 
-	resp, body, err := usersAdminRequest(cmd, "DELETE", "/api/admin/users/"+id, nil)
+	resp, body, err := adminRequest(cmd, "DELETE", "/api/admin/users/"+id, nil)
 	if err != nil {
 		return err
 	}

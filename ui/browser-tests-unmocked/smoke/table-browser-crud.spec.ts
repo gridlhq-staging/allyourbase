@@ -1,4 +1,5 @@
 import { test, expect, execSQL } from "../fixtures";
+import type { Page } from "@playwright/test";
 
 /**
  * SMOKE TEST: Table Browser CRUD Operations
@@ -15,6 +16,24 @@ import { test, expect, execSQL } from "../fixtures";
 
 test.describe("Smoke: Table Browser CRUD", () => {
   const pendingCleanup: string[] = [];
+  async function openTableFromSidebar(page: Page, tableName: string): Promise<void> {
+    const sidebar = page.locator("aside");
+    const refreshButton = page.getByRole("button", { name: /refresh schema/i });
+    const tableLink = sidebar.getByText(tableName, { exact: true });
+
+    await expect(refreshButton).toBeVisible({ timeout: 5000 });
+    await expect
+      .poll(
+        async () => {
+          await refreshButton.click();
+          return tableLink.isVisible();
+        },
+        { timeout: 15_000 }
+      )
+      .toBe(true);
+
+    await tableLink.click();
+  }
 
   test.afterEach(async ({ request, adminToken }) => {
     for (const sql of pendingCleanup) {
@@ -49,36 +68,7 @@ test.describe("Smoke: Table Browser CRUD", () => {
     // Act: navigate to the table
     await page.goto("/admin/");
     await expect(page.getByText("Allyourbase").first()).toBeVisible();
-
-    // Give database time to commit the transaction
-    await page.waitForTimeout(500);
-
-    const sidebar = page.locator("aside");
-
-    // Refresh schema to see newly created table
-    // Note: Backend may skip refresh if one is already in progress (race condition)
-    // So we retry up to 3 times if the table doesn't appear
-    const refreshButton = page.getByRole("button", { name: /refresh schema/i });
-    await expect(refreshButton).toBeVisible({ timeout: 5000 });
-
-    const tableLink = sidebar.getByText(tableName, { exact: true });
-
-    for (let attempt = 0; attempt < 3; attempt++) {
-      await refreshButton.click();
-      await page.waitForTimeout(2000); // Wait for refresh to complete
-
-      // Check if table appeared
-      const isVisible = await tableLink.isVisible().catch(() => false);
-      if (isVisible) break;
-
-      if (attempt < 2) {
-        await page.waitForTimeout(1000); // Brief pause before retry
-      }
-    }
-
-    // Final assertion - table should be visible now
-    await expect(tableLink).toBeVisible({ timeout: 5000 });
-    await tableLink.click();
+    await openTableFromSidebar(page, tableName);
 
     // Assert: all 3 seeded records appear
     await expect(page.getByText(`First Post ${runId}`)).toBeVisible({ timeout: 5000 });
@@ -112,36 +102,7 @@ test.describe("Smoke: Table Browser CRUD", () => {
     // Act: navigate to table
     await page.goto("/admin/");
     await expect(page.getByText("Allyourbase").first()).toBeVisible();
-
-    // Give database time to commit the transaction
-    await page.waitForTimeout(500);
-
-    const sidebar = page.locator("aside");
-
-    // Refresh schema to see newly created table
-    // Note: Backend may skip refresh if one is already in progress (race condition)
-    // So we retry up to 3 times if the table doesn't appear
-    const refreshButton = page.getByRole("button", { name: /refresh schema/i });
-    await expect(refreshButton).toBeVisible({ timeout: 5000 });
-
-    const tableLink = sidebar.getByText(tableName, { exact: true });
-
-    for (let attempt = 0; attempt < 3; attempt++) {
-      await refreshButton.click();
-      await page.waitForTimeout(2000); // Wait for refresh to complete
-
-      // Check if table appeared
-      const isVisible = await tableLink.isVisible().catch(() => false);
-      if (isVisible) break;
-
-      if (attempt < 2) {
-        await page.waitForTimeout(1000); // Brief pause before retry
-      }
-    }
-
-    // Final assertion - table should be visible now
-    await expect(tableLink).toBeVisible({ timeout: 5000 });
-    await tableLink.click();
+    await openTableFromSidebar(page, tableName);
 
     // Verify all records visible initially
     await expect(page.getByText(`Unique Search Term ${runId}`)).toBeVisible({ timeout: 5000 });
@@ -193,36 +154,7 @@ test.describe("Smoke: Table Browser CRUD", () => {
     // Navigate to table
     await page.goto("/admin/");
     await expect(page.getByText("Allyourbase").first()).toBeVisible();
-
-    // Give database time to commit the transaction
-    await page.waitForTimeout(500);
-
-    const sidebar = page.locator("aside");
-
-    // Refresh schema to see newly created table
-    // Note: Backend may skip refresh if one is already in progress (race condition)
-    // So we retry up to 3 times if the table doesn't appear
-    const refreshButton = page.getByRole("button", { name: /refresh schema/i });
-    await expect(refreshButton).toBeVisible({ timeout: 5000 });
-
-    const tableLink = sidebar.getByText(tableName, { exact: true });
-
-    for (let attempt = 0; attempt < 3; attempt++) {
-      await refreshButton.click();
-      await page.waitForTimeout(2000); // Wait for refresh to complete
-
-      // Check if table appeared
-      const isVisible = await tableLink.isVisible().catch(() => false);
-      if (isVisible) break;
-
-      if (attempt < 2) {
-        await page.waitForTimeout(1000); // Brief pause before retry
-      }
-    }
-
-    // Final assertion - table should be visible now
-    await expect(tableLink).toBeVisible({ timeout: 5000 });
-    await tableLink.click();
+    await openTableFromSidebar(page, tableName);
 
     // ============================================================
     // CREATE: Add new record via UI
@@ -237,9 +169,6 @@ test.describe("Smoke: Table Browser CRUD", () => {
     await expect(page.getByRole("heading", { name: /New Record/i })).toBeVisible({
       timeout: 5000,
     });
-
-    // Wait for form fields to render (form loads asynchronously)
-    await page.waitForTimeout(500);
 
     // Fill in form fields - use more flexible selectors
     const titleInput = page.getByLabel(/title/i);
@@ -273,9 +202,6 @@ test.describe("Smoke: Table Browser CRUD", () => {
 
     // Wait for edit form modal to appear
     await expect(page.getByRole("heading", { name: /edit/i })).toBeVisible({ timeout: 5000 });
-
-    // Wait for form fields to load
-    await page.waitForTimeout(500);
 
     // Find and modify fields in the edit modal
     const editTitleInput = page.getByLabel(/title/i);
@@ -319,9 +245,6 @@ test.describe("Smoke: Table Browser CRUD", () => {
       await confirmButton.click();
     }
 
-    // Wait for deletion to process
-    await page.waitForTimeout(1000);
-
     // Verify record is gone from table
     await expect(page.getByText(`Fourth Post (Edited) ${runId}`)).not.toBeVisible({
       timeout: 10000,
@@ -358,36 +281,7 @@ test.describe("Smoke: Table Browser CRUD", () => {
     // Navigate to table
     await page.goto("/admin/");
     await expect(page.getByText("Allyourbase").first()).toBeVisible();
-
-    // Give database time to commit the transaction
-    await page.waitForTimeout(500);
-
-    const sidebar = page.locator("aside");
-
-    // Refresh schema to see newly created table
-    // Note: Backend may skip refresh if one is already in progress (race condition)
-    // So we retry up to 3 times if the table doesn't appear
-    const refreshButton = page.getByRole("button", { name: /refresh schema/i });
-    await expect(refreshButton).toBeVisible({ timeout: 5000 });
-
-    const tableLink = sidebar.getByText(tableName, { exact: true });
-
-    for (let attempt = 0; attempt < 3; attempt++) {
-      await refreshButton.click();
-      await page.waitForTimeout(2000); // Wait for refresh to complete
-
-      // Check if table appeared
-      const isVisible = await tableLink.isVisible().catch(() => false);
-      if (isVisible) break;
-
-      if (attempt < 2) {
-        await page.waitForTimeout(1000); // Brief pause before retry
-      }
-    }
-
-    // Final assertion - table should be visible now
-    await expect(tableLink).toBeVisible({ timeout: 5000 });
-    await tableLink.click();
+    await openTableFromSidebar(page, tableName);
 
     // Verify all records visible initially
     await expect(page.getByText(`Published Post 1 ${runId}`)).toBeVisible({ timeout: 5000 });

@@ -30,6 +30,11 @@ func RequireAuth(svc *Service) func(http.Handler) http.Handler {
 				return
 			}
 
+			if claims.MFAPending {
+				httputil.WriteError(w, http.StatusUnauthorized, "MFA verification required")
+				return
+			}
+
 			ctx := context.WithValue(r.Context(), ctxKey{}, claims)
 			next.ServeHTTP(w, r.WithContext(ctx))
 		})
@@ -42,7 +47,7 @@ func OptionalAuth(svc *Service) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			if token, ok := extractBearerToken(r); ok {
-				if claims, err := validateTokenOrAPIKey(r.Context(), svc, token); err == nil {
+				if claims, err := validateTokenOrAPIKey(r.Context(), svc, token); err == nil && !claims.MFAPending {
 					ctx := context.WithValue(r.Context(), ctxKey{}, claims)
 					r = r.WithContext(ctx)
 				}
@@ -50,6 +55,37 @@ func OptionalAuth(svc *Service) func(http.Handler) http.Handler {
 			next.ServeHTTP(w, r)
 		})
 	}
+}
+
+// RequireMFAPending returns middleware that accepts only MFA pending tokens.
+// This is the inverse of RequireAuth — it requires mfa_pending: true.
+func RequireMFAPending(svc *Service) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			token, ok := extractBearerToken(r)
+			if !ok {
+				httputil.WriteError(w, http.StatusUnauthorized, "no MFA challenge pending")
+				return
+			}
+
+			claims, err := svc.ValidateToken(token)
+			if err != nil || !claims.MFAPending {
+				httputil.WriteError(w, http.StatusUnauthorized, "no MFA challenge pending")
+				return
+			}
+
+			ctx := context.WithValue(r.Context(), mfaPendingCtxKey{}, claims)
+			next.ServeHTTP(w, r.WithContext(ctx))
+		})
+	}
+}
+
+type mfaPendingCtxKey struct{}
+
+// mfaPendingClaimsFromContext retrieves MFA pending claims from the request context.
+func mfaPendingClaimsFromContext(ctx context.Context) *Claims {
+	claims, _ := ctx.Value(mfaPendingCtxKey{}).(*Claims)
+	return claims
 }
 
 // ClaimsFromContext retrieves auth claims from the request context.
@@ -65,13 +101,36 @@ func ContextWithClaims(ctx context.Context, claims *Claims) context.Context {
 	return context.WithValue(ctx, ctxKey{}, claims)
 }
 
-// validateTokenOrAPIKey checks if the token is an API key (ayb_ prefix)
-// and validates accordingly, falling back to JWT validation.
+// validateTokenOrAPIKey checks if the token is an OAuth access token (ayb_at_ prefix),
+// an API key (ayb_ prefix), or a JWT, and validates accordingly.
+// OAuth token check comes first since ayb_at_ also matches the ayb_ API key prefix.
 func validateTokenOrAPIKey(ctx context.Context, svc *Service, token string) (*Claims, error) {
+	if IsOAuthAccessToken(token) {
+		info, err := svc.ValidateOAuthToken(ctx, token)
+		if err != nil {
+			return nil, err
+		}
+		return oauthTokenInfoToClaims(info), nil
+	}
 	if IsAPIKey(token) {
 		return svc.ValidateAPIKey(ctx, token)
 	}
 	return svc.ValidateToken(token)
+}
+
+// oauthTokenInfoToClaims converts OAuth token info into Claims for downstream handlers.
+func oauthTokenInfoToClaims(info *OAuthTokenInfo) *Claims {
+	claims := &Claims{
+		APIKeyScope:        info.Scope,
+		AllowedTables:      info.AllowedTables,
+		AppID:              info.AppID,
+		AppRateLimitRPS:    info.AppRateLimitRPS,
+		AppRateLimitWindow: info.AppRateLimitWindowSeconds,
+	}
+	if info.UserID != nil {
+		claims.Subject = *info.UserID
+	}
+	return claims
 }
 
 // ErrScopeReadOnly is returned when a readonly API key attempts a write operation.

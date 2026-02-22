@@ -92,7 +92,7 @@ test.describe("Blog Platform Journey (Full E2E)", () => {
     // ============================================================
     await sidebar.getByRole("button", { name: /^SQL Editor$/i }).click();
 
-    const sqlInput = page.locator('.cm-content[contenteditable="true"]');
+    const sqlInput = page.getByLabel("SQL query");
     await expect(sqlInput).toBeVisible({ timeout: 5000 });
 
     await sqlInput.fill(`

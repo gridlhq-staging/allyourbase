@@ -6,6 +6,7 @@ import (
 	"os"
 	"time"
 
+	"github.com/allyourbase/ayb/internal/config"
 	"github.com/allyourbase/ayb/internal/postgres"
 	"github.com/allyourbase/ayb/internal/schema"
 	"github.com/allyourbase/ayb/internal/typegen"
@@ -49,6 +50,18 @@ func runTypesTypeScript(cmd *cobra.Command, args []string) error {
 	dbURL, _ := cmd.Flags().GetString("database-url")
 	if dbURL == "" {
 		dbURL = os.Getenv("DATABASE_URL")
+	}
+	if dbURL == "" {
+		// Auto-discover: use config's explicit URL, or derive embedded Postgres URL
+		// if the server is running (PID file exists).
+		cfg, err := config.Load("", nil)
+		if err == nil {
+			if cfg.Database.URL != "" {
+				dbURL = cfg.Database.URL
+			} else if _, _, pidErr := readAYBPID(); pidErr == nil {
+				dbURL = fmt.Sprintf("postgresql://ayb:ayb@127.0.0.1:%d/ayb?sslmode=disable", cfg.Database.EmbeddedPort)
+			}
+		}
 	}
 	if dbURL == "" {
 		return fmt.Errorf("--database-url is required (or set DATABASE_URL)")

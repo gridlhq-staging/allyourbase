@@ -27,8 +27,7 @@ type Watcher struct {
 	pool       *pgxpool.Pool
 	connString string
 	logger     *slog.Logger
-	pollMode     bool
-	initialLoad  bool // true after Start() completes the first cache.Load
+	pollMode   bool
 
 	// Debounce state: multiple notifications within debounceDelay trigger one reload.
 	debounceMu    sync.Mutex

@@ -15,17 +15,18 @@ type Pool struct {
 	pool            *pgxpool.Pool
 	healthCheckStop chan struct{}
 	wg              sync.WaitGroup
+	closeOnce       sync.Once
 	logger          *slog.Logger
 }
 
 // Config holds database connection parameters.
 type Config struct {
-	URL                string
-	MaxConns           int32
-	MinConns           int32
-	MaxConnLifetime    time.Duration
-	MaxConnIdleTime    time.Duration
-	HealthCheckSecs    int
+	URL             string
+	MaxConns        int32
+	MinConns        int32
+	MaxConnLifetime time.Duration
+	MaxConnIdleTime time.Duration
+	HealthCheckSecs int
 }
 
 // New creates a new Pool, validates the connection, and starts health checking.
@@ -87,11 +88,14 @@ func (p *Pool) DB() *pgxpool.Pool {
 }
 
 // Close gracefully shuts down the pool and stops health checking.
+// Safe to call multiple times.
 func (p *Pool) Close() {
-	close(p.healthCheckStop)
-	p.wg.Wait()
-	p.pool.Close()
-	p.logger.Info("database connection pool closed")
+	p.closeOnce.Do(func() {
+		close(p.healthCheckStop)
+		p.wg.Wait()
+		p.pool.Close()
+		p.logger.Info("database connection pool closed")
+	})
 }
 
 func (p *Pool) startHealthCheck(interval time.Duration) {

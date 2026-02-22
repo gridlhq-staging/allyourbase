@@ -16,7 +16,7 @@ test.describe("Smoke: Admin SQL Query", () => {
     await page.locator("aside").getByRole("button", { name: /^SQL Editor$/i }).click();
 
     // Step 3: Find SQL input
-    const sqlInput = page.locator('.cm-content[contenteditable="true"]');
+    const sqlInput = page.getByLabel("SQL query");
     await expect(sqlInput).toBeVisible({ timeout: 5000 });
 
     // Step 4: Execute a simple query

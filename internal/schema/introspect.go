@@ -283,12 +283,12 @@ func loadForeignKeys(ctx context.Context, pool *pgxpool.Pool, tables map[string]
 
 	for rows.Next() {
 		var (
-			constraintName                   string
-			schema, name                     string
-			columns                          []string
-			refSchema, refTable              string
-			refColumns                       []string
-			onUpdate, onDelete               string
+			constraintName      string
+			schema, name        string
+			columns             []string
+			refSchema, refTable string
+			refColumns          []string
+			onUpdate, onDelete  string
 		)
 		if err := rows.Scan(
 			&constraintName,
@@ -344,8 +344,8 @@ func loadIndexes(ctx context.Context, pool *pgxpool.Pool, tables map[string]*Tab
 	for rows.Next() {
 		var (
 			indexName, schema, tableName string
-			isUnique, isPrimary         bool
-			method, definition          string
+			isUnique, isPrimary          bool
+			method, definition           string
 		)
 		if err := rows.Scan(&indexName, &schema, &tableName, &isUnique, &isPrimary, &method, &definition); err != nil {
 			return fmt.Errorf("scanning index: %w", err)

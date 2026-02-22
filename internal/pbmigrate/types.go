@@ -31,13 +31,15 @@ type PBCollection struct {
 
 // PBField represents a field in a PocketBase collection schema
 type PBField struct {
-	ID       string                 `json:"id"`
-	Name     string                 `json:"name"`
-	Type     string                 `json:"type"` // text, number, bool, email, url, editor, date, select, json, file, relation
-	System   bool                   `json:"system"`
-	Required bool                   `json:"required"`
-	Unique   bool                   `json:"unique"`
-	Options  map[string]interface{} `json:"options"` // type-specific options (e.g., maxSelect for select fields)
+	ID           string                 `json:"id"`
+	Name         string                 `json:"name"`
+	Type         string                 `json:"type"` // text, number, bool, email, url, editor, date, select, json, file, relation
+	System       bool                   `json:"system"`
+	Required     bool                   `json:"required"`
+	Unique       bool                   `json:"unique"`
+	MaxSelect    float64                `json:"maxSelect"`    // newer PocketBase stores this at top-level
+	CollectionID string                 `json:"collectionId"` // newer PocketBase relation fields
+	Options      map[string]interface{} `json:"options"`      // older PocketBase option bag
 }
 
 // PBRecord represents a generic record from any collection

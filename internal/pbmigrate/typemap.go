@@ -19,7 +19,7 @@ func FieldTypeToPgType(field PBField) string {
 
 	case "select":
 		// Check if maxSelect > 1 (multiple selection)
-		if maxSelect, ok := field.Options["maxSelect"].(float64); ok && maxSelect > 1 {
+		if maxSelect := fieldMaxSelect(field); maxSelect > 1 {
 			return "TEXT[]" // array for multiple select
 		}
 		return "TEXT" // single select
@@ -29,14 +29,14 @@ func FieldTypeToPgType(field PBField) string {
 
 	case "file":
 		// Check if maxSelect > 1 (multiple files)
-		if maxSelect, ok := field.Options["maxSelect"].(float64); ok && maxSelect > 1 {
+		if maxSelect := fieldMaxSelect(field); maxSelect > 1 {
 			return "TEXT[]" // array of filenames
 		}
 		return "TEXT" // single filename
 
 	case "relation":
 		// Check if maxSelect > 1 (multiple relations)
-		if maxSelect, ok := field.Options["maxSelect"].(float64); ok && maxSelect > 1 {
+		if maxSelect := fieldMaxSelect(field); maxSelect > 1 {
 			return "TEXT[]" // array of IDs
 		}
 		return "TEXT" // single ID
@@ -44,6 +44,19 @@ func FieldTypeToPgType(field PBField) string {
 	default:
 		return "TEXT" // fallback to text for unknown types
 	}
+}
+
+func fieldMaxSelect(field PBField) float64 {
+	if field.MaxSelect > 0 {
+		return field.MaxSelect
+	}
+	if field.Options == nil {
+		return 0
+	}
+	if maxSelect, ok := field.Options["maxSelect"].(float64); ok {
+		return maxSelect
+	}
+	return 0
 }
 
 // BuildCreateTableSQL generates CREATE TABLE statement for a collection

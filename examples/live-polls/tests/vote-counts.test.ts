@@ -80,6 +80,22 @@ describe("pct", () => {
     expect(pct(1, 3)).toBe(33);
     expect(pct(2, 3)).toBe(67);
   });
+
+  it("handles single vote of many (small percentage)", () => {
+    expect(pct(1, 100)).toBe(1);
+    expect(pct(1, 1000)).toBe(0); // rounds to 0
+  });
+
+  it("three-way split rounds without exceeding 100", () => {
+    // 1/3 + 1/3 + 1/3 = 33 + 33 + 33 = 99 (not 100, but that's expected with rounding)
+    const parts = [pct(1, 3), pct(1, 3), pct(1, 3)];
+    expect(parts).toEqual([33, 33, 33]);
+  });
+
+  it("all votes on one option yields 100%", () => {
+    expect(pct(10, 10)).toBe(100);
+    expect(pct(1, 1)).toBe(100);
+  });
 });
 
 describe("sortOptions", () => {

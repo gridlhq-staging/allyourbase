@@ -1,6 +1,6 @@
 # Authentication
 
-AYB provides built-in email/password authentication with JWT sessions, OAuth support, email verification, and password reset.
+AYB provides built-in email/password authentication with JWT sessions, OAuth support, email verification, password reset, magic links, SMS OTP auth, and SMS MFA.
 
 ## Enable auth
 
@@ -75,6 +75,55 @@ curl -X POST http://localhost:8090/api/auth/logout \
   -H "Authorization: Bearer eyJhbG..." \
   -H "Content-Type: application/json" \
   -d '{"refreshToken": "eyJhbG..."}'
+```
+
+## SMS OTP auth
+
+Enable SMS auth in config:
+
+```toml
+[auth]
+sms_enabled = true
+sms_provider = "log" # log, twilio, plivo, telnyx, msg91, sns, vonage, webhook
+sms_code_length = 6
+sms_code_expiry = 300
+sms_max_attempts = 3
+```
+
+Request an OTP:
+
+```bash
+curl -X POST http://localhost:8090/api/auth/sms \
+  -H "Content-Type: application/json" \
+  -d '{"phone": "+14155552671"}'
+```
+
+Confirm OTP:
+
+```bash
+curl -X POST http://localhost:8090/api/auth/sms/confirm \
+  -H "Content-Type: application/json" \
+  -d '{"phone": "+14155552671", "code": "123456"}'
+```
+
+`/api/auth/sms` always returns `200` to avoid phone-number enumeration.
+
+## SMS MFA
+
+When SMS auth is enabled, MFA routes are available:
+
+- `POST /api/auth/mfa/sms/enroll`
+- `POST /api/auth/mfa/sms/enroll/confirm`
+- `POST /api/auth/mfa/sms/challenge`
+- `POST /api/auth/mfa/sms/verify`
+
+Enroll:
+
+```bash
+curl -X POST http://localhost:8090/api/auth/mfa/sms/enroll \
+  -H "Authorization: Bearer <token>" \
+  -H "Content-Type: application/json" \
+  -d '{"phone": "+14155552671"}'
 ```
 
 ## JWT structure
@@ -176,6 +225,30 @@ AYB_AUTH_OAUTH_GITHUB_CLIENT_ID=...
 AYB_AUTH_OAUTH_GITHUB_CLIENT_SECRET=...
 AYB_AUTH_OAUTH_REDIRECT_URL=http://localhost:5173/oauth-callback
 ```
+
+## OAuth 2.0 Provider Mode
+
+In addition to consuming external OAuth providers (Google/GitHub), AYB can act as an OAuth 2.0 authorization server itself. This lets third-party applications request scoped access to your AYB instance on behalf of users.
+
+Use OAuth provider mode when you want to:
+
+- Let third-party apps access your AYB data with user consent
+- Issue scoped, revocable access tokens to external clients
+- Support the standard authorization code flow with PKCE
+
+Enable it in config:
+
+```toml
+[auth.oauth_provider]
+enabled = true
+access_token_duration = 3600     # 1 hour (seconds)
+refresh_token_duration = 2592000 # 30 days (seconds)
+auth_code_duration = 600         # 10 minutes (seconds)
+```
+
+Supported grant types: `authorization_code` (with PKCE S256, required for all clients) and `client_credentials`. OAuth tokens are opaque (not JWTs) and can be revoked individually.
+
+For the full walkthrough, see the [OAuth Provider Guide](./oauth-provider.md).
 
 ## Row-Level Security (RLS)
 

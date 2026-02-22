@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 // migrateFiles copies files from PocketBase storage to AYB storage
@@ -53,8 +54,21 @@ func (m *Migrator) migrateFiles(ctx context.Context, collections []PBCollection)
 	errorCount := 0
 
 	for _, coll := range fileCollections {
-		collectionPath := filepath.Join(m.opts.SourcePath, "storage", coll.Name)
-		if _, err := os.Stat(collectionPath); os.IsNotExist(err) {
+		collectionPath := ""
+		candidates := []string{
+			filepath.Join(m.opts.SourcePath, "storage", coll.Name), // older PB layout
+		}
+		if coll.ID != "" {
+			candidates = append(candidates, filepath.Join(m.opts.SourcePath, "storage", coll.ID)) // newer PB layout
+		}
+		for _, candidate := range candidates {
+			info, err := os.Stat(candidate)
+			if err == nil && info.IsDir() {
+				collectionPath = candidate
+				break
+			}
+		}
+		if collectionPath == "" {
 			if m.verbose {
 				fmt.Fprintf(m.output, "  %s: no files (skipping)\n", coll.Name)
 			}
@@ -70,7 +84,7 @@ func (m *Migrator) migrateFiles(ctx context.Context, collections []PBCollection)
 		// Count files first
 		fileCount := 0
 		filepath.Walk(collectionPath, func(path string, info os.FileInfo, err error) error {
-			if err == nil && !info.IsDir() {
+			if err == nil && !info.IsDir() && !strings.HasSuffix(info.Name(), ".attrs") {
 				fileCount++
 			}
 			return nil
@@ -96,6 +110,9 @@ func (m *Migrator) migrateFiles(ctx context.Context, collections []PBCollection)
 
 			if info.IsDir() {
 				return nil // Skip directories
+			}
+			if strings.HasSuffix(info.Name(), ".attrs") {
+				return nil // Skip PocketBase metadata files
 			}
 
 			// Get relative path from collection directory

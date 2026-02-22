@@ -86,7 +86,7 @@ func runSQL(cmd *cobra.Command, args []string) error {
 		req.Header.Set("Authorization", "Bearer "+token)
 	}
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := cliHTTPClient.Do(req)
 	if err != nil {
 		return fmt.Errorf("connecting to server: %w", err)
 	}
@@ -130,8 +130,10 @@ func runSQL(cmd *cobra.Command, args []string) error {
 		vals := make([]string, len(row))
 		for j, cell := range row {
 			var v any
-			json.Unmarshal(cell, &v)
-			if v == nil {
+			if err := json.Unmarshal(cell, &v); err != nil {
+				// Fallback: use raw JSON string if cell can't be parsed.
+				vals[j] = string(cell)
+			} else if v == nil {
 				if outFmt == "csv" {
 					vals[j] = ""
 				} else {

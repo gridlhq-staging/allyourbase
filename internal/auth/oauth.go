@@ -20,10 +20,10 @@ import (
 
 // Sentinel errors for OAuth.
 var (
-	ErrOAuthStateMismatch  = errors.New("OAuth state mismatch")
-	ErrOAuthCodeExchange   = errors.New("OAuth code exchange failed")
-	ErrOAuthProviderError  = errors.New("OAuth provider error")
-	ErrOAuthNotConfigured  = errors.New("OAuth provider not configured")
+	ErrOAuthStateMismatch = errors.New("OAuth state mismatch")
+	ErrOAuthCodeExchange  = errors.New("OAuth code exchange failed")
+	ErrOAuthProviderError = errors.New("OAuth provider error")
+	ErrOAuthNotConfigured = errors.New("OAuth provider not configured")
 )
 
 // oauthHTTPClient is used for all OAuth HTTP requests. It has a 10-second
@@ -471,6 +471,20 @@ func (s *Service) loginByID(ctx context.Context, userID string) (*User, string, 
 	if err != nil {
 		return nil, "", "", fmt.Errorf("looking up user: %w", err)
 	}
+
+	// If user has MFA enrolled, return a pending token instead of full tokens.
+	hasMFA, err := s.HasSMSMFA(ctx, userID)
+	if err != nil {
+		return nil, "", "", fmt.Errorf("checking MFA enrollment: %w", err)
+	}
+	if hasMFA {
+		pendingToken, err := s.generateMFAPendingToken(user)
+		if err != nil {
+			return nil, "", "", fmt.Errorf("generating MFA pending token: %w", err)
+		}
+		return user, pendingToken, "", nil
+	}
+
 	return s.issueTokens(ctx, user)
 }
 

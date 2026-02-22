@@ -4,10 +4,16 @@ import (
 	"encoding/csv"
 	"fmt"
 	"io"
+	"net/http"
 	"os"
+	"time"
 
 	"github.com/spf13/cobra"
 )
+
+// cliHTTPClient is the shared HTTP client for all CLI commands.
+// It has a 30-second timeout to prevent hanging on unresponsive servers.
+var cliHTTPClient = &http.Client{Timeout: 30 * time.Second}
 
 var (
 	buildVersion = "dev"
@@ -56,6 +62,7 @@ func init() {
 	rootCmd.AddCommand(storageCmd)
 	rootCmd.AddCommand(schemaCmd)
 	rootCmd.AddCommand(rpcCmd)
+	rootCmd.AddCommand(appsCmd)
 	rootCmd.AddCommand(apikeysCmd)
 	rootCmd.AddCommand(mcpCmd)
 	rootCmd.AddCommand(initCmd)
@@ -65,6 +72,8 @@ func init() {
 	rootCmd.AddCommand(secretsCmd)
 	rootCmd.AddCommand(uninstallCmd)
 	rootCmd.AddCommand(demoCmd)
+
+	initHelp()
 }
 
 // Execute runs the root command.
@@ -105,4 +114,39 @@ func writeCSV(w io.Writer, cols []string, rows [][]string) error {
 // writeCSVStdout is a convenience wrapper that writes CSV to os.Stdout.
 func writeCSVStdout(cols []string, rows [][]string) error {
 	return writeCSV(os.Stdout, cols, rows)
+}
+
+// adminRequest makes an authenticated admin HTTP request to the AYB server.
+// It resolves the admin token from --admin-token flag, AYB_ADMIN_TOKEN env,
+// or ~/.ayb/admin-token (auto-login); and the URL from --url flag or default.
+func adminRequest(cmd *cobra.Command, method, path string, body io.Reader) (*http.Response, []byte, error) {
+	token, _ := cmd.Flags().GetString("admin-token")
+	baseURL, _ := cmd.Flags().GetString("url")
+
+	if token == "" {
+		token = adminToken()
+	}
+	if baseURL == "" {
+		baseURL = serverURL()
+	}
+
+	req, err := http.NewRequest(method, baseURL+path, body)
+	if err != nil {
+		return nil, nil, fmt.Errorf("creating request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	if token != "" {
+		req.Header.Set("Authorization", "Bearer "+token)
+	}
+
+	resp, err := cliHTTPClient.Do(req)
+	if err != nil {
+		return nil, nil, fmt.Errorf("connecting to server: %w", err)
+	}
+	defer resp.Body.Close()
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, nil, fmt.Errorf("reading response: %w", err)
+	}
+	return resp, respBody, nil
 }

@@ -8,6 +8,7 @@ interface Props {
   votes: Vote[];
   currentUserId: string | null;
   onClose: (pollId: string) => void;
+  onVote?: (vote: Vote) => void;
 }
 
 const BAR_COLORS = [
@@ -23,7 +24,7 @@ const BAR_COLORS = [
   "bg-teal-500",
 ];
 
-export default function PollCard({ poll, options, votes, currentUserId, onClose }: Props) {
+export default function PollCard({ poll, options, votes, currentUserId, onClose, onVote }: Props) {
   const [voting, setVoting] = useState(false);
   const [error, setError] = useState("");
 
@@ -41,20 +42,23 @@ export default function PollCard({ poll, options, votes, currentUserId, onClose 
   const sorted = [...options].sort((a, b) => a.position - b.position);
 
   async function handleVote(optionId: string) {
-    if (poll.is_closed || voting) return;
+    if (poll.is_closed || voting || !currentUserId) return;
     setError("");
     setVoting(true);
     try {
-      await fetch("/api/rpc/cast_vote", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${ayb.token}`,
-        },
-        body: JSON.stringify({ p_poll_id: poll.id, p_option_id: optionId }),
-      }).then((r) => {
-        if (!r.ok) throw new Error("Vote failed");
-      });
+      // Use the records API (not the cast_vote RPC) so the server publishes an
+      // SSE event that other connected users receive in realtime.
+      let vote: Vote;
+      if (myVote) {
+        vote = await ayb.records.update<Vote>("votes", myVote.id, { option_id: optionId });
+      } else {
+        vote = await ayb.records.create<Vote>("votes", {
+          poll_id: poll.id,
+          option_id: optionId,
+          user_id: currentUserId,
+        });
+      }
+      onVote?.(vote);
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "Vote failed");
     } finally {
@@ -72,7 +76,7 @@ export default function PollCard({ poll, options, votes, currentUserId, onClose 
   }
 
   return (
-    <div className="bg-gray-900 border border-gray-700 rounded-xl p-5">
+    <div data-testid="poll-card" className="bg-gray-900 border border-gray-700 rounded-xl p-5">
       <div className="flex justify-between items-start mb-3">
         <h3 className="text-lg font-semibold">{poll.question}</h3>
         <div className="flex items-center gap-2 flex-shrink-0">

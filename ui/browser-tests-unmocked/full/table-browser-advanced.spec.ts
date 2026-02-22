@@ -75,7 +75,7 @@ test.describe("Table Browser Advanced (Full E2E)", () => {
     // Navigate to SQL Editor via sidebar
     await sidebar.getByRole("button", { name: /^SQL Editor$/i }).click();
 
-    const sqlInput = page.locator('.cm-content[contenteditable="true"]');
+    const sqlInput = page.getByLabel("SQL query");
     await expect(sqlInput).toBeVisible({ timeout: 5000 });
 
     // Create table first (separate execution to avoid multi-statement issues)
@@ -180,7 +180,7 @@ test.describe("Table Browser Advanced (Full E2E)", () => {
     // Cleanup: Drop test table via SQL
     // ============================================================
     await sidebar.getByRole("button", { name: /^SQL Editor$/i }).click();
-    const cleanupSql = page.locator('.cm-content[contenteditable="true"]');
+    const cleanupSql = page.getByLabel("SQL query");
     await expect(cleanupSql).toBeVisible({ timeout: 5000 });
     await cleanupSql.fill(`DROP TABLE IF EXISTS ${tableName};`);
     await page.getByRole("button", { name: /run|execute/i }).click();

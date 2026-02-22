@@ -60,7 +60,7 @@ test.describe("Smoke: Admin Dashboard Setup", () => {
     await sidebar.getByRole("button", { name: /^SQL Editor$/i }).click();
 
     // Step 3: Verify SQL Editor opened
-    const sqlInput = page.locator('.cm-content[contenteditable="true"]');
+    const sqlInput = page.getByLabel("SQL query");
     await expect(sqlInput).toBeVisible({ timeout: 5000 });
 
     // Step 4: Create posts table (UI doesn't support multi-statement SQL)
@@ -80,9 +80,7 @@ test.describe("Smoke: Admin Dashboard Setup", () => {
     let runButton = page.getByRole("button", { name: /run|execute/i });
     await expect(runButton).toBeVisible();
     await runButton.click();
-
-    // Step 6: Wait for execution to complete (look for any result/error display)
-    await page.waitForTimeout(1000);
+    await expect(page.getByText(/statement executed successfully/i)).toBeVisible({ timeout: 10000 });
 
     // Step 7: Insert sample data (separate statement)
     const insertSQL = `
@@ -96,12 +94,9 @@ test.describe("Smoke: Admin Dashboard Setup", () => {
 
     runButton = page.getByRole("button", { name: /run|execute/i });
     await runButton.click();
-
-    // Step 8: Wait for insert to complete
-    await page.waitForTimeout(1000);
-
-    // Step 9: Give database time to commit, then refresh schema
-    await page.waitForTimeout(500);
+    await expect(page.getByText(/rows? affected|statement executed successfully/i).first()).toBeVisible({
+      timeout: 10000,
+    });
 
     const refreshButton = page.getByRole("button", { name: /refresh schema/i });
     await expect(refreshButton).toBeVisible({ timeout: 5000 });
@@ -145,7 +140,7 @@ test.describe("Smoke: Admin Dashboard Setup", () => {
     await sidebar.getByRole("button", { name: /^SQL Editor$/i }).click();
 
     // Execute a SELECT query
-    const sqlInput = page.locator('.cm-content[contenteditable="true"]');
+    const sqlInput = page.getByLabel("SQL query");
     await expect(sqlInput).toBeVisible({ timeout: 5000 });
     await sqlInput.fill(`SELECT * FROM ${tableName};`);
 

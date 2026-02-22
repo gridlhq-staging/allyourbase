@@ -119,7 +119,7 @@ func createStorageExportDir(t *testing.T, buckets map[string]map[string][]byte) 
 func testHashConfig() *FirebaseHashConfig {
 	return &FirebaseHashConfig{
 		Algorithm:           "SCRYPT",
-		Base64SignerKey:      "dGVzdC1zaWduZXIta2V5",
+		Base64SignerKey:     "dGVzdC1zaWduZXIta2V5",
 		Base64SaltSeparator: "Bw==",
 		Rounds:              8,
 		MemCost:             14,
@@ -541,9 +541,9 @@ func TestE2E_StorageMigration(t *testing.T) {
 
 	storageDir := createStorageExportDir(t, map[string]map[string][]byte{
 		"user-uploads": {
-			"images/avatar.png":      []byte("fake-png-data"),
-			"images/banner.jpg":      []byte("fake-jpg-data"),
-			"documents/report.pdf":   []byte("fake-pdf-data"),
+			"images/avatar.png":    []byte("fake-png-data"),
+			"images/banner.jpg":    []byte("fake-jpg-data"),
+			"documents/report.pdf": []byte("fake-pdf-data"),
 		},
 		"public-assets": {
 			"logo.svg": []byte("<svg>test</svg>"),

@@ -149,6 +149,12 @@ func (s *Server) isAdminToken(r *http.Request) bool {
 func (s *Server) requireAdminOrUserAuth(authSvc *auth.Service) func(http.Handler) http.Handler {
 	userAuth := auth.RequireAuth(authSvc)
 	return func(next http.Handler) http.Handler {
+		userNext := next
+		if s.appRL != nil {
+			userNext = s.appRL.Middleware(userNext)
+		}
+		userHandler := userAuth(userNext)
+
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			// Fast path: admin token bypasses user-auth entirely.
 			if s.isAdminToken(r) {
@@ -156,7 +162,7 @@ func (s *Server) requireAdminOrUserAuth(authSvc *auth.Service) func(http.Handler
 				return
 			}
 			// Fall back to the standard user-auth middleware chain.
-			userAuth(next).ServeHTTP(w, r)
+			userHandler.ServeHTTP(w, r)
 		})
 	}
 }

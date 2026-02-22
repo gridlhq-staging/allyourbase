@@ -41,11 +41,11 @@ type RLSPolicy struct {
 
 // TableInfo represents a source table's schema.
 type TableInfo struct {
-	Name       string
-	Columns    []ColumnInfo
-	PrimaryKey string // column name of the PK (empty if composite/none)
+	Name        string
+	Columns     []ColumnInfo
+	PrimaryKey  string // column name of the PK (empty if composite/none)
 	ForeignKeys []ForeignKeyInfo
-	RowCount   int64
+	RowCount    int64
 }
 
 // ColumnInfo describes a single column in a table.
@@ -100,11 +100,11 @@ type MigrationOptions struct {
 	DryRun            bool
 	Force             bool // allow migration when _ayb_users is not empty
 	Verbose           bool
-	SkipRLS           bool // skip RLS policy rewriting
-	SkipOAuth         bool // skip OAuth identity migration
-	SkipData          bool // skip data table migration
-	SkipStorage       bool // skip storage file migration
-	IncludeAnonymous  bool // include is_anonymous users (default: skip)
+	SkipRLS           bool   // skip RLS policy rewriting
+	SkipOAuth         bool   // skip OAuth identity migration
+	SkipData          bool   // skip data table migration
+	SkipStorage       bool   // skip storage file migration
+	IncludeAnonymous  bool   // include is_anonymous users (default: skip)
 	StorageExportPath string // local directory containing exported Supabase storage files
 	StoragePath       string // destination path for AYB storage (default: ./ayb_storage)
 	Progress          migrate.ProgressReporter

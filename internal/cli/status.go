@@ -43,7 +43,7 @@ func runStatus(cmd *cobra.Command, args []string) error {
 	// Check if process is alive.
 	proc, err := os.FindProcess(pid)
 	if err != nil {
-		cleanupPIDFile()
+		cleanupServerFiles()
 		if jsonOut {
 			return json.NewEncoder(out).Encode(map[string]any{"status": "stopped"})
 		}
@@ -51,7 +51,7 @@ func runStatus(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 	if err := proc.Signal(syscall.Signal(0)); err != nil {
-		cleanupPIDFile()
+		cleanupServerFiles()
 		if jsonOut {
 			return json.NewEncoder(out).Encode(map[string]any{"status": "stopped"})
 		}

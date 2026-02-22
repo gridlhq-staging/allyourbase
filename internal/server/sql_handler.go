@@ -11,6 +11,7 @@ import (
 
 	"github.com/allyourbase/ayb/internal/httputil"
 	"github.com/allyourbase/ayb/internal/schema"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -68,7 +69,7 @@ func handleAdminSQL(pool *pgxpool.Pool, sc *schema.CacheHolder) http.HandlerFunc
 
 		start := time.Now()
 
-		rows, err := pool.Query(ctx, req.Query)
+		rows, err := pool.Query(ctx, req.Query, pgx.QueryExecModeSimpleProtocol)
 		if err != nil {
 			httputil.WriteError(w, http.StatusBadRequest, err.Error())
 			return

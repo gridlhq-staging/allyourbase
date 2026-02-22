@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	_ "modernc.org/sqlite" // SQLite driver
 )
@@ -47,13 +48,17 @@ func (r *Reader) Close() error {
 
 // ReadCollections reads all collections from _collections table
 func (r *Reader) ReadCollections() ([]PBCollection, error) {
-	query := `
-		SELECT id, name, type, system, schema, indexes,
+	schemaColumn, err := r.getCollectionsSchemaColumn()
+	if err != nil {
+		return nil, err
+	}
+	query := fmt.Sprintf(`
+		SELECT id, name, type, system, %s, indexes,
 		       listRule, viewRule, createRule, updateRule, deleteRule,
 		       options
 		FROM _collections
 		ORDER BY created
-	`
+	`, schemaColumn)
 
 	rows, err := r.db.Query(query)
 	if err != nil {
@@ -136,6 +141,46 @@ func (r *Reader) ReadCollections() ([]PBCollection, error) {
 	return collections, nil
 }
 
+func (r *Reader) getCollectionsSchemaColumn() (string, error) {
+	rows, err := r.db.Query(`PRAGMA table_info('_collections')`)
+	if err != nil {
+		return "", fmt.Errorf("failed to inspect _collections table: %w", err)
+	}
+	defer rows.Close()
+
+	var hasSchema bool
+	var hasFields bool
+
+	for rows.Next() {
+		var cid int
+		var name string
+		var colType string
+		var notNull int
+		var dflt sql.NullString
+		var pk int
+		if err := rows.Scan(&cid, &name, &colType, &notNull, &dflt, &pk); err != nil {
+			return "", fmt.Errorf("failed to scan _collections table info: %w", err)
+		}
+		switch strings.ToLower(name) {
+		case "schema":
+			hasSchema = true
+		case "fields":
+			hasFields = true
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return "", fmt.Errorf("failed to iterate _collections table info: %w", err)
+	}
+
+	if hasSchema {
+		return "schema", nil
+	}
+	if hasFields {
+		return "fields", nil
+	}
+	return "", fmt.Errorf("_collections is missing both schema and fields columns")
+}
+
 // ReadRecords reads all records from a collection table
 func (r *Reader) ReadRecords(tableName string, schema []PBField) ([]PBRecord, error) {
 	query := fmt.Sprintf("SELECT * FROM %s", SanitizeIdentifier(tableName))
@@ -173,22 +218,22 @@ func (r *Reader) ReadRecords(tableName string, schema []PBField) ([]PBRecord, er
 
 		for i, col := range columns {
 			val := values[i]
+			if b, ok := val.([]byte); ok {
+				val = string(b)
+			}
 
 			// Handle special columns
 			switch col {
 			case "id":
 				if s, ok := val.(string); ok {
 					record.ID = s
+				} else if val != nil {
+					record.ID = fmt.Sprint(val)
 				}
 			case "created":
-				// Convert to time.Time if needed
-				if s, ok := val.(string); ok {
-					record.Data[col] = s // Store as string for now
-				}
+				record.Data[col] = val
 			case "updated":
-				if s, ok := val.(string); ok {
-					record.Data[col] = s
-				}
+				record.Data[col] = val
 			default:
 				record.Data[col] = val
 			}

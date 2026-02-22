@@ -14,12 +14,23 @@ var internalTablePrefixes = []string{
 	"_analytics_",
 	"_pgsodium_",
 	"_prisma_",
-	"schema_migrations",
-	"supabase_migrations",
+}
+
+// internalTableNames lists exact table names known to be managed by Supabase.
+var internalTableNames = map[string]struct{}{
+	"schema_migrations":       {},
+	"supabase_migrations":     {},
+	"buckets_vectors":         {},
+	"vector_indexes":          {},
+	"storage.buckets_vectors": {},
+	"storage.vector_indexes":  {},
 }
 
 // isInternalTable returns true if the table name belongs to a Supabase internal system.
 func isInternalTable(name string) bool {
+	if _, ok := internalTableNames[name]; ok {
+		return true
+	}
 	for _, prefix := range internalTablePrefixes {
 		if strings.HasPrefix(name, prefix) {
 			return true
@@ -178,37 +189,6 @@ func introspectViews(ctx context.Context, db *sql.DB) ([]ViewInfo, error) {
 		views = append(views, v)
 	}
 	return views, rows.Err()
-}
-
-// introspectSequences gets owned sequences from the public schema.
-func introspectSequences(ctx context.Context, db *sql.DB) ([]SequenceInfo, error) {
-	rows, err := db.QueryContext(ctx, `
-		SELECT s.relname AS seq_name,
-		       t.relname AS table_name,
-		       a.attname AS column_name
-		FROM pg_class s
-		JOIN pg_depend d ON d.objid = s.oid
-		JOIN pg_class t ON d.refobjid = t.oid
-		JOIN pg_attribute a ON a.attrelid = t.oid AND a.attnum = d.refobjsubid
-		JOIN pg_namespace n ON s.relnamespace = n.oid
-		WHERE s.relkind = 'S'
-		  AND n.nspname = 'public'
-		ORDER BY s.relname
-	`)
-	if err != nil {
-		return nil, fmt.Errorf("querying sequences: %w", err)
-	}
-	defer rows.Close()
-
-	var seqs []SequenceInfo
-	for rows.Next() {
-		var s SequenceInfo
-		if err := rows.Scan(&s.Name, &s.TableName, &s.ColumnName); err != nil {
-			return nil, fmt.Errorf("scanning sequence: %w", err)
-		}
-		seqs = append(seqs, s)
-	}
-	return seqs, rows.Err()
 }
 
 // pgTypeName maps information_schema data types to PostgreSQL DDL type names.

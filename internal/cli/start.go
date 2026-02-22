@@ -3,13 +3,16 @@ package cli
 import (
 	"context"
 	"crypto/rand"
+	"crypto/tls"
 	"encoding/hex"
 	"fmt"
 	"io"
 	"log/slog"
 	"net"
+	"net/http"
 	"net/url"
 	"os"
+	"os/exec"
 	"os/signal"
 	"path/filepath"
 	"strconv"
@@ -20,17 +23,22 @@ import (
 	"github.com/allyourbase/ayb/internal/auth"
 	"github.com/allyourbase/ayb/internal/cli/ui"
 	"github.com/allyourbase/ayb/internal/config"
+	"github.com/allyourbase/ayb/internal/emailtemplates"
 	"github.com/allyourbase/ayb/internal/fbmigrate"
+	"github.com/allyourbase/ayb/internal/jobs"
 	"github.com/allyourbase/ayb/internal/mailer"
+	"github.com/allyourbase/ayb/internal/matview"
 	"github.com/allyourbase/ayb/internal/migrate"
 	"github.com/allyourbase/ayb/internal/migrations"
 	"github.com/allyourbase/ayb/internal/pbmigrate"
-	"github.com/allyourbase/ayb/internal/sbmigrate"
 	"github.com/allyourbase/ayb/internal/pgmanager"
 	"github.com/allyourbase/ayb/internal/postgres"
+	"github.com/allyourbase/ayb/internal/sbmigrate"
 	"github.com/allyourbase/ayb/internal/schema"
 	"github.com/allyourbase/ayb/internal/server"
+	"github.com/allyourbase/ayb/internal/sms"
 	"github.com/allyourbase/ayb/internal/storage"
+	"github.com/caddyserver/certmagic"
 	"github.com/spf13/cobra"
 )
 
@@ -57,9 +65,48 @@ func init() {
 	startCmd.Flags().String("host", "", "Server host (default 0.0.0.0)")
 	startCmd.Flags().String("config", "", "Path to ayb.toml config file")
 	startCmd.Flags().String("from", "", "Migrate from another platform and start (path to pb_data, or postgres:// URL)")
+	startCmd.Flags().String("domain", "", "Domain for automatic HTTPS via Let's Encrypt (e.g. api.myapp.com)")
+	startCmd.Flags().Bool("foreground", false, "Run in foreground (blocks terminal)")
+	startCmd.Flags().MarkHidden("foreground") //nolint:errcheck
 }
 
 func runStart(cmd *cobra.Command, args []string) error {
+	fg, _ := cmd.Flags().GetBool("foreground")
+	fromValue, _ := cmd.Flags().GetString("from")
+
+	// --from requires interactive output, force foreground.
+	if fromValue != "" {
+		fg = true
+	}
+
+	// Windows doesn't support background mode.
+	if !fg && !detachSupported() {
+		fmt.Fprintln(os.Stderr, "Background mode not supported on this platform, running in foreground.")
+		fg = true
+	}
+
+	if fg {
+		return runStartForeground(cmd, args)
+	}
+	return runStartDetached(cmd, args)
+}
+
+type oauthProviderModeConfigSetter interface {
+	SetOAuthProviderModeConfig(auth.OAuthProviderModeConfig)
+}
+
+func applyOAuthProviderModeConfig(target oauthProviderModeConfigSetter, cfg *config.Config) {
+	if target == nil || cfg == nil || !cfg.Auth.OAuthProviderMode.Enabled {
+		return
+	}
+	target.SetOAuthProviderModeConfig(auth.OAuthProviderModeConfig{
+		AccessTokenDuration:  time.Duration(cfg.Auth.OAuthProviderMode.AccessTokenDuration) * time.Second,
+		RefreshTokenDuration: time.Duration(cfg.Auth.OAuthProviderMode.RefreshTokenDuration) * time.Second,
+		AuthCodeDuration:     time.Duration(cfg.Auth.OAuthProviderMode.AuthCodeDuration) * time.Second,
+	})
+}
+
+func runStartForeground(cmd *cobra.Command, args []string) error {
 	// Collect CLI flag overrides.
 	flags := make(map[string]string)
 	if v, _ := cmd.Flags().GetString("database-url"); v != "" {
@@ -70,6 +117,9 @@ func runStart(cmd *cobra.Command, args []string) error {
 	}
 	if v, _ := cmd.Flags().GetString("host"); v != "" {
 		flags["host"] = v
+	}
+	if v, _ := cmd.Flags().GetString("domain"); v != "" {
+		flags["tls-domain"] = v
 	}
 
 	configPath, _ := cmd.Flags().GetString("config")
@@ -90,6 +140,12 @@ func runStart(cmd *cobra.Command, args []string) error {
 		generatedPassword = hex.EncodeToString(b)
 		cfg.Admin.Password = generatedPassword
 	}
+
+	// Register signal handlers EARLY — before any blocking work (G1).
+	// If user runs `ayb stop` during PG download, we catch it and clean up.
+	sigCh := make(chan os.Signal, 1)
+	signal.Notify(sigCh, syscall.SIGTERM, syscall.SIGINT, syscall.SIGHUP)
+	defer signal.Stop(sigCh)
 
 	// Detect interactive terminal for pretty startup output.
 	isTTY := colorEnabled()
@@ -130,6 +186,13 @@ func runStart(cmd *cobra.Command, args []string) error {
 	// Start managed PostgreSQL if no database URL is configured.
 	var pgMgr *pgmanager.Manager
 	if cfg.Database.URL == "" {
+		// Check for early signal before expensive PG startup.
+		select {
+		case <-sigCh:
+			return nil
+		default:
+		}
+
 		sp.step("Starting managed PostgreSQL...")
 		logger.Info("no database URL configured, starting managed PostgreSQL")
 		pgMgr = pgmanager.New(pgmanager.Config{
@@ -144,6 +207,16 @@ func runStart(cmd *cobra.Command, args []string) error {
 		}
 		cfg.Database.URL = connURL
 		sp.done()
+	}
+
+	// Check for early signal before DB connect.
+	select {
+	case <-sigCh:
+		if pgMgr != nil {
+			_ = pgMgr.Stop()
+		}
+		return nil
+	default:
 	}
 
 	// Connect to PostgreSQL.
@@ -207,6 +280,16 @@ func runStart(cmd *cobra.Command, args []string) error {
 		}
 	}
 
+	// Check for early signal before schema loading.
+	select {
+	case <-sigCh:
+		if pgMgr != nil {
+			_ = pgMgr.Stop()
+		}
+		return nil
+	default:
+	}
+
 	// Initialize schema cache and start watcher.
 	sp.step("Loading schema...")
 	schemaCache := schema.NewCacheHolder(pool.DB(), logger)
@@ -230,8 +313,12 @@ func runStart(cmd *cobra.Command, args []string) error {
 		logger.Info("schema cache ready")
 	}
 
+	// Build mailer (shared between auth service and email template service).
+	mailSvc := buildMailer(cfg, logger)
+
 	// Conditionally create auth service.
 	var authSvc *auth.Service
+	var smsProvider sms.Provider // nil when SMS disabled; set on both authSvc and server
 	if cfg.Auth.Enabled {
 		authSvc = auth.NewService(
 			pool.DB(),
@@ -242,10 +329,9 @@ func runStart(cmd *cobra.Command, args []string) error {
 			logger,
 		)
 
-		// Build mailer and inject into auth service.
-		m := buildMailer(cfg, logger)
+		// Inject mailer into auth service.
 		baseURL := cfg.PublicBaseURL() + "/api"
-		authSvc.SetMailer(m, cfg.Email.FromName, baseURL)
+		authSvc.SetMailer(mailSvc, cfg.Email.FromName, baseURL)
 		if cfg.Auth.MagicLinkEnabled {
 			dur := time.Duration(cfg.Auth.MagicLinkDuration) * time.Second
 			if dur <= 0 {
@@ -254,6 +340,20 @@ func runStart(cmd *cobra.Command, args []string) error {
 			authSvc.SetMagicLinkDuration(dur)
 			logger.Info("magic link auth enabled", "duration", dur)
 		}
+		if cfg.Auth.SMSEnabled {
+			smsProvider = buildSMSProvider(cfg, logger)
+			authSvc.SetSMSProvider(smsProvider)
+			authSvc.SetSMSConfig(sms.Config{
+				CodeLength:       cfg.Auth.SMSCodeLength,
+				Expiry:           time.Duration(cfg.Auth.SMSCodeExpiry) * time.Second,
+				MaxAttempts:      cfg.Auth.SMSMaxAttempts,
+				DailyLimit:       cfg.Auth.SMSDailyLimit,
+				AllowedCountries: cfg.Auth.SMSAllowedCountries,
+				TestPhoneNumbers: cfg.Auth.SMSTestPhoneNumbers,
+			})
+			logger.Info("SMS OTP auth enabled", "provider", cfg.Auth.SMSProvider)
+		}
+		applyOAuthProviderModeConfig(authSvc, cfg)
 		logger.Info("auth enabled", "email_backend", cfg.Email.Backend)
 	}
 
@@ -300,16 +400,75 @@ func runStart(cmd *cobra.Command, args []string) error {
 	sp.step("Starting server...")
 	srv := server.New(cfg, logger, schemaCache, pool.DB(), authSvc, storageSvc)
 
-	// Graceful shutdown on SIGTERM/SIGINT, password reset on SIGUSR1.
-	sigCh := make(chan os.Signal, 1)
-	signal.Notify(sigCh, syscall.SIGTERM, syscall.SIGINT)
+	// Wire SMS provider into server for the transactional messaging API.
+	if smsProvider != nil {
+		srv.SetSMSProvider(cfg.Auth.SMSProvider, smsProvider, cfg.Auth.SMSAllowedCountries)
+	}
 
+	// Wire matview admin service (requires pool for registry table access).
+	if pool != nil {
+		mvStore := matview.NewStore(pool.DB())
+		mvSvc := matview.NewService(mvStore)
+		srv.SetMatviewAdmin(matview.NewAdmin(mvStore, mvSvc))
+	}
+
+	// Wire email template service (requires pool for custom override storage).
+	if pool != nil {
+		etStore := emailtemplates.NewStore(pool.DB())
+		etSvc := emailtemplates.NewService(etStore, emailtemplates.DefaultBuiltins())
+		etSvc.SetLogger(logger)
+		etSvc.SetMailer(mailSvc)
+		srv.SetEmailTemplateService(etSvc)
+		if authSvc != nil {
+			authSvc.SetEmailTemplateService(etSvc)
+		}
+		logger.Info("email template service enabled")
+	}
+
+	// Wire job queue service if enabled.
+	if cfg.Jobs.Enabled && pool != nil {
+		jobStore := jobs.NewStore(pool.DB())
+		jobCfg := jobs.ServiceConfig{
+			WorkerConcurrency: cfg.Jobs.WorkerConcurrency,
+			PollInterval:      time.Duration(cfg.Jobs.PollIntervalMs) * time.Millisecond,
+			LeaseDuration:     time.Duration(cfg.Jobs.LeaseDurationS) * time.Second,
+			SchedulerEnabled:  cfg.Jobs.SchedulerEnabled,
+			SchedulerTick:     time.Duration(cfg.Jobs.SchedulerTickS) * time.Second,
+			ShutdownTimeout:   time.Duration(cfg.Server.ShutdownTimeout) * time.Second,
+			WorkerID:          fmt.Sprintf("ayb-%d", os.Getpid()),
+		}
+		jobSvc := jobs.NewService(jobStore, logger, jobCfg)
+		jobs.RegisterBuiltinHandlers(jobSvc, pool.DB(), logger)
+		srv.SetJobService(jobSvc)
+
+		if err := jobSvc.RegisterDefaultSchedules(ctx); err != nil {
+			logger.Error("failed to register default job schedules", "error", err)
+		}
+
+		jobSvc.Start(ctx)
+		logger.Info("job queue enabled",
+			"workers", cfg.Jobs.WorkerConcurrency,
+			"poll_interval_ms", cfg.Jobs.PollIntervalMs,
+			"scheduler_tick_s", cfg.Jobs.SchedulerTickS,
+		)
+	}
+
+	// Password reset on SIGUSR1.
 	usrCh := notifyUSR1()
 
 	ready := make(chan struct{})
 	errCh := make(chan error, 1)
 	go func() {
-		errCh <- srv.StartWithReady(ready)
+		if cfg.Server.TLSEnabled {
+			ln, err := buildTLSListener(ctx, cfg, logger)
+			if err != nil {
+				errCh <- err
+				return
+			}
+			errCh <- srv.StartTLSWithReady(ln, ready)
+		} else {
+			errCh <- srv.StartWithReady(ready)
+		}
 	}()
 
 	// Wait for port to be bound before printing banner.
@@ -379,6 +538,9 @@ func runStart(cmd *cobra.Command, args []string) error {
 		return err
 	case sig := <-sigCh:
 		logger.Info("received signal, shutting down", "signal", sig)
+		fmt.Fprintf(os.Stderr, "\n  Shutting down... (press Ctrl-C again to force)\n")
+		signal.Stop(sigCh) // Second Ctrl-C triggers Go default (immediate exit).
+
 		watcherCancel()
 		if err := srv.Shutdown(ctx); err != nil {
 			logger.Error("shutdown error", "error", err)
@@ -390,6 +552,210 @@ func runStart(cmd *cobra.Command, args []string) error {
 		}
 		return nil
 	}
+}
+
+// buildChildArgs constructs args for the re-exec'd child process.
+// Uses os.Args directly to avoid cobra Flags().Visit() bugs (#1019, #1315).
+
+// runStartDetached re-execs `ayb start --foreground` in a detached session,
+// polls for readiness, prints the banner, and exits. Like pg_ctl start.
+func runStartDetached(cmd *cobra.Command, _ []string) error {
+	// --- 1. Already running? ---
+	if pid, port, err := readAYBPID(); err == nil {
+		proc, findErr := os.FindProcess(pid)
+		if findErr == nil && proc.Signal(syscall.Signal(0)) == nil {
+			// Process alive. Check health.
+			client := &http.Client{Timeout: 2 * time.Second}
+			healthURL := fmt.Sprintf("http://127.0.0.1:%d/health", port)
+			if resp, hErr := client.Get(healthURL); hErr == nil {
+				resp.Body.Close()
+				if resp.StatusCode == http.StatusOK {
+					fmt.Fprintf(os.Stderr, "AYB server is already running (PID %d, port %d).\n", pid, port)
+					fmt.Fprintf(os.Stderr, "Stop with: ayb stop\n")
+					return nil
+				}
+			}
+			// Process alive but health fails — still starting up (G7).
+			return waitForExistingServer(port)
+		}
+		// Stale PID file.
+		cleanupServerFiles()
+	}
+
+	// --- 2. Load config (for port, banner info) ---
+	configPath, _ := cmd.Flags().GetString("config")
+	flags := make(map[string]string)
+	if v, _ := cmd.Flags().GetString("database-url"); v != "" {
+		flags["database-url"] = v
+	}
+	if v, _ := cmd.Flags().GetInt("port"); v != 0 {
+		flags["port"] = fmt.Sprintf("%d", v)
+	}
+	if v, _ := cmd.Flags().GetString("host"); v != "" {
+		flags["host"] = v
+	}
+
+	cfg, err := config.Load(configPath, flags)
+	if err != nil {
+		return fmt.Errorf("loading config: %w", err)
+	}
+
+	// --- 3. Early port check ---
+	if ln, err := net.Listen("tcp", cfg.Address()); err != nil {
+		return portError(cfg.Server.Port, err)
+	} else {
+		ln.Close()
+	}
+
+	// --- 4. Detect first run (G6) ---
+	firstRun := isFirstRun()
+	timeout := 60 * time.Second
+	if firstRun {
+		timeout = 300 * time.Second
+	}
+
+	// --- 5. Build child command (G2, G3) ---
+	exePath, err := os.Executable()
+	if err != nil {
+		return fmt.Errorf("resolving executable: %w", err)
+	}
+	exePath, err = filepath.EvalSymlinks(exePath)
+	if err != nil {
+		return fmt.Errorf("resolving executable symlinks: %w", err)
+	}
+
+	childArgs := buildChildArgs()
+	child := exec.Command(exePath, childArgs...)
+	child.Dir, _ = os.Getwd()
+	child.Env = os.Environ()
+
+	// --- 6. Redirect child output to log file (G9: must be *os.File) ---
+	logPath := logFilePath()
+	if logPath != "" {
+		logFile, err := os.OpenFile(logPath, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644)
+		if err != nil {
+			return fmt.Errorf("opening log file: %w", err)
+		}
+		defer logFile.Close()
+		child.Stdout = logFile
+		child.Stderr = logFile
+	}
+
+	// --- 7. Detach (G8: setDetachAttrs is no-op on Windows) ---
+	setDetachAttrs(child)
+
+	// --- 8. Start ---
+	isTTY := colorEnabled()
+	sp := newStartupProgress(os.Stderr, isTTY, isTTY)
+	sp.header(bannerVersion(buildVersion))
+
+	if firstRun {
+		sp.step("Downloading PostgreSQL and starting server (first run)...")
+	} else {
+		sp.step("Starting server...")
+	}
+
+	if err := child.Start(); err != nil {
+		sp.fail()
+		return fmt.Errorf("starting server process: %w", err)
+	}
+
+	// Detect early child death (G10).
+	childDone := make(chan struct{})
+	go func() {
+		child.Wait()
+		close(childDone)
+	}()
+
+	// --- 9. Poll for readiness (G4: check health AND admin-token file) ---
+	port := cfg.Server.Port
+	healthURL := fmt.Sprintf("http://127.0.0.1:%d/health", port)
+	httpClient := &http.Client{Timeout: 2 * time.Second}
+	deadline := time.Now().Add(timeout)
+	ticker := time.NewTicker(300 * time.Millisecond)
+	defer ticker.Stop()
+
+	needAdminToken := cfg.Admin.Enabled && cfg.Admin.Password == ""
+	tokenPath, _ := aybAdminTokenPath()
+
+	for {
+		select {
+		case <-childDone:
+			sp.fail()
+			return fmt.Errorf("server exited during startup (check %s)", logPath)
+		case <-ticker.C:
+			if time.Now().After(deadline) {
+				sp.fail()
+				_ = child.Process.Signal(syscall.SIGTERM)
+				return fmt.Errorf("server did not become ready within %s (check %s)", timeout, logPath)
+			}
+			resp, err := httpClient.Get(healthURL)
+			if err != nil {
+				continue
+			}
+			resp.Body.Close()
+			if resp.StatusCode != http.StatusOK {
+				continue
+			}
+			// Health OK. Also wait for admin-token file if needed (G4).
+			if needAdminToken {
+				if _, err := os.Stat(tokenPath); err != nil {
+					continue // token not written yet
+				}
+			}
+			// Ready!
+			sp.done()
+			goto ready
+		}
+	}
+
+ready:
+	// --- 10. Read admin password ---
+	generatedPassword := ""
+	if needAdminToken {
+		if data, err := os.ReadFile(tokenPath); err == nil {
+			generatedPassword = strings.TrimSpace(string(data))
+		}
+	}
+
+	// --- 11. Print banner ---
+	embeddedPG := cfg.Database.URL == ""
+	if isTTY {
+		printBannerBodyTo(os.Stderr, cfg, embeddedPG, true, generatedPassword, logPath)
+	} else {
+		printBanner(cfg, embeddedPG, generatedPassword, logPath)
+	}
+
+	fmt.Fprintf(os.Stderr, "  %s\n\n", dim("Stop with: ayb stop", isTTY))
+
+	return nil
+}
+
+// waitForExistingServer polls an already-running server until it becomes healthy (G7).
+func waitForExistingServer(port int) error {
+	isTTY := colorEnabled()
+	sp := newStartupProgress(os.Stderr, isTTY, isTTY)
+	sp.step("Waiting for server to become ready...")
+
+	healthURL := fmt.Sprintf("http://127.0.0.1:%d/health", port)
+	client := &http.Client{Timeout: 2 * time.Second}
+	deadline := time.Now().Add(60 * time.Second)
+
+	for time.Now().Before(deadline) {
+		time.Sleep(300 * time.Millisecond)
+		resp, err := client.Get(healthURL)
+		if err != nil {
+			continue
+		}
+		resp.Body.Close()
+		if resp.StatusCode == http.StatusOK {
+			sp.done()
+			fmt.Fprintf(os.Stderr, "AYB server is running (port %d).\n", port)
+			return nil
+		}
+	}
+	sp.fail()
+	return fmt.Errorf("existing server (port %d) did not become ready within 60s", port)
 }
 
 // aybPIDPath returns the path to the AYB server PID file (~/.ayb/ayb.pid).
@@ -439,8 +805,11 @@ func readAYBPID() (int, int, error) {
 		return 0, 0, fmt.Errorf("parsing pid: %w", err)
 	}
 	var port int
-	if len(lines) > 1 {
-		port, _ = strconv.Atoi(strings.TrimSpace(lines[1]))
+	if len(lines) > 1 && strings.TrimSpace(lines[1]) != "" {
+		port, err = strconv.Atoi(strings.TrimSpace(lines[1]))
+		if err != nil {
+			return 0, 0, fmt.Errorf("parsing port: %w", err)
+		}
 	}
 	return pid, port, nil
 }
@@ -474,6 +843,32 @@ func buildMailer(cfg *config.Config, logger *slog.Logger) mailer.Mailer {
 		})
 	default:
 		return mailer.NewLogMailer(logger)
+	}
+}
+
+func buildSMSProvider(cfg *config.Config, logger *slog.Logger) sms.Provider {
+	switch cfg.Auth.SMSProvider {
+	case "twilio":
+		return sms.NewTwilioProvider(cfg.Auth.TwilioSID, cfg.Auth.TwilioToken, cfg.Auth.TwilioFrom, "")
+	case "plivo":
+		return sms.NewPlivoProvider(cfg.Auth.PlivoAuthID, cfg.Auth.PlivoAuthToken, cfg.Auth.PlivoFrom, "")
+	case "telnyx":
+		return sms.NewTelnyxProvider(cfg.Auth.TelnyxAPIKey, cfg.Auth.TelnyxFrom, "")
+	case "msg91":
+		return sms.NewMSG91Provider(cfg.Auth.MSG91AuthKey, cfg.Auth.MSG91TemplateID, "")
+	case "sns":
+		publisher, err := newSNSPublisher(cfg.Auth.AWSRegion)
+		if err != nil {
+			logger.Error("failed to create AWS SNS client, falling back to log provider", "error", err)
+			return sms.NewLogProvider(logger)
+		}
+		return sms.NewSNSProvider(publisher)
+	case "vonage":
+		return sms.NewVonageProvider(cfg.Auth.VonageAPIKey, cfg.Auth.VonageAPISecret, cfg.Auth.VonageFrom, "")
+	case "webhook":
+		return sms.NewWebhookProvider(cfg.Auth.SMSWebhookURL, cfg.Auth.SMSWebhookSecret)
+	default:
+		return sms.NewLogProvider(logger)
 	}
 }
 
@@ -628,6 +1023,66 @@ func newStartupProgress(w io.Writer, active bool, useColor bool) *startupProgres
 	}
 }
 
+// portInUse returns true if the given port is already bound on the local machine.
+func portInUse(port int) bool {
+	if port <= 0 {
+		return false
+	}
+	ln, err := net.Listen("tcp", fmt.Sprintf(":%d", port))
+	if err != nil {
+		return true
+	}
+	ln.Close()
+	return false
+}
+
+// healthCheckURL returns the URL to poll for health during background startup.
+// TLS always listens on port 443; plain HTTP uses the configured port.
+func healthCheckURL(cfg *config.Config) string {
+	if cfg.Server.TLSEnabled {
+		return "https://127.0.0.1:443/health"
+	}
+	port := cfg.Server.Port
+	if port == 0 {
+		port = 8090
+	}
+	return fmt.Sprintf("http://127.0.0.1:%d/health", port)
+}
+
+// buildChildArgs returns the arguments to pass when re-exec'ing as a background
+// child. It takes os.Args[1:], strips any existing --foreground flags, and
+// appends --foreground so the child runs in the foreground.
+func buildChildArgs() []string {
+	args := make([]string, 0, len(os.Args))
+	for _, a := range os.Args[1:] {
+		if a == "--foreground" || strings.HasPrefix(a, "--foreground=") {
+			continue
+		}
+		args = append(args, a)
+	}
+	return append(args, "--foreground")
+}
+
+// cleanupServerFiles removes the PID and admin token files left by a previous run.
+func cleanupServerFiles() {
+	if pidPath, err := aybPIDPath(); err == nil {
+		os.Remove(pidPath) //nolint:errcheck
+	}
+	if tokenPath, err := aybAdminTokenPath(); err == nil {
+		os.Remove(tokenPath) //nolint:errcheck
+	}
+}
+
+// isFirstRun returns true when AYB has never downloaded its embedded PostgreSQL.
+func isFirstRun() bool {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return true
+	}
+	_, err = os.Stat(filepath.Join(home, ".ayb", "pg", "postgres.txz"))
+	return os.IsNotExist(err)
+}
+
 func (sp *startupProgress) header(version string) {
 	if !sp.active {
 		return
@@ -656,6 +1111,55 @@ func (sp *startupProgress) fail() {
 		return
 	}
 	sp.spinner.Fail()
+}
+
+// buildTLSListener uses certmagic to obtain a Let's Encrypt certificate and
+// returns a TLS net.Listener on port 443. It also starts an HTTP-01 challenge
+// responder + HTTP→HTTPS redirect on port 80 in a background goroutine.
+func buildTLSListener(ctx context.Context, cfg *config.Config, logger *slog.Logger) (net.Listener, error) {
+	certDir := cfg.Server.TLSCertDir
+	if certDir == "" {
+		home, _ := os.UserHomeDir()
+		certDir = filepath.Join(home, ".ayb", "certs")
+	}
+
+	if cfg.Server.TLSEmail != "" {
+		certmagic.DefaultACME.Email = cfg.Server.TLSEmail
+	}
+
+	magic := certmagic.NewDefault()
+	magic.Storage = &certmagic.FileStorage{Path: certDir}
+
+	logger.Info("obtaining TLS certificate", "domain", cfg.Server.TLSDomain)
+	if err := magic.ManageSync(ctx, []string{cfg.Server.TLSDomain}); err != nil {
+		return nil, fmt.Errorf("obtaining TLS certificate for %s: %w", cfg.Server.TLSDomain, err)
+	}
+
+	tlsCfg := magic.TLSConfig()
+
+	// Port 80: handle HTTP-01 ACME challenges and redirect everything else to https.
+	go func() {
+		domain := cfg.Server.TLSDomain
+		handler := certmagic.DefaultACME.HTTPChallengeHandler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			target := "https://" + domain + r.RequestURI
+			http.Redirect(w, r, target, http.StatusMovedPermanently)
+		}))
+		srv := &http.Server{
+			Addr:              ":80",
+			Handler:           handler,
+			ReadHeaderTimeout: 10 * time.Second,
+			IdleTimeout:       120 * time.Second,
+		}
+		if err := srv.ListenAndServe(); err != nil {
+			logger.Warn("HTTP redirect listener error", "error", err)
+		}
+	}()
+
+	ln, err := tls.Listen("tcp", fmt.Sprintf("%s:443", cfg.Server.Host), tlsCfg)
+	if err != nil {
+		return nil, fmt.Errorf("TLS listen on :443: %w", err)
+	}
+	return ln, nil
 }
 
 // portError wraps common listen errors with actionable suggestions.
@@ -728,7 +1232,13 @@ func printBannerBodyTo(w io.Writer, cfg *config.Config, embeddedPG bool, useColo
 	fmt.Fprintln(w)
 	fmt.Fprintf(w, "  %s\n", dim("Try:", useColor))
 	fmt.Fprintf(w, "%s\n", green(`ayb sql "CREATE TABLE posts (id serial PRIMARY KEY, title text)"`, useColor))
-	fmt.Fprintf(w, "%s\n", green(fmt.Sprintf("curl %s/schema", apiURL), useColor))
+	fmt.Fprintf(w, "%s\n", green("ayb schema", useColor))
+	fmt.Fprintln(w)
+
+	// Demo hints — show new users how to run the bundled demo apps.
+	fmt.Fprintf(w, "  %s\n", dim("Demos:", useColor))
+	fmt.Fprintf(w, "%s  %s\n", green("ayb demo kanban    ", useColor), dim("# Trello-lite kanban board  (port 5173)", useColor))
+	fmt.Fprintf(w, "%s  %s\n", green("ayb demo live-polls", useColor), dim("# real-time polling app     (port 5175)", useColor))
 	fmt.Fprintln(w)
 }
 
@@ -860,7 +1370,8 @@ func runFromSupabase(ctx context.Context, sourceURL string, databaseURL string, 
 	}
 
 	// Validation summary.
-	summary := sbmigrate.BuildValidationSummary(report, stats)
+	summaryReport := normalizeSupabaseSummaryReport(report, false, false, false, false, "")
+	summary := sbmigrate.BuildValidationSummary(summaryReport, stats)
 	summary.PrintSummary(os.Stderr)
 
 	return nil

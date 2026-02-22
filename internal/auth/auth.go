@@ -14,12 +14,13 @@ import (
 	"sync"
 	"time"
 
+	"github.com/allyourbase/ayb/internal/fbmigrate"
 	"github.com/allyourbase/ayb/internal/mailer"
+	"github.com/allyourbase/ayb/internal/sms"
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/allyourbase/ayb/internal/fbmigrate"
 	"golang.org/x/crypto/argon2"
 	"golang.org/x/crypto/bcrypt"
 )
@@ -33,6 +34,9 @@ var (
 	ErrInvalidResetToken   = errors.New("invalid or expired reset token")
 	ErrInvalidVerifyToken  = errors.New("invalid or expired verification token")
 	ErrUserNotFound        = errors.New("user not found")
+	ErrDailyLimitExceeded  = errors.New("daily SMS limit exceeded")
+	ErrInvalidSMSCode      = errors.New("invalid or expired SMS code")
+	ErrInvalidPhoneNumber  = sms.ErrInvalidPhoneNumber
 )
 
 // argon2id parameters. Vars (not consts) so tests can lower them for speed.
@@ -60,12 +64,67 @@ type Service struct {
 	appName      string        // used in email templates
 	baseURL      string        // public base URL for action links
 	magicLinkDur time.Duration // 0 = use default (10 min)
+	smsProvider      sms.Provider  // nil = SMS features disabled
+	smsConfig        sms.Config
+	oauthProviderCfg OAuthProviderModeConfig
+	emailTplSvc      EmailTemplateRenderer // nil = use legacy hardcoded templates
+}
+
+// EmailTemplateRenderer renders email templates by key with variable substitution.
+// When set on auth.Service, email flows use custom templates with fallback to built-in defaults.
+type EmailTemplateRenderer interface {
+	// RenderWithFallback renders a template for the given key. If the custom
+	// template fails (parse error, timeout, missing var), it falls back to
+	// the built-in default. Returns error only if the built-in also fails.
+	RenderWithFallback(ctx context.Context, key string, vars map[string]string) (subject, html, text string, err error)
+}
+
+// SetEmailTemplateService wires the template service for customizable email flows.
+func (s *Service) SetEmailTemplateService(svc EmailTemplateRenderer) {
+	s.emailTplSvc = svc
+}
+
+// legacyRenderFuncs maps template keys to their legacy render functions.
+var legacyRenderFuncs = map[string]func(mailer.TemplateData) (string, string, error){
+	"auth.password_reset":     mailer.RenderPasswordReset,
+	"auth.email_verification": mailer.RenderVerification,
+	"auth.magic_link":         mailer.RenderMagicLink,
+}
+
+// legacySubjects maps template keys to their default subjects.
+var legacySubjects = map[string]string{
+	"auth.password_reset":     mailer.DefaultPasswordResetSubject,
+	"auth.email_verification": mailer.DefaultVerificationSubject,
+	"auth.magic_link":         mailer.DefaultMagicLinkSubject,
+}
+
+// renderAuthEmail renders an email using the template service if available,
+// falling back to the legacy built-in render functions.
+func (s *Service) renderAuthEmail(ctx context.Context, key string, vars map[string]string) (subject, html, text string, err error) {
+	if s.emailTplSvc != nil {
+		return s.emailTplSvc.RenderWithFallback(ctx, key, vars)
+	}
+	// Legacy path: use hardcoded render functions.
+	renderFn, ok := legacyRenderFuncs[key]
+	if !ok {
+		return "", "", "", fmt.Errorf("unknown auth email template key: %s", key)
+	}
+	data := mailer.TemplateData{
+		AppName:   vars["AppName"],
+		ActionURL: vars["ActionURL"],
+	}
+	html, text, err = renderFn(data)
+	if err != nil {
+		return "", "", "", err
+	}
+	return legacySubjects[key], html, text, nil
 }
 
 // User represents a registered user (without password hash).
 type User struct {
 	ID        string    `json:"id"`
 	Email     string    `json:"email"`
+	Phone     string    `json:"phone,omitempty"`
 	CreatedAt time.Time `json:"createdAt"`
 	UpdatedAt time.Time `json:"updatedAt"`
 }
@@ -76,6 +135,10 @@ type Claims struct {
 	Email         string   `json:"email"`
 	APIKeyScope   string   `json:"apiKeyScope,omitempty"`   // "*", "readonly", "readwrite"; empty for JWT
 	AllowedTables []string `json:"allowedTables,omitempty"` // empty = all tables
+	AppID              string   `json:"appId,omitempty"`              // set when API key is app-scoped
+	AppRateLimitRPS    int      `json:"appRateLimitRps,omitempty"`    // app's configured RPS limit (0 = unlimited)
+	AppRateLimitWindow int      `json:"appRateLimitWindow,omitempty"` // app's rate limit window in seconds
+	MFAPending         bool     `json:"mfa_pending,omitempty"`
 }
 
 // API key scope constants.
@@ -179,10 +242,10 @@ func (s *Service) Login(ctx context.Context, email, password string) (*User, str
 	var user User
 	var hash string
 	err := s.pool.QueryRow(ctx,
-		`SELECT id, email, password_hash, created_at, updated_at
+		`SELECT id, email, COALESCE(phone, ''), password_hash, created_at, updated_at
 		 FROM _ayb_users WHERE LOWER(email) = $1`,
 		email,
-	).Scan(&user.ID, &user.Email, &hash, &user.CreatedAt, &user.UpdatedAt)
+	).Scan(&user.ID, &user.Email, &user.Phone, &hash, &user.CreatedAt, &user.UpdatedAt)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, "", "", ErrInvalidCredentials
@@ -203,6 +266,19 @@ func (s *Service) Login(ctx context.Context, email, password string) (*User, str
 		if err := s.upgradePasswordHash(ctx, user.ID, password); err != nil {
 			s.logger.Error("failed to upgrade password hash", "user_id", user.ID, "error", err)
 		}
+	}
+
+	// If user has MFA enrolled, return a pending token instead of full tokens.
+	hasMFA, err := s.HasSMSMFA(ctx, user.ID)
+	if err != nil {
+		return nil, "", "", fmt.Errorf("checking MFA enrollment: %w", err)
+	}
+	if hasMFA {
+		pendingToken, err := s.generateMFAPendingToken(&user)
+		if err != nil {
+			return nil, "", "", fmt.Errorf("generating MFA pending token: %w", err)
+		}
+		return &user, pendingToken, "", nil
 	}
 
 	return s.issueTokens(ctx, &user)
@@ -234,9 +310,9 @@ func (s *Service) ValidateToken(tokenString string) (*Claims, error) {
 func (s *Service) UserByID(ctx context.Context, id string) (*User, error) {
 	var user User
 	err := s.pool.QueryRow(ctx,
-		`SELECT id, email, created_at, updated_at FROM _ayb_users WHERE id = $1`,
+		`SELECT id, email, COALESCE(phone, ''), created_at, updated_at FROM _ayb_users WHERE id = $1`,
 		id,
-	).Scan(&user.ID, &user.Email, &user.CreatedAt, &user.UpdatedAt)
+	).Scan(&user.ID, &user.Email, &user.Phone, &user.CreatedAt, &user.UpdatedAt)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, fmt.Errorf("user not found")
@@ -524,10 +600,25 @@ func (s *Service) SetMailer(m mailer.Mailer, appName, baseURL string) {
 	s.baseURL = strings.TrimRight(baseURL, "/")
 }
 
+// SetSMSProvider sets the SMS provider for phone-based auth flows.
+func (s *Service) SetSMSProvider(p sms.Provider) {
+	s.smsProvider = p
+}
+
+// SetSMSConfig sets the SMS configuration.
+func (s *Service) SetSMSConfig(c sms.Config) {
+	s.smsConfig = c
+}
+
+// DB returns the database pool (needed by integration tests).
+func (s *Service) DB() *pgxpool.Pool {
+	return s.pool
+}
+
 const (
-	resetTokenBytes  = 32
-	resetTokenExpiry = 1 * time.Hour
-	verifyTokenBytes = 32
+	resetTokenBytes   = 32
+	resetTokenExpiry  = 1 * time.Hour
+	verifyTokenBytes  = 32
 	verifyTokenExpiry = 24 * time.Hour
 )
 
@@ -569,17 +660,15 @@ func (s *Service) RequestPasswordReset(ctx context.Context, email string) error 
 	}
 
 	actionURL := s.baseURL + "/auth/password-reset/confirm?token=" + plaintext
-	html, text, err := mailer.RenderPasswordReset(mailer.TemplateData{
-		AppName:   s.appName,
-		ActionURL: actionURL,
-	})
+	vars := map[string]string{"AppName": s.appName, "ActionURL": actionURL}
+	subject, html, text, err := s.renderAuthEmail(ctx, "auth.password_reset", vars)
 	if err != nil {
 		return fmt.Errorf("rendering reset email: %w", err)
 	}
 
 	if err := s.mailer.Send(ctx, &mailer.Message{
 		To:      email,
-		Subject: "Reset your password",
+		Subject: subject,
 		HTML:    html,
 		Text:    text,
 	}); err != nil {
@@ -663,17 +752,15 @@ func (s *Service) SendVerificationEmail(ctx context.Context, userID, email strin
 	}
 
 	actionURL := s.baseURL + "/auth/verify?token=" + plaintext
-	html, text, err := mailer.RenderVerification(mailer.TemplateData{
-		AppName:   s.appName,
-		ActionURL: actionURL,
-	})
+	vars := map[string]string{"AppName": s.appName, "ActionURL": actionURL}
+	subject, html, text, err := s.renderAuthEmail(ctx, "auth.email_verification", vars)
 	if err != nil {
 		return fmt.Errorf("rendering verification email: %w", err)
 	}
 
 	if err := s.mailer.Send(ctx, &mailer.Message{
 		To:      email,
-		Subject: "Verify your email",
+		Subject: subject,
 		HTML:    html,
 		Text:    text,
 	}); err != nil {
@@ -828,10 +915,30 @@ func (s *Service) ListUsers(ctx context.Context, page, perPage int, search strin
 	}, nil
 }
 
-// DeleteUser removes a user by ID, including all their sessions.
-// Returns ErrUserNotFound if the user doesn't exist.
+// DeleteUser removes a user by ID, including all their sessions, apps, and
+// app-scoped API keys. The _ayb_apps FK uses ON DELETE CASCADE from the user,
+// but _ayb_api_keys.app_id uses ON DELETE RESTRICT to prevent silent privilege
+// escalation. We must detach keys from the user's apps before the cascade can
+// proceed.
 func (s *Service) DeleteUser(ctx context.Context, id string) error {
-	result, err := s.pool.Exec(ctx,
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("beginning transaction: %w", err)
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck
+
+	// Revoke active app-scoped keys and detach all keys from the user's apps.
+	// This satisfies the ON DELETE RESTRICT FK on api_keys.app_id so that the
+	// subsequent CASCADE delete of _ayb_apps rows can succeed.
+	_, err = tx.Exec(ctx,
+		`UPDATE _ayb_api_keys
+		 SET revoked_at = COALESCE(revoked_at, NOW()), app_id = NULL
+		 WHERE app_id IN (SELECT id FROM _ayb_apps WHERE owner_user_id = $1)`, id)
+	if err != nil {
+		return fmt.Errorf("detaching app keys before user delete: %w", err)
+	}
+
+	result, err := tx.Exec(ctx,
 		`DELETE FROM _ayb_users WHERE id = $1`, id,
 	)
 	if err != nil {
@@ -840,6 +947,11 @@ func (s *Service) DeleteUser(ctx context.Context, id string) error {
 	if result.RowsAffected() == 0 {
 		return ErrUserNotFound
 	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("committing user delete: %w", err)
+	}
+
 	s.logger.Info("user deleted by admin", "user_id", id)
 	return nil
 }

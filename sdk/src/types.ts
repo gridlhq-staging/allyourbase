@@ -41,6 +41,66 @@ export interface User {
   updatedAt?: string;
 }
 
+/** Registered app (matches admin apps API response). */
+export interface App {
+  id: string;
+  name: string;
+  description: string;
+  ownerUserId: string;
+  rateLimitRps: number;
+  rateLimitWindowSeconds: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** Paginated app list envelope returned by admin apps API. */
+export interface AppListResponse {
+  items: App[];
+  page: number;
+  perPage: number;
+  totalItems: number;
+  totalPages: number;
+}
+
+/** Admin API key record (matches admin api-keys API response). */
+export interface AdminAPIKey {
+  id: string;
+  userId: string;
+  name: string;
+  keyPrefix: string;
+  scope: string;
+  allowedTables: string[] | null;
+  appId: string | null;
+  lastUsedAt: string | null;
+  expiresAt: string | null;
+  createdAt: string;
+  revokedAt: string | null;
+}
+
+/** Paginated admin API key list envelope. */
+export interface AdminAPIKeyListResponse {
+  items: AdminAPIKey[];
+  page: number;
+  perPage: number;
+  totalItems: number;
+  totalPages: number;
+}
+
+/** Request body for creating an admin API key. */
+export interface CreateAdminAPIKeyRequest {
+  userId: string;
+  name: string;
+  scope?: string;
+  allowedTables?: string[];
+  appId?: string;
+}
+
+/** Response body when an admin API key is created. */
+export interface CreateAdminAPIKeyResponse {
+  key: string;
+  apiKey: AdminAPIKey;
+}
+
 /** Realtime event from SSE stream. */
 export interface RealtimeEvent {
   action: "create" | "update" | "delete";
@@ -78,6 +138,69 @@ export interface BatchResult<T = Record<string, unknown>> {
 export interface ClientOptions {
   /** Custom fetch implementation (e.g. for Node.js < 18). */
   fetch?: typeof globalThis.fetch;
+}
+
+/** Registered OAuth client (matches admin OAuth clients API response). */
+export interface OAuthClient {
+  id: string;
+  appId: string;
+  clientId: string;
+  name: string;
+  redirectUris: string[];
+  scopes: string[];
+  clientType: "confidential" | "public";
+  createdAt: string;
+  updatedAt: string;
+  revokedAt: string | null;
+  activeAccessTokenCount: number;
+  activeRefreshTokenCount: number;
+  totalGrants: number;
+  lastTokenIssuedAt: string | null;
+}
+
+/** Paginated OAuth client list envelope. */
+export interface OAuthClientListResponse {
+  items: OAuthClient[];
+  page: number;
+  perPage: number;
+  totalItems: number;
+  totalPages: number;
+}
+
+/** Request body for creating an OAuth client. */
+export interface CreateOAuthClientRequest {
+  appId: string;
+  name: string;
+  redirectUris: string[];
+  scopes: string[];
+  clientType?: "confidential" | "public";
+}
+
+/** Response body when an OAuth client is created. */
+export interface CreateOAuthClientResponse {
+  clientSecret?: string;
+  client: OAuthClient;
+}
+
+/** Request body for updating an OAuth client. */
+export interface UpdateOAuthClientRequest {
+  name: string;
+  redirectUris: string[];
+  scopes: string[];
+}
+
+/** Response body when an OAuth client secret is rotated. */
+export interface RotateOAuthClientSecretResponse {
+  clientSecret: string;
+}
+
+/** RFC 6749 §5.1 OAuth token response from the token endpoint. */
+export interface OAuthTokenResponse {
+  access_token: string;
+  token_type: string;
+  expires_in: number;
+  refresh_token?: string;
+  scope: string;
 }
 
 /** Supported OAuth providers. */

@@ -6,20 +6,19 @@ test.describe("Boards", () => {
     await registerUser(page);
   });
 
-  test("shows empty state when no boards exist", async ({ page }) => {
+  // Skipped: collaborative model (boards_select USING (true)) means a new user
+  // sees ALL boards, not just their own. Empty state only appears when the entire
+  // database is empty, which can't be guaranteed with parallel test workers.
+  test.skip("shows empty state when no boards exist", async ({ page }) => {
     await expect(page.getByText("No boards yet")).toBeVisible();
     await expect(page.getByText("Create your first board above")).toBeVisible();
   });
 
-  test("can create a board", async ({ page }) => {
-    await createBoard(page, "My Test Board");
-    await expect(page.getByText("My Test Board")).toBeVisible();
-    // Empty state should be gone
-    await expect(page.getByText("No boards yet")).not.toBeVisible();
-  });
-
-  test("can create multiple boards", async ({ page }) => {
+  test("can create boards and empty state disappears", async ({ page }) => {
     await createBoard(page, "Board 1");
+    await expect(page.getByText("Board 1")).toBeVisible();
+    await expect(page.getByText("No boards yet")).toBeHidden();
+
     await createBoard(page, "Board 2");
     await createBoard(page, "Board 3");
 
@@ -60,7 +59,7 @@ test.describe("Boards", () => {
     await boardCard.hover();
     await page.getByRole("button", { name: "Delete board Delete Me" }).click();
 
-    await expect(page.getByText("Delete Me")).not.toBeVisible();
+    await expect(page.getByText("Delete Me")).toBeHidden();
   });
 
   test("cancel delete keeps board", async ({ page }) => {
@@ -116,7 +115,7 @@ test.describe("Boards", () => {
     await expect(page.getByRole("button", { name: "Sign In" })).toBeVisible();
 
     // Should not see board data on login page
-    await expect(page.getByText("Private Board")).not.toBeVisible();
+    await expect(page.getByText("Private Board")).toBeHidden();
   });
 
   test("can navigate back and forth between boards", async ({ page }) => {

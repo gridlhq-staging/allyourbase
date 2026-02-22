@@ -204,6 +204,138 @@ export async function seedRecord(
 }
 
 // ---------------------------------------------------------------------------
+// SMS helpers
+// ---------------------------------------------------------------------------
+
+const SMS_TEST_USER_ID = "00000000-0000-0000-0000-000000000099";
+
+async function ensureSMSTestUser(request: APIRequestContext, token: string): Promise<void> {
+  await execSQL(request, token,
+    `INSERT INTO _ayb_users (id, email, password_hash)
+     VALUES ('${SMS_TEST_USER_ID}', 'sms-fixture-test@example.com', 'noop')
+     ON CONFLICT (id) DO NOTHING`
+  );
+}
+
+export async function seedSMSMessage(
+  request: APIRequestContext,
+  token: string,
+  overrides: { to_phone?: string; body?: string; provider?: string; status?: string; error_message?: string } = {},
+): Promise<{ id: string; to_phone: string; body: string; status: string }> {
+  await ensureSMSTestUser(request, token);
+  const to_phone = overrides.to_phone || "+15551234567";
+  const body = overrides.body || "Test SMS message";
+  const provider = overrides.provider || "log";
+  const status = overrides.status || "delivered";
+  const error_message = overrides.error_message || "";
+  const result = await execSQL(request, token,
+    `INSERT INTO _ayb_sms_messages (user_id, to_phone, body, provider, status, error_message)
+     VALUES ('${SMS_TEST_USER_ID}', '${to_phone}', '${body}', '${provider}', '${status}', '${error_message}')
+     RETURNING id, to_phone, body, status`
+  );
+  return {
+    id: result.rows[0][0] as string,
+    to_phone: result.rows[0][1] as string,
+    body: result.rows[0][2] as string,
+    status: result.rows[0][3] as string,
+  };
+}
+
+export async function cleanupSMSMessages(
+  request: APIRequestContext,
+  token: string,
+  bodyPattern: string,
+): Promise<void> {
+  await execSQL(request, token,
+    `DELETE FROM _ayb_sms_messages WHERE body LIKE '%${bodyPattern}%'`
+  );
+}
+
+export async function seedSMSDailyCounts(
+  request: APIRequestContext,
+  token: string,
+  overrides: { count?: number; confirm_count?: number; fail_count?: number } = {},
+): Promise<void> {
+  const count = overrides.count ?? 10;
+  const confirm = overrides.confirm_count ?? 5;
+  const fail = overrides.fail_count ?? 2;
+  await execSQL(request, token,
+    `INSERT INTO _ayb_sms_daily_counts (date, count, confirm_count, fail_count)
+     VALUES (CURRENT_DATE, ${count}, ${confirm}, ${fail})
+     ON CONFLICT (date) DO UPDATE SET
+       count = EXCLUDED.count,
+       confirm_count = EXCLUDED.confirm_count,
+       fail_count = EXCLUDED.fail_count`
+  );
+}
+
+export async function cleanupSMSDailyCounts(
+  request: APIRequestContext,
+  token: string,
+): Promise<void> {
+  await execSQL(request, token,
+    `DELETE FROM _ayb_sms_daily_counts WHERE date = CURRENT_DATE`
+  );
+}
+
+/**
+ * Delete all daily counts within the 30-day window queried by the health endpoint.
+ * Use this before seeding to get deterministic values across Today, 7d, and 30d cards.
+ */
+export async function cleanupSMSDailyCountsAll(
+  request: APIRequestContext,
+  token: string,
+): Promise<void> {
+  await execSQL(request, token,
+    `DELETE FROM _ayb_sms_daily_counts WHERE date >= CURRENT_DATE - INTERVAL '29 days'`
+  );
+}
+
+/**
+ * Seed N messages in a single SQL call via generate_series.
+ * Each message gets body = bodyPrefix + sequence_number.
+ */
+export async function seedSMSMessageBatch(
+  request: APIRequestContext,
+  token: string,
+  count: number,
+  bodyPrefix: string,
+): Promise<void> {
+  await ensureSMSTestUser(request, token);
+  await execSQL(request, token,
+    `INSERT INTO _ayb_sms_messages (user_id, to_phone, body, provider, status)
+     SELECT '${SMS_TEST_USER_ID}',
+            '+1555' || LPAD(g::text, 7, '0'),
+            '${bodyPrefix}' || g,
+            'log',
+            'delivered'
+     FROM generate_series(1, ${count}) g`
+  );
+}
+
+/**
+ * Check whether the SMS provider is configured by probing the send endpoint.
+ * Sends an intentionally invalid payload — 404 means no provider, 400 means
+ * provider exists but input was bad (expected). This is more accurate than
+ * checking health, which guards on pool (not smsProvider).
+ */
+export async function isSMSProviderConfigured(
+  request: APIRequestContext,
+  token: string,
+): Promise<boolean> {
+  const res = await request.post("/api/admin/sms/send", {
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/json",
+    },
+    data: { to: "", body: "" },
+  });
+  // 404 = "SMS is not enabled" (smsProvider is nil)
+  // 400 = provider exists, validation caught the empty fields
+  return res.status() !== 404;
+}
+
+// ---------------------------------------------------------------------------
 // Custom test fixture
 // ---------------------------------------------------------------------------
 

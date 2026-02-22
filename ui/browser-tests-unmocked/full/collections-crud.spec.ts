@@ -65,7 +65,7 @@ test.describe("Collections CRUD (Full E2E)", () => {
     const sidebar = page.locator("aside");
     await sidebar.getByRole("button", { name: /^SQL Editor$/i }).click();
 
-    const sqlInput = page.locator('.cm-content[contenteditable="true"]');
+    const sqlInput = page.getByLabel("SQL query");
 
     const createTableSQL = `
       CREATE TABLE IF NOT EXISTS crud_test_products (

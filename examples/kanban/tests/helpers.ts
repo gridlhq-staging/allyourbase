@@ -1,7 +1,14 @@
 import { type Page, expect } from "@playwright/test";
 
 let userCounter = 0;
-const runId = Math.random().toString(36).slice(2, 8);
+let nameCounter = 0;
+export const runId = Math.random().toString(36).slice(2, 8);
+
+/** Generate a unique board/resource name to avoid collisions across parallel workers
+ *  (boards_select USING (true) makes all boards visible to all users). */
+export function uniqueName(base: string): string {
+  return `${base} ${runId}-${++nameCounter}`;
+}
 
 /** Generate a unique test user email to avoid collisions between test runs. */
 export function uniqueEmail(): string {
@@ -9,6 +16,25 @@ export function uniqueEmail(): string {
 }
 
 export const TEST_PASSWORD = "testpassword123";
+
+/** Demo account credentials. */
+export const DEMO_ACCOUNTS = [
+  { email: "alice@demo.test", password: "password123" },
+  { email: "bob@demo.test", password: "password123" },
+  { email: "charlie@demo.test", password: "password123" },
+];
+
+/** Login with a demo account by clicking it to fill credentials, then signing in. */
+export async function loginWithDemoAccount(
+  page: Page,
+  email: string = DEMO_ACCOUNTS[0].email,
+): Promise<void> {
+  await page.goto("/");
+  const acct = DEMO_ACCOUNTS.find((a) => a.email === email)!;
+  await page.getByText(acct.email).click();
+  await page.getByRole("button", { name: "Sign In" }).click();
+  await expect(page.getByText("Your Boards")).toBeVisible({ timeout: 10000 });
+}
 
 /** Register a new user and return the email. */
 export async function registerUser(page: Page): Promise<string> {
@@ -46,12 +72,15 @@ export async function createBoard(
 ): Promise<void> {
   await page.getByPlaceholder("New board name...").fill(title);
   await page.getByRole("button", { name: "Create" }).click();
-  await expect(page.getByText(title)).toBeVisible();
+  // Use .first() — collaborative model means other users' boards are visible,
+  // so duplicate titles from other workers may exist.
+  await expect(page.getByText(title).first()).toBeVisible();
 }
 
 /** Navigate into a board. */
 export async function openBoard(page: Page, title: string): Promise<void> {
-  await page.getByText(title).click();
+  // Use .first() — boards sorted by -created_at, so most recent is first.
+  await page.getByText(title).first().click();
   await expect(
     page.getByRole("heading", { name: title }),
   ).toBeVisible({ timeout: 5000 });
@@ -77,6 +106,6 @@ export async function addCard(
   const column = page.getByTestId(`column-${columnTitle}`);
   await column.getByText("+ Add a card").click();
   await column.getByPlaceholder("Card title...").fill(cardTitle);
-  await column.getByRole("button", { name: "Add" }).click();
+  await column.getByRole("button", { name: "Add", exact: true }).click();
   await expect(page.getByText(cardTitle)).toBeVisible();
 }

@@ -15,12 +15,12 @@ import (
 // SchemaCache and swap it in atomically.
 type CacheHolder struct {
 	cache     atomic.Pointer[SchemaCache]
-	mu        sync.Mutex   // serializes reloads
-	loading   atomic.Bool  // prevents concurrent reloads
+	mu        sync.Mutex  // serializes reloads
+	loading   atomic.Bool // prevents concurrent reloads
 	pool      *pgxpool.Pool
 	logger    *slog.Logger
 	ready     chan struct{} // closed after the first successful load
-	readyOnce sync.Once    // ensures ready is closed exactly once
+	readyOnce sync.Once     // ensures ready is closed exactly once
 }
 
 // NewCacheHolder creates a CacheHolder. Call Load() to perform the initial introspection.

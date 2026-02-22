@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
 	"os"
 	"strings"
@@ -45,45 +44,18 @@ func init() {
 	apikeysCreateCmd.Flags().String("name", "", "Key name/description (required)")
 	apikeysCreateCmd.Flags().String("scope", "*", "Permission scope: * (full), readonly, readwrite")
 	apikeysCreateCmd.Flags().StringSlice("tables", nil, "Restrict access to specific tables (comma-separated)")
+	apikeysCreateCmd.Flags().String("app", "", "App ID to scope key to (optional)")
 
 	apikeysCmd.AddCommand(apikeysListCmd)
 	apikeysCmd.AddCommand(apikeysCreateCmd)
 	apikeysCmd.AddCommand(apikeysRevokeCmd)
 }
 
-func apikeysAdminRequest(cmd *cobra.Command, method, path string, body io.Reader) (*http.Response, []byte, error) {
-	token, _ := cmd.Flags().GetString("admin-token")
-	baseURL, _ := cmd.Flags().GetString("url")
-
-	if token == "" {
-		token = os.Getenv("AYB_ADMIN_TOKEN")
-	}
-	if baseURL == "" {
-		baseURL = serverURL()
-	}
-
-	req, err := http.NewRequest(method, baseURL+path, body)
-	if err != nil {
-		return nil, nil, fmt.Errorf("creating request: %w", err)
-	}
-	req.Header.Set("Content-Type", "application/json")
-	if token != "" {
-		req.Header.Set("Authorization", "Bearer "+token)
-	}
-
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return nil, nil, fmt.Errorf("connecting to server: %w", err)
-	}
-	defer resp.Body.Close()
-	respBody, _ := io.ReadAll(resp.Body)
-	return resp, respBody, nil
-}
 
 func runAPIKeysList(cmd *cobra.Command, args []string) error {
 	outFmt := outputFormat(cmd)
 
-	resp, body, err := apikeysAdminRequest(cmd, "GET", "/api/admin/api-keys", nil)
+	resp, body, err := adminRequest(cmd, "GET", "/api/admin/api-keys", nil)
 	if err != nil {
 		return err
 	}
@@ -99,15 +71,16 @@ func runAPIKeysList(cmd *cobra.Command, args []string) error {
 
 	var result struct {
 		Items []struct {
-			ID         string   `json:"id"`
-			UserID     string   `json:"userId"`
-			Name       string   `json:"name"`
-			KeyPrefix  string   `json:"keyPrefix"`
-			Scope      string   `json:"scope"`
+			ID            string   `json:"id"`
+			UserID        string   `json:"userId"`
+			Name          string   `json:"name"`
+			KeyPrefix     string   `json:"keyPrefix"`
+			Scope         string   `json:"scope"`
 			AllowedTables []string `json:"allowedTables"`
-			LastUsedAt *string  `json:"lastUsedAt"`
-			CreatedAt  string   `json:"createdAt"`
-			RevokedAt  *string  `json:"revokedAt"`
+			AppID         *string  `json:"appId"`
+			LastUsedAt    *string  `json:"lastUsedAt"`
+			CreatedAt     string   `json:"createdAt"`
+			RevokedAt     *string  `json:"revokedAt"`
 		} `json:"items"`
 		TotalItems int `json:"totalItems"`
 	}
@@ -120,7 +93,7 @@ func runAPIKeysList(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
-	cols := []string{"ID", "User ID", "Name", "Key Prefix", "Scope", "Last Used", "Created", "Status"}
+	cols := []string{"ID", "User ID", "Name", "Key Prefix", "Scope", "App", "Last Used", "Created", "Status"}
 	rows := make([][]string, len(result.Items))
 	for i, k := range result.Items {
 		lastUsed := "never"
@@ -135,7 +108,11 @@ func runAPIKeysList(cmd *cobra.Command, args []string) error {
 		if len(k.AllowedTables) > 0 {
 			scope += " [" + strings.Join(k.AllowedTables, ",") + "]"
 		}
-		rows[i] = []string{k.ID, k.UserID, k.Name, k.KeyPrefix + "...", scope, lastUsed, k.CreatedAt, status}
+		appCol := "-"
+		if k.AppID != nil {
+			appCol = *k.AppID
+		}
+		rows[i] = []string{k.ID, k.UserID, k.Name, k.KeyPrefix + "...", scope, appCol, lastUsed, k.CreatedAt, status}
 	}
 
 	if outFmt == "csv" {
@@ -159,6 +136,7 @@ func runAPIKeysCreate(cmd *cobra.Command, args []string) error {
 	name, _ := cmd.Flags().GetString("name")
 	scope, _ := cmd.Flags().GetString("scope")
 	tables, _ := cmd.Flags().GetStringSlice("tables")
+	appID, _ := cmd.Flags().GetString("app")
 
 	if userID == "" {
 		return fmt.Errorf("--user-id is required")
@@ -175,9 +153,12 @@ func runAPIKeysCreate(cmd *cobra.Command, args []string) error {
 	if len(tables) > 0 {
 		payload["allowedTables"] = tables
 	}
+	if appID != "" {
+		payload["appId"] = appID
+	}
 	body, _ := json.Marshal(payload)
 
-	resp, respBody, err := apikeysAdminRequest(cmd, "POST", "/api/admin/api-keys", bytes.NewReader(body))
+	resp, respBody, err := adminRequest(cmd, "POST", "/api/admin/api-keys", bytes.NewReader(body))
 	if err != nil {
 		return err
 	}
@@ -199,11 +180,16 @@ func runAPIKeysCreate(cmd *cobra.Command, args []string) error {
 			Scope string `json:"scope"`
 		} `json:"apiKey"`
 	}
-	json.Unmarshal(respBody, &result)
+	if err := json.Unmarshal(respBody, &result); err != nil {
+		return fmt.Errorf("parsing response: %w", err)
+	}
 	fmt.Printf("API key created: %s (%s)\n", result.APIKey.ID, result.APIKey.Name)
 	fmt.Printf("Scope: %s\n", result.APIKey.Scope)
 	if len(tables) > 0 {
 		fmt.Printf("Tables: %s\n", strings.Join(tables, ", "))
+	}
+	if appID != "" {
+		fmt.Printf("App: %s\n", appID)
 	}
 	fmt.Printf("\nKey: %s\n", result.Key)
 	fmt.Println("\nSave this key — it will not be shown again.")
@@ -213,7 +199,7 @@ func runAPIKeysCreate(cmd *cobra.Command, args []string) error {
 func runAPIKeysRevoke(cmd *cobra.Command, args []string) error {
 	id := args[0]
 
-	resp, body, err := apikeysAdminRequest(cmd, "DELETE", "/api/admin/api-keys/"+id, nil)
+	resp, body, err := adminRequest(cmd, "DELETE", "/api/admin/api-keys/"+id, nil)
 	if err != nil {
 		return err
 	}

@@ -4,6 +4,7 @@ import (
 	"context"
 	"embed"
 	"fmt"
+	"io/fs"
 	"log/slog"
 	"sort"
 	"strings"
@@ -19,11 +20,21 @@ var embeddedMigrations embed.FS
 type Runner struct {
 	pool   *pgxpool.Pool
 	logger *slog.Logger
+	source fs.FS
 }
 
 // NewRunner creates a new migration runner.
 func NewRunner(pool *pgxpool.Pool, logger *slog.Logger) *Runner {
-	return &Runner{pool: pool, logger: logger}
+	return &Runner{pool: pool, logger: logger, source: embeddedMigrations}
+}
+
+// NewRunnerWithFS creates a migration runner that loads migrations from the
+// provided filesystem. If source is nil, embedded migrations are used.
+func NewRunnerWithFS(pool *pgxpool.Pool, logger *slog.Logger, source fs.FS) *Runner {
+	if source == nil {
+		source = embeddedMigrations
+	}
+	return &Runner{pool: pool, logger: logger, source: source}
 }
 
 // Bootstrap creates the _ayb_migrations table if it doesn't exist.
@@ -44,7 +55,7 @@ func (r *Runner) Bootstrap(ctx context.Context) error {
 
 // Run applies all pending embedded migrations in order.
 func (r *Runner) Run(ctx context.Context) (int, error) {
-	entries, err := embeddedMigrations.ReadDir("sql")
+	entries, err := fs.ReadDir(r.source, "sql")
 	if err != nil {
 		return 0, fmt.Errorf("reading embedded migrations: %w", err)
 	}
@@ -73,7 +84,7 @@ func (r *Runner) Run(ctx context.Context) (int, error) {
 		}
 
 		// Read and execute migration.
-		sql, err := embeddedMigrations.ReadFile("sql/" + name)
+		sql, err := fs.ReadFile(r.source, "sql/"+name)
 		if err != nil {
 			return applied, fmt.Errorf("reading migration %s: %w", name, err)
 		}

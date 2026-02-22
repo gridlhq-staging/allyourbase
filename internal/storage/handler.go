@@ -138,7 +138,7 @@ func (h *Handler) HandleServe(w http.ResponseWriter, r *http.Request) {
 		exp := r.URL.Query().Get("exp")
 		if !h.svc.ValidateSignedURL(bucket, name, exp, sig) {
 			httputil.WriteErrorWithDocURL(w, http.StatusForbidden, "invalid or expired signed URL",
-			"https://allyourbase.io/guide/file-storage")
+				"https://allyourbase.io/guide/file-storage")
 			return
 		}
 		// Signed URL is valid — serve the file without further auth checks.

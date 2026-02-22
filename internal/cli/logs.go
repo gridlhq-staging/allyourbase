@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -80,7 +81,7 @@ func runLogs(cmd *cobra.Command, args []string) error {
 
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("server returned %d: %s", resp.StatusCode, string(body))
+		return serverError(resp.StatusCode, body)
 	}
 
 	format := outputFormat(cmd)
@@ -95,9 +96,22 @@ func runLogs(cmd *cobra.Command, args []string) error {
 	return err
 }
 
-// adminToken attempts to read an admin token from environment or config.
+// adminToken returns the admin token, checking (in order):
+//  1. AYB_ADMIN_TOKEN environment variable
+//  2. ~/.ayb/admin-token file (contains the admin password, exchanged for a session token)
 func adminToken() string {
-	return os.Getenv("AYB_ADMIN_TOKEN")
+	if v := os.Getenv("AYB_ADMIN_TOKEN"); v != "" {
+		return v
+	}
+	if tokenPath, err := aybAdminTokenPath(); err == nil {
+		if data, err := os.ReadFile(tokenPath); err == nil {
+			password := strings.TrimSpace(string(data))
+			if t, err := adminLogin(serverURL(), password); err == nil {
+				return t
+			}
+		}
+	}
+	return ""
 }
 
 var statsCmd = &cobra.Command{
@@ -142,7 +156,7 @@ func runStats(cmd *cobra.Command, args []string) error {
 
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("server returned %d: %s", resp.StatusCode, string(body))
+		return serverError(resp.StatusCode, body)
 	}
 
 	body, err := io.ReadAll(resp.Body)
@@ -247,7 +261,10 @@ func runSecretsRotate(cmd *cobra.Command, args []string) error {
 
 		format := outputFormat(cmd)
 		if format == "json" {
-			body, _ := io.ReadAll(resp.Body)
+			body, err := io.ReadAll(resp.Body)
+			if err != nil {
+				return fmt.Errorf("reading response: %w", err)
+			}
 			fmt.Println(string(body))
 			return nil
 		}

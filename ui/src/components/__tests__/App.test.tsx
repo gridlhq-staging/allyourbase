@@ -190,4 +190,86 @@ describe("App", () => {
     // Still on layout, not login.
     expect(screen.getByTestId("layout")).toBeInTheDocument();
   });
+
+  it("redirects to return_to URL after login", async () => {
+    const originalLocation = window.location;
+    const assignMock = vi.fn();
+    Object.defineProperty(window, "location", {
+      value: {
+        ...originalLocation,
+        pathname: "/",
+        search: "?return_to=%2Foauth%2Fauthorize%3Fclient_id%3Dtest%26state%3Dxyz",
+        href:
+          "http://localhost/?return_to=%2Foauth%2Fauthorize%3Fclient_id%3Dtest%26state%3Dxyz",
+        assign: assignMock,
+      },
+      writable: true,
+    });
+
+    mockGetAdminStatus.mockResolvedValueOnce({ auth: true });
+    render(<App />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("login")).toBeInTheDocument();
+    });
+
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: "mock-login" }));
+
+    await waitFor(() => {
+      expect(assignMock).toHaveBeenCalledTimes(1);
+    });
+
+    const redirectTarget = assignMock.mock.calls[0][0] as string;
+    expect(redirectTarget.startsWith("/oauth/authorize")).toBe(true);
+    expect(redirectTarget).toContain("client_id=test");
+    expect(redirectTarget).toContain("state=xyz");
+
+    // Restore
+    Object.defineProperty(window, "location", {
+      value: originalLocation,
+      writable: true,
+    });
+  });
+
+  it("does not redirect to protocol-relative return_to URLs (open redirect prevention)", async () => {
+    const originalLocation = window.location;
+    const assignMock = vi.fn();
+    Object.defineProperty(window, "location", {
+      value: {
+        ...originalLocation,
+        pathname: "/",
+        search: "?return_to=%2F%2Fevil.com%2Fsteal",
+        href: "http://localhost/?return_to=%2F%2Fevil.com%2Fsteal",
+        assign: assignMock,
+      },
+      writable: true,
+    });
+
+    mockGetAdminStatus.mockResolvedValueOnce({ auth: true });
+    render(<App />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("login")).toBeInTheDocument();
+    });
+
+    // After login, boot runs normally — no external redirect.
+    mockGetAdminStatus.mockResolvedValueOnce({ auth: false });
+    mockGetSchema.mockResolvedValueOnce(fakeSchema);
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: "mock-login" }));
+
+    await waitFor(() => {
+      expect(screen.getByTestId("layout")).toBeInTheDocument();
+    });
+
+    // Should NOT have redirected to the external URL.
+    expect(assignMock).not.toHaveBeenCalled();
+
+    // Restore
+    Object.defineProperty(window, "location", {
+      value: originalLocation,
+      writable: true,
+    });
+  });
 });

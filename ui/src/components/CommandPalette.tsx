@@ -11,7 +11,12 @@ import {
   Users as UsersIcon,
   KeyRound,
   Compass,
+  MessageCircle,
+  MessageSquare,
   Command,
+  ListTodo,
+  CalendarClock,
+  Mail,
 } from "lucide-react";
 import { cn } from "../lib/utils";
 
@@ -46,6 +51,11 @@ const NAV_ITEMS: Omit<CommandItem, "id">[] = [
   { label: "Users", section: "Navigation", icon: <UsersIcon className={ICON_CLS} />, action: { kind: "view", view: "users" } },
   { label: "API Keys", section: "Navigation", icon: <KeyRound className={ICON_CLS} />, action: { kind: "view", view: "api-keys" } },
   { label: "API Explorer", section: "Navigation", icon: <Compass className={ICON_CLS} />, action: { kind: "view", view: "api-explorer" } },
+  { label: "SMS Health", section: "Navigation", icon: <MessageCircle className={ICON_CLS} />, action: { kind: "view", view: "sms-health" } },
+  { label: "SMS Messages", section: "Navigation", icon: <MessageSquare className={ICON_CLS} />, action: { kind: "view", view: "sms-messages" } },
+  { label: "Email Templates", section: "Navigation", icon: <Mail className={ICON_CLS} />, action: { kind: "view", view: "email-templates" } },
+  { label: "Jobs", section: "Navigation", icon: <ListTodo className={ICON_CLS} />, action: { kind: "view", view: "jobs" } },
+  { label: "Schedules", section: "Navigation", icon: <CalendarClock className={ICON_CLS} />, action: { kind: "view", view: "schedules" } },
 ];
 
 function buildItems(tables: Table[]): CommandItem[] {

@@ -381,6 +381,36 @@ func TestTableScopeDeniesUnauthorizedTable(t *testing.T) {
 // TestCheckWriteScopeAllowsReadwrite — tested auth package functions directly without
 // going through the handler. Covered in auth/apikeys_test.go.
 
+// --- App-scoped key negative tests (completion gate) ---
+
+func TestAppScopedKeyDeniedOutOfScopeTable(t *testing.T) {
+	// An app-scoped key restricted to "logs" must be denied access to "users".
+	t.Parallel()
+	h := testHandler(testSchema())
+	claims := &auth.Claims{
+		AppID:         "app-1",
+		AllowedTables: []string{"logs"},
+	}
+	w := doRequestWithClaims(h, "GET", "/collections/users", "", claims)
+	testutil.Equal(t, http.StatusForbidden, w.Code)
+	resp := decodeError(t, w)
+	testutil.Contains(t, resp.Message, "does not have access to table")
+}
+
+func TestAppScopedReadonlyKeyDeniedWrite(t *testing.T) {
+	// An app-scoped key with readonly scope must be denied write operations.
+	t.Parallel()
+	h := testHandler(testSchema())
+	claims := &auth.Claims{
+		AppID:       "app-1",
+		APIKeyScope: "readonly",
+	}
+	w := doRequestWithClaims(h, "POST", "/collections/users", `{"name":"test"}`, claims)
+	testutil.Equal(t, http.StatusForbidden, w.Code)
+	resp := decodeError(t, w)
+	testutil.Contains(t, resp.Message, "does not permit write operations")
+}
+
 // --- Edge cases: primary key parsing ---
 
 // --- API hardening limits ---

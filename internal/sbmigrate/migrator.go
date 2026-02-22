@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/url"
@@ -12,6 +13,7 @@ import (
 	"time"
 
 	"github.com/allyourbase/ayb/internal/migrate"
+	"github.com/jackc/pgx/v5/pgconn"
 	_ "github.com/jackc/pgx/v5/stdlib"
 )
 
@@ -24,6 +26,10 @@ type Migrator struct {
 	output   io.Writer
 	verbose  bool
 	progress migrate.ProgressReporter
+	// sourceColumnCache memoizes source schema column existence checks.
+	sourceColumnCache map[string]bool
+	// skippedTables tracks source tables intentionally skipped due schema incompatibilities.
+	skippedTables map[string]string
 }
 
 // NewMigrator creates a migrator that connects to both the source (Supabase)
@@ -233,11 +239,16 @@ func (m *Migrator) Analyze(ctx context.Context) (*migrate.AnalysisReport, error)
 	}
 
 	// Count auth users (excluding anonymous, matching Migrate behavior).
-	authQuery := `SELECT COUNT(*) FROM auth.users WHERE deleted_at IS NULL`
-	if !m.opts.IncludeAnonymous {
-		authQuery += " AND (is_anonymous = false OR is_anonymous IS NULL)"
+	hasIsAnonymous, err := m.sourceColumnExists(ctx, "auth", "users", "is_anonymous")
+	if err != nil {
+		return nil, err
 	}
-	err := m.source.QueryRowContext(ctx, authQuery).Scan(&report.AuthUsers)
+	hasDeletedAt, err := m.sourceColumnExists(ctx, "auth", "users", "deleted_at")
+	if err != nil {
+		return nil, err
+	}
+	authQuery := buildAuthUsersCountQuery(m.opts.IncludeAnonymous, hasIsAnonymous, hasDeletedAt)
+	err = m.source.QueryRowContext(ctx, authQuery).Scan(&report.AuthUsers)
 	if err != nil {
 		return nil, fmt.Errorf("counting auth users: %w", err)
 	}
@@ -347,6 +358,13 @@ func BuildValidationSummary(report *migrate.AnalysisReport, stats *MigrationStat
 		})
 	}
 
+	for _, row := range summary.Rows {
+		if row.SourceCount != row.TargetCount {
+			summary.Warnings = append(summary.Warnings,
+				fmt.Sprintf("%s count mismatch: source=%d target=%d", row.Label, row.SourceCount, row.TargetCount))
+		}
+	}
+
 	if stats.Skipped > 0 {
 		summary.Warnings = append(summary.Warnings,
 			fmt.Sprintf("%d items skipped during migration", stats.Skipped))
@@ -378,9 +396,19 @@ func (m *Migrator) migrateSchema(ctx context.Context, tx *sql.Tx, phaseIdx, tota
 
 	fmt.Fprintln(m.output, "Creating schema...")
 
+	type deferredTable struct {
+		table   TableInfo
+		lastErr error
+	}
+	deferred := make([]deferredTable, 0)
+
 	for i, t := range tables {
-		ddl := createTableSQL(t)
-		if _, err := tx.ExecContext(ctx, ddl); err != nil {
+		savepoint := fmt.Sprintf("ayb_schema_table_%d", i)
+		if err := createTableWithSavepoint(ctx, tx, t, savepoint); err != nil {
+			if isSkippableSchemaTableError(err) {
+				deferred = append(deferred, deferredTable{table: t, lastErr: err})
+				continue
+			}
 			return fmt.Errorf("creating table %s: %w", t.Name, err)
 		}
 		m.stats.Tables++
@@ -390,13 +418,67 @@ func (m *Migrator) migrateSchema(ctx context.Context, tx *sql.Tx, phaseIdx, tota
 		}
 	}
 
-	for _, v := range views {
+	// Retry deferred tables to handle valid FK dependencies created later in this phase.
+	if len(deferred) > 0 {
+		for pass := 1; pass <= len(deferred); pass++ {
+			if len(deferred) == 0 {
+				break
+			}
+
+			next := make([]deferredTable, 0, len(deferred))
+			progressed := false
+
+			for i, item := range deferred {
+				savepoint := fmt.Sprintf("ayb_schema_table_retry_%d_%d", pass, i)
+				if err := createTableWithSavepoint(ctx, tx, item.table, savepoint); err != nil {
+					if isSkippableSchemaTableError(err) {
+						item.lastErr = err
+						next = append(next, item)
+						continue
+					}
+					return fmt.Errorf("creating table %s: %w", item.table.Name, err)
+				}
+
+				progressed = true
+				m.stats.Tables++
+				if m.verbose {
+					fmt.Fprintf(m.output, "  CREATE TABLE %s (%d columns)\n", item.table.Name, len(item.table.Columns))
+				}
+			}
+
+			if !progressed {
+				for _, item := range next {
+					m.markSkippedTable(item.table.Name, item.lastErr)
+					m.stats.Skipped++
+					m.progress.Warn(fmt.Sprintf("skipping table %s due source/target schema incompatibility: %v", item.table.Name, item.lastErr))
+				}
+				break
+			}
+
+			deferred = next
+		}
+	}
+
+	for i, v := range views {
 		ddl := createViewSQL(v)
+		savepoint := fmt.Sprintf("ayb_schema_view_%d", i)
+		if err := execSavepointCommand(ctx, tx, "SAVEPOINT "+savepoint); err != nil {
+			return fmt.Errorf("creating savepoint for view %s: %w", v.Name, err)
+		}
 		if _, err := tx.ExecContext(ctx, ddl); err != nil {
+			if rbErr := execSavepointCommand(ctx, tx, "ROLLBACK TO SAVEPOINT "+savepoint); rbErr != nil {
+				return fmt.Errorf("rolling back savepoint for view %s after error %v: %w", v.Name, err, rbErr)
+			}
+			if relErr := execSavepointCommand(ctx, tx, "RELEASE SAVEPOINT "+savepoint); relErr != nil {
+				return fmt.Errorf("releasing savepoint for view %s after rollback: %w", v.Name, relErr)
+			}
 			// Views may depend on tables that don't exist in the target yet.
 			// Log a warning instead of failing.
 			m.progress.Warn(fmt.Sprintf("skipping view %s: %v", v.Name, err))
 			continue
+		}
+		if err := execSavepointCommand(ctx, tx, "RELEASE SAVEPOINT "+savepoint); err != nil {
+			return fmt.Errorf("releasing savepoint for view %s: %w", v.Name, err)
 		}
 		m.stats.Views++
 		if m.verbose {
@@ -417,6 +499,7 @@ func (m *Migrator) migrateData(ctx context.Context, tx *sql.Tx, phaseIdx, totalP
 	if err != nil {
 		return fmt.Errorf("introspecting tables for data copy: %w", err)
 	}
+	tables = m.filterSkippedTables(tables)
 
 	var totalRows int64
 	for _, t := range tables {
@@ -428,18 +511,74 @@ func (m *Migrator) migrateData(ctx context.Context, tx *sql.Tx, phaseIdx, totalP
 
 	fmt.Fprintln(m.output, "Copying data...")
 
+	type deferredDataTable struct {
+		table   TableInfo
+		lastErr error
+	}
+	deferred := make([]deferredDataTable, 0)
+
 	copied := 0
-	for _, t := range tables {
-		count, err := copyTableData(ctx, m.source, tx, t, func(n int) {
+	for i, t := range tables {
+		savepoint := fmt.Sprintf("ayb_data_table_%d", i)
+		count, err := copyTableDataWithSavepoint(ctx, m.source, tx, t, savepoint, func(n int) {
 			m.progress.Progress(phase, copied+n, int(totalRows))
 		})
 		if err != nil {
+			if isRetriableDataTableError(err) {
+				deferred = append(deferred, deferredDataTable{table: t, lastErr: err})
+				continue
+			}
 			return fmt.Errorf("copying data for %s: %w", t.Name, err)
 		}
 		copied += count
 		m.stats.Records += count
 		if m.verbose {
 			fmt.Fprintf(m.output, "  %s: %d rows\n", t.Name, count)
+		}
+	}
+
+	// Retry deferred tables to resolve FK dependencies where parent rows are copied later.
+	if len(deferred) > 0 {
+		for pass := 1; pass <= len(deferred); pass++ {
+			if len(deferred) == 0 {
+				break
+			}
+
+			next := make([]deferredDataTable, 0, len(deferred))
+			progressed := false
+
+			for i, item := range deferred {
+				savepoint := fmt.Sprintf("ayb_data_table_retry_%d_%d", pass, i)
+				count, err := copyTableDataWithSavepoint(ctx, m.source, tx, item.table, savepoint, func(n int) {
+					m.progress.Progress(phase, copied+n, int(totalRows))
+				})
+				if err != nil {
+					if isRetriableDataTableError(err) {
+						item.lastErr = err
+						next = append(next, item)
+						continue
+					}
+					return fmt.Errorf("copying data for %s: %w", item.table.Name, err)
+				}
+
+				progressed = true
+				copied += count
+				m.stats.Records += count
+				if m.verbose {
+					fmt.Fprintf(m.output, "  %s: %d rows\n", item.table.Name, count)
+				}
+			}
+
+			if !progressed {
+				for _, item := range next {
+					m.markSkippedTable(item.table.Name, item.lastErr)
+					m.stats.Skipped++
+					m.progress.Warn(fmt.Sprintf("skipping data copy for %s due unresolved dependency: %v", item.table.Name, item.lastErr))
+				}
+				break
+			}
+
+			deferred = next
 		}
 	}
 
@@ -462,16 +601,29 @@ func (m *Migrator) migrateAuthUsers(ctx context.Context, tx *sql.Tx, phaseIdx, t
 
 	fmt.Fprintln(m.output, "Migrating auth users...")
 
-	query := `
-		SELECT id, COALESCE(email, ''), COALESCE(encrypted_password, ''),
-		       email_confirmed_at, created_at, updated_at,
-		       COALESCE(is_anonymous, false)
-		FROM auth.users
-		WHERE deleted_at IS NULL`
-	if !m.opts.IncludeAnonymous {
-		query += " AND (is_anonymous = false OR is_anonymous IS NULL)"
+	hasIsAnonymous, err := m.sourceColumnExists(ctx, "auth", "users", "is_anonymous")
+	if err != nil {
+		return err
 	}
-	query += " ORDER BY created_at"
+	hasDeletedAt, err := m.sourceColumnExists(ctx, "auth", "users", "deleted_at")
+	if err != nil {
+		return err
+	}
+	hasEmailConfirmedAt, err := m.sourceColumnExists(ctx, "auth", "users", "email_confirmed_at")
+	if err != nil {
+		return err
+	}
+	hasConfirmedAt, err := m.sourceColumnExists(ctx, "auth", "users", "confirmed_at")
+	if err != nil {
+		return err
+	}
+	confirmedAtExpr := "NULL::timestamptz"
+	if hasEmailConfirmedAt {
+		confirmedAtExpr = "email_confirmed_at"
+	} else if hasConfirmedAt {
+		confirmedAtExpr = "confirmed_at"
+	}
+	query := buildAuthUsersSelectQuery(m.opts.IncludeAnonymous, hasIsAnonymous, hasDeletedAt, confirmedAtExpr)
 
 	rows, err := m.source.QueryContext(ctx, query)
 	if err != nil {
@@ -544,13 +696,24 @@ func (m *Migrator) migrateOAuthIdentities(ctx context.Context, tx *sql.Tx, phase
 
 	fmt.Fprintln(m.output, "Migrating OAuth identities...")
 
-	rows, err := m.source.QueryContext(ctx, `
-		SELECT i.user_id, i.provider, i.identity_data, i.created_at
-		FROM auth.identities i
-		JOIN auth.users u ON u.id = i.user_id
-		WHERE u.deleted_at IS NULL
-		ORDER BY i.created_at
-	`)
+	hasIdentityData, err := m.sourceColumnExists(ctx, "auth", "identities", "identity_data")
+	if err != nil {
+		return err
+	}
+	hasProviderID, err := m.sourceColumnExists(ctx, "auth", "identities", "provider_id")
+	if err != nil {
+		return err
+	}
+	hasCreatedAt, err := m.sourceColumnExists(ctx, "auth", "identities", "created_at")
+	if err != nil {
+		return err
+	}
+	hasDeletedAt, err := m.sourceColumnExists(ctx, "auth", "users", "deleted_at")
+	if err != nil {
+		return err
+	}
+	query := buildOAuthIdentitiesQuery(hasIdentityData, hasProviderID, hasCreatedAt, hasDeletedAt)
+	rows, err := m.source.QueryContext(ctx, query)
 	if err != nil {
 		return fmt.Errorf("querying auth.identities: %w", err)
 	}
@@ -639,6 +802,11 @@ func (m *Migrator) migrateRLSPolicies(ctx context.Context, tx *sql.Tx, phaseIdx,
 	}
 
 	for _, p := range policies {
+		if m.isSkippedTable(p.TableName) {
+			m.progress.Warn(fmt.Sprintf("skipping policy %s on %s: table was skipped during schema migration", p.PolicyName, p.TableName))
+			continue
+		}
+
 		if m.verbose {
 			fmt.Fprintf(m.output, "  %s.%s: %s\n", p.TableName, p.PolicyName, p.Command)
 		}
@@ -720,4 +888,223 @@ func extractString(data map[string]any, keys ...string) string {
 		}
 	}
 	return ""
+}
+
+func (m *Migrator) sourceColumnExists(ctx context.Context, schema, table, column string) (bool, error) {
+	if m.sourceColumnCache == nil {
+		m.sourceColumnCache = make(map[string]bool)
+	}
+
+	key := schema + "." + table + "." + column
+	if exists, ok := m.sourceColumnCache[key]; ok {
+		return exists, nil
+	}
+
+	var exists bool
+	err := m.source.QueryRowContext(ctx, `
+		SELECT EXISTS (
+			SELECT 1
+			FROM information_schema.columns
+			WHERE table_schema = $1
+			  AND table_name = $2
+			  AND column_name = $3
+		)
+	`, schema, table, column).Scan(&exists)
+	if err != nil {
+		return false, fmt.Errorf("checking source schema for %s: %w", key, err)
+	}
+
+	m.sourceColumnCache[key] = exists
+	return exists, nil
+}
+
+func buildAuthUsersCountQuery(includeAnonymous, hasIsAnonymous, hasDeletedAt bool) string {
+	query := `SELECT COUNT(*) FROM auth.users WHERE 1=1`
+	if hasDeletedAt {
+		query += " AND deleted_at IS NULL"
+	}
+	if hasIsAnonymous && !includeAnonymous {
+		query += " AND (is_anonymous = false OR is_anonymous IS NULL)"
+	}
+	return query
+}
+
+func buildAuthUsersSelectQuery(includeAnonymous, hasIsAnonymous, hasDeletedAt bool, confirmedAtExpr string) string {
+	anonymousExpr := "false"
+	if hasIsAnonymous {
+		anonymousExpr = "COALESCE(is_anonymous, false)"
+	}
+	if strings.TrimSpace(confirmedAtExpr) == "" {
+		confirmedAtExpr = "NULL::timestamptz"
+	}
+
+	query := fmt.Sprintf(`
+		SELECT id, COALESCE(email, ''), COALESCE(encrypted_password, ''),
+		       %s AS email_confirmed_at, created_at, updated_at,
+		       %s AS is_anonymous
+		FROM auth.users
+		WHERE 1=1`, confirmedAtExpr, anonymousExpr)
+	if hasDeletedAt {
+		query += " AND deleted_at IS NULL"
+	}
+	if hasIsAnonymous && !includeAnonymous {
+		query += " AND (is_anonymous = false OR is_anonymous IS NULL)"
+	}
+	query += " ORDER BY created_at"
+	return query
+}
+
+func (m *Migrator) markSkippedTable(name string, err error) {
+	if m.skippedTables == nil {
+		m.skippedTables = make(map[string]string)
+	}
+	m.skippedTables[name] = err.Error()
+}
+
+func (m *Migrator) isSkippedTable(name string) bool {
+	if m.skippedTables == nil {
+		return false
+	}
+	_, ok := m.skippedTables[name]
+	return ok
+}
+
+func (m *Migrator) filterSkippedTables(tables []TableInfo) []TableInfo {
+	if len(tables) == 0 || len(m.skippedTables) == 0 {
+		return tables
+	}
+
+	filtered := make([]TableInfo, 0, len(tables))
+	for _, t := range tables {
+		if m.isSkippedTable(t.Name) {
+			if m.verbose {
+				fmt.Fprintf(m.output, "  skipped data copy for %s (schema incompatibility)\n", t.Name)
+			}
+			continue
+		}
+		filtered = append(filtered, t)
+	}
+	return filtered
+}
+
+func isSkippableSchemaTableError(err error) bool {
+	var pgErr *pgconn.PgError
+	if !errors.As(err, &pgErr) {
+		return false
+	}
+
+	switch pgErr.Code {
+	case "42883": // undefined_function
+		return true
+	case "42704": // undefined_object (often undefined type)
+		return true
+	case "42P01": // undefined_table (e.g. FK references skipped table)
+		return true
+	case "0A000": // feature_not_supported
+		return true
+	default:
+		return false
+	}
+}
+
+func isRetriableDataTableError(err error) bool {
+	var pgErr *pgconn.PgError
+	if !errors.As(err, &pgErr) {
+		return false
+	}
+
+	switch pgErr.Code {
+	case "23503": // foreign_key_violation
+		return true
+	case "42P01": // undefined_table
+		return true
+	default:
+		return false
+	}
+}
+
+func execSavepointCommand(ctx context.Context, tx *sql.Tx, stmt string) error {
+	_, err := tx.ExecContext(ctx, stmt)
+	return err
+}
+
+func copyTableDataWithSavepoint(
+	ctx context.Context,
+	source *sql.DB,
+	tx *sql.Tx,
+	table TableInfo,
+	savepoint string,
+	progressFn func(int),
+) (int, error) {
+	if err := execSavepointCommand(ctx, tx, "SAVEPOINT "+savepoint); err != nil {
+		return 0, fmt.Errorf("creating savepoint for data copy %s: %w", table.Name, err)
+	}
+
+	count, err := copyTableData(ctx, source, tx, table, progressFn)
+	if err != nil {
+		if rbErr := execSavepointCommand(ctx, tx, "ROLLBACK TO SAVEPOINT "+savepoint); rbErr != nil {
+			return 0, fmt.Errorf("rolling back savepoint for data copy %s after error %v: %w", table.Name, err, rbErr)
+		}
+		if relErr := execSavepointCommand(ctx, tx, "RELEASE SAVEPOINT "+savepoint); relErr != nil {
+			return 0, fmt.Errorf("releasing savepoint for data copy %s after rollback: %w", table.Name, relErr)
+		}
+		return 0, err
+	}
+
+	if err := execSavepointCommand(ctx, tx, "RELEASE SAVEPOINT "+savepoint); err != nil {
+		return 0, fmt.Errorf("releasing savepoint for data copy %s: %w", table.Name, err)
+	}
+
+	return count, nil
+}
+
+func createTableWithSavepoint(ctx context.Context, tx *sql.Tx, table TableInfo, savepoint string) error {
+	ddl := createTableSQL(table)
+	if err := execSavepointCommand(ctx, tx, "SAVEPOINT "+savepoint); err != nil {
+		return fmt.Errorf("creating savepoint for table %s: %w", table.Name, err)
+	}
+	if _, err := tx.ExecContext(ctx, ddl); err != nil {
+		if rbErr := execSavepointCommand(ctx, tx, "ROLLBACK TO SAVEPOINT "+savepoint); rbErr != nil {
+			return fmt.Errorf("rolling back savepoint for table %s after error %v: %w", table.Name, err, rbErr)
+		}
+		if relErr := execSavepointCommand(ctx, tx, "RELEASE SAVEPOINT "+savepoint); relErr != nil {
+			return fmt.Errorf("releasing savepoint for table %s after rollback: %w", table.Name, relErr)
+		}
+		return err
+	}
+	if err := execSavepointCommand(ctx, tx, "RELEASE SAVEPOINT "+savepoint); err != nil {
+		return fmt.Errorf("releasing savepoint for table %s: %w", table.Name, err)
+	}
+	return nil
+}
+
+func buildOAuthIdentitiesQuery(hasIdentityData, hasProviderID, hasCreatedAt, usersHasDeletedAt bool) string {
+	identityDataExpr := `'{}'::text`
+	if hasIdentityData {
+		identityDataExpr = `COALESCE(i.identity_data::text, '{}')`
+	} else if hasProviderID {
+		identityDataExpr = `jsonb_build_object(
+			'provider_id', COALESCE(i.provider_id::text, ''),
+			'sub', COALESCE(i.provider_id::text, '')
+		)::text`
+	}
+
+	createdAtExpr := "NULL::timestamptz"
+	orderByExpr := "i.user_id"
+	if hasCreatedAt {
+		createdAtExpr = "i.created_at"
+		orderByExpr = "i.created_at"
+	}
+	usersWhere := ""
+	if usersHasDeletedAt {
+		usersWhere = "WHERE u.deleted_at IS NULL"
+	}
+
+	return fmt.Sprintf(`
+		SELECT i.user_id, i.provider, %s, %s
+		FROM auth.identities i
+		JOIN auth.users u ON u.id = i.user_id
+		%s
+		ORDER BY %s
+	`, identityDataExpr, createdAtExpr, usersWhere, orderByExpr)
 }

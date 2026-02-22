@@ -58,16 +58,19 @@ func runConfig(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("loading config: %w", err)
 	}
 
+	masked := cfg.MaskedCopy()
+
 	if jsonOut {
-		return json.NewEncoder(os.Stdout).Encode(cfg)
+		return json.NewEncoder(os.Stdout).Encode(masked)
 	}
 
-	out, err := cfg.ToTOML()
+	out, err := masked.ToTOML()
 	if err != nil {
 		return fmt.Errorf("serializing config: %w", err)
 	}
 
 	fmt.Print(out)
+	fmt.Fprintln(os.Stderr, "# Secrets are redacted. Edit ayb.toml to view or change them.")
 	return nil
 }
 

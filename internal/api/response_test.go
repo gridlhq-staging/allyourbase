@@ -101,6 +101,13 @@ func TestMapPGError(t *testing.T) {
 			wantResult: true,
 		},
 		{
+			name:       "insufficient_privilege (42501) returns 403 — RLS WITH CHECK violation",
+			err:        &pgconn.PgError{Code: "42501", Message: "new row violates row-level security policy for table \"polls\""},
+			wantCode:   http.StatusForbidden,
+			wantMsg:    "insufficient permissions",
+			wantResult: true,
+		},
+		{
 			name:       "unhandled PG error code returns false",
 			err:        &pgconn.PgError{Code: "42P01", Message: "relation does not exist"},
 			wantResult: false,

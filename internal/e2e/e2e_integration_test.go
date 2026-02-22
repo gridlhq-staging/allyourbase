@@ -38,9 +38,9 @@ import (
 var sharedPG *testutil.PGContainer
 
 const (
-	testJWTSecret  = "e2e-integration-test-secret-that-is-at-least-32-chars!!"
-	testSignKey    = "e2e-storage-sign-key-at-least-32-characters!!"
-	testAdminPass  = "test-admin-password-e2e"
+	testJWTSecret = "e2e-integration-test-secret-that-is-at-least-32-chars!!"
+	testSignKey   = "e2e-storage-sign-key-at-least-32-characters!!"
+	testAdminPass = "test-admin-password-e2e"
 )
 
 func TestMain(m *testing.M) {
@@ -175,7 +175,7 @@ func httpJSON(t *testing.T, method, url string, body any, token string) (*http.R
 	}
 	var result map[string]any
 	if err := json.Unmarshal(raw, &result); err != nil {
-		return resp, nil
+		t.Fatalf("httpJSON: failed to parse response body as JSON object: %v\nbody: %s", err, string(raw))
 	}
 	return resp, result
 }

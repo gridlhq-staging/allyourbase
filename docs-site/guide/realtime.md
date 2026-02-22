@@ -91,7 +91,7 @@ unsubscribe();
 
 ## RLS filtering
 
-When auth is enabled, realtime events are filtered per-client based on RLS policies. Each connected client only receives events for records they have permission to see.
+When auth is enabled, realtime events are filtered per-client based on PostgreSQL RLS policies. Each connected client only receives events for records they have permission to see.
 
 For example, if you have an RLS policy that restricts `posts` to the author:
 
@@ -103,6 +103,33 @@ CREATE POLICY posts_select ON posts
 
 Then each SSE client will only receive events for posts they authored.
 
-::: info
-Delete events are delivered without RLS filtering since the record no longer exists to check visibility against.
-:::
+### Joined-table policies are supported
+
+The realtime filter runs a per-event `SELECT 1 FROM ... WHERE pk = ...` inside an `ayb_authenticated` RLS context. PostgreSQL evaluates the full table policy expression for that row, including join/`EXISTS` policies against related membership tables.
+
+That means policies like:
+
+```sql
+USING (
+  EXISTS (
+    SELECT 1
+    FROM project_memberships pm
+    WHERE pm.project_id = secure_docs.project_id
+      AND pm.user_id = current_setting('ayb.user_id', true)
+  )
+)
+```
+
+are enforced correctly for SSE visibility checks.
+
+### Permissions are evaluated per event (not per subscription)
+
+RLS checks happen when each event is delivered, not only when a client subscribes. If a user's membership is granted or revoked, visibility updates immediately for subsequent events on that stream.
+
+### Delete-event pass-through semantics
+
+Delete events are intentionally delivered without a row-visibility query because the row no longer exists to evaluate with `SELECT ... WHERE pk = ...`.
+
+This behavior is intentional and safe for AYB realtime payloads:
+- Delete payloads include key identifying data, not full sensitive row content.
+- Attempting a "pre-delete visibility check" in the delivery path introduces race conditions and can still become stale before dispatch.

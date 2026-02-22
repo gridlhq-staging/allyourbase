@@ -47,10 +47,10 @@ type Object struct {
 
 // Service handles file storage operations.
 type Service struct {
-	pool      *pgxpool.Pool
-	backend   Backend
-	signKey   []byte
-	logger    *slog.Logger
+	pool    *pgxpool.Pool
+	backend Backend
+	signKey []byte
+	logger  *slog.Logger
 }
 
 // NewService creates a new storage service.

@@ -26,10 +26,12 @@ test.describe("Authentication", () => {
   });
 
   test("can register a new user", async ({ page }) => {
-    await registerUser(page);
+    const email = await registerUser(page);
     // After registration, we should see the board list
     await expect(page.getByText("Your Boards")).toBeVisible();
     await expect(page.getByText("Sign out")).toBeVisible();
+    // Logged-in user's email should be visible in the header.
+    await expect(page.getByTestId("user-email")).toHaveText(email);
   });
 
   test("can login with existing credentials", async ({ page }) => {
@@ -81,7 +83,7 @@ test.describe("Authentication", () => {
 
     // Toggle to register mode — error should disappear
     await page.getByRole("button", { name: "Sign up" }).click();
-    await expect(page.getByRole("alert")).not.toBeVisible();
+    await expect(page.getByRole("alert")).toBeHidden();
   });
 
   test("shows error when registering with duplicate email", async ({ page }) => {

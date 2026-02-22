@@ -69,17 +69,15 @@ func (s *Service) RequestMagicLink(ctx context.Context, email string) error {
 	}
 
 	actionURL := s.baseURL + "/auth/magic-link/confirm?token=" + plaintext
-	html, text, err := mailer.RenderMagicLink(mailer.TemplateData{
-		AppName:   s.appName,
-		ActionURL: actionURL,
-	})
+	vars := map[string]string{"AppName": s.appName, "ActionURL": actionURL}
+	subject, html, text, err := s.renderAuthEmail(ctx, "auth.magic_link", vars)
 	if err != nil {
 		return fmt.Errorf("rendering magic link email: %w", err)
 	}
 
 	if err := s.mailer.Send(ctx, &mailer.Message{
 		To:      email,
-		Subject: "Your login link",
+		Subject: subject,
 		HTML:    html,
 		Text:    text,
 	}); err != nil {
@@ -160,6 +158,19 @@ func (s *Service) ConfirmMagicLink(ctx context.Context, token string) (*User, st
 		 WHERE id = $1 AND NOT email_verified`,
 		user.ID,
 	)
+
+	// If user has MFA enrolled, return a pending token instead of full tokens.
+	hasMFA, err := s.HasSMSMFA(ctx, user.ID)
+	if err != nil {
+		return nil, "", "", fmt.Errorf("checking MFA enrollment: %w", err)
+	}
+	if hasMFA {
+		pendingToken, err := s.generateMFAPendingToken(&user)
+		if err != nil {
+			return nil, "", "", fmt.Errorf("generating MFA pending token: %w", err)
+		}
+		return &user, pendingToken, "", nil
+	}
 
 	return s.issueTokens(ctx, &user)
 }

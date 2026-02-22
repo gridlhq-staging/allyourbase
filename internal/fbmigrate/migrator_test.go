@@ -1,6 +1,7 @@
 package fbmigrate
 
 import (
+	"context"
 	"os"
 	"strings"
 	"testing"
@@ -125,11 +126,47 @@ func TestBuildValidationSummary(t *testing.T) {
 	t.Run("with skipped and errors", func(t *testing.T) {
 		t.Parallel()
 		report := &migrate.AnalysisReport{AuthUsers: 10}
-		stats := &MigrationStats{Users: 8, Skipped: 2, Errors: []string{"err1"}}
+		stats := &MigrationStats{Users: 10, Skipped: 2, Errors: []string{"err1"}}
 		summary := BuildValidationSummary(report, stats)
 		testutil.Equal(t, 2, len(summary.Warnings))
 		testutil.Contains(t, summary.Warnings[0], "2 items skipped")
 		testutil.Contains(t, summary.Warnings[1], "1 errors occurred")
+	})
+
+	t.Run("adds mismatch warning", func(t *testing.T) {
+		t.Parallel()
+		report := &migrate.AnalysisReport{AuthUsers: 10}
+		stats := &MigrationStats{Users: 8}
+		summary := BuildValidationSummary(report, stats)
+
+		testutil.Equal(t, 1, len(summary.Warnings))
+		testutil.Contains(t, summary.Warnings[0], "Auth users count mismatch")
+		testutil.Contains(t, summary.Warnings[0], "source=10")
+		testutil.Contains(t, summary.Warnings[0], "target=8")
+	})
+
+	t.Run("rtdb only has matching collection counts", func(t *testing.T) {
+		t.Parallel()
+		report := &migrate.AnalysisReport{
+			Tables:  2,
+			Records: 50,
+		}
+		stats := &MigrationStats{
+			RTDBNodes:   2,
+			RTDBRecords: 50,
+		}
+		summary := BuildValidationSummary(report, stats)
+
+		var collectionsFound bool
+		for _, row := range summary.Rows {
+			if row.Label == "Collections" {
+				collectionsFound = true
+				testutil.Equal(t, 2, row.SourceCount)
+				testutil.Equal(t, 2, row.TargetCount)
+			}
+		}
+		testutil.True(t, collectionsFound, "expected Collections row")
+		testutil.Equal(t, 0, len(summary.Warnings))
 	})
 }
 
@@ -153,7 +190,7 @@ func TestAnalyzeAuthCounts(t *testing.T) {
 	path := makeAuthExportFile(t, export)
 
 	m := &Migrator{opts: MigrationOptions{AuthExportPath: path}}
-	report, err := m.Analyze(nil)
+	report, err := m.Analyze(context.TODO())
 	testutil.NoError(t, err)
 	testutil.Equal(t, "Firebase", report.SourceType)
 	testutil.Equal(t, 2, report.AuthUsers)  // u1, u2 (u3 anon, u4 phone, u5 disabled)
@@ -171,7 +208,7 @@ func TestAnalyzeFirestoreCounts(t *testing.T) {
 	os.WriteFile(dir+"/posts.json", []byte(postsJSON), 0644)
 
 	m := &Migrator{opts: MigrationOptions{FirestoreExportPath: dir}}
-	report, err := m.Analyze(nil)
+	report, err := m.Analyze(context.TODO())
 	testutil.NoError(t, err)
 	testutil.Equal(t, 2, report.Tables)  // users, posts
 	testutil.Equal(t, 3, report.Records) // 1 user + 2 posts
@@ -205,7 +242,7 @@ func TestAnalyzeCountsMatchMigrateFiltering(t *testing.T) {
 	path := makeAuthExportFile(t, export)
 
 	m := &Migrator{opts: MigrationOptions{AuthExportPath: path}}
-	report, err := m.Analyze(nil)
+	report, err := m.Analyze(context.TODO())
 	testutil.NoError(t, err)
 	testutil.Equal(t, 3, report.AuthUsers)  // u1, u2, u5 (u3 anon, u4 phone, u6 disabled)
 	testutil.Equal(t, 3, report.OAuthLinks) // u1:google, u5:google, u5:github (u6 skipped)

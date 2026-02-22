@@ -289,12 +289,12 @@ func BuildValidationSummary(report *migrate.AnalysisReport, stats *MigrationStat
 			Label: "OAuth links", SourceCount: report.OAuthLinks, TargetCount: stats.OAuthLinks,
 		})
 	}
-	if report.Tables > 0 || stats.Collections > 0 {
+	if report.Tables > 0 || stats.Collections > 0 || stats.RTDBNodes > 0 {
 		summary.Rows = append(summary.Rows, migrate.ValidationRow{
-			Label: "Collections", SourceCount: report.Tables, TargetCount: stats.Collections,
+			Label: "Collections", SourceCount: report.Tables, TargetCount: stats.Collections + stats.RTDBNodes,
 		})
 	}
-	if report.Records > 0 || stats.Documents > 0 {
+	if report.Records > 0 || stats.Documents > 0 || stats.RTDBRecords > 0 {
 		summary.Rows = append(summary.Rows, migrate.ValidationRow{
 			Label: "Documents", SourceCount: report.Records, TargetCount: stats.Documents + stats.RTDBRecords,
 		})
@@ -308,6 +308,13 @@ func BuildValidationSummary(report *migrate.AnalysisReport, stats *MigrationStat
 		summary.Rows = append(summary.Rows, migrate.ValidationRow{
 			Label: "Storage files", SourceCount: report.Files, TargetCount: stats.StorageFiles,
 		})
+	}
+
+	for _, row := range summary.Rows {
+		if row.SourceCount != row.TargetCount {
+			summary.Warnings = append(summary.Warnings,
+				fmt.Sprintf("%s count mismatch: source=%d target=%d", row.Label, row.SourceCount, row.TargetCount))
+		}
 	}
 
 	if stats.Skipped > 0 {

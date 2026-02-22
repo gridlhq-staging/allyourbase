@@ -1,13 +1,20 @@
-// Package examples embeds the demo application source files into the AYB binary.
-// These are extracted at runtime by `ayb demo <name>`.
+// Package examples embeds the pre-built demo applications into the AYB binary.
+// Demo dist/ directories are built at build time (make demos) and served
+// directly by `ayb demo <name>` — no Node.js required at runtime.
 package examples
 
-import "embed"
+import (
+	"embed"
+	"io/fs"
+)
 
-// FS contains the source files for all demo applications.
-// Tests, READMEs, lock files, and build artifacts are excluded.
+// FS contains the pre-built static assets (dist/) and schema files for all demos.
 //
-//go:embed kanban/src kanban/index.html kanban/package.json kanban/schema.sql kanban/tsconfig.json kanban/vite.config.ts kanban/tailwind.config.js kanban/postcss.config.js
-//go:embed live-polls/src live-polls/index.html live-polls/package.json live-polls/schema.sql live-polls/tsconfig.json live-polls/vite.config.ts live-polls/tailwind.config.js live-polls/postcss.config.js
-//go:embed pixel-canvas/src pixel-canvas/index.html pixel-canvas/package.json pixel-canvas/schema.sql pixel-canvas/tsconfig.json pixel-canvas/vite.config.ts pixel-canvas/tailwind.config.js pixel-canvas/postcss.config.js
+//go:embed kanban/dist live-polls/dist
+//go:embed kanban/schema.sql live-polls/schema.sql
 var FS embed.FS
+
+// DemoDist returns a sub-filesystem rooted at the given demo's dist/ directory.
+func DemoDist(name string) (fs.FS, error) {
+	return fs.Sub(FS, name+"/dist")
+}

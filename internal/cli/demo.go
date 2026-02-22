@@ -2,11 +2,15 @@ package cli
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
 	"io/fs"
+	"mime"
 	"net/http"
+	"net/http/httputil"
+	"net/url"
 	"os"
 	"os/exec"
 	"os/signal"
@@ -19,6 +23,18 @@ import (
 	"github.com/allyourbase/ayb/internal/cli/ui"
 	"github.com/spf13/cobra"
 )
+
+type seedAccount struct {
+	Email    string
+	Password string
+}
+
+// demoSeedUsers are pre-created accounts so users can log in instantly.
+var demoSeedUsers = []seedAccount{
+	{Email: "alice@demo.test", Password: "password123"},
+	{Email: "bob@demo.test", Password: "password123"},
+	{Email: "charlie@demo.test", Password: "password123"},
+}
 
 type demoInfo struct {
 	Name        string
@@ -36,21 +52,9 @@ var demoRegistry = map[string]demoInfo{
 		Port:        5173,
 		TrySteps: []string{
 			"Open http://localhost:5173",
-			"Register an account",
+			"Sign in with a demo account (shown on the login page)",
 			"Create a board and add some cards",
 			"Open a second browser tab to see realtime sync",
-		},
-	},
-	"pixel-canvas": {
-		Name:        "pixel-canvas",
-		Title:       "Pixel Canvas",
-		Description: "r/place clone — collaborative pixel art with realtime SSE",
-		Port:        5174,
-		TrySteps: []string{
-			"Open http://localhost:5174",
-			"Register an account",
-			"Pick a color and click to place pixels",
-			"Open a second browser to see pixels appear in realtime",
 		},
 	},
 	"live-polls": {
@@ -60,9 +64,9 @@ var demoRegistry = map[string]demoInfo{
 		Port:        5175,
 		TrySteps: []string{
 			"Open http://localhost:5175",
-			"Register an account",
+			"Sign in with a demo account (shown on the login page)",
 			"Create a poll with a few options",
-			"Open a second browser, register, and vote — watch results update live",
+			"Open a second browser, sign in as another user, and vote — watch results update live",
 		},
 	},
 }
@@ -70,30 +74,23 @@ var demoRegistry = map[string]demoInfo{
 var demoCmd = &cobra.Command{
 	Use:   "demo <name>",
 	Short: "Run a demo app (one command, batteries included)",
-	Long: `Download and run one of the AYB demo applications.
+	Long: `Run one of the bundled AYB demo applications.
 
 Available demos:
   kanban        Trello-lite Kanban board with drag-and-drop    (port 5173)
-  pixel-canvas  r/place clone collaborative pixel canvas       (port 5174)
   live-polls    Slido-lite real-time polling app                (port 5175)
 
 The command handles everything:
   - Starts the AYB server if not already running
   - Applies the database schema
-  - Installs npm dependencies
-  - Starts the Vite dev server
+  - Serves the pre-built demo app (no Node.js required)
 
 Examples:
   ayb demo kanban
-  ayb demo pixel-canvas
   ayb demo live-polls`,
 	Args:      cobra.ExactArgs(1),
-	ValidArgs: []string{"kanban", "pixel-canvas", "live-polls"},
+	ValidArgs: []string{"kanban", "live-polls"},
 	RunE:      runDemo,
-}
-
-func init() {
-	demoCmd.Flags().String("dir", ".", "Parent directory for demo files")
 }
 
 func runDemo(cmd *cobra.Command, args []string) error {
@@ -107,7 +104,6 @@ func runDemo(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("unknown demo %q (available: %s)", name, strings.Join(names, ", "))
 	}
 
-	dir, _ := cmd.Flags().GetString("dir")
 	useColor := colorEnabled()
 	isTTY := ui.StderrIsTTY()
 	sp := ui.NewStepSpinner(os.Stderr, !isTTY)
@@ -117,52 +113,27 @@ func runDemo(cmd *cobra.Command, args []string) error {
 		ui.BrandEmoji,
 		boldCyan(fmt.Sprintf("Allyourbase Demo: %s", demo.Title), useColor))
 
-	// Step 1: Check prerequisites
-	sp.Start("Checking prerequisites...")
-	if err := checkDemoPrerequisites(); err != nil {
-		sp.Fail()
-		return err
-	}
-	sp.Done()
-
-	// Step 2: Ensure AYB server is running
+	// Step 1: Ensure AYB server is running
 	sp.Start("Connecting to AYB server...")
-	baseURL, serverCmd, err := ensureDemoServer()
+	baseURL, weStarted, err := ensureDemoServer()
 	if err != nil {
 		sp.Fail()
 		return err
 	}
 	sp.Done()
 
-	// Clean up server on exit if we started it
-	if serverCmd != nil {
-		defer func() {
-			if serverCmd.Process != nil {
-				serverCmd.Process.Signal(syscall.SIGTERM)
-				serverCmd.Wait()
-			}
-		}()
+	// Clean up server on exit if we started it.
+	if weStarted {
+		aybBin, _ := os.Executable()
+		defer exec.Command(aybBin, "stop").Run() //nolint:errcheck
 	}
 
 	// Check if auth is enabled (warn but don't block)
 	checkDemoAuth(baseURL, useColor)
 
-	// Step 3: Extract demo files
-	sp.Start("Extracting demo files...")
-	demoDir := filepath.Join(dir, name)
-	extracted, err := extractDemoFiles(name, demoDir)
-	if err != nil {
-		sp.Fail()
-		return fmt.Errorf("extracting demo files: %w", err)
-	}
-	sp.Done()
-	if !extracted {
-		fmt.Fprintf(os.Stderr, "  %s\n", dim(fmt.Sprintf("Using existing files in %s/", name), useColor))
-	}
-
-	// Step 4: Apply schema
+	// Step 2: Apply schema
 	sp.Start("Applying database schema...")
-	schemaResult, err := applyDemoSchema(baseURL, demoDir)
+	schemaResult, err := applyDemoSchema(baseURL, name)
 	if err != nil {
 		sp.Fail()
 		return fmt.Errorf("applying schema: %w", err)
@@ -172,27 +143,32 @@ func runDemo(cmd *cobra.Command, args []string) error {
 		fmt.Fprintf(os.Stderr, "  %s\n", dim("Schema already applied (tables exist)", useColor))
 	}
 
-	// Step 5: npm install
-	if _, err := os.Stat(filepath.Join(demoDir, "node_modules")); os.IsNotExist(err) {
-		sp.Start("Installing npm dependencies...")
-		if err := npmInstallDemo(demoDir); err != nil {
-			sp.Fail()
-			return fmt.Errorf("npm install: %w", err)
-		}
-		sp.Done()
-	} else {
-		fmt.Fprintf(os.Stderr, "  %s %s\n", dim("Dependencies already installed", useColor), ui.SymbolCheck)
+	// Step 3: Seed demo users
+	sp.Start("Creating demo accounts...")
+	if err := seedDemoUsers(baseURL); err != nil {
+		sp.Fail()
+		return fmt.Errorf("seeding demo users: %w", err)
 	}
+	sp.Done()
 
-	// Step 6: Print banner
+	// Step 4: Print banner
 	fmt.Fprintln(os.Stderr)
 	padLabel := func(label string, width int) string {
 		return bold(fmt.Sprintf("%-*s", width, label), useColor)
 	}
-	fmt.Fprintf(os.Stderr, "  %s %s\n", padLabel("Demo:", 8), demo.Description)
-	fmt.Fprintf(os.Stderr, "  %s %s\n", padLabel("App:", 8), cyan(fmt.Sprintf("http://localhost:%d", demo.Port), useColor))
-	fmt.Fprintf(os.Stderr, "  %s %s\n", padLabel("API:", 8), cyan(baseURL+"/api", useColor))
-	fmt.Fprintf(os.Stderr, "  %s %s\n", padLabel("Admin:", 8), cyan(baseURL+"/admin", useColor))
+	fmt.Fprintf(os.Stderr, "  %s %s\n", padLabel("Demo:", 10), demo.Description)
+	fmt.Fprintf(os.Stderr, "  %s %s\n", padLabel("App:", 10), cyan(fmt.Sprintf("http://localhost:%d", demo.Port), useColor))
+	fmt.Fprintf(os.Stderr, "  %s %s\n", padLabel("API:", 10), cyan(baseURL+"/api", useColor))
+	fmt.Fprintf(os.Stderr, "  %s %s\n", padLabel("Admin:", 10), cyan(baseURL+"/admin", useColor))
+
+	fmt.Fprintln(os.Stderr)
+	fmt.Fprintf(os.Stderr, "  %s\n", bold("Accounts:", useColor))
+	for _, u := range demoSeedUsers {
+		fmt.Fprintf(os.Stderr, "    %s  %s %s\n",
+			cyan(fmt.Sprintf("%-22s", u.Email), useColor),
+			dim("/", useColor),
+			green(u.Password, useColor))
+	}
 
 	fmt.Fprintln(os.Stderr)
 	fmt.Fprintf(os.Stderr, "  %s\n", dim("Try:", useColor))
@@ -202,78 +178,47 @@ func runDemo(cmd *cobra.Command, args []string) error {
 	fmt.Fprintln(os.Stderr)
 	fmt.Fprintf(os.Stderr, "  %s\n\n", dim("Press Ctrl+C to stop.", useColor))
 
-	// Step 7: Run vite dev server in foreground
-	return runViteDev(demoDir)
+	// Step 5: Serve the pre-built demo app
+	return serveDemoApp(name, demo.Port, baseURL)
 }
 
-// checkDemoPrerequisites verifies node and npm are available.
-func checkDemoPrerequisites() error {
-	if _, err := exec.LookPath("node"); err != nil {
-		return fmt.Errorf("%s", ui.FormatError(
-			"Node.js is required but not found in PATH",
-			"brew install node",
-			"or visit https://nodejs.org",
-		))
-	}
-	if _, err := exec.LookPath("npm"); err != nil {
-		return fmt.Errorf("%s", ui.FormatError(
-			"npm is required but not found in PATH",
-			"brew install node",
-			"or visit https://nodejs.org",
-		))
-	}
-	return nil
-}
-
-// ensureDemoServer checks if the AYB server is running. If not, starts it.
-// Returns the base URL, the server command (if we started it), and any error.
-func ensureDemoServer() (string, *exec.Cmd, error) {
+// ensureDemoServer checks if the AYB server is running. If not, starts it
+// via `ayb start` (which backgrounds itself). Returns the base URL,
+// whether we started the server (for cleanup), and any error.
+func ensureDemoServer() (string, bool, error) {
 	base := serverURL()
 	client := &http.Client{Timeout: 2 * time.Second}
 
-	// Check if already running
+	// Check if already running.
 	resp, err := client.Get(base + "/health")
 	if err == nil {
 		resp.Body.Close()
 		if resp.StatusCode == http.StatusOK {
-			return base, nil, nil
+			return base, false, nil
 		}
 	}
 
-	// Not running — auto-start
+	// Not running — auto-start via `ayb start`.
+	// cmd.Run() blocks until the parent `ayb start` exits (after readiness).
 	aybBin, err := os.Executable()
 	if err != nil {
 		aybBin = os.Args[0]
 	}
 
-	cmd := exec.Command(aybBin, "start")
-	cmd.Env = append(os.Environ(), "AYB_AUTH_ENABLED=true")
-	cmd.Stdout = io.Discard
-	cmd.Stderr = io.Discard
+	startCmd := exec.Command(aybBin, "start")
+	startCmd.Env = append(os.Environ(), "AYB_AUTH_ENABLED=true", "AYB_AUTH_JWT_SECRET=devsecret-min-32-chars-long-000000")
+	startCmd.Stdout = io.Discard
+	var startErr strings.Builder
+	startCmd.Stderr = &startErr
 
-	if err := cmd.Start(); err != nil {
-		return "", nil, fmt.Errorf("failed to start AYB server: %w", err)
-	}
-
-	// Poll until healthy (up to 30 seconds)
-	deadline := time.Now().Add(30 * time.Second)
-	for time.Now().Before(deadline) {
-		time.Sleep(500 * time.Millisecond)
-		resp, err := client.Get(base + "/health")
-		if err == nil {
-			resp.Body.Close()
-			if resp.StatusCode == http.StatusOK {
-				return base, cmd, nil
-			}
+	if err := startCmd.Run(); err != nil {
+		detail := strings.TrimSpace(startErr.String())
+		if detail != "" {
+			return "", false, fmt.Errorf("failed to start AYB server:\n  %s", detail)
 		}
+		return "", false, fmt.Errorf("failed to start AYB server: %w", err)
 	}
-
-	// Timed out — kill the process
-	if cmd.Process != nil {
-		cmd.Process.Signal(syscall.SIGTERM)
-		cmd.Wait()
-	}
-	return "", nil, fmt.Errorf("AYB server did not become healthy within 30 seconds")
+	return base, true, nil
 }
 
 // checkDemoAuth probes the server to warn if auth is disabled.
@@ -296,68 +241,12 @@ func checkDemoAuth(baseURL string, useColor bool) {
 	}
 }
 
-// extractDemoFiles writes the embedded demo files to demoDir.
-// Returns true if files were extracted, false if reusing existing.
-func extractDemoFiles(name, demoDir string) (bool, error) {
-	// Skip if all critical files already exist (handles partial extraction)
-	requiredFiles := []string{"package.json", "schema.sql", "vite.config.ts"}
-	allExist := true
-	for _, f := range requiredFiles {
-		if _, err := os.Stat(filepath.Join(demoDir, f)); err != nil {
-			allExist = false
-			break
-		}
-	}
-	if allExist {
-		return false, nil
-	}
-
-	// Walk the embedded FS and write files
-	prefix := name
-	err := fs.WalkDir(examples.FS, prefix, func(path string, d fs.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
-
-		// Compute relative path from the demo name prefix
-		relPath := strings.TrimPrefix(path, prefix)
-		relPath = strings.TrimPrefix(relPath, "/")
-		if relPath == "" {
-			return nil
-		}
-
-		target := filepath.Join(demoDir, relPath)
-
-		if d.IsDir() {
-			return os.MkdirAll(target, 0755)
-		}
-
-		// Read from embed and write to disk
-		data, err := examples.FS.ReadFile(path)
-		if err != nil {
-			return fmt.Errorf("reading embedded %s: %w", path, err)
-		}
-
-		if err := os.MkdirAll(filepath.Dir(target), 0755); err != nil {
-			return err
-		}
-
-		return os.WriteFile(target, data, 0644)
-	})
-
-	if err != nil {
-		return false, err
-	}
-	return true, nil
-}
-
-// applyDemoSchema reads schema.sql and sends it to the running server.
+// applyDemoSchema reads schema.sql from the embedded FS and sends it to the running server.
 // Returns "applied", "exists", or an error.
-func applyDemoSchema(baseURL, demoDir string) (string, error) {
-	schemaPath := filepath.Join(demoDir, "schema.sql")
-	schemaSQL, err := os.ReadFile(schemaPath)
+func applyDemoSchema(baseURL, name string) (string, error) {
+	schemaSQL, err := fs.ReadFile(examples.FS, name+"/schema.sql")
 	if err != nil {
-		return "", fmt.Errorf("reading schema.sql: %w", err)
+		return "", fmt.Errorf("reading embedded schema.sql: %w", err)
 	}
 
 	token, err := resolveDemoAdminToken(baseURL)
@@ -378,7 +267,7 @@ func applyDemoSchema(baseURL, demoDir string) (string, error) {
 		req.Header.Set("Authorization", "Bearer "+token)
 	}
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := cliHTTPClient.Do(req)
 	if err != nil {
 		return "", fmt.Errorf("sending schema to server: %w", err)
 	}
@@ -426,7 +315,12 @@ func resolveDemoAdminToken(baseURL string) (string, error) {
 
 	data, readErr := os.ReadFile(tokenPath)
 	if readErr != nil {
-		return "", fmt.Errorf("no admin token: %s not found (visit /admin to set a password first)", tokenPath)
+		return "", fmt.Errorf("no admin token found.\n\n" +
+			"  The server is running but wasn't started by the demo command.\n" +
+			"  Stop it and let the demo handle everything:\n\n" +
+			"    ayb stop && ayb demo <name>\n\n" +
+			"  Or, if using lsof to find orphan processes:\n" +
+			"    lsof -ti :8090 | xargs kill && ayb demo <name>")
 	}
 
 	password := strings.TrimSpace(string(data))
@@ -437,55 +331,116 @@ func resolveDemoAdminToken(baseURL string) (string, error) {
 	return t, nil
 }
 
-// npmInstallDemo runs npm install in the demo directory.
-func npmInstallDemo(dir string) error {
-	cmd := exec.Command("npm", "install")
-	cmd.Dir = dir
-	cmd.Stdout = os.Stderr
-	cmd.Stderr = os.Stderr
-	return cmd.Run()
+// seedDemoUsers registers the seed accounts via the auth API.
+// Ignores 409 Conflict (user already exists).
+func seedDemoUsers(baseURL string) error {
+	client := &http.Client{Timeout: 10 * time.Second}
+	for _, u := range demoSeedUsers {
+		body, err := json.Marshal(map[string]string{"email": u.Email, "password": u.Password})
+		if err != nil {
+			return err
+		}
+		resp, err := client.Post(baseURL+"/api/auth/register", "application/json", bytes.NewReader(body))
+		if err != nil {
+			return fmt.Errorf("registering %s: %w", u.Email, err)
+		}
+		resp.Body.Close()
+		if resp.StatusCode != http.StatusCreated && resp.StatusCode != http.StatusConflict {
+			return fmt.Errorf("registering %s: unexpected status %d", u.Email, resp.StatusCode)
+		}
+	}
+	return nil
 }
 
-// runViteDev starts `npm run dev` as a foreground process with signal forwarding.
-// Server cleanup is handled by the deferred function in runDemo, not here.
-func runViteDev(dir string) error {
-	cmd := exec.Command("npm", "run", "dev")
-	cmd.Dir = dir
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	cmd.Stdin = os.Stdin
-
-	if err := cmd.Start(); err != nil {
-		return fmt.Errorf("starting dev server: %w", err)
+// serveDemoApp starts a Go HTTP server that serves pre-built static assets
+// from the embedded FS and reverse-proxies /api requests to the AYB server.
+// Blocks until SIGINT/SIGTERM is received.
+func serveDemoApp(name string, port int, aybServerURL string) error {
+	distFS, err := examples.DemoDist(name)
+	if err != nil {
+		return fmt.Errorf("loading demo assets: %w", err)
 	}
 
-	// Forward signals to the vite process
+	target, err := url.Parse(aybServerURL)
+	if err != nil {
+		return fmt.Errorf("parsing server URL: %w", err)
+	}
+
+	mux := http.NewServeMux()
+
+	// Reverse-proxy /api to the AYB server.
+	// FlushInterval: -1 enables continuous flushing, required for SSE (Server-Sent Events).
+	proxy := &httputil.ReverseProxy{
+		Rewrite: func(r *httputil.ProxyRequest) {
+			r.SetURL(target)
+			r.SetXForwarded()
+		},
+		FlushInterval: -1,
+	}
+	mux.Handle("/api/", proxy)
+
+	// Serve pre-built static files with SPA fallback.
+	mux.HandleFunc("/", demoFileHandler(distFS))
+
+	srv := &http.Server{
+		Addr:    fmt.Sprintf(":%d", port),
+		Handler: mux,
+	}
+
+	// Graceful shutdown on signal.
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
-	defer func() {
-		signal.Stop(sigCh)
-		close(sigCh) // unblock goroutine waiting on sigCh
-	}()
-
 	go func() {
-		sig, ok := <-sigCh
-		if !ok {
-			return
-		}
-		if cmd.Process != nil {
-			cmd.Process.Signal(sig)
-		}
+		<-sigCh
+		signal.Stop(sigCh)
+		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+		defer cancel()
+		srv.Shutdown(ctx)
 	}()
 
-	err := cmd.Wait()
+	if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+		return fmt.Errorf("demo server: %w", err)
+	}
+	return nil
+}
 
-	// Ignore exit code from Ctrl+C (expected shutdown)
-	if err != nil {
-		if exitErr, ok := err.(*exec.ExitError); ok {
-			if exitErr.ExitCode() == -1 || exitErr.ExitCode() == 130 {
-				return nil
-			}
+// demoFileHandler returns an http.HandlerFunc that serves files from the given
+// FS with SPA index.html fallback for client-side routing.
+func demoFileHandler(distFS fs.FS) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		// Clean the path and strip leading slash.
+		path := strings.TrimPrefix(r.URL.Path, "/")
+
+		// Try to serve the exact file; fall back to index.html for SPA routing.
+		if path == "" || !serveDemoFile(w, distFS, path) {
+			serveDemoFile(w, distFS, "index.html")
 		}
 	}
-	return err
+}
+
+// serveDemoFile writes a file from the demo dist FS to w.
+// Returns false if the file doesn't exist (caller should fall back).
+func serveDemoFile(w http.ResponseWriter, distFS fs.FS, path string) bool {
+	f, err := distFS.Open(path)
+	if err != nil {
+		return false
+	}
+	defer f.Close()
+
+	info, err := f.Stat()
+	if err != nil || info.IsDir() {
+		return false
+	}
+
+	// Cache static assets (not index.html).
+	if path != "index.html" {
+		w.Header().Set("Cache-Control", "public, max-age=1209600")
+	}
+	ct := mime.TypeByExtension(filepath.Ext(path))
+	if ct != "" {
+		w.Header().Set("Content-Type", ct)
+	}
+	w.WriteHeader(http.StatusOK)
+	io.Copy(w, f)
+	return true
 }

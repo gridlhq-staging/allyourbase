@@ -137,4 +137,3 @@ func Contains(t testing.TB, s, substr string) {
 		t.Errorf("%q does not contain %q", s, substr)
 	}
 }
-

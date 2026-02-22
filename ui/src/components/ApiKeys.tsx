@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
-import type { APIKeyResponse, APIKeyListResponse } from "../types";
-import { listApiKeys, createApiKey, revokeApiKey, listUsers } from "../api";
+import type { APIKeyResponse, APIKeyListResponse, AppResponse } from "../types";
+import { listApiKeys, createApiKey, revokeApiKey, listUsers, listApps } from "../api";
 import {
   Plus,
   Trash2,
@@ -16,6 +16,17 @@ import { cn } from "../lib/utils";
 import { ToastContainer, useToast } from "./Toast";
 
 const PER_PAGE = 20;
+const APP_PER_PAGE = 100;
+
+function formatAppRateLimit(app: AppResponse | undefined): string {
+  if (!app) {
+    return "Rate: unknown";
+  }
+  if (app.rateLimitRps <= 0) {
+    return "Rate: unlimited";
+  }
+  return `Rate: ${app.rateLimitRps} req/${app.rateLimitWindowSeconds}s`;
+}
 
 type Modal =
   | { kind: "none" }
@@ -35,7 +46,10 @@ export function ApiKeys() {
   const [createUserId, setCreateUserId] = useState("");
   const [createScope, setCreateScope] = useState("*");
   const [createAllowedTables, setCreateAllowedTables] = useState("");
+  const [createAppId, setCreateAppId] = useState("");
   const [userEmails, setUserEmails] = useState<Record<string, string>>({});
+  const [appsById, setAppsById] = useState<Record<string, AppResponse>>({});
+  const [appsError, setAppsError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const { toasts, addToast, removeToast } = useToast();
 
@@ -69,6 +83,40 @@ export function ApiKeys() {
       .catch(() => {});
   }, []);
 
+  // Load apps for app-scoped API key association and display.
+  useEffect(() => {
+    let cancelled = false;
+    const loadApps = async () => {
+      try {
+        setAppsError(null);
+        const items: AppResponse[] = [];
+        let page = 1;
+        while (!cancelled) {
+          const res = await listApps({ page, perPage: APP_PER_PAGE });
+          items.push(...res.items);
+          if (res.totalPages <= page || res.totalPages === 0) {
+            break;
+          }
+          page += 1;
+        }
+        if (cancelled) return;
+        const map: Record<string, AppResponse> = {};
+        for (const app of items) {
+          map[app.id] = app;
+        }
+        setAppsById(map);
+      } catch {
+        if (cancelled) return;
+        setAppsError("Failed to load apps");
+        setAppsById({});
+      }
+    };
+    loadApps();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   const handleCreate = async () => {
     if (!createUserId || !createName) return;
     setCreating(true);
@@ -81,6 +129,7 @@ export function ApiKeys() {
         userId: createUserId,
         name: createName,
         scope: createScope,
+        ...(createAppId ? { appId: createAppId } : {}),
         ...(tables.length > 0 ? { allowedTables: tables } : {}),
       });
       setModal({ kind: "created", key: result.key, apiKey: result.apiKey });
@@ -88,6 +137,7 @@ export function ApiKeys() {
       setCreateUserId("");
       setCreateScope("*");
       setCreateAllowedTables("");
+      setCreateAppId("");
       addToast("success", `API key "${result.apiKey.name}" created`);
       fetchKeys();
     } catch (e) {
@@ -198,6 +248,9 @@ export function ApiKeys() {
                     User
                   </th>
                   <th className="text-left px-4 py-2 font-medium text-gray-600">
+                    App
+                  </th>
+                  <th className="text-left px-4 py-2 font-medium text-gray-600">
                     Last Used
                   </th>
                   <th className="text-left px-4 py-2 font-medium text-gray-600">
@@ -249,6 +302,20 @@ export function ApiKeys() {
                     </td>
                     <td className="px-4 py-2.5 text-xs text-gray-500">
                       {userEmails[apiKey.userId] || apiKey.userId}
+                    </td>
+                    <td className="px-4 py-2.5 text-xs text-gray-500">
+                      {apiKey.appId ? (
+                        <>
+                          <div className="text-gray-700">
+                            {appsById[apiKey.appId]?.name || apiKey.appId}
+                          </div>
+                          <div className="text-[10px] text-gray-400 mt-0.5">
+                            {formatAppRateLimit(appsById[apiKey.appId])}
+                          </div>
+                        </>
+                      ) : (
+                        <span className="text-gray-400">User-scoped</span>
+                      )}
                     </td>
                     <td className="px-4 py-2.5 text-xs text-gray-500">
                       {apiKey.lastUsedAt
@@ -387,6 +454,30 @@ export function ApiKeys() {
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
+                  App Scope
+                </label>
+                <select
+                  value={createAppId}
+                  onChange={(e) => setCreateAppId(e.target.value)}
+                  className="w-full border rounded px-3 py-1.5 text-sm"
+                  aria-label="App Scope"
+                >
+                  <option value="">User-scoped (no app)</option>
+                  {Object.values(appsById).map((app) => (
+                    <option key={app.id} value={app.id}>
+                      {app.name}
+                    </option>
+                  ))}
+                </select>
+                <p className="text-[10px] text-gray-400 mt-0.5">
+                  Select an app to apply app-level scopes and rate limits.
+                </p>
+                {appsError && (
+                  <p className="text-[10px] text-amber-600 mt-1">{appsError}</p>
+                )}
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
                   Allowed Tables
                 </label>
                 <input
@@ -410,6 +501,7 @@ export function ApiKeys() {
                   setCreateUserId("");
                   setCreateScope("*");
                   setCreateAllowedTables("");
+                  setCreateAppId("");
                 }}
                 className="px-3 py-1.5 text-sm text-gray-600 hover:bg-gray-100 rounded border"
               >
@@ -464,6 +556,18 @@ export function ApiKeys() {
                 <strong>Scope:</strong>{" "}
                 {modal.apiKey.scope === "*" ? "full access" : modal.apiKey.scope}
               </p>
+              {modal.apiKey.appId && (
+                <>
+                  <p>
+                    <strong>App:</strong>{" "}
+                    {appsById[modal.apiKey.appId]?.name || modal.apiKey.appId}
+                  </p>
+                  <p>
+                    <strong>Rate:</strong>{" "}
+                    {formatAppRateLimit(appsById[modal.apiKey.appId]).replace("Rate: ", "")}
+                  </p>
+                </>
+              )}
               {modal.apiKey.allowedTables && modal.apiKey.allowedTables.length > 0 && (
                 <p>
                   <strong>Tables:</strong>{" "}

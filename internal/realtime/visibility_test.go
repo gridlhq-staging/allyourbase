@@ -1,6 +1,7 @@
 package realtime
 
 import (
+	"context"
 	"testing"
 
 	"github.com/allyourbase/ayb/internal/schema"
@@ -58,7 +59,7 @@ func TestCanSeeRecordNilPool(t *testing.T) {
 
 	h := &Handler{pool: nil}
 	event := &Event{Action: "create", Table: "posts", Record: map[string]any{"id": 1}}
-	testutil.True(t, h.canSeeRecord(nil, nil, event), "nil pool should allow all events")
+	testutil.True(t, h.canSeeRecord(context.TODO(), nil, event), "nil pool should allow all events")
 }
 
 func TestCanSeeRecordNilPoolAllActions(t *testing.T) {
@@ -68,7 +69,7 @@ func TestCanSeeRecordNilPoolAllActions(t *testing.T) {
 	h := &Handler{pool: nil}
 	for _, action := range []string{"create", "update", "delete"} {
 		event := &Event{Action: action, Table: "posts", Record: map[string]any{"id": 1}}
-		testutil.True(t, h.canSeeRecord(nil, nil, event),
+		testutil.True(t, h.canSeeRecord(context.TODO(), nil, event),
 			"nil pool should allow %s events", action)
 	}
 }

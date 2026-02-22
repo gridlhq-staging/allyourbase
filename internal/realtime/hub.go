@@ -30,10 +30,10 @@ type Hub struct {
 
 // Client represents a connected SSE subscriber.
 type Client struct {
-	ID         string
-	tables     map[string]bool
-	events     chan *Event
-	oauthCh    chan *auth.OAuthEvent // non-nil only for OAuth SSE clients
+	ID      string
+	tables  map[string]bool
+	events  chan *Event
+	oauthCh chan *auth.OAuthEvent // non-nil only for OAuth SSE clients
 }
 
 // Events returns a read-only channel of table events for this client.

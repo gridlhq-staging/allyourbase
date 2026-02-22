@@ -28,14 +28,14 @@ func RenderPasswordReset(data TemplateData) (html string, text string, err error
 	return render("password_reset.html", data)
 }
 
+// RenderMagicLink renders the magic link email and returns HTML and plain text.
+func RenderMagicLink(data TemplateData) (html string, text string, err error) {
+	return render("magic_link.html", data)
+}
+
 // RenderVerification renders the email verification email and returns HTML and plain text.
 func RenderVerification(data TemplateData) (html string, text string, err error) {
 	return render("verification.html", data)
-}
-
-// RenderMagicLink renders the magic link login email and returns HTML and plain text.
-func RenderMagicLink(data TemplateData) (html string, text string, err error) {
-	return render("magic_link.html", data)
 }
 
 func render(name string, data TemplateData) (string, string, error) {
@@ -47,6 +47,23 @@ func render(name string, data TemplateData) (string, string, error) {
 	// Simple plain-text fallback: strip tags.
 	text := stripHTML(html)
 	return html, text, nil
+}
+
+// Default subjects for system email templates.
+const (
+	DefaultPasswordResetSubject  = "Reset your password"
+	DefaultVerificationSubject   = "Verify your email"
+	DefaultMagicLinkSubject      = "Your login link"
+)
+
+// BuiltinHTMLTemplate returns the raw HTML source for a built-in template.
+// Valid names: "password_reset.html", "verification.html", "magic_link.html".
+func BuiltinHTMLTemplate(name string) (string, error) {
+	b, err := templateFS.ReadFile("templates/" + name)
+	if err != nil {
+		return "", fmt.Errorf("reading built-in template %s: %w", name, err)
+	}
+	return string(b), nil
 }
 
 // stripHTML is a minimal tag stripper for plain-text email fallback.

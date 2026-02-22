@@ -415,14 +415,14 @@ func TestValidateTokenBoundaryConditions(t *testing.T) {
 	}{
 		{
 			name:       "well before expiry - valid",
-			tokenDur:   10 * time.Second,
-			waitBefore: 100 * time.Millisecond,
+			tokenDur:   2 * time.Second,
+			waitBefore: 10 * time.Millisecond,
 			wantErr:    "",
 		},
 		{
 			name:       "after expiry - expired",
-			tokenDur:   1 * time.Second,
-			waitBefore: 2 * time.Second,
+			tokenDur:   100 * time.Millisecond,
+			waitBefore: 300 * time.Millisecond,
 			wantErr:    "token is expired",
 		},
 		{

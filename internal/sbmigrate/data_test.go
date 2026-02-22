@@ -22,6 +22,9 @@ func TestIsInternalTable(t *testing.T) {
 		{"prisma prefix", "_prisma_migrations", true},
 		{"schema_migrations", "schema_migrations", true},
 		{"supabase_migrations", "supabase_migrations", true},
+		{"buckets_vectors", "buckets_vectors", true},
+		{"vector_indexes", "vector_indexes", true},
+		{"storage.buckets_vectors", "storage.buckets_vectors", true},
 		{"user table", "users", false},
 		{"posts table", "posts", false},
 		{"underscore prefix not matched", "_custom_table", false},
@@ -330,7 +333,7 @@ func TestBuildValidationSummary(t *testing.T) {
 		t.Parallel()
 		report := &migrate.AnalysisReport{AuthUsers: 10}
 		stats := &MigrationStats{
-			Users:   8,
+			Users:   10,
 			Skipped: 2,
 			Errors:  []string{"error1"},
 		}
@@ -338,6 +341,18 @@ func TestBuildValidationSummary(t *testing.T) {
 		testutil.Equal(t, 2, len(summary.Warnings))
 		testutil.Contains(t, summary.Warnings[0], "2 items skipped")
 		testutil.Contains(t, summary.Warnings[1], "1 errors occurred")
+	})
+
+	t.Run("adds mismatch warning", func(t *testing.T) {
+		t.Parallel()
+		report := &migrate.AnalysisReport{AuthUsers: 10}
+		stats := &MigrationStats{Users: 8}
+		summary := BuildValidationSummary(report, stats)
+
+		testutil.Equal(t, 1, len(summary.Warnings))
+		testutil.Contains(t, summary.Warnings[0], "Auth users count mismatch")
+		testutil.Contains(t, summary.Warnings[0], "source=10")
+		testutil.Contains(t, summary.Warnings[0], "target=8")
 	})
 
 	t.Run("mismatch counts", func(t *testing.T) {

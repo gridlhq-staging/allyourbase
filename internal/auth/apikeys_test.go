@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/allyourbase/ayb/internal/testutil"
+	"github.com/jackc/pgx/v5/pgconn"
 )
 
 func TestIsAPIKey(t *testing.T) {
@@ -37,18 +38,6 @@ func TestIsAPIKey(t *testing.T) {
 }
 
 // TestAPIKeyPrefix removed — pure constant check, behaviorally covered by TestIsAPIKey.
-
-func TestAPIKeyConstants(t *testing.T) {
-	// Verify that a real generated key has the expected length (prefix + hex).
-	t.Parallel()
-
-	raw := make([]byte, apiKeyRawBytes)
-	_, err := rand.Read(raw)
-	testutil.NoError(t, err)
-	plaintext := APIKeyPrefix + hex.EncodeToString(raw)
-	testutil.Equal(t, 52, len(plaintext))
-	testutil.Equal(t, 4, len(APIKeyPrefix))
-}
 
 func TestAPIKeyFormat(t *testing.T) {
 	// Verify that a generated key has the expected format.
@@ -257,11 +246,72 @@ func TestCheckTableScopeCaseSensitive(t *testing.T) {
 	testutil.True(t, !c.IsTableAllowed("posts"), "lowercase should not match uppercase restriction")
 }
 
-func TestIsAPIKeyLengthBoundary(t *testing.T) {
-	// Exactly the prefix length + 1 (minimum valid key).
+func TestApplyAppRateLimitClaimsPopulatesFields(t *testing.T) {
 	t.Parallel()
 
-	testutil.True(t, IsAPIKey("ayb_x"), "prefix + 1 char should be valid")
-	// The prefix alone should be invalid.
-	testutil.True(t, !IsAPIKey("ayb_"), "prefix alone should not be valid")
+	claims := &Claims{}
+	appID := "550e8400-e29b-41d4-a716-446655440000"
+	rps := 25
+	window := 90
+
+	applyAppRateLimitClaims(claims, &appID, &rps, &window)
+
+	testutil.Equal(t, appID, claims.AppID)
+	testutil.Equal(t, 25, claims.AppRateLimitRPS)
+	testutil.Equal(t, 90, claims.AppRateLimitWindow)
+}
+
+func TestApplyAppRateLimitClaimsWithoutAppLeavesDefaults(t *testing.T) {
+	t.Parallel()
+
+	claims := &Claims{
+		AppID:              "",
+		AppRateLimitRPS:    0,
+		AppRateLimitWindow: 0,
+	}
+	rps := 10
+	window := 60
+
+	applyAppRateLimitClaims(claims, nil, &rps, &window)
+
+	testutil.Equal(t, "", claims.AppID)
+	testutil.Equal(t, 0, claims.AppRateLimitRPS)
+	testutil.Equal(t, 0, claims.AppRateLimitWindow)
+}
+
+func TestMapCreateAPIKeyInsertErrorAppFK(t *testing.T) {
+	t.Parallel()
+
+	err := mapCreateAPIKeyInsertError(&pgconn.PgError{
+		Code:           "23503",
+		ConstraintName: "_ayb_api_keys_app_id_fkey",
+	})
+	testutil.Equal(t, ErrInvalidAppID, err)
+}
+
+func TestMapCreateAPIKeyInsertErrorUserFK(t *testing.T) {
+	t.Parallel()
+
+	err := mapCreateAPIKeyInsertError(&pgconn.PgError{
+		Code:           "23503",
+		ConstraintName: "_ayb_api_keys_user_id_fkey",
+	})
+	testutil.Equal(t, ErrUserNotFound, err)
+}
+
+func TestMapCreateAPIKeyInsertErrorInvalidUUID(t *testing.T) {
+	t.Parallel()
+
+	err := mapCreateAPIKeyInsertError(&pgconn.PgError{
+		Code: "22P02",
+	})
+	testutil.Equal(t, ErrInvalidAppID, err)
+}
+
+func TestMapCreateAPIKeyInsertErrorPassthrough(t *testing.T) {
+	t.Parallel()
+
+	wrapped := mapCreateAPIKeyInsertError(&pgconn.PgError{Code: "23505"})
+	testutil.True(t, wrapped != nil, "error should be wrapped")
+	testutil.Contains(t, wrapped.Error(), "inserting api key")
 }

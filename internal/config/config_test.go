@@ -33,6 +33,10 @@ func TestDefault(t *testing.T) {
 	testutil.Equal(t, 604800, cfg.Auth.RefreshTokenDuration)
 	testutil.Equal(t, 10, cfg.Auth.RateLimit)
 	testutil.Equal(t, 8, cfg.Auth.MinPasswordLength)
+	testutil.Equal(t, false, cfg.Auth.OAuthProviderMode.Enabled)
+	testutil.Equal(t, 3600, cfg.Auth.OAuthProviderMode.AccessTokenDuration)
+	testutil.Equal(t, 2592000, cfg.Auth.OAuthProviderMode.RefreshTokenDuration)
+	testutil.Equal(t, 600, cfg.Auth.OAuthProviderMode.AuthCodeDuration)
 
 	testutil.Equal(t, "log", cfg.Email.Backend)
 	testutil.Equal(t, "Allyourbase", cfg.Email.FromName)
@@ -271,6 +275,55 @@ func TestValidate(t *testing.T) {
 			},
 		},
 		{
+			name: "oauth provider mode enabled requires auth enabled",
+			modify: func(c *Config) {
+				c.Auth.Enabled = false
+				c.Auth.OAuthProviderMode.Enabled = true
+			},
+			wantErr: "auth.enabled must be true to use OAuth provider mode",
+		},
+		{
+			name: "oauth provider mode rejects non-positive access token duration",
+			modify: func(c *Config) {
+				c.Auth.Enabled = true
+				c.Auth.JWTSecret = "this-is-a-secret-that-is-at-least-32-characters-long"
+				c.Auth.OAuthProviderMode.Enabled = true
+				c.Auth.OAuthProviderMode.AccessTokenDuration = 0
+			},
+			wantErr: "auth.oauth_provider.access_token_duration must be at least 1",
+		},
+		{
+			name: "oauth provider mode rejects non-positive refresh token duration",
+			modify: func(c *Config) {
+				c.Auth.Enabled = true
+				c.Auth.JWTSecret = "this-is-a-secret-that-is-at-least-32-characters-long"
+				c.Auth.OAuthProviderMode.Enabled = true
+				c.Auth.OAuthProviderMode.RefreshTokenDuration = 0
+			},
+			wantErr: "auth.oauth_provider.refresh_token_duration must be at least 1",
+		},
+		{
+			name: "oauth provider mode rejects non-positive auth code duration",
+			modify: func(c *Config) {
+				c.Auth.Enabled = true
+				c.Auth.JWTSecret = "this-is-a-secret-that-is-at-least-32-characters-long"
+				c.Auth.OAuthProviderMode.Enabled = true
+				c.Auth.OAuthProviderMode.AuthCodeDuration = 0
+			},
+			wantErr: "auth.oauth_provider.auth_code_duration must be at least 1",
+		},
+		{
+			name: "oauth provider mode accepts positive durations",
+			modify: func(c *Config) {
+				c.Auth.Enabled = true
+				c.Auth.JWTSecret = "this-is-a-secret-that-is-at-least-32-characters-long"
+				c.Auth.OAuthProviderMode.Enabled = true
+				c.Auth.OAuthProviderMode.AccessTokenDuration = 1800
+				c.Auth.OAuthProviderMode.RefreshTokenDuration = 1209600
+				c.Auth.OAuthProviderMode.AuthCodeDuration = 300
+			},
+		},
+		{
 			name: "magic link enabled without auth enabled",
 			modify: func(c *Config) {
 				c.Auth.Enabled = false
@@ -352,7 +405,7 @@ func TestValidate(t *testing.T) {
 			},
 		},
 		{
-			name:    "storage enabled with empty local path",
+			name: "storage enabled with empty local path",
 			modify: func(c *Config) {
 				c.Storage.Enabled = true
 				c.Storage.Backend = "local"
@@ -416,7 +469,7 @@ func TestValidate(t *testing.T) {
 			wantErr: "s3_secret_key is required",
 		},
 		{
-			name:    "storage unsupported backend",
+			name: "storage unsupported backend",
 			modify: func(c *Config) {
 				c.Storage.Enabled = true
 				c.Storage.Backend = "gcs"
@@ -491,6 +544,32 @@ min_password_length = 3
 	cfg, err := Load(tomlPath, nil)
 	testutil.NoError(t, err)
 	testutil.Equal(t, 3, cfg.Auth.MinPasswordLength)
+}
+
+func TestLoadOAuthProviderModeFromFile(t *testing.T) {
+	dir := t.TempDir()
+	tomlPath := filepath.Join(dir, "ayb.toml")
+
+	content := `
+[auth]
+enabled = true
+jwt_secret = "this-is-a-secret-that-is-at-least-32-characters-long"
+
+[auth.oauth_provider]
+enabled = true
+access_token_duration = 1200
+refresh_token_duration = 86400
+auth_code_duration = 180
+`
+	err := os.WriteFile(tomlPath, []byte(content), 0o644)
+	testutil.NoError(t, err)
+
+	cfg, err := Load(tomlPath, nil)
+	testutil.NoError(t, err)
+	testutil.Equal(t, true, cfg.Auth.OAuthProviderMode.Enabled)
+	testutil.Equal(t, 1200, cfg.Auth.OAuthProviderMode.AccessTokenDuration)
+	testutil.Equal(t, 86400, cfg.Auth.OAuthProviderMode.RefreshTokenDuration)
+	testutil.Equal(t, 180, cfg.Auth.OAuthProviderMode.AuthCodeDuration)
 }
 
 func TestLoadSiteURLFromFile(t *testing.T) {
@@ -620,6 +699,7 @@ func TestGenerateDefault(t *testing.T) {
 	testutil.Contains(t, content, "[database]")
 	testutil.Contains(t, content, "[admin]")
 	testutil.Contains(t, content, "[auth]")
+	testutil.Contains(t, content, "[auth.oauth_provider]")
 	testutil.Contains(t, content, "[email]")
 	testutil.Contains(t, content, "[storage]")
 	testutil.Contains(t, content, "[logging]")
@@ -627,6 +707,34 @@ func TestGenerateDefault(t *testing.T) {
 	testutil.Contains(t, content, "token_duration = 900")
 	testutil.Contains(t, content, "refresh_token_duration = 604800")
 	testutil.Contains(t, content, "min_password_length = 8")
+	testutil.Contains(t, content, "access_token_duration = 3600")
+	testutil.Contains(t, content, "auth_code_duration = 600")
+
+	// Verify file permissions are 0600 (config may contain secrets after user edits).
+	info, err := os.Stat(path)
+	testutil.NoError(t, err)
+	testutil.Equal(t, os.FileMode(0o600), info.Mode().Perm())
+}
+
+func TestGenerateDefaultIncludesJobsSection(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "ayb.toml")
+
+	err := GenerateDefault(path)
+	testutil.NoError(t, err)
+
+	data, err := os.ReadFile(path)
+	testutil.NoError(t, err)
+	content := string(data)
+
+	testutil.Contains(t, content, "[jobs]")
+	testutil.Contains(t, content, "enabled = false")
+	testutil.Contains(t, content, "worker_concurrency = 4")
+	testutil.Contains(t, content, "poll_interval_ms = 1000")
+	testutil.Contains(t, content, "lease_duration_s = 300")
+	testutil.Contains(t, content, "max_retries_default = 3")
+	testutil.Contains(t, content, "scheduler_enabled = true")
+	testutil.Contains(t, content, "scheduler_tick_s = 15")
 }
 
 func TestToTOML(t *testing.T) {
@@ -673,7 +781,10 @@ func TestStorageMaxFileSizeBytes(t *testing.T) {
 		{"10MB", 10 << 20},
 		{"5MB", 5 << 20},
 		{"1MB", 1 << 20},
-		{"", 10 << 20},       // default
+		{"1GB", 1 << 30},
+		{"2GB", 2 << 30},
+		{"500KB", 500 << 10},
+		{"", 10 << 20},        // default
 		{"invalid", 10 << 20}, // default on parse failure
 	}
 	for _, tt := range tests {
@@ -804,6 +915,29 @@ func TestApplyOAuthEnvVars(t *testing.T) {
 	testutil.False(t, gh.Enabled, "github should not be enabled (no ENABLED env)")
 }
 
+func TestApplyOAuthProviderModeEnvVars(t *testing.T) {
+	t.Setenv("AYB_AUTH_OAUTH_PROVIDER_ENABLED", "true")
+	t.Setenv("AYB_AUTH_OAUTH_PROVIDER_ACCESS_TOKEN_DURATION", "1200")
+	t.Setenv("AYB_AUTH_OAUTH_PROVIDER_REFRESH_TOKEN_DURATION", "86400")
+	t.Setenv("AYB_AUTH_OAUTH_PROVIDER_AUTH_CODE_DURATION", "180")
+
+	cfg := Default()
+	err := applyEnv(cfg)
+	testutil.NoError(t, err)
+
+	testutil.Equal(t, true, cfg.Auth.OAuthProviderMode.Enabled)
+	testutil.Equal(t, 1200, cfg.Auth.OAuthProviderMode.AccessTokenDuration)
+	testutil.Equal(t, 86400, cfg.Auth.OAuthProviderMode.RefreshTokenDuration)
+	testutil.Equal(t, 180, cfg.Auth.OAuthProviderMode.AuthCodeDuration)
+}
+
+func TestApplyOAuthProviderModeInvalidDurationEnvVar(t *testing.T) {
+	t.Setenv("AYB_AUTH_OAUTH_PROVIDER_ACCESS_TOKEN_DURATION", "notanumber")
+	cfg := Default()
+	err := applyEnv(cfg)
+	testutil.ErrorContains(t, err, "AYB_AUTH_OAUTH_PROVIDER_ACCESS_TOKEN_DURATION")
+}
+
 func TestApplyEmailEnvVars(t *testing.T) {
 	t.Setenv("AYB_EMAIL_BACKEND", "smtp")
 	t.Setenv("AYB_EMAIL_FROM", "noreply@example.com")
@@ -919,6 +1053,10 @@ func TestIsValidKey(t *testing.T) {
 		{"database.url", true},
 		{"auth.enabled", true},
 		{"auth.jwt_secret", true},
+		{"auth.oauth_provider.enabled", true},
+		{"auth.oauth_provider.access_token_duration", true},
+		{"auth.oauth_provider.refresh_token_duration", true},
+		{"auth.oauth_provider.auth_code_duration", true},
 		{"auth.min_password_length", true},
 		{"storage.s3_bucket", true},
 		{"logging.level", true},
@@ -952,6 +1090,10 @@ func TestGetValue(t *testing.T) {
 		{"database.max_conns", 25, false},
 		{"admin.enabled", true, false},
 		{"auth.enabled", false, false},
+		{"auth.oauth_provider.enabled", false, false},
+		{"auth.oauth_provider.access_token_duration", 3600, false},
+		{"auth.oauth_provider.refresh_token_duration", 2592000, false},
+		{"auth.oauth_provider.auth_code_duration", 600, false},
 		{"logging.level", "info", false},
 		{"storage.backend", "local", false},
 		{"auth.magic_link_enabled", false, false},
@@ -984,6 +1126,11 @@ func TestSetValue(t *testing.T) {
 	testutil.NoError(t, err)
 	testutil.Contains(t, string(data), "port = 3000")
 
+	// Config files may contain secrets — verify owner-only permissions.
+	info, err := os.Stat(tomlPath)
+	testutil.NoError(t, err)
+	testutil.Equal(t, os.FileMode(0o600), info.Mode().Perm())
+
 	// Set another value in the same file.
 	err = SetValue(tomlPath, "server.host", "127.0.0.1")
 	testutil.NoError(t, err)
@@ -1005,6 +1152,23 @@ func TestSetValueBoolean(t *testing.T) {
 	data, err := os.ReadFile(tomlPath)
 	testutil.NoError(t, err)
 	testutil.Contains(t, string(data), "enabled = true")
+}
+
+func TestSetValueJobsTypes(t *testing.T) {
+	dir := t.TempDir()
+	tomlPath := filepath.Join(dir, "ayb.toml")
+
+	testutil.NoError(t, SetValue(tomlPath, "jobs.enabled", "true"))
+	testutil.NoError(t, SetValue(tomlPath, "jobs.worker_concurrency", "8"))
+	testutil.NoError(t, SetValue(tomlPath, "jobs.scheduler_enabled", "false"))
+	testutil.NoError(t, SetValue(tomlPath, "jobs.scheduler_tick_s", "30"))
+
+	cfg, err := Load(tomlPath, nil)
+	testutil.NoError(t, err)
+	testutil.True(t, cfg.Jobs.Enabled, "jobs.enabled should be TOML bool")
+	testutil.Equal(t, 8, cfg.Jobs.WorkerConcurrency)
+	testutil.False(t, cfg.Jobs.SchedulerEnabled, "jobs.scheduler_enabled should be TOML bool")
+	testutil.Equal(t, 30, cfg.Jobs.SchedulerTickS)
 }
 
 func TestSetValueInvalidKey(t *testing.T) {
@@ -1050,12 +1214,414 @@ func TestCoerceValue(t *testing.T) {
 		{"auth.magic_link_enabled", "true", true},
 		{"auth.magic_link_enabled", "false", false},
 		{"auth.magic_link_duration", "300", 300},
+		{"auth.oauth_provider.enabled", "true", true},
+		{"auth.oauth_provider.access_token_duration", "1200", 1200},
+		{"auth.oauth_provider.refresh_token_duration", "86400", 86400},
+		{"auth.oauth_provider.auth_code_duration", "180", 180},
+		{"jobs.enabled", "true", true},
+		{"jobs.scheduler_enabled", "false", false},
+		{"jobs.worker_concurrency", "12", 12},
+		{"jobs.poll_interval_ms", "250", 250},
+		{"jobs.lease_duration_s", "120", 120},
+		{"jobs.max_retries_default", "7", 7},
+		{"jobs.scheduler_tick_s", "45", 45},
 		{"server.port", "notanumber", "notanumber"}, // falls through to string
 	}
 	for _, tt := range tests {
 		t.Run(tt.key+"="+tt.value, func(t *testing.T) {
 			got := coerceValue(tt.key, tt.value)
 			testutil.Equal(t, tt.want, got)
+		})
+	}
+}
+
+// --- TLS config tests ---
+
+func TestDefaultTLSFields(t *testing.T) {
+	cfg := Default()
+	testutil.Equal(t, cfg.Server.TLSEnabled, false)
+	testutil.Equal(t, cfg.Server.TLSDomain, "")
+	testutil.Equal(t, cfg.Server.TLSCertDir, "")
+	testutil.Equal(t, cfg.Server.TLSEmail, "")
+}
+
+func TestValidateTLSDomainAutoEnablesTLS(t *testing.T) {
+	cfg := Default()
+	cfg.Server.TLSDomain = "api.myapp.com"
+	err := cfg.Validate()
+	testutil.NoError(t, err)
+	testutil.Equal(t, cfg.Server.TLSEnabled, true)
+}
+
+func TestValidateTLSEnabledRequiresDomain(t *testing.T) {
+	cfg := Default()
+	cfg.Server.TLSEnabled = true
+	cfg.Server.TLSDomain = ""
+	err := cfg.Validate()
+	testutil.ErrorContains(t, err, "server.tls_domain is required when TLS is enabled")
+}
+
+func TestValidateTLSEnabledWithDomainIsValid(t *testing.T) {
+	cfg := Default()
+	cfg.Server.TLSEnabled = true
+	cfg.Server.TLSDomain = "api.myapp.com"
+	err := cfg.Validate()
+	testutil.NoError(t, err)
+}
+
+func TestApplyEnvTLSDomain(t *testing.T) {
+	t.Setenv("AYB_TLS_DOMAIN", "api.example.com")
+	cfg := Default()
+	err := applyEnv(cfg)
+	testutil.NoError(t, err)
+	testutil.Equal(t, cfg.Server.TLSDomain, "api.example.com")
+}
+
+func TestApplyEnvTLSEmail(t *testing.T) {
+	t.Setenv("AYB_TLS_EMAIL", "admin@example.com")
+	cfg := Default()
+	err := applyEnv(cfg)
+	testutil.NoError(t, err)
+	testutil.Equal(t, cfg.Server.TLSEmail, "admin@example.com")
+}
+
+func TestApplyFlagsTLSDomain(t *testing.T) {
+	cfg := Default()
+	flags := map[string]string{"tls-domain": "api.example.com"}
+	applyFlags(cfg, flags)
+	testutil.Equal(t, cfg.Server.TLSDomain, "api.example.com")
+}
+
+func TestApplyFlagsTLSDomainEmpty(t *testing.T) {
+	cfg := Default()
+	flags := map[string]string{"tls-domain": ""}
+	applyFlags(cfg, flags)
+	testutil.Equal(t, cfg.Server.TLSDomain, "") // empty value should not override
+}
+
+func TestIsValidKeyTLS(t *testing.T) {
+	testutil.Equal(t, IsValidKey("server.tls_domain"), true)
+	testutil.Equal(t, IsValidKey("server.tls_email"), true)
+	testutil.Equal(t, IsValidKey("server.tls_cert_dir"), true)
+	testutil.Equal(t, IsValidKey("server.tls_enabled"), true)
+}
+
+func TestGetValueTLS(t *testing.T) {
+	cfg := Default()
+	cfg.Server.TLSDomain = "api.example.com"
+	cfg.Server.TLSEmail = "admin@example.com"
+	cfg.Server.TLSCertDir = "/home/user/.ayb/certs"
+
+	val, err := GetValue(cfg, "server.tls_domain")
+	testutil.NoError(t, err)
+	testutil.Equal(t, val, "api.example.com")
+
+	val, err = GetValue(cfg, "server.tls_email")
+	testutil.NoError(t, err)
+	testutil.Equal(t, val, "admin@example.com")
+
+	val, err = GetValue(cfg, "server.tls_cert_dir")
+	testutil.NoError(t, err)
+	testutil.Equal(t, val, "/home/user/.ayb/certs")
+
+	val, err = GetValue(cfg, "server.tls_enabled")
+	testutil.NoError(t, err)
+	testutil.Equal(t, val, false)
+}
+
+func TestGenerateDefaultContainsTLSSection(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "ayb.toml")
+	err := GenerateDefault(path)
+	testutil.NoError(t, err)
+
+	data, err := os.ReadFile(path)
+	testutil.NoError(t, err)
+	testutil.Contains(t, string(data), "tls_domain")
+	testutil.Contains(t, string(data), "tls_email")
+}
+
+func TestLoadTLSFromFile(t *testing.T) {
+	dir := t.TempDir()
+	tomlPath := filepath.Join(dir, "ayb.toml")
+	content := `
+[server]
+tls_domain = "api.myapp.com"
+tls_email = "ops@myapp.com"
+tls_cert_dir = "/var/lib/ayb/certs"
+`
+	err := os.WriteFile(tomlPath, []byte(content), 0o644)
+	testutil.NoError(t, err)
+
+	cfg, err := Load(tomlPath, nil)
+	testutil.NoError(t, err)
+	testutil.Equal(t, cfg.Server.TLSDomain, "api.myapp.com")
+	testutil.Equal(t, cfg.Server.TLSEmail, "ops@myapp.com")
+	testutil.Equal(t, cfg.Server.TLSCertDir, "/var/lib/ayb/certs")
+	testutil.Equal(t, cfg.Server.TLSEnabled, true) // auto-set by Validate
+}
+
+// TestLoadEnvTLSDomainAutoEnablesTLS verifies that setting AYB_TLS_DOMAIN via env
+// results in TLSEnabled=true through the full Load() pipeline (applyEnv + Validate).
+// TestApplyEnvTLSDomain only tests applyEnv in isolation; this tests the end-to-end path.
+func TestLoadEnvTLSDomainAutoEnablesTLS(t *testing.T) {
+	t.Setenv("AYB_TLS_DOMAIN", "api.example.com")
+	cfg, err := Load("/nonexistent/ayb.toml", nil)
+	testutil.NoError(t, err)
+	testutil.Equal(t, "api.example.com", cfg.Server.TLSDomain)
+	testutil.Equal(t, true, cfg.Server.TLSEnabled) // Validate auto-sets this
+}
+
+// TestLoadFlagTLSDomainAutoEnablesTLS verifies that passing tls-domain via CLI flags
+// results in TLSEnabled=true through the full Load() pipeline (applyFlags + Validate).
+// TestApplyFlagsTLSDomain only tests applyFlags in isolation; this tests the end-to-end path.
+func TestLoadFlagTLSDomainAutoEnablesTLS(t *testing.T) {
+	flags := map[string]string{"tls-domain": "api.example.com"}
+	cfg, err := Load("/nonexistent/ayb.toml", flags)
+	testutil.NoError(t, err)
+	testutil.Equal(t, "api.example.com", cfg.Server.TLSDomain)
+	testutil.Equal(t, true, cfg.Server.TLSEnabled) // Validate auto-sets this
+}
+
+// --- SMS config tests ---
+
+// validSMSConfig returns a Default config with auth enabled and SMS enabled with the log provider.
+func validSMSConfig(t *testing.T) *Config {
+	t.Helper()
+	cfg := Default()
+	cfg.Auth.Enabled = true
+	cfg.Auth.JWTSecret = "this-is-a-secret-that-is-at-least-32-characters-long"
+	cfg.Auth.SMSEnabled = true
+	cfg.Auth.SMSProvider = "log"
+	return cfg
+}
+
+func TestSMSConfigDefaults(t *testing.T) {
+	cfg := Default()
+	testutil.Equal(t, false, cfg.Auth.SMSEnabled)
+	testutil.Equal(t, "log", cfg.Auth.SMSProvider)
+	testutil.Equal(t, 6, cfg.Auth.SMSCodeLength)
+	testutil.Equal(t, 300, cfg.Auth.SMSCodeExpiry)
+	testutil.Equal(t, 3, cfg.Auth.SMSMaxAttempts)
+	testutil.Equal(t, 1000, cfg.Auth.SMSDailyLimit)
+	testutil.SliceLen(t, cfg.Auth.SMSAllowedCountries, 2)
+	testutil.Equal(t, "US", cfg.Auth.SMSAllowedCountries[0])
+	testutil.Equal(t, "CA", cfg.Auth.SMSAllowedCountries[1])
+}
+
+func TestSMSConfigValidation_RequiresAuthEnabled(t *testing.T) {
+	cfg := Default()
+	cfg.Auth.SMSEnabled = true
+	cfg.Auth.Enabled = false
+	err := cfg.Validate()
+	testutil.ErrorContains(t, err, "sms_enabled requires auth.enabled")
+}
+
+func TestSMSConfigValidation_UnknownProvider(t *testing.T) {
+	cfg := validSMSConfig(t)
+	cfg.Auth.SMSProvider = "carrier_pigeon"
+	testutil.ErrorContains(t, cfg.Validate(), "sms_provider")
+}
+
+func TestSMSConfigValidation_TwilioRequiresCredentials(t *testing.T) {
+	cfg := validSMSConfig(t)
+	cfg.Auth.SMSProvider = "twilio"
+	testutil.ErrorContains(t, cfg.Validate(), "twilio_sid")
+}
+
+func TestSMSConfigValidation_CodeLengthBounds(t *testing.T) {
+	cfg := validSMSConfig(t)
+	cfg.Auth.SMSCodeLength = 3
+	testutil.ErrorContains(t, cfg.Validate(), "sms_code_length")
+	cfg.Auth.SMSCodeLength = 9
+	testutil.ErrorContains(t, cfg.Validate(), "sms_code_length")
+	cfg.Auth.SMSCodeLength = 6
+	testutil.NoError(t, cfg.Validate())
+}
+
+func TestSMSConfigValidation_ExpiryBounds(t *testing.T) {
+	cfg := validSMSConfig(t)
+	cfg.Auth.SMSCodeExpiry = 59
+	testutil.ErrorContains(t, cfg.Validate(), "sms_code_expiry")
+	cfg.Auth.SMSCodeExpiry = 601
+	testutil.ErrorContains(t, cfg.Validate(), "sms_code_expiry")
+}
+
+func TestSMSConfigValidation_DailyLimitBounds(t *testing.T) {
+	cfg := validSMSConfig(t)
+	cfg.Auth.SMSDailyLimit = -1
+	testutil.ErrorContains(t, cfg.Validate(), "sms_daily_limit")
+	cfg.Auth.SMSDailyLimit = 0 // 0 = unlimited — valid
+	testutil.NoError(t, cfg.Validate())
+}
+
+func TestSMSConfigValidation_AllowedCountries(t *testing.T) {
+	cfg := validSMSConfig(t)
+	cfg.Auth.SMSAllowedCountries = []string{"XX"}
+	testutil.ErrorContains(t, cfg.Validate(), "sms_allowed_countries")
+}
+
+// --- New provider config validation tests (Stage 6, Step 8) ---
+
+func TestValidate_SMSProvider_Plivo(t *testing.T) {
+	cfg := validSMSConfig(t)
+	cfg.Auth.SMSProvider = "plivo"
+
+	// Missing all credentials.
+	testutil.ErrorContains(t, cfg.Validate(), "plivo_auth_id")
+
+	// Missing auth_token and from.
+	cfg.Auth.PlivoAuthID = "PLIVO_ID"
+	testutil.ErrorContains(t, cfg.Validate(), "plivo_auth_token")
+
+	cfg.Auth.PlivoAuthToken = "PLIVO_TOKEN"
+	testutil.ErrorContains(t, cfg.Validate(), "plivo_from")
+
+	// All set — valid.
+	cfg.Auth.PlivoFrom = "+15551234567"
+	testutil.NoError(t, cfg.Validate())
+}
+
+func TestValidate_SMSProvider_Telnyx(t *testing.T) {
+	cfg := validSMSConfig(t)
+	cfg.Auth.SMSProvider = "telnyx"
+
+	testutil.ErrorContains(t, cfg.Validate(), "telnyx_api_key")
+
+	cfg.Auth.TelnyxAPIKey = "KEY_123"
+	testutil.ErrorContains(t, cfg.Validate(), "telnyx_from")
+
+	cfg.Auth.TelnyxFrom = "+15551234567"
+	testutil.NoError(t, cfg.Validate())
+}
+
+func TestValidate_SMSProvider_MSG91(t *testing.T) {
+	cfg := validSMSConfig(t)
+	cfg.Auth.SMSProvider = "msg91"
+
+	testutil.ErrorContains(t, cfg.Validate(), "msg91_auth_key")
+
+	cfg.Auth.MSG91AuthKey = "AUTH_KEY"
+	testutil.ErrorContains(t, cfg.Validate(), "msg91_template_id")
+
+	cfg.Auth.MSG91TemplateID = "TMPL_123"
+	testutil.NoError(t, cfg.Validate())
+}
+
+func TestValidate_SMSProvider_SNS(t *testing.T) {
+	cfg := validSMSConfig(t)
+	cfg.Auth.SMSProvider = "sns"
+
+	testutil.ErrorContains(t, cfg.Validate(), "aws_region")
+
+	cfg.Auth.AWSRegion = "us-east-1"
+	testutil.NoError(t, cfg.Validate())
+}
+
+func TestValidate_SMSProvider_Vonage(t *testing.T) {
+	cfg := validSMSConfig(t)
+	cfg.Auth.SMSProvider = "vonage"
+
+	testutil.ErrorContains(t, cfg.Validate(), "vonage_api_key")
+
+	cfg.Auth.VonageAPIKey = "KEY"
+	testutil.ErrorContains(t, cfg.Validate(), "vonage_api_secret")
+
+	cfg.Auth.VonageAPISecret = "SECRET"
+	testutil.ErrorContains(t, cfg.Validate(), "vonage_from")
+
+	cfg.Auth.VonageFrom = "+15551234567"
+	testutil.NoError(t, cfg.Validate())
+}
+
+func TestValidate_SMSProvider_Webhook(t *testing.T) {
+	cfg := validSMSConfig(t)
+	cfg.Auth.SMSProvider = "webhook"
+
+	testutil.ErrorContains(t, cfg.Validate(), "sms_webhook_url")
+
+	cfg.Auth.SMSWebhookURL = "https://example.com/sms"
+	testutil.ErrorContains(t, cfg.Validate(), "sms_webhook_secret")
+
+	cfg.Auth.SMSWebhookSecret = "whsec_abc"
+	testutil.NoError(t, cfg.Validate())
+}
+
+func TestValidate_SMSProvider_Invalid(t *testing.T) {
+	cfg := validSMSConfig(t)
+	cfg.Auth.SMSProvider = "carrier_pigeon"
+	err := cfg.Validate()
+	testutil.ErrorContains(t, err, "sms_provider")
+	// The error message should list all valid providers.
+	testutil.ErrorContains(t, err, "plivo")
+	testutil.ErrorContains(t, err, "telnyx")
+	testutil.ErrorContains(t, err, "vonage")
+	testutil.ErrorContains(t, err, "sns")
+	testutil.ErrorContains(t, err, "msg91")
+	testutil.ErrorContains(t, err, "webhook")
+}
+
+func TestNewProviderEnvVarOverrides(t *testing.T) {
+	t.Setenv("AYB_AUTH_PLIVO_AUTH_ID", "env_plivo_id")
+	t.Setenv("AYB_AUTH_PLIVO_AUTH_TOKEN", "env_plivo_token")
+	t.Setenv("AYB_AUTH_PLIVO_FROM", "+15559990000")
+	t.Setenv("AYB_AUTH_TELNYX_API_KEY", "env_telnyx_key")
+	t.Setenv("AYB_AUTH_TELNYX_FROM", "+15559990001")
+	t.Setenv("AYB_AUTH_MSG91_AUTH_KEY", "env_msg91_key")
+	t.Setenv("AYB_AUTH_MSG91_TEMPLATE_ID", "env_tmpl_id")
+	t.Setenv("AYB_AUTH_AWS_REGION", "eu-west-1")
+	t.Setenv("AYB_AUTH_VONAGE_API_KEY", "env_vonage_key")
+	t.Setenv("AYB_AUTH_VONAGE_API_SECRET", "env_vonage_secret")
+	t.Setenv("AYB_AUTH_VONAGE_FROM", "+15559990002")
+	t.Setenv("AYB_AUTH_SMS_WEBHOOK_URL", "https://env.example.com/sms")
+	t.Setenv("AYB_AUTH_SMS_WEBHOOK_SECRET", "env_webhook_secret")
+
+	cfg := Default()
+	err := applyEnv(cfg)
+	testutil.NoError(t, err)
+
+	testutil.Equal(t, "env_plivo_id", cfg.Auth.PlivoAuthID)
+	testutil.Equal(t, "env_plivo_token", cfg.Auth.PlivoAuthToken)
+	testutil.Equal(t, "+15559990000", cfg.Auth.PlivoFrom)
+	testutil.Equal(t, "env_telnyx_key", cfg.Auth.TelnyxAPIKey)
+	testutil.Equal(t, "+15559990001", cfg.Auth.TelnyxFrom)
+	testutil.Equal(t, "env_msg91_key", cfg.Auth.MSG91AuthKey)
+	testutil.Equal(t, "env_tmpl_id", cfg.Auth.MSG91TemplateID)
+	testutil.Equal(t, "eu-west-1", cfg.Auth.AWSRegion)
+	testutil.Equal(t, "env_vonage_key", cfg.Auth.VonageAPIKey)
+	testutil.Equal(t, "env_vonage_secret", cfg.Auth.VonageAPISecret)
+	testutil.Equal(t, "+15559990002", cfg.Auth.VonageFrom)
+	testutil.Equal(t, "https://env.example.com/sms", cfg.Auth.SMSWebhookURL)
+	testutil.Equal(t, "env_webhook_secret", cfg.Auth.SMSWebhookSecret)
+}
+
+func TestSMSConfigEnvVarOverride(t *testing.T) {
+	t.Setenv("AYB_AUTH_ENABLED", "true")
+	t.Setenv("AYB_AUTH_JWT_SECRET", "this-is-a-secret-that-is-at-least-32-characters-long")
+	t.Setenv("AYB_AUTH_SMS_ENABLED", "true")
+	t.Setenv("AYB_AUTH_TWILIO_SID", "ACtest123")
+	t.Setenv("AYB_AUTH_TWILIO_TOKEN", "token")
+	t.Setenv("AYB_AUTH_TWILIO_FROM", "+15550000000")
+	t.Setenv("AYB_AUTH_SMS_PROVIDER", "twilio")
+
+	cfg, err := Load("/nonexistent/ayb.toml", nil)
+	testutil.NoError(t, err)
+	testutil.Equal(t, true, cfg.Auth.SMSEnabled)
+	testutil.Equal(t, "ACtest123", cfg.Auth.TwilioSID)
+	testutil.Equal(t, "token", cfg.Auth.TwilioToken)
+	testutil.Equal(t, "+15550000000", cfg.Auth.TwilioFrom)
+	testutil.Equal(t, "twilio", cfg.Auth.SMSProvider)
+}
+
+// TestGetValueCoversAllValidKeys verifies every key in validKeys has a
+// corresponding GetValue handler — prevents "unknown configuration key"
+// errors for keys that IsValidKey reports as valid.
+func TestGetValueCoversAllValidKeys(t *testing.T) {
+	cfg := Default()
+	for key := range validKeys {
+		t.Run(key, func(t *testing.T) {
+			_, err := GetValue(cfg, key)
+			testutil.NoError(t, err)
 		})
 	}
 }

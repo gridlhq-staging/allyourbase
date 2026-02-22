@@ -3,6 +3,7 @@ package pbmigrate
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"io"
 	"os"
@@ -293,17 +294,34 @@ func (m *Migrator) insertBatch(ctx context.Context, tx *sql.Tx, tableName string
 	}
 
 	// Build column list
-	columns := []string{"id", "created", "updated"}
+	columns := []string{"id"}
+	if _, ok := records[0].Data["created"]; ok {
+		columns = append(columns, "created")
+	}
+	if _, ok := records[0].Data["updated"]; ok {
+		columns = append(columns, "updated")
+	}
 	for _, field := range schema {
 		if !field.System {
-			columns = append(columns, field.Name)
+			alreadyIncluded := false
+			for _, col := range columns {
+				if col == field.Name {
+					alreadyIncluded = true
+					break
+				}
+			}
+			if !alreadyIncluded {
+				columns = append(columns, field.Name)
+			}
 		}
 	}
 
 	// Build field type lookup for SQLite -> PostgreSQL type coercion
 	fieldTypes := make(map[string]string)
+	fieldsByName := make(map[string]PBField)
 	for _, field := range schema {
 		fieldTypes[field.Name] = field.Type
+		fieldsByName[field.Name] = field
 	}
 
 	// Build INSERT statement for batch
@@ -325,6 +343,9 @@ func (m *Migrator) insertBatch(ctx context.Context, tx *sql.Tx, tableName string
 				// Convert SQLite INTEGER booleans (1/0) to Go bool for PostgreSQL BOOLEAN columns
 				if fieldTypes[col] == "bool" {
 					val = coerceToBool(val)
+				}
+				if field, ok := fieldsByName[col]; ok && fieldExpectsTextArray(field) {
+					val = coerceToTextArray(val)
 				}
 				values[i] = val
 			}
@@ -358,6 +379,51 @@ func coerceToBool(val interface{}) interface{} {
 		return v != 0
 	case float64:
 		return v != 0
+	default:
+		return val
+	}
+}
+
+func fieldExpectsTextArray(field PBField) bool {
+	switch field.Type {
+	case "select", "file", "relation":
+		return fieldMaxSelect(field) > 1
+	default:
+		return false
+	}
+}
+
+func coerceToTextArray(val interface{}) interface{} {
+	switch v := val.(type) {
+	case nil:
+		return []string{}
+	case string:
+		if v == "" {
+			return []string{}
+		}
+		var arr []string
+		if err := json.Unmarshal([]byte(v), &arr); err == nil {
+			return arr
+		}
+		return []string{v}
+	case []byte:
+		s := string(v)
+		if s == "" {
+			return []string{}
+		}
+		var arr []string
+		if err := json.Unmarshal(v, &arr); err == nil {
+			return arr
+		}
+		return []string{s}
+	case []string:
+		return v
+	case []interface{}:
+		arr := make([]string, 0, len(v))
+		for _, item := range v {
+			arr = append(arr, fmt.Sprint(item))
+		}
+		return arr
 	default:
 		return val
 	}

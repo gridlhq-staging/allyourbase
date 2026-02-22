@@ -2,10 +2,12 @@ package cli
 
 import (
 	"fmt"
-	"os"
-	"path/filepath"
+	"io/fs"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
+	"testing/fstest"
 
 	"github.com/allyourbase/ayb/examples"
 )
@@ -25,9 +27,8 @@ func TestDemoCommandRegistered(t *testing.T) {
 
 func TestDemoRegistryComplete(t *testing.T) {
 	expected := map[string]int{
-		"kanban":       5173,
-		"pixel-canvas": 5174,
-		"live-polls":   5175,
+		"kanban":     5173,
+		"live-polls": 5175,
 	}
 	for name, port := range expected {
 		demo, ok := demoRegistry[name]
@@ -71,61 +72,9 @@ func TestDemoRequiresName(t *testing.T) {
 	}
 }
 
-func TestExtractDemoFiles(t *testing.T) {
-	tmpDir := t.TempDir()
-
-	for _, name := range []string{"kanban", "live-polls", "pixel-canvas"} {
-		demoDir := filepath.Join(tmpDir, name)
-		extracted, err := extractDemoFiles(name, demoDir)
-		if err != nil {
-			t.Fatalf("extractDemoFiles(%q): %v", name, err)
-		}
-		if !extracted {
-			t.Fatalf("expected files to be extracted for %q", name)
-		}
-
-		// Verify key files exist
-		for _, f := range []string{"package.json", "schema.sql", "index.html", "vite.config.ts"} {
-			path := filepath.Join(demoDir, f)
-			if _, err := os.Stat(path); os.IsNotExist(err) {
-				t.Errorf("demo %q: expected file %s to exist", name, f)
-			}
-		}
-
-		// Verify src directory exists
-		srcDir := filepath.Join(demoDir, "src")
-		if info, err := os.Stat(srcDir); err != nil || !info.IsDir() {
-			t.Errorf("demo %q: expected src/ directory to exist", name)
-		}
-	}
-}
-
-func TestExtractDemoFilesSkipsExisting(t *testing.T) {
-	tmpDir := t.TempDir()
-	demoDir := filepath.Join(tmpDir, "kanban")
-
-	// Create directory with all required files to simulate existing extraction
-	if err := os.MkdirAll(demoDir, 0755); err != nil {
-		t.Fatal(err)
-	}
-	for _, f := range []string{"package.json", "schema.sql", "vite.config.ts"} {
-		if err := os.WriteFile(filepath.Join(demoDir, f), []byte("{}"), 0644); err != nil {
-			t.Fatal(err)
-		}
-	}
-
-	extracted, err := extractDemoFiles("kanban", demoDir)
-	if err != nil {
-		t.Fatalf("extractDemoFiles: %v", err)
-	}
-	if extracted {
-		t.Fatal("expected extraction to be skipped when all required files exist")
-	}
-}
-
 func TestEmbeddedDemoFSContainsSchemas(t *testing.T) {
-	for _, name := range []string{"kanban", "live-polls", "pixel-canvas"} {
-		data, err := examples.FS.ReadFile(name + "/schema.sql")
+	for _, name := range []string{"kanban", "live-polls"} {
+		data, err := fs.ReadFile(examples.FS, name+"/schema.sql")
 		if err != nil {
 			t.Errorf("reading embedded %s/schema.sql: %v", name, err)
 			continue
@@ -136,16 +85,6 @@ func TestEmbeddedDemoFSContainsSchemas(t *testing.T) {
 		if !strings.Contains(string(data), "CREATE TABLE") {
 			t.Errorf("embedded %s/schema.sql doesn't contain CREATE TABLE", name)
 		}
-	}
-}
-
-func TestDemoCommandHasDirFlag(t *testing.T) {
-	flag := demoCmd.Flags().Lookup("dir")
-	if flag == nil {
-		t.Fatal("expected --dir flag on demo command")
-	}
-	if flag.DefValue != "." {
-		t.Errorf("expected --dir default to be '.', got %q", flag.DefValue)
 	}
 }
 
@@ -161,100 +100,6 @@ func TestDemoRegistryDescriptionNonEmpty(t *testing.T) {
 	for name, demo := range demoRegistry {
 		if demo.Description == "" {
 			t.Errorf("demo %q: Description is empty", name)
-		}
-	}
-}
-
-func TestEmbeddedDemoFSContainsAllConfigFiles(t *testing.T) {
-	requiredFiles := []string{
-		"index.html", "package.json", "schema.sql",
-		"tsconfig.json", "vite.config.ts",
-		"tailwind.config.js", "postcss.config.js",
-	}
-	for _, name := range []string{"kanban", "live-polls", "pixel-canvas"} {
-		for _, f := range requiredFiles {
-			data, err := examples.FS.ReadFile(name + "/" + f)
-			if err != nil {
-				t.Errorf("embedded %s/%s: %v", name, f, err)
-				continue
-			}
-			if len(data) == 0 {
-				t.Errorf("embedded %s/%s is empty", name, f)
-			}
-		}
-	}
-}
-
-func TestEmbeddedPackageJSONHasDevScript(t *testing.T) {
-	for _, name := range []string{"kanban", "live-polls", "pixel-canvas"} {
-		data, err := examples.FS.ReadFile(name + "/package.json")
-		if err != nil {
-			t.Errorf("reading embedded %s/package.json: %v", name, err)
-			continue
-		}
-		content := string(data)
-		if !strings.Contains(content, `"dev"`) {
-			t.Errorf("embedded %s/package.json has no \"dev\" script", name)
-		}
-	}
-}
-
-func TestExtractDemoFilesContentIntegrity(t *testing.T) {
-	tmpDir := t.TempDir()
-	name := "kanban"
-	demoDir := filepath.Join(tmpDir, name)
-
-	extracted, err := extractDemoFiles(name, demoDir)
-	if err != nil {
-		t.Fatalf("extractDemoFiles(%q): %v", name, err)
-	}
-	if !extracted {
-		t.Fatal("expected files to be extracted")
-	}
-
-	// Verify extracted content matches embedded content for key files
-	for _, f := range []string{"package.json", "schema.sql", "vite.config.ts"} {
-		embeddedData, err := examples.FS.ReadFile(name + "/" + f)
-		if err != nil {
-			t.Fatalf("reading embedded %s/%s: %v", name, f, err)
-		}
-
-		diskData, err := os.ReadFile(filepath.Join(demoDir, f))
-		if err != nil {
-			t.Fatalf("reading extracted %s/%s: %v", name, f, err)
-		}
-
-		if string(embeddedData) != string(diskData) {
-			t.Errorf("%s/%s: extracted content does not match embedded content", name, f)
-		}
-	}
-}
-
-func TestExtractDemoFilesPartialRecovery(t *testing.T) {
-	tmpDir := t.TempDir()
-	demoDir := filepath.Join(tmpDir, "kanban")
-
-	// Simulate partial extraction: only package.json exists (missing schema.sql, vite.config.ts)
-	if err := os.MkdirAll(demoDir, 0755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(demoDir, "package.json"), []byte("{}"), 0644); err != nil {
-		t.Fatal(err)
-	}
-
-	// Should re-extract because schema.sql and vite.config.ts are missing
-	extracted, err := extractDemoFiles("kanban", demoDir)
-	if err != nil {
-		t.Fatalf("extractDemoFiles: %v", err)
-	}
-	if !extracted {
-		t.Fatal("expected re-extraction when only package.json exists (partial extraction)")
-	}
-
-	// Verify all files now exist
-	for _, f := range []string{"package.json", "schema.sql", "vite.config.ts", "index.html"} {
-		if _, err := os.Stat(filepath.Join(demoDir, f)); os.IsNotExist(err) {
-			t.Errorf("expected %s to exist after re-extraction", f)
 		}
 	}
 }
@@ -276,8 +121,8 @@ func TestDemoValidArgsMatchRegistry(t *testing.T) {
 // (via SET LOCAL in internal/auth/rls.go). Any reference to 'request.jwt.sub'
 // would silently break RLS policies and RPC functions at runtime.
 func TestEmbeddedSchemasUseCorrectRLSKey(t *testing.T) {
-	for _, name := range []string{"kanban", "live-polls", "pixel-canvas"} {
-		data, err := examples.FS.ReadFile(name + "/schema.sql")
+	for _, name := range []string{"kanban", "live-polls"} {
+		data, err := fs.ReadFile(examples.FS, name+"/schema.sql")
 		if err != nil {
 			t.Fatalf("reading embedded %s/schema.sql: %v", name, err)
 		}
@@ -297,8 +142,8 @@ func TestEmbeddedSchemasUseCorrectRLSKey(t *testing.T) {
 
 // TestEmbeddedSchemasHaveRLS verifies every demo schema enables row-level security.
 func TestEmbeddedSchemasHaveRLS(t *testing.T) {
-	for _, name := range []string{"kanban", "live-polls", "pixel-canvas"} {
-		data, err := examples.FS.ReadFile(name + "/schema.sql")
+	for _, name := range []string{"kanban", "live-polls"} {
+		data, err := fs.ReadFile(examples.FS, name+"/schema.sql")
 		if err != nil {
 			t.Fatalf("reading embedded %s/schema.sql: %v", name, err)
 		}
@@ -312,35 +157,302 @@ func TestEmbeddedSchemasHaveRLS(t *testing.T) {
 	}
 }
 
-// TestEmbeddedViteConfigPortsMatchRegistry verifies that each demo's vite.config.ts
-// configures the port declared in the demo registry, preventing port mismatches.
-func TestEmbeddedViteConfigPortsMatchRegistry(t *testing.T) {
-	for name, demo := range demoRegistry {
-		data, err := examples.FS.ReadFile(name + "/vite.config.ts")
+// TestDemoDistContainsIndexHTML verifies each demo's dist/ has an index.html.
+func TestDemoDistContainsIndexHTML(t *testing.T) {
+	for _, name := range []string{"kanban", "live-polls"} {
+		distFS, err := examples.DemoDist(name)
 		if err != nil {
-			t.Fatalf("reading embedded %s/vite.config.ts: %v", name, err)
+			t.Fatalf("DemoDist(%q): %v", name, err)
 		}
-		content := string(data)
-		portStr := fmt.Sprintf("port: %d", demo.Port)
-		if !strings.Contains(content, portStr) {
-			t.Errorf("%s/vite.config.ts: does not contain %q (registry declares port %d)", name, portStr, demo.Port)
+		data, err := fs.ReadFile(distFS, "index.html")
+		if err != nil {
+			t.Errorf("demo %q: dist/index.html not found: %v", name, err)
+			continue
+		}
+		if len(data) == 0 {
+			t.Errorf("demo %q: dist/index.html is empty", name)
 		}
 	}
 }
 
-// TestEmbeddedViteConfigProxiesAPI verifies each demo proxies /api to the AYB server.
-func TestEmbeddedViteConfigProxiesAPI(t *testing.T) {
-	for _, name := range []string{"kanban", "live-polls", "pixel-canvas"} {
-		data, err := examples.FS.ReadFile(name + "/vite.config.ts")
+// TestDemoDistContainsAssets verifies each demo's dist/ has at least one JS and CSS file.
+func TestDemoDistContainsAssets(t *testing.T) {
+	for _, name := range []string{"kanban", "live-polls"} {
+		distFS, err := examples.DemoDist(name)
 		if err != nil {
-			t.Fatalf("reading embedded %s/vite.config.ts: %v", name, err)
+			t.Fatalf("DemoDist(%q): %v", name, err)
+		}
+
+		var hasJS, hasCSS bool
+		fs.WalkDir(distFS, ".", func(path string, d fs.DirEntry, err error) error {
+			if err != nil {
+				return err
+			}
+			if strings.HasSuffix(path, ".js") {
+				hasJS = true
+			}
+			if strings.HasSuffix(path, ".css") {
+				hasCSS = true
+			}
+			return nil
+		})
+
+		if !hasJS {
+			t.Errorf("demo %q: dist/ has no .js files", name)
+		}
+		if !hasCSS {
+			t.Errorf("demo %q: dist/ has no .css files", name)
+		}
+	}
+}
+
+// ---------------------------------------------------------------------------
+// demoFileHandler / serveDemoFile unit tests
+//
+// These test the Go HTTP server that replaced Vite dev. The handler serves
+// pre-built static files from an fs.FS and falls back to index.html for
+// client-side routing (SPA behavior).
+// ---------------------------------------------------------------------------
+
+// testDistFS creates an in-memory filesystem mimicking a Vite build output.
+func testDistFS() fstest.MapFS {
+	return fstest.MapFS{
+		"index.html":              {Data: []byte("<html><body>SPA</body></html>")},
+		"assets/index-abc123.js":  {Data: []byte("console.log('app')")},
+		"assets/index-abc123.css": {Data: []byte("body{margin:0}")},
+		"assets/logo.svg":         {Data: []byte("<svg></svg>")},
+		"favicon.ico":             {Data: []byte("icon")},
+	}
+}
+
+func TestDemoFileHandler_RootServesIndexHTML(t *testing.T) {
+	handler := demoFileHandler(testDistFS())
+	req := httptest.NewRequest("GET", "/", nil)
+	w := httptest.NewRecorder()
+	handler(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", w.Code)
+	}
+	if !strings.Contains(w.Body.String(), "SPA") {
+		t.Error("root path did not serve index.html content")
+	}
+}
+
+func TestDemoFileHandler_ExactFileServed(t *testing.T) {
+	handler := demoFileHandler(testDistFS())
+	req := httptest.NewRequest("GET", "/assets/index-abc123.js", nil)
+	w := httptest.NewRecorder()
+	handler(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", w.Code)
+	}
+	if !strings.Contains(w.Body.String(), "console.log") {
+		t.Error("JS file content not served")
+	}
+}
+
+func TestDemoFileHandler_SPAFallbackForUnknownPath(t *testing.T) {
+	handler := demoFileHandler(testDistFS())
+	// Client-side route like /polls/123 should fall back to index.html.
+	req := httptest.NewRequest("GET", "/polls/123", nil)
+	w := httptest.NewRecorder()
+	handler(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", w.Code)
+	}
+	if !strings.Contains(w.Body.String(), "SPA") {
+		t.Error("SPA fallback did not serve index.html for unknown path")
+	}
+}
+
+func TestDemoFileHandler_CSSServedWithCorrectType(t *testing.T) {
+	handler := demoFileHandler(testDistFS())
+	req := httptest.NewRequest("GET", "/assets/index-abc123.css", nil)
+	w := httptest.NewRecorder()
+	handler(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", w.Code)
+	}
+	ct := w.Header().Get("Content-Type")
+	if !strings.Contains(ct, "text/css") {
+		t.Errorf("expected Content-Type to contain text/css, got %q", ct)
+	}
+}
+
+func TestDemoFileHandler_JSServedWithCorrectType(t *testing.T) {
+	handler := demoFileHandler(testDistFS())
+	req := httptest.NewRequest("GET", "/assets/index-abc123.js", nil)
+	w := httptest.NewRecorder()
+	handler(w, req)
+
+	ct := w.Header().Get("Content-Type")
+	if ct == "" {
+		t.Error("expected Content-Type header for .js file, got empty")
+	}
+}
+
+func TestDemoFileHandler_StaticAssetsCached(t *testing.T) {
+	handler := demoFileHandler(testDistFS())
+	req := httptest.NewRequest("GET", "/assets/index-abc123.js", nil)
+	w := httptest.NewRecorder()
+	handler(w, req)
+
+	cc := w.Header().Get("Cache-Control")
+	if !strings.Contains(cc, "max-age=") {
+		t.Errorf("expected Cache-Control with max-age for static asset, got %q", cc)
+	}
+}
+
+func TestDemoFileHandler_IndexHTMLNotCached(t *testing.T) {
+	handler := demoFileHandler(testDistFS())
+	req := httptest.NewRequest("GET", "/", nil)
+	w := httptest.NewRecorder()
+	handler(w, req)
+
+	cc := w.Header().Get("Cache-Control")
+	if cc != "" {
+		t.Errorf("index.html should not have Cache-Control, got %q", cc)
+	}
+}
+
+func TestServeDemoFile_ReturnsFalseForMissingFile(t *testing.T) {
+	w := httptest.NewRecorder()
+	ok := serveDemoFile(w, testDistFS(), "nonexistent.txt")
+	if ok {
+		t.Error("expected false for missing file")
+	}
+}
+
+func TestServeDemoFile_ReturnsFalseForDirectory(t *testing.T) {
+	w := httptest.NewRecorder()
+	ok := serveDemoFile(w, testDistFS(), "assets")
+	if ok {
+		t.Error("expected false for directory path")
+	}
+}
+
+func TestDemoFileHandler_FaviconServed(t *testing.T) {
+	handler := demoFileHandler(testDistFS())
+	req := httptest.NewRequest("GET", "/favicon.ico", nil)
+	w := httptest.NewRecorder()
+	handler(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200 for favicon, got %d", w.Code)
+	}
+	if w.Body.String() != "icon" {
+		t.Error("favicon content not served correctly")
+	}
+}
+
+// TestDemoFileHandler_WithRealDemoDist verifies the handler works with the
+// actual embedded demo dist/ filesystem, not just the test fixture.
+func TestDemoFileHandler_WithRealDemoDist(t *testing.T) {
+	for _, name := range []string{"kanban", "live-polls"} {
+		t.Run(name, func(t *testing.T) {
+			distFS, err := examples.DemoDist(name)
+			if err != nil {
+				t.Fatalf("DemoDist(%q): %v", name, err)
+			}
+			handler := demoFileHandler(distFS)
+
+			// Root should serve index.html.
+			req := httptest.NewRequest("GET", "/", nil)
+			w := httptest.NewRecorder()
+			handler(w, req)
+			if w.Code != http.StatusOK {
+				t.Errorf("root: expected 200, got %d", w.Code)
+			}
+			if !strings.Contains(w.Body.String(), "<html") && !strings.Contains(w.Body.String(), "<!doctype") && !strings.Contains(w.Body.String(), "<!DOCTYPE") {
+				t.Errorf("root: response doesn't look like HTML: %s", w.Body.String()[:min(100, w.Body.Len())])
+			}
+
+			// SPA fallback for unknown route.
+			req2 := httptest.NewRequest("GET", "/some/deep/route", nil)
+			w2 := httptest.NewRecorder()
+			handler(w2, req2)
+			if w2.Code != http.StatusOK {
+				t.Errorf("SPA fallback: expected 200, got %d", w2.Code)
+			}
+		})
+	}
+}
+
+// TestEmbeddedSchemasHaveCHECKConstraints verifies every demo schema has CHECK
+// constraints on critical columns to prevent invalid data at the database level.
+// Since there is no manual QA, CHECK constraints are the last line of defense.
+func TestEmbeddedSchemasHaveCHECKConstraints(t *testing.T) {
+	checks := map[string][]string{
+		"live-polls": {"CHECK (length(question) > 0)", "CHECK (length(label) > 0)", "CHECK (position >= 0)"},
+		"kanban":     {"CHECK (length(title) > 0)", "CHECK (position >= 0)"},
+	}
+	for name, expected := range checks {
+		data, err := fs.ReadFile(examples.FS, name+"/schema.sql")
+		if err != nil {
+			t.Fatalf("reading embedded %s/schema.sql: %v", name, err)
 		}
 		content := string(data)
-		if !strings.Contains(content, `"/api"`) {
-			t.Errorf("%s/vite.config.ts: does not proxy /api", name)
+		for _, check := range expected {
+			if !strings.Contains(content, check) {
+				t.Errorf("%s/schema.sql: missing CHECK constraint %q", name, check)
+			}
 		}
-		if !strings.Contains(content, "localhost:8090") {
-			t.Errorf("%s/vite.config.ts: does not proxy to localhost:8090", name)
+	}
+}
+
+// TestDemoTryStepsContainCorrectPort verifies that TrySteps URLs match the registered port.
+func TestDemoTryStepsContainCorrectPort(t *testing.T) {
+	for name, demo := range demoRegistry {
+		portStr := fmt.Sprintf("localhost:%d", demo.Port)
+		found := false
+		for _, step := range demo.TrySteps {
+			if strings.Contains(step, portStr) {
+				found = true
+				break
+			}
 		}
+		if !found {
+			t.Errorf("demo %q: TrySteps don't reference port %d", name, demo.Port)
+		}
+	}
+}
+
+// TestResolveDemoAdminTokenMissingFile verifies that when the admin-token file
+// doesn't exist, the error message gives actionable instructions (not a cryptic
+// "admin-token not found"). This was a bug fix in session 186.
+func TestResolveDemoAdminTokenMissingFile(t *testing.T) {
+	tmpDir := t.TempDir()
+	t.Setenv("HOME", tmpDir)
+	t.Setenv("AYB_ADMIN_TOKEN", "") // ensure env var doesn't short-circuit
+
+	_, err := resolveDemoAdminToken("http://127.0.0.1:8090")
+	if err == nil {
+		t.Fatal("expected error when admin-token file missing")
+	}
+	msg := err.Error()
+	// Should contain actionable instructions, not just "file not found".
+	if !strings.Contains(msg, "ayb stop") {
+		t.Errorf("error message should suggest 'ayb stop', got: %s", msg)
+	}
+	if !strings.Contains(msg, "ayb demo") {
+		t.Errorf("error message should suggest 'ayb demo', got: %s", msg)
+	}
+}
+
+// TestResolveDemoAdminTokenFromEnv verifies the AYB_ADMIN_TOKEN env var
+// short-circuits file lookup.
+func TestResolveDemoAdminTokenFromEnv(t *testing.T) {
+	t.Setenv("AYB_ADMIN_TOKEN", "test-token-from-env")
+
+	token, err := resolveDemoAdminToken("http://127.0.0.1:8090")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if token != "test-token-from-env" {
+		t.Errorf("expected token from env, got %q", token)
 	}
 }

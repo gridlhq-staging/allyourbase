@@ -5,26 +5,27 @@ import {
   openBoard,
   addColumn,
   addCard,
+  uniqueName,
 } from "./helpers";
 
 test.describe("Columns", () => {
+  let boardName: string;
+
   test.beforeEach(async ({ page }) => {
+    boardName = uniqueName("ColTest");
     await registerUser(page);
-    await createBoard(page, "Column Test Board");
-    await openBoard(page, "Column Test Board");
+    await createBoard(page, boardName);
+    await openBoard(page, boardName);
   });
 
   test("shows add column input on empty board", async ({ page }) => {
     await expect(page.getByPlaceholder("+ Add column...")).toBeVisible();
   });
 
-  test("can add a column", async ({ page }) => {
+  test("can add columns", async ({ page }) => {
     await addColumn(page, "To Do");
     await expect(page.getByText("To Do")).toBeVisible();
-  });
 
-  test("can add multiple columns", async ({ page }) => {
-    await addColumn(page, "To Do");
     await addColumn(page, "In Progress");
     await addColumn(page, "Done");
 
@@ -50,7 +51,7 @@ test.describe("Columns", () => {
     // Click the delete button (has aria-label)
     await page.getByRole("button", { name: "Delete column Delete Me" }).click();
 
-    await expect(page.getByText("Delete Me")).not.toBeVisible();
+    await expect(page.getByText("Delete Me")).toBeHidden();
   });
 
   test("cancel delete keeps column", async ({ page }) => {
@@ -68,7 +69,7 @@ test.describe("Columns", () => {
 
   test("Add Column button only appears when text is typed", async ({ page }) => {
     // Initially no button
-    await expect(page.getByRole("button", { name: "Add Column" })).not.toBeVisible();
+    await expect(page.getByRole("button", { name: "Add Column" })).toBeHidden();
 
     // Type a column name
     await page.getByPlaceholder("+ Add column...").fill("New Col");
@@ -76,7 +77,7 @@ test.describe("Columns", () => {
 
     // Clear the input — button should disappear
     await page.getByPlaceholder("+ Add column...").fill("");
-    await expect(page.getByRole("button", { name: "Add Column" })).not.toBeVisible();
+    await expect(page.getByRole("button", { name: "Add Column" })).toBeHidden();
   });
 
   test("card count updates after adding cards", async ({ page }) => {
@@ -106,9 +107,9 @@ test.describe("Columns", () => {
     await page.getByRole("button", { name: "Delete column Doomed" }).click();
 
     // Column and its cards should be gone
-    await expect(page.getByText("Doomed")).not.toBeVisible();
-    await expect(page.getByText("Card X")).not.toBeVisible();
-    await expect(page.getByText("Card Y")).not.toBeVisible();
+    await expect(page.getByText("Doomed")).toBeHidden();
+    await expect(page.getByText("Card X")).toBeHidden();
+    await expect(page.getByText("Card Y")).toBeHidden();
   });
 
   test("columns persist after page reload", async ({ page }) => {
@@ -117,7 +118,7 @@ test.describe("Columns", () => {
 
     await page.reload();
     // App uses client-side routing; reload returns to board list
-    await openBoard(page, "Column Test Board");
+    await openBoard(page, boardName);
     await expect(page.getByText("Persistent Col")).toBeVisible({ timeout: 5000 });
   });
 });

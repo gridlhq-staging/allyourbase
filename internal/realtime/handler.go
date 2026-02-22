@@ -18,8 +18,8 @@ import (
 // Handler serves the SSE realtime endpoint.
 type Handler struct {
 	hub         *Hub
-	pool        *pgxpool.Pool    // nil when RLS filtering unavailable
-	authSvc     *auth.Service    // nil when auth disabled
+	pool        *pgxpool.Pool // nil when RLS filtering unavailable
+	authSvc     *auth.Service // nil when auth disabled
 	schemaCache *schema.CacheHolder
 	logger      *slog.Logger
 }
@@ -186,7 +186,11 @@ func (h *Handler) serveOAuthSSE(w http.ResponseWriter, r *http.Request, flusher 
 }
 
 // canSeeRecord checks whether the authenticated user can see the event's record
-// via an RLS-scoped SELECT. Returns true when:
+// via an RLS-scoped SELECT. This per-event SELECT is evaluated by Postgres
+// under the ayb_authenticated role, so full RLS policy logic applies, including
+// join/EXISTS-based policies on related tables.
+//
+// Returns true when:
 //   - no pool is available (RLS filtering disabled)
 //   - no claims (unauthenticated client, no RLS applies)
 //   - the event is a delete (record is gone, can't verify)

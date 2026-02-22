@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
 	"os"
 	"strings"
@@ -52,39 +51,10 @@ func init() {
 	webhooksCmd.AddCommand(webhooksDeleteCmd)
 }
 
-func webhooksAdminRequest(cmd *cobra.Command, method, path string, body io.Reader) (*http.Response, []byte, error) {
-	token, _ := cmd.Flags().GetString("admin-token")
-	baseURL, _ := cmd.Flags().GetString("url")
-
-	if token == "" {
-		token = os.Getenv("AYB_ADMIN_TOKEN")
-	}
-	if baseURL == "" {
-		baseURL = serverURL()
-	}
-
-	req, err := http.NewRequest(method, baseURL+path, body)
-	if err != nil {
-		return nil, nil, fmt.Errorf("creating request: %w", err)
-	}
-	req.Header.Set("Content-Type", "application/json")
-	if token != "" {
-		req.Header.Set("Authorization", "Bearer "+token)
-	}
-
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return nil, nil, fmt.Errorf("connecting to server: %w", err)
-	}
-	defer resp.Body.Close()
-	respBody, _ := io.ReadAll(resp.Body)
-	return resp, respBody, nil
-}
-
 func runWebhooksList(cmd *cobra.Command, args []string) error {
 	outFmt := outputFormat(cmd)
 
-	resp, body, err := webhooksAdminRequest(cmd, "GET", "/api/webhooks", nil)
+	resp, body, err := adminRequest(cmd, "GET", "/api/webhooks", nil)
 	if err != nil {
 		return err
 	}
@@ -173,7 +143,7 @@ func runWebhooksCreate(cmd *cobra.Command, args []string) error {
 	}
 
 	body, _ := json.Marshal(payload)
-	resp, respBody, err := webhooksAdminRequest(cmd, "POST", "/api/webhooks", bytes.NewReader(body))
+	resp, respBody, err := adminRequest(cmd, "POST", "/api/webhooks", bytes.NewReader(body))
 	if err != nil {
 		return err
 	}
@@ -191,7 +161,9 @@ func runWebhooksCreate(cmd *cobra.Command, args []string) error {
 		ID  string `json:"id"`
 		URL string `json:"url"`
 	}
-	json.Unmarshal(respBody, &created)
+	if err := json.Unmarshal(respBody, &created); err != nil {
+		return fmt.Errorf("parsing webhook response: %w", err)
+	}
 	fmt.Printf("Webhook created: %s → %s\n", created.ID, created.URL)
 	return nil
 }
@@ -199,7 +171,7 @@ func runWebhooksCreate(cmd *cobra.Command, args []string) error {
 func runWebhooksDelete(cmd *cobra.Command, args []string) error {
 	id := args[0]
 
-	resp, body, err := webhooksAdminRequest(cmd, "DELETE", "/api/webhooks/"+id, nil)
+	resp, body, err := adminRequest(cmd, "DELETE", "/api/webhooks/"+id, nil)
 	if err != nil {
 		return err
 	}
@@ -212,6 +184,15 @@ func runWebhooksDelete(cmd *cobra.Command, args []string) error {
 
 // serverError extracts an error message from an API error response.
 func serverError(status int, body []byte) error {
+	if status == http.StatusUnauthorized {
+		return fmt.Errorf("authentication required (401)\n\n" +
+			"  The server requires admin authentication. AYB reads the token\n" +
+			"  automatically from ~/.ayb/admin-token when the server is running.\n\n" +
+			"  If that file is missing, set the token manually:\n" +
+			"    export AYB_ADMIN_TOKEN=$(cat ~/.ayb/admin-token)\n\n" +
+			"  Or reset the admin password:\n" +
+			"    ayb admin reset-password")
+	}
 	var errResp map[string]any
 	if json.Unmarshal(body, &errResp) == nil {
 		if msg, ok := errResp["message"].(string); ok {

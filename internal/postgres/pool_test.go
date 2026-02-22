@@ -82,6 +82,22 @@ func TestPoolClose(t *testing.T) {
 	testutil.NotNil(t, err)
 }
 
+func TestPoolCloseDoubleCallSafe(t *testing.T) {
+	ctx := context.Background()
+
+	pool, err := postgres.New(ctx, postgres.Config{
+		URL:             sharedPG.ConnString,
+		MaxConns:        2,
+		MinConns:        1,
+		HealthCheckSecs: 0,
+	}, testutil.DiscardLogger())
+	testutil.NoError(t, err)
+
+	// Calling Close twice should not panic.
+	pool.Close()
+	pool.Close()
+}
+
 func TestPoolWithHealthCheck(t *testing.T) {
 	ctx := context.Background()
 

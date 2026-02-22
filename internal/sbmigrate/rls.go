@@ -14,14 +14,14 @@ var rlsReplacements = []struct {
 	pattern     *regexp.Regexp
 	replacement string
 }{
-	// (auth.uid())::text → current_setting('ayb.user_id', true)
-	{regexp.MustCompile(`\(auth\.uid\(\)\)::text`), "current_setting('ayb.user_id', true)"},
-	// auth.uid() → current_setting('ayb.user_id', true)::uuid
-	{regexp.MustCompile(`auth\.uid\(\)`), "current_setting('ayb.user_id', true)::uuid"},
-	// auth.role() → current_setting('ayb.user_role', true)
-	{regexp.MustCompile(`auth\.role\(\)`), "current_setting('ayb.user_role', true)"},
-	// auth.jwt() ->> 'email' → current_setting('ayb.user_email', true)
-	{regexp.MustCompile(`auth\.jwt\(\)\s*->>\s*'email'`), "current_setting('ayb.user_email', true)"},
+	// (auth.uid())::text and (uid())::text → current_setting('ayb.user_id', true)
+	{regexp.MustCompile(`\((?:auth\.)?uid\(\)\)::text`), "current_setting('ayb.user_id', true)"},
+	// auth.uid() and uid() → current_setting('ayb.user_id', true)::uuid
+	{regexp.MustCompile(`(?:auth\.)?uid\(\)`), "current_setting('ayb.user_id', true)::uuid"},
+	// auth.role() and role() → current_setting('ayb.user_role', true)
+	{regexp.MustCompile(`(?:auth\.)?role\(\)`), "current_setting('ayb.user_role', true)"},
+	// auth.jwt() ->> 'email' and jwt() ->> 'email' → current_setting('ayb.user_email', true)
+	{regexp.MustCompile(`(?:auth\.)?jwt\(\)\s*->>\s*'email'`), "current_setting('ayb.user_email', true)"},
 }
 
 // RewriteRLSExpression replaces Supabase auth function references with

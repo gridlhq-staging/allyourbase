@@ -6,11 +6,14 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"net/url"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
+	"github.com/allyourbase/ayb/internal/migrate"
 	"github.com/allyourbase/ayb/internal/testutil"
 	"github.com/jackc/pgx/v5/pgxpool"
 	_ "github.com/jackc/pgx/v5/stdlib"
@@ -159,7 +162,10 @@ func insertSourceTable(t *testing.T, pool *pgxpool.Pool, ddl string, inserts ...
 }
 
 // insertStorageBucket creates a storage bucket and its objects.
-func insertStorageBucket(t *testing.T, pool *pgxpool.Pool, id, name string, public bool, objects []struct{ name, mime string; size int }) {
+func insertStorageBucket(t *testing.T, pool *pgxpool.Pool, id, name string, public bool, objects []struct {
+	name, mime string
+	size       int
+}) {
 	t.Helper()
 	ctx := context.Background()
 	_, err := pool.Exec(ctx, `INSERT INTO storage.buckets (id, name, public) VALUES ($1, $2, $3)`, id, name, public)
@@ -191,6 +197,38 @@ func createStorageExportDir(t *testing.T, buckets map[string]map[string][]byte) 
 		}
 	}
 	return dir
+}
+
+func createIsolatedDatabaseURL(t *testing.T, adminConnStr, prefix string) string {
+	t.Helper()
+
+	adminDB, err := sql.Open("pgx", adminConnStr)
+	testutil.NoError(t, err)
+	defer adminDB.Close()
+
+	dbName := fmt.Sprintf("%s_%d", prefix, time.Now().UnixNano())
+	_, err = adminDB.Exec(`CREATE DATABASE ` + dbName)
+	testutil.NoError(t, err)
+
+	u, err := url.Parse(adminConnStr)
+	testutil.NoError(t, err)
+	u.Path = "/" + dbName
+	return u.String()
+}
+
+func dropIsolatedDatabase(t *testing.T, adminConnStr, dbURL string) {
+	t.Helper()
+
+	u, err := url.Parse(dbURL)
+	testutil.NoError(t, err)
+	dbName := strings.TrimPrefix(u.Path, "/")
+
+	adminDB, err := sql.Open("pgx", adminConnStr)
+	testutil.NoError(t, err)
+	defer adminDB.Close()
+
+	_, err = adminDB.Exec(`DROP DATABASE IF EXISTS ` + dbName + ` WITH (FORCE)`)
+	testutil.NoError(t, err)
 }
 
 // --- Tests ---
@@ -249,7 +287,10 @@ func TestE2E_FullMigration(t *testing.T) {
 	testutil.NoError(t, err)
 
 	// Storage.
-	insertStorageBucket(t, sharedPG.Pool, "avatars", "avatars", true, []struct{ name, mime string; size int }{
+	insertStorageBucket(t, sharedPG.Pool, "avatars", "avatars", true, []struct {
+		name, mime string
+		size       int
+	}{
 		{"photo.jpg", "image/jpeg", 14},
 	})
 	storageExport := createStorageExportDir(t, map[string]map[string][]byte{
@@ -550,12 +591,18 @@ func TestE2E_StorageMigration(t *testing.T) {
 	insertSourceUser(t, sharedPG.Pool,
 		"aaaaaaaa-0000-0000-0000-000000000001", "admin@example.com", "$2a$10$hash", true, false)
 
-	insertStorageBucket(t, sharedPG.Pool, "uploads", "uploads", true, []struct{ name, mime string; size int }{
+	insertStorageBucket(t, sharedPG.Pool, "uploads", "uploads", true, []struct {
+		name, mime string
+		size       int
+	}{
 		{"images/photo.jpg", "image/jpeg", 14},
 		{"images/banner.png", "image/png", 12},
 		{"docs/readme.txt", "text/plain", 15},
 	})
-	insertStorageBucket(t, sharedPG.Pool, "private", "private", false, []struct{ name, mime string; size int }{
+	insertStorageBucket(t, sharedPG.Pool, "private", "private", false, []struct {
+		name, mime string
+		size       int
+	}{
 		{"secret.pdf", "application/pdf", 8},
 	})
 
@@ -626,7 +673,7 @@ func TestE2E_DryRun(t *testing.T) {
 
 	// Stats should be populated even in dry-run.
 	testutil.Equal(t, 1, stats.Tables)
-	testutil.Equal(t, 0, stats.Records)  // same-DB: rows already exist → ON CONFLICT DO NOTHING
+	testutil.Equal(t, 0, stats.Records) // same-DB: rows already exist → ON CONFLICT DO NOTHING
 	testutil.Equal(t, 1, stats.Users)
 
 	// Verify the user was rolled back (not persisted).
@@ -670,7 +717,10 @@ func TestE2E_Analyze(t *testing.T) {
 	testutil.NoError(t, err)
 
 	// Storage buckets.
-	insertStorageBucket(t, sharedPG.Pool, "media", "media", true, []struct{ name, mime string; size int }{
+	insertStorageBucket(t, sharedPG.Pool, "media", "media", true, []struct {
+		name, mime string
+		size       int
+	}{
 		{"a.jpg", "image/jpeg", 100},
 		{"b.jpg", "image/jpeg", 200},
 	})
@@ -690,10 +740,343 @@ func TestE2E_Analyze(t *testing.T) {
 	testutil.Equal(t, 2, report.AuthUsers)
 	testutil.Equal(t, 1, report.OAuthLinks)
 	testutil.Equal(t, 1, report.Tables)      // items (_ayb_ tables filtered)
-	testutil.Equal(t, 2, report.Records)      // 2 items
-	testutil.Equal(t, 1, report.RLSPolicies)  // items_select
-	testutil.Equal(t, 2, report.Files)         // 2 storage objects
+	testutil.Equal(t, 2, report.Records)     // 2 items
+	testutil.Equal(t, 1, report.RLSPolicies) // items_select
+	testutil.Equal(t, 2, report.Files)       // 2 storage objects
 	testutil.True(t, report.FileSizeBytes > 0)
+}
+
+func TestE2E_AnalyzeWithoutIsAnonymousColumn(t *testing.T) {
+	connStr := setupSourceAndTarget(t)
+
+	_, err := sharedPG.Pool.Exec(context.Background(), `ALTER TABLE auth.users DROP COLUMN is_anonymous`)
+	testutil.NoError(t, err)
+
+	_, err = sharedPG.Pool.Exec(context.Background(), `
+		INSERT INTO auth.users (id, email, encrypted_password, email_confirmed_at)
+		VALUES ('aaaaaaaa-0000-0000-0000-000000000011', 'legacy@example.com', '$2a$10$hash', NOW())
+	`)
+	testutil.NoError(t, err)
+
+	migrator, err := NewMigrator(MigrationOptions{
+		SourceURL: connStr,
+		TargetURL: connStr,
+	})
+	testutil.NoError(t, err)
+	defer migrator.Close()
+
+	report, err := migrator.Analyze(context.Background())
+	testutil.NoError(t, err)
+	testutil.Equal(t, 1, report.AuthUsers)
+}
+
+func TestE2E_AuthMigrationWithoutIsAnonymousColumn(t *testing.T) {
+	connStr := setupSourceAndTarget(t)
+
+	_, err := sharedPG.Pool.Exec(context.Background(), `ALTER TABLE auth.users DROP COLUMN is_anonymous`)
+	testutil.NoError(t, err)
+
+	_, err = sharedPG.Pool.Exec(context.Background(), `
+		INSERT INTO auth.users (id, email, encrypted_password, email_confirmed_at)
+		VALUES
+		  ('aaaaaaaa-0000-0000-0000-000000000021', 'alice@example.com', '$2a$10$hash1', NOW()),
+		  ('aaaaaaaa-0000-0000-0000-000000000022', 'bob@example.com', '$2a$10$hash2', NULL)
+	`)
+	testutil.NoError(t, err)
+
+	migrator, err := NewMigrator(MigrationOptions{
+		SourceURL: connStr,
+		TargetURL: connStr,
+		SkipData:  true,
+		SkipOAuth: true,
+		SkipRLS:   true,
+	})
+	testutil.NoError(t, err)
+	defer migrator.Close()
+
+	stats, err := migrator.Migrate(context.Background())
+	testutil.NoError(t, err)
+	testutil.Equal(t, 2, stats.Users)
+}
+
+func TestE2E_OAuthMigrationWithoutIdentityDataAndCreatedAt(t *testing.T) {
+	connStr := setupSourceAndTarget(t)
+
+	insertSourceUser(t, sharedPG.Pool,
+		"aaaaaaaa-0000-0000-0000-000000000031", "alice@example.com", "$2a$10$hash1", true, false)
+
+	_, err := sharedPG.Pool.Exec(context.Background(), `
+		ALTER TABLE auth.identities DROP COLUMN identity_data;
+		ALTER TABLE auth.identities DROP COLUMN created_at;
+		ALTER TABLE auth.identities ADD COLUMN provider_id TEXT;
+	`)
+	testutil.NoError(t, err)
+
+	_, err = sharedPG.Pool.Exec(context.Background(), `
+		INSERT INTO auth.identities (user_id, provider, provider_id)
+		VALUES
+		  ('aaaaaaaa-0000-0000-0000-000000000031', 'google', 'google-legacy-123'),
+		  ('aaaaaaaa-0000-0000-0000-000000000031', 'email', 'email-legacy-ignored')
+	`)
+	testutil.NoError(t, err)
+
+	migrator, err := NewMigrator(MigrationOptions{
+		SourceURL: connStr,
+		TargetURL: connStr,
+		SkipData:  true,
+		SkipRLS:   true,
+	})
+	testutil.NoError(t, err)
+	defer migrator.Close()
+
+	stats, err := migrator.Migrate(context.Background())
+	testutil.NoError(t, err)
+	testutil.Equal(t, 1, stats.OAuthLinks)
+
+	db, err := sql.Open("pgx", connStr)
+	testutil.NoError(t, err)
+	defer db.Close()
+
+	var providerUserID string
+	err = db.QueryRow(`
+		SELECT provider_user_id
+		FROM _ayb_oauth_accounts
+		WHERE provider = 'google'
+	`).Scan(&providerUserID)
+	testutil.NoError(t, err)
+	testutil.Equal(t, "google-legacy-123", providerUserID)
+}
+
+func TestE2E_IntrospectTablesFiltersHostedManagedTables(t *testing.T) {
+	connStr := setupSourceAndTarget(t)
+
+	db, err := sql.Open("pgx", connStr)
+	testutil.NoError(t, err)
+	defer db.Close()
+
+	_, err = db.Exec(`
+		CREATE TABLE IF NOT EXISTS products (id SERIAL PRIMARY KEY, name TEXT);
+		CREATE TABLE IF NOT EXISTS supabase_migrations (version TEXT);
+		CREATE TABLE IF NOT EXISTS buckets_vectors (id TEXT);
+		CREATE TABLE IF NOT EXISTS vector_indexes (id TEXT);
+	`)
+	testutil.NoError(t, err)
+
+	tables, err := introspectTables(context.Background(), db)
+	testutil.NoError(t, err)
+
+	names := make(map[string]bool, len(tables))
+	for _, tbl := range tables {
+		names[tbl.Name] = true
+	}
+	testutil.True(t, names["products"], "expected products table")
+	testutil.False(t, names["supabase_migrations"], "internal table should be filtered")
+	testutil.False(t, names["buckets_vectors"], "internal table should be filtered")
+	testutil.False(t, names["vector_indexes"], "internal table should be filtered")
+}
+
+func TestE2E_SchemaMigrationSkipsIncompatibleFKChain(t *testing.T) {
+	sourceURL := createIsolatedDatabaseURL(t, sharedPG.ConnString, "sb_src")
+	targetURL := createIsolatedDatabaseURL(t, sharedPG.ConnString, "sb_tgt")
+	defer dropIsolatedDatabase(t, sharedPG.ConnString, sourceURL)
+	defer dropIsolatedDatabase(t, sharedPG.ConnString, targetURL)
+
+	sourceDB, err := sql.Open("pgx", sourceURL)
+	testutil.NoError(t, err)
+	defer sourceDB.Close()
+
+	targetDB, err := sql.Open("pgx", targetURL)
+	testutil.NoError(t, err)
+	defer targetDB.Close()
+
+	_, err = sourceDB.Exec(`
+		CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+		CREATE SCHEMA auth;
+		CREATE TABLE auth.users (
+			id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+			email TEXT,
+			encrypted_password TEXT,
+			email_confirmed_at TIMESTAMPTZ,
+			created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+			updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+			deleted_at TIMESTAMPTZ,
+			is_anonymous BOOLEAN DEFAULT false
+		);
+
+		CREATE TABLE legacy_parent (
+			id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+			name TEXT NOT NULL
+		);
+		CREATE TABLE legacy_child (
+			id SERIAL PRIMARY KEY,
+			parent_id UUID NOT NULL REFERENCES legacy_parent(id),
+			note TEXT
+		);
+		INSERT INTO legacy_parent (name) VALUES ('parent-a');
+		INSERT INTO legacy_child (parent_id, note)
+		SELECT id, 'child-a' FROM legacy_parent LIMIT 1;
+	`)
+	testutil.NoError(t, err)
+
+	_, err = targetDB.Exec(`
+		CREATE TABLE _ayb_users (
+			id UUID PRIMARY KEY,
+			email TEXT NOT NULL,
+			password_hash TEXT NOT NULL,
+			email_verified BOOLEAN NOT NULL DEFAULT false,
+			created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+			updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+		);
+
+		CREATE TABLE _ayb_oauth_accounts (
+			id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+			user_id UUID NOT NULL REFERENCES _ayb_users(id) ON DELETE CASCADE,
+			provider TEXT NOT NULL,
+			provider_user_id TEXT NOT NULL,
+			email TEXT,
+			name TEXT,
+			created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+			UNIQUE(provider, provider_user_id)
+		);
+	`)
+	testutil.NoError(t, err)
+
+	var out strings.Builder
+	migrator, err := NewMigrator(MigrationOptions{
+		SourceURL:         sourceURL,
+		TargetURL:         targetURL,
+		Force:             true,
+		SkipOAuth:         true,
+		SkipRLS:           true,
+		SkipStorage:       true,
+		Verbose:           true,
+		StoragePath:       t.TempDir(),
+		StorageExportPath: "",
+		Progress:          migrate.NewCLIReporter(&out),
+	})
+	testutil.NoError(t, err)
+	defer migrator.Close()
+	migrator.output = &out
+
+	stats, err := migrator.Migrate(context.Background())
+	testutil.NoError(t, err)
+	testutil.True(t, stats.Skipped >= 2, "expected incompatible FK chain tables to be skipped")
+	testutil.Contains(t, out.String(), "skipping table legacy_parent")
+	testutil.Contains(t, out.String(), "skipping table legacy_child")
+
+	var parentExists bool
+	err = targetDB.QueryRow(`
+		SELECT EXISTS (
+			SELECT 1 FROM information_schema.tables
+			WHERE table_schema = 'public' AND table_name = 'legacy_parent'
+		)
+	`).Scan(&parentExists)
+	testutil.NoError(t, err)
+	testutil.False(t, parentExists, "legacy_parent should be skipped in target")
+
+	var childExists bool
+	err = targetDB.QueryRow(`
+		SELECT EXISTS (
+			SELECT 1 FROM information_schema.tables
+			WHERE table_schema = 'public' AND table_name = 'legacy_child'
+		)
+	`).Scan(&childExists)
+	testutil.NoError(t, err)
+	testutil.False(t, childExists, "legacy_child should be skipped in target")
+}
+
+func TestE2E_SchemaMigrationRetriesDeferredFKDependencies(t *testing.T) {
+	sourceURL := createIsolatedDatabaseURL(t, sharedPG.ConnString, "sb_src_retry")
+	targetURL := createIsolatedDatabaseURL(t, sharedPG.ConnString, "sb_tgt_retry")
+	defer dropIsolatedDatabase(t, sharedPG.ConnString, sourceURL)
+	defer dropIsolatedDatabase(t, sharedPG.ConnString, targetURL)
+
+	sourceDB, err := sql.Open("pgx", sourceURL)
+	testutil.NoError(t, err)
+	defer sourceDB.Close()
+
+	targetDB, err := sql.Open("pgx", targetURL)
+	testutil.NoError(t, err)
+	defer targetDB.Close()
+
+	_, err = sourceDB.Exec(`
+		CREATE SCHEMA auth;
+		CREATE TABLE auth.users (
+			id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+			email TEXT,
+			encrypted_password TEXT,
+			email_confirmed_at TIMESTAMPTZ,
+			created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+			updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+			deleted_at TIMESTAMPTZ,
+			is_anonymous BOOLEAN DEFAULT false
+		);
+
+		INSERT INTO auth.users (id, email, encrypted_password, email_confirmed_at)
+		VALUES ('aaaaaaaa-0000-0000-0000-000000000041', 'seed@example.com', '$2a$10$hash', NOW());
+
+		CREATE TABLE products (
+			id UUID PRIMARY KEY,
+			name TEXT NOT NULL
+		);
+
+		CREATE TABLE orders (
+			id UUID PRIMARY KEY,
+			product_id UUID NOT NULL REFERENCES products(id),
+			qty INTEGER NOT NULL
+		);
+
+		INSERT INTO products (id, name) VALUES ('11111111-1111-1111-1111-111111111111', 'Widget');
+		INSERT INTO orders (id, product_id, qty) VALUES ('22222222-2222-2222-2222-222222222222', '11111111-1111-1111-1111-111111111111', 2);
+	`)
+	testutil.NoError(t, err)
+
+	_, err = targetDB.Exec(`
+		CREATE TABLE _ayb_users (
+			id UUID PRIMARY KEY,
+			email TEXT NOT NULL,
+			password_hash TEXT NOT NULL,
+			email_verified BOOLEAN NOT NULL DEFAULT false,
+			created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+			updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+		);
+
+		CREATE TABLE _ayb_oauth_accounts (
+			id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+			user_id UUID NOT NULL REFERENCES _ayb_users(id) ON DELETE CASCADE,
+			provider TEXT NOT NULL,
+			provider_user_id TEXT NOT NULL,
+			email TEXT,
+			name TEXT,
+			created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+			UNIQUE(provider, provider_user_id)
+		);
+	`)
+	testutil.NoError(t, err)
+
+	migrator, err := NewMigrator(MigrationOptions{
+		SourceURL:         sourceURL,
+		TargetURL:         targetURL,
+		Force:             true,
+		SkipOAuth:         true,
+		SkipRLS:           true,
+		SkipStorage:       true,
+		StoragePath:       t.TempDir(),
+		StorageExportPath: "",
+	})
+	testutil.NoError(t, err)
+	defer migrator.Close()
+
+	stats, err := migrator.Migrate(context.Background())
+	testutil.NoError(t, err)
+	testutil.Equal(t, 2, stats.Tables)
+	testutil.Equal(t, 2, stats.Records)
+	testutil.Equal(t, 0, stats.Skipped)
+
+	var orderCount int
+	err = targetDB.QueryRow(`SELECT COUNT(*) FROM orders`).Scan(&orderCount)
+	testutil.NoError(t, err)
+	testutil.Equal(t, 1, orderCount)
 }
 
 // --- Helpers ---

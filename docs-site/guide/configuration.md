@@ -46,6 +46,15 @@ refresh_token_duration = 604800  # 7 days
 # client_id = ""
 # client_secret = ""
 
+# OAuth 2.0 provider mode (AYB as authorization server).
+# Disabled by default. Requires auth.enabled = true and auth.jwt_secret set.
+# PKCE is always required (S256 only) and cannot be disabled.
+[auth.oauth_provider]
+enabled = false
+access_token_duration = 3600     # 1 hour (seconds)
+refresh_token_duration = 2592000 # 30 days (seconds)
+auth_code_duration = 600         # 10 minutes (seconds)
+
 [email]
 backend = "log"              # "log", "smtp", or "webhook"
 # from = "noreply@example.com"
@@ -78,6 +87,15 @@ max_file_size = "10MB"
 # s3_secret_key = ""
 # s3_use_ssl = true
 
+[jobs]
+enabled = false              # default off, keeps legacy timer-based webhook pruner behavior
+worker_concurrency = 4
+poll_interval_ms = 1000
+lease_duration_s = 300
+max_retries_default = 3
+scheduler_enabled = true
+scheduler_tick_s = 15
+
 [logging]
 level = "info"               # debug, info, warn, error
 format = "json"              # json or text
@@ -106,6 +124,10 @@ Every config value can be overridden with `AYB_` prefixed environment variables:
 | `AYB_AUTH_OAUTH_GITHUB_CLIENT_ID` | `auth.oauth.github.client_id` |
 | `AYB_AUTH_OAUTH_GITHUB_CLIENT_SECRET` | `auth.oauth.github.client_secret` |
 | `AYB_AUTH_OAUTH_GITHUB_ENABLED` | `auth.oauth.github.enabled` |
+| `AYB_AUTH_OAUTH_PROVIDER_ENABLED` | `auth.oauth_provider.enabled` |
+| `AYB_AUTH_OAUTH_PROVIDER_ACCESS_TOKEN_DURATION` | `auth.oauth_provider.access_token_duration` |
+| `AYB_AUTH_OAUTH_PROVIDER_REFRESH_TOKEN_DURATION` | `auth.oauth_provider.refresh_token_duration` |
+| `AYB_AUTH_OAUTH_PROVIDER_AUTH_CODE_DURATION` | `auth.oauth_provider.auth_code_duration` |
 | `AYB_EMAIL_BACKEND` | `email.backend` |
 | `AYB_EMAIL_FROM` | `email.from` |
 | `AYB_EMAIL_FROM_NAME` | `email.from_name` |
@@ -128,8 +150,41 @@ Every config value can be overridden with `AYB_` prefixed environment variables:
 | `AYB_STORAGE_S3_ACCESS_KEY` | `storage.s3_access_key` |
 | `AYB_STORAGE_S3_SECRET_KEY` | `storage.s3_secret_key` |
 | `AYB_STORAGE_S3_USE_SSL` | `storage.s3_use_ssl` |
+| `AYB_JOBS_ENABLED` | `jobs.enabled` |
+| `AYB_JOBS_WORKER_CONCURRENCY` | `jobs.worker_concurrency` |
+| `AYB_JOBS_POLL_INTERVAL_MS` | `jobs.poll_interval_ms` |
+| `AYB_JOBS_LEASE_DURATION_S` | `jobs.lease_duration_s` |
+| `AYB_JOBS_MAX_RETRIES_DEFAULT` | `jobs.max_retries_default` |
+| `AYB_JOBS_SCHEDULER_ENABLED` | `jobs.scheduler_enabled` |
+| `AYB_JOBS_SCHEDULER_TICK_S` | `jobs.scheduler_tick_s` |
 | `AYB_CORS_ORIGINS` | `server.cors_allowed_origins` (comma-separated) |
 | `AYB_LOG_LEVEL` | `logging.level` |
+
+## Per-app API key scoping
+
+Per-app API key scoping is configured through admin APIs/CLI/UI, not static server config files.
+
+No server configuration is required to enable app-scoped keys:
+
+- Create apps with `POST /api/admin/apps` or `ayb apps create`.
+- Create app-scoped keys by setting `appId` (`POST /api/admin/api-keys` or `ayb apikeys create --app <id>`).
+- Configure per-app rate limits by updating app records (`PUT /api/admin/apps/{id}`).
+
+## Job queue and scheduler
+
+Job queue runtime is opt-in and disabled by default:
+
+- Set `jobs.enabled = true` to start workers and unlock admin jobs/schedules endpoints.
+- Keep `jobs.enabled = false` to preserve legacy behavior (including timer-based webhook pruning).
+- `jobs.scheduler_enabled` controls recurring schedule processing when jobs are enabled.
+
+Validation ranges when `jobs.enabled = true`:
+
+- `jobs.worker_concurrency`: `1`-`64`
+- `jobs.poll_interval_ms`: `100`-`60000`
+- `jobs.lease_duration_s`: `30`-`3600`
+- `jobs.max_retries_default`: `0`-`100`
+- `jobs.scheduler_tick_s`: `5`-`3600`
 
 ## CLI flags
 

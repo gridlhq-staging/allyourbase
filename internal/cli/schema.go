@@ -35,14 +35,14 @@ func init() {
 }
 
 type schemaTable struct {
-	Schema       string         `json:"schema"`
-	Name         string         `json:"name"`
-	Kind         string         `json:"kind"`
-	Comment      string         `json:"comment,omitempty"`
-	Columns      []schemaColumn `json:"columns"`
-	PrimaryKey   []string       `json:"primaryKey"`
-	ForeignKeys  []schemaFK     `json:"foreignKeys,omitempty"`
-	Indexes      []schemaIndex  `json:"indexes,omitempty"`
+	Schema      string         `json:"schema"`
+	Name        string         `json:"name"`
+	Kind        string         `json:"kind"`
+	Comment     string         `json:"comment,omitempty"`
+	Columns     []schemaColumn `json:"columns"`
+	PrimaryKey  []string       `json:"primaryKey"`
+	ForeignKeys []schemaFK     `json:"foreignKeys,omitempty"`
+	Indexes     []schemaIndex  `json:"indexes,omitempty"`
 }
 
 type schemaColumn struct {
@@ -75,7 +75,7 @@ func runSchema(cmd *cobra.Command, args []string) error {
 	baseURL, _ := cmd.Flags().GetString("url")
 
 	if token == "" {
-		token = os.Getenv("AYB_ADMIN_TOKEN")
+		token = adminToken()
 	}
 	if baseURL == "" {
 		baseURL = serverURL()
@@ -89,12 +89,15 @@ func runSchema(cmd *cobra.Command, args []string) error {
 		req.Header.Set("Authorization", "Bearer "+token)
 	}
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := cliHTTPClient.Do(req)
 	if err != nil {
 		return fmt.Errorf("connecting to server: %w", err)
 	}
 	defer resp.Body.Close()
-	respBody, _ := io.ReadAll(resp.Body)
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return fmt.Errorf("reading response: %w", err)
+	}
 
 	if resp.StatusCode != http.StatusOK {
 		return serverError(resp.StatusCode, respBody)

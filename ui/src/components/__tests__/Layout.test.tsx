@@ -37,6 +37,26 @@ vi.mock("../FunctionBrowser", () => ({
   FunctionBrowser: () => <div data-testid="functions-view" />,
 }));
 
+vi.mock("../SMSHealth", () => ({
+  SMSHealth: () => <div data-testid="sms-health-view" />,
+}));
+
+vi.mock("../SMSMessages", () => ({
+  SMSMessages: () => <div data-testid="sms-messages-view" />,
+}));
+
+vi.mock("../Jobs", () => ({
+  Jobs: () => <div data-testid="jobs-view" />,
+}));
+
+vi.mock("../Schedules", () => ({
+  Schedules: () => <div data-testid="schedules-view" />,
+}));
+
+vi.mock("../EmailTemplates", () => ({
+  EmailTemplates: () => <div data-testid="email-templates-view" />,
+}));
+
 function makeSchema(
   tables: Record<string, { schema: string; name: string; kind: string }> = {},
 ): SchemaCache {
@@ -241,5 +261,80 @@ describe("Layout", () => {
     await user.click(screen.getByText("Storage"));
     // Header should not show table name.
     expect(screen.queryByTestId("table-browser")).not.toBeInTheDocument();
+  });
+
+  it("renders Messaging section in sidebar", () => {
+    render(
+      <Layout schema={twoTableSchema} onLogout={onLogout} onRefresh={onRefresh} />,
+    );
+    expect(screen.getByText("Messaging")).toBeInTheDocument();
+    expect(screen.getByText("SMS Health")).toBeInTheDocument();
+    expect(screen.getByText("SMS Messages")).toBeInTheDocument();
+    expect(screen.getByText("Email Templates")).toBeInTheDocument();
+  });
+
+  it("clicking SMS Health renders SMSHealth component", async () => {
+    render(
+      <Layout schema={twoTableSchema} onLogout={onLogout} onRefresh={onRefresh} />,
+    );
+    const user = userEvent.setup();
+    await user.click(screen.getByText("SMS Health"));
+    expect(screen.getByTestId("sms-health-view")).toBeInTheDocument();
+    // Tab bar should not be visible in admin views.
+    expect(screen.queryByText("Data")).not.toBeInTheDocument();
+  });
+
+  it("clicking SMS Messages renders SMSMessages component", async () => {
+    render(
+      <Layout schema={twoTableSchema} onLogout={onLogout} onRefresh={onRefresh} />,
+    );
+    const user = userEvent.setup();
+    await user.click(screen.getByText("SMS Messages"));
+    expect(screen.getByTestId("sms-messages-view")).toBeInTheDocument();
+    // Tab bar should not be visible in admin views.
+    expect(screen.queryByText("Data")).not.toBeInTheDocument();
+  });
+
+  it("clicking a table from SMS view returns to data view", async () => {
+    render(
+      <Layout schema={twoTableSchema} onLogout={onLogout} onRefresh={onRefresh} />,
+    );
+    const user = userEvent.setup();
+    // Go to SMS Health first.
+    await user.click(screen.getByText("SMS Health"));
+    expect(screen.getByTestId("sms-health-view")).toBeInTheDocument();
+    // Click a table — should return to data view.
+    await user.click(screen.getByText("posts"));
+    expect(screen.getByTestId("table-browser")).toBeInTheDocument();
+  });
+
+  it("clicking Jobs renders Jobs component", async () => {
+    render(
+      <Layout schema={twoTableSchema} onLogout={onLogout} onRefresh={onRefresh} />,
+    );
+    const user = userEvent.setup();
+    await user.click(screen.getByText("Jobs"));
+    expect(screen.getByTestId("jobs-view")).toBeInTheDocument();
+    expect(screen.queryByText("Data")).not.toBeInTheDocument();
+  });
+
+  it("clicking Schedules renders Schedules component", async () => {
+    render(
+      <Layout schema={twoTableSchema} onLogout={onLogout} onRefresh={onRefresh} />,
+    );
+    const user = userEvent.setup();
+    await user.click(screen.getByText("Schedules"));
+    expect(screen.getByTestId("schedules-view")).toBeInTheDocument();
+    expect(screen.queryByText("Data")).not.toBeInTheDocument();
+  });
+
+  it("clicking Email Templates renders EmailTemplates component", async () => {
+    render(
+      <Layout schema={twoTableSchema} onLogout={onLogout} onRefresh={onRefresh} />,
+    );
+    const user = userEvent.setup();
+    await user.click(screen.getByText("Email Templates"));
+    expect(screen.getByTestId("email-templates-view")).toBeInTheDocument();
+    expect(screen.queryByText("Data")).not.toBeInTheDocument();
   });
 });

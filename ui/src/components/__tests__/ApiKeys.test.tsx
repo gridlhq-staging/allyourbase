@@ -2,12 +2,20 @@ import { vi, describe, it, expect, beforeEach } from "vitest";
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { ApiKeys } from "../ApiKeys";
-import { listApiKeys, createApiKey, revokeApiKey, listUsers } from "../../api";
+import {
+  listApiKeys,
+  createApiKey,
+  revokeApiKey,
+  listUsers,
+  listApps,
+} from "../../api";
 import type {
   APIKeyResponse,
   APIKeyListResponse,
   APIKeyCreateResponse,
   UserListResponse,
+  AppResponse,
+  AppListResponse,
 } from "../../types";
 
 vi.mock("../../api", () => ({
@@ -15,6 +23,7 @@ vi.mock("../../api", () => ({
   createApiKey: vi.fn(),
   revokeApiKey: vi.fn(),
   listUsers: vi.fn(),
+  listApps: vi.fn(),
   ApiError: class extends Error {
     status: number;
     constructor(status: number, message: string) {
@@ -37,6 +46,7 @@ const mockListApiKeys = vi.mocked(listApiKeys);
 const mockCreateApiKey = vi.mocked(createApiKey);
 const mockRevokeApiKey = vi.mocked(revokeApiKey);
 const mockListUsers = vi.mocked(listUsers);
+const mockListApps = vi.mocked(listApps);
 
 function makeKey(overrides: Partial<APIKeyResponse> = {}): APIKeyResponse {
   return {
@@ -46,6 +56,7 @@ function makeKey(overrides: Partial<APIKeyResponse> = {}): APIKeyResponse {
     keyPrefix: "ayb_abc12345",
     scope: "*",
     allowedTables: null,
+    appId: null,
     lastUsedAt: null,
     expiresAt: null,
     createdAt: "2026-02-10T12:00:00Z",
@@ -86,10 +97,39 @@ function makeUserResponse(): UserListResponse {
   };
 }
 
+function makeApp(overrides: Partial<AppResponse> = {}): AppResponse {
+  return {
+    id: "a1",
+    name: "Orders Service",
+    description: "Processes orders",
+    ownerUserId: "u1",
+    rateLimitRps: 120,
+    rateLimitWindowSeconds: 60,
+    createdAt: "2026-02-21T00:00:00Z",
+    updatedAt: "2026-02-21T00:00:00Z",
+    ...overrides,
+  };
+}
+
+function makeAppResponse(
+  apps: AppResponse[] = [],
+  overrides: Partial<AppListResponse> = {},
+): AppListResponse {
+  return {
+    items: apps,
+    page: 1,
+    perPage: 100,
+    totalItems: apps.length,
+    totalPages: 1,
+    ...overrides,
+  };
+}
+
 describe("ApiKeys", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockListUsers.mockResolvedValue(makeUserResponse());
+    mockListApps.mockResolvedValue(makeAppResponse());
   });
 
   it("shows loading state", () => {
@@ -677,6 +717,165 @@ describe("ApiKeys", () => {
         scope: "readwrite",
         allowedTables: ["posts"],
       });
+    });
+  });
+
+  it("create form includes optional app selector", async () => {
+    mockListApiKeys.mockResolvedValueOnce(makeResponse([makeKey()]));
+    mockListApps.mockResolvedValueOnce(
+      makeAppResponse([
+        makeApp({ id: "a-orders", name: "Orders Service" }),
+        makeApp({ id: "a-analytics", name: "Analytics" }),
+      ]),
+    );
+    render(<ApiKeys />);
+
+    await waitFor(() => {
+      expect(screen.getByText("CI/CD")).toBeInTheDocument();
+    });
+
+    const user = userEvent.setup();
+    await user.click(screen.getByText("Create Key"));
+
+    const appSelect = screen.getByLabelText("App Scope") as HTMLSelectElement;
+    expect(appSelect.value).toBe("");
+    expect(screen.getByRole("option", { name: "User-scoped (no app)" })).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: "Orders Service" })).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: "Analytics" })).toBeInTheDocument();
+  });
+
+  it("create form sends appId when app selected", async () => {
+    mockListApiKeys.mockResolvedValue(makeResponse([]));
+    mockListApps.mockResolvedValueOnce(
+      makeAppResponse([makeApp({ id: "a-orders", name: "Orders Service" })]),
+    );
+    mockCreateApiKey.mockResolvedValueOnce({
+      key: "ayb_testkey",
+      apiKey: makeKey({ id: "k-new", name: "Orders Key", appId: "a-orders" }),
+    });
+    render(<ApiKeys />);
+
+    await waitFor(() => {
+      expect(screen.getByText("No API keys created yet")).toBeInTheDocument();
+    });
+
+    const user = userEvent.setup();
+    await user.click(screen.getByText("Create your first API key"));
+    await user.type(screen.getByLabelText("Key name"), "Orders Key");
+    await user.selectOptions(screen.getByLabelText("User"), "u1");
+    await user.selectOptions(screen.getByLabelText("App Scope"), "a-orders");
+    await user.click(screen.getByRole("button", { name: "Create" }));
+
+    await waitFor(() => {
+      expect(mockCreateApiKey).toHaveBeenCalledWith({
+        userId: "u1",
+        name: "Orders Key",
+        scope: "*",
+        appId: "a-orders",
+      });
+    });
+  });
+
+  it("shows app association on key rows", async () => {
+    mockListApps.mockResolvedValueOnce(
+      makeAppResponse([makeApp({ id: "a-orders", name: "Orders Service" })]),
+    );
+    mockListApiKeys.mockResolvedValueOnce(
+      makeResponse([makeKey({ appId: "a-orders" })]),
+    );
+    render(<ApiKeys />);
+
+    await waitFor(() => {
+      expect(screen.getByText("Orders Service")).toBeInTheDocument();
+    });
+  });
+
+  it("shows configured app rate limit stats for app-scoped key", async () => {
+    mockListApps.mockResolvedValueOnce(
+      makeAppResponse([
+        makeApp({ id: "a-orders", rateLimitRps: 120, rateLimitWindowSeconds: 60 }),
+      ]),
+    );
+    mockListApiKeys.mockResolvedValueOnce(
+      makeResponse([makeKey({ appId: "a-orders" })]),
+    );
+    render(<ApiKeys />);
+
+    await waitFor(() => {
+      expect(screen.getByText("Rate: 120 req/60s")).toBeInTheDocument();
+    });
+  });
+
+  it("shows User-scoped label for keys without app association", async () => {
+    mockListApiKeys.mockResolvedValueOnce(
+      makeResponse([makeKey({ appId: null })]),
+    );
+    render(<ApiKeys />);
+
+    await waitFor(() => {
+      expect(screen.getByText("User-scoped")).toBeInTheDocument();
+    });
+  });
+
+  it("shows Rate: unlimited for app-scoped key with no rate limit", async () => {
+    mockListApps.mockResolvedValueOnce(
+      makeAppResponse([
+        makeApp({ id: "a-free", name: "Free Tier", rateLimitRps: 0, rateLimitWindowSeconds: 0 }),
+      ]),
+    );
+    mockListApiKeys.mockResolvedValueOnce(
+      makeResponse([makeKey({ appId: "a-free" })]),
+    );
+    render(<ApiKeys />);
+
+    await waitFor(() => {
+      expect(screen.getByText("Rate: unlimited")).toBeInTheDocument();
+    });
+  });
+
+  it("shows app ID when app metadata is unavailable", async () => {
+    mockListApps.mockResolvedValueOnce(makeAppResponse([]));
+    mockListApiKeys.mockResolvedValueOnce(
+      makeResponse([makeKey({ appId: "a-unknown" })]),
+    );
+    render(<ApiKeys />);
+
+    await waitFor(() => {
+      expect(screen.getByText("a-unknown")).toBeInTheDocument();
+      // Should show "Rate: unknown" when app metadata is missing
+      expect(screen.getByText("Rate: unknown")).toBeInTheDocument();
+    });
+  });
+
+  it("created modal shows app name and rate limit for app-scoped key", async () => {
+    mockListApiKeys.mockResolvedValue(makeResponse([]));
+    mockListApps.mockResolvedValueOnce(
+      makeAppResponse([
+        makeApp({ id: "a-orders", name: "Orders Service", rateLimitRps: 120, rateLimitWindowSeconds: 60 }),
+      ]),
+    );
+    mockCreateApiKey.mockResolvedValueOnce({
+      key: "ayb_testkey",
+      apiKey: makeKey({ id: "k-new", name: "App Key", appId: "a-orders" }),
+    });
+    render(<ApiKeys />);
+
+    await waitFor(() => {
+      expect(screen.getByText("No API keys created yet")).toBeInTheDocument();
+    });
+
+    const user = userEvent.setup();
+    await user.click(screen.getByText("Create your first API key"));
+    await user.type(screen.getByLabelText("Key name"), "App Key");
+    await user.selectOptions(screen.getByLabelText("User"), "u1");
+    await user.click(screen.getByRole("button", { name: "Create" }));
+
+    await waitFor(() => {
+      expect(screen.getByText("API Key Created")).toBeInTheDocument();
+      // The created modal should show the app name
+      expect(screen.getByText("Orders Service")).toBeInTheDocument();
+      // The created modal should show the rate limit (without the "Rate: " prefix per formatAppRateLimit stripping)
+      expect(screen.getByText("120 req/60s")).toBeInTheDocument();
     });
   });
 

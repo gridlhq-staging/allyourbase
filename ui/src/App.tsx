@@ -3,13 +3,52 @@ import { getAdminStatus, getSchema, clearToken, ApiError } from "./api";
 import type { SchemaCache } from "./types";
 import { Login } from "./components/Login";
 import { Layout } from "./components/Layout";
+import { OAuthConsent } from "./components/OAuthConsent";
 
 type AppState =
   | { kind: "loading" }
   | { kind: "login" }
   | { kind: "ready"; schema: SchemaCache };
 
+function normalizeReturnTo(raw: string): string | null {
+  const returnTo = raw.trim();
+  if (!returnTo) {
+    return null;
+  }
+
+  let origin = window.location.origin;
+  if (!origin) {
+    try {
+      origin = new URL(window.location.href).origin;
+    } catch {
+      return null;
+    }
+  }
+
+  try {
+    const parsed = new URL(returnTo, origin);
+    if (parsed.origin !== origin) {
+      return null;
+    }
+    if (!parsed.pathname.startsWith("/")) {
+      return null;
+    }
+    return `${parsed.pathname}${parsed.search}${parsed.hash}`;
+  } catch {
+    return null;
+  }
+}
+
 export function App() {
+  // OAuth consent page: render standalone consent UI at /oauth/authorize.
+  if (window.location.pathname === "/oauth/authorize") {
+    return <OAuthConsent />;
+  }
+
+  return <AdminDashboard />;
+}
+
+function AdminDashboard() {
   const [state, setState] = useState<AppState>({ kind: "loading" });
   const [error, setError] = useState<string | null>(null);
 
@@ -48,6 +87,14 @@ export function App() {
   }, []);
 
   const handleLogin = useCallback(() => {
+    // Check for return_to param (e.g. from OAuth consent redirect).
+    const params = new URLSearchParams(window.location.search);
+    const returnTo = params.get("return_to");
+    const safeReturnTo = returnTo ? normalizeReturnTo(returnTo) : null;
+    if (safeReturnTo) {
+      window.location.assign(safeReturnTo);
+      return;
+    }
     setState({ kind: "loading" });
     boot();
   }, [boot]);

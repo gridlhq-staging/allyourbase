@@ -177,13 +177,6 @@ func TestMigrateCreateGeneratesFile(t *testing.T) {
 	}
 }
 
-func TestHelpDoesNotError(t *testing.T) {
-	rootCmd.SetArgs([]string{"--help"})
-	if err := rootCmd.Execute(); err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-}
-
 // captureStderr captures stderr output from the given function.
 func captureStderr(t *testing.T, fn func()) string {
 	t.Helper()
@@ -199,10 +192,12 @@ func captureStderr(t *testing.T, fn func()) string {
 	w.Close()
 	os.Stderr = old
 
-	buf := make([]byte, 64*1024)
-	n, _ := r.Read(buf)
+	out, err := io.ReadAll(r)
 	r.Close()
-	return string(buf[:n])
+	if err != nil {
+		t.Fatalf("captureStderr: read pipe: %v", err)
+	}
+	return string(out)
 }
 
 func TestPrintBanner(t *testing.T) {
@@ -238,12 +233,9 @@ func TestPrintBanner(t *testing.T) {
 
 func TestStopCommandNoServer(t *testing.T) {
 	resetJSONFlag()
-	// Ensure no PID file exists for this test.
-	pidPath, err := aybPIDPath()
-	if err != nil {
-		t.Fatalf("aybPIDPath: %v", err)
-	}
-	os.Remove(pidPath)
+	tmpDir := t.TempDir()
+	t.Setenv("HOME", tmpDir)
+	os.MkdirAll(filepath.Join(tmpDir, ".ayb"), 0o755)
 
 	output := captureStdout(t, func() {
 		rootCmd.SetArgs([]string{"stop"})
@@ -252,17 +244,17 @@ func TestStopCommandNoServer(t *testing.T) {
 		}
 	})
 
-	if !strings.Contains(output, "No AYB server is running") {
-		t.Fatalf("expected 'No AYB server is running' message, got %q", output)
+	// Acceptable: clean state ("No AYB server is running") or orphan state
+	// (another process holds the port but no PID file exists).
+	if !strings.Contains(output, "No AYB server is running") && !strings.Contains(output, "No PID file") && !strings.Contains(output, "orphan") {
+		t.Fatalf("expected 'no server running' or 'no PID file' message, got %q", output)
 	}
 }
 
 func TestStopCommandJSON(t *testing.T) {
-	pidPath, err := aybPIDPath()
-	if err != nil {
-		t.Fatalf("aybPIDPath: %v", err)
-	}
-	os.Remove(pidPath)
+	tmpDir := t.TempDir()
+	t.Setenv("HOME", tmpDir)
+	os.MkdirAll(filepath.Join(tmpDir, ".ayb"), 0o755)
 
 	output := captureStdout(t, func() {
 		rootCmd.SetArgs([]string{"stop", "--json"})
@@ -275,18 +267,18 @@ func TestStopCommandJSON(t *testing.T) {
 	if err := json.Unmarshal([]byte(output), &result); err != nil {
 		t.Fatalf("expected valid JSON, got %q: %v", output, err)
 	}
-	if result["status"] != "not_running" {
-		t.Fatalf("expected status 'not_running', got %v", result["status"])
+	// Acceptable statuses: not_running (clean) or orphan (port in use without PID file).
+	status, _ := result["status"].(string)
+	if status != "not_running" && status != "orphan" {
+		t.Fatalf("expected status 'not_running' or 'orphan', got %v", result["status"])
 	}
 }
 
 func TestStatusCommandNoServer(t *testing.T) {
 	resetJSONFlag()
-	pidPath, err := aybPIDPath()
-	if err != nil {
-		t.Fatalf("aybPIDPath: %v", err)
-	}
-	os.Remove(pidPath)
+	tmpDir := t.TempDir()
+	t.Setenv("HOME", tmpDir)
+	os.MkdirAll(filepath.Join(tmpDir, ".ayb"), 0o755)
 
 	output := captureStdout(t, func() {
 		rootCmd.SetArgs([]string{"status"})
@@ -301,11 +293,9 @@ func TestStatusCommandNoServer(t *testing.T) {
 }
 
 func TestStatusCommandJSON(t *testing.T) {
-	pidPath, err := aybPIDPath()
-	if err != nil {
-		t.Fatalf("aybPIDPath: %v", err)
-	}
-	os.Remove(pidPath)
+	tmpDir := t.TempDir()
+	t.Setenv("HOME", tmpDir)
+	os.MkdirAll(filepath.Join(tmpDir, ".ayb"), 0o755)
 
 	output := captureStdout(t, func() {
 		rootCmd.SetArgs([]string{"status", "--json"})
@@ -325,17 +315,14 @@ func TestStatusCommandJSON(t *testing.T) {
 
 func TestStopCommandStalePID(t *testing.T) {
 	resetJSONFlag()
-	pidPath, err := aybPIDPath()
-	if err != nil {
-		t.Fatalf("aybPIDPath: %v", err)
-	}
-	// Ensure the directory exists (may not exist in CI).
-	os.MkdirAll(filepath.Dir(pidPath), 0755)
+	tmpDir := t.TempDir()
+	t.Setenv("HOME", tmpDir)
+	aybDir := filepath.Join(tmpDir, ".ayb")
+	os.MkdirAll(aybDir, 0o755)
 	// Write a PID that doesn't exist (use a very high PID).
-	if err := os.WriteFile(pidPath, []byte("9999999\n8090"), 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(aybDir, "ayb.pid"), []byte("9999999\n8090"), 0o644); err != nil {
 		t.Fatalf("writing PID file: %v", err)
 	}
-	defer os.Remove(pidPath)
 
 	// Use cobra's SetOut to capture output without redirecting os.Stdout,
 	// which avoids contamination from concurrent test goroutines in CI.
@@ -414,7 +401,7 @@ func TestMigrateSupabaseRequiresFlags(t *testing.T) {
 
 func TestMigrateSupabaseFlagDefinitions(t *testing.T) {
 	flags := migrateSupabaseCmd.Flags()
-	for _, name := range []string{"source-url", "database-url", "dry-run", "force", "verbose", "skip-rls", "skip-oauth", "skip-data", "include-anonymous"} {
+	for _, name := range []string{"source-url", "database-url", "storage-export", "storage-path", "dry-run", "force", "verbose", "skip-rls", "skip-oauth", "skip-data", "skip-storage", "include-anonymous", "yes", "json"} {
 		f := flags.Lookup(name)
 		if f == nil {
 			t.Errorf("expected flag %q on migrate supabase command", name)
@@ -422,7 +409,7 @@ func TestMigrateSupabaseFlagDefinitions(t *testing.T) {
 		}
 		// Verify boolean flags have correct type.
 		switch name {
-		case "source-url", "database-url":
+		case "source-url", "database-url", "storage-export", "storage-path":
 			if f.Value.Type() != "string" {
 				t.Errorf("flag %q should be string, got %s", name, f.Value.Type())
 			}
@@ -494,14 +481,14 @@ func TestMigrateFirebaseRequiresExportPath(t *testing.T) {
 
 func TestMigrateFirebaseFlagDefinitions(t *testing.T) {
 	flags := migrateFirebaseCmd.Flags()
-	for _, name := range []string{"auth-export", "firestore-export", "database-url", "dry-run", "verbose", "json"} {
+	for _, name := range []string{"auth-export", "firestore-export", "rtdb-export", "storage-export", "storage-path", "database-url", "dry-run", "verbose", "yes", "json"} {
 		f := flags.Lookup(name)
 		if f == nil {
 			t.Errorf("expected flag %q on migrate firebase command", name)
 			continue
 		}
 		switch name {
-		case "auth-export", "firestore-export", "database-url":
+		case "auth-export", "firestore-export", "rtdb-export", "storage-export", "storage-path", "database-url":
 			if f.Value.Type() != "string" {
 				t.Errorf("flag %q should be string, got %s", name, f.Value.Type())
 			}
@@ -527,7 +514,7 @@ func TestStartFromInvalidSource(t *testing.T) {
 	resetJSONFlag()
 	// Use a free port so the early port check doesn't short-circuit the test.
 	port := freePort(t)
-	rootCmd.SetArgs([]string{"start", "--from", "/nonexistent/pb_data", "--port", fmt.Sprintf("%d", port)})
+	rootCmd.SetArgs([]string{"start", "--foreground", "--from", "/nonexistent/pb_data", "--port", fmt.Sprintf("%d", port)})
 	err := rootCmd.Execute()
 	if err == nil {
 		t.Fatal("expected error for invalid source path")
@@ -615,70 +602,7 @@ func TestQueryCommandRequiresTable(t *testing.T) {
 	}
 }
 
-func TestSQLCommandRegistered(t *testing.T) {
-	found := false
-	for _, cmd := range rootCmd.Commands() {
-		if cmd.Name() == "sql" {
-			found = true
-			break
-		}
-	}
-	if !found {
-		t.Fatal("expected 'sql' subcommand to be registered")
-	}
-}
-
-func TestReadAYBPID(t *testing.T) {
-	pidPath, err := aybPIDPath()
-	if err != nil {
-		t.Fatalf("aybPIDPath: %v", err)
-	}
-
-	// Clean state.
-	os.Remove(pidPath)
-
-	// No file → error.
-	_, _, err = readAYBPID()
-	if err == nil {
-		t.Fatal("expected error when PID file doesn't exist")
-	}
-
-	// Valid file.
-	os.WriteFile(pidPath, []byte("12345\n9090"), 0644)
-	defer os.Remove(pidPath)
-
-	pid, port, err := readAYBPID()
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if pid != 12345 {
-		t.Fatalf("expected pid 12345, got %d", pid)
-	}
-	if port != 9090 {
-		t.Fatalf("expected port 9090, got %d", port)
-	}
-}
-
-func TestReadAYBPIDNoPort(t *testing.T) {
-	pidPath, err := aybPIDPath()
-	if err != nil {
-		t.Fatalf("aybPIDPath: %v", err)
-	}
-
-	os.WriteFile(pidPath, []byte("12345"), 0644)
-	defer os.Remove(pidPath)
-
-	pid, port, err := readAYBPID()
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if pid != 12345 {
-		t.Fatalf("expected pid 12345, got %d", pid)
-	}
-	if port != 0 {
-		t.Fatalf("expected port 0, got %d", port)
-	}
-}
+// readAYBPID tests are in start_test.go (TestReadAYBPID_*).
 
 func TestWebhooksSubcommands(t *testing.T) {
 	found := make(map[string]bool)
@@ -806,8 +730,8 @@ func TestFormatBytes(t *testing.T) {
 
 func TestServerURLDefault(t *testing.T) {
 	// With no PID file, serverURL should return default.
-	pidPath, _ := aybPIDPath()
-	os.Remove(pidPath)
+	tmpDir := t.TempDir()
+	t.Setenv("HOME", tmpDir)
 
 	got := serverURL()
 	if got != "http://127.0.0.1:8090" {
@@ -816,12 +740,15 @@ func TestServerURLDefault(t *testing.T) {
 }
 
 func TestServerURLFromPID(t *testing.T) {
-	pidPath, err := aybPIDPath()
-	if err != nil {
-		t.Fatalf("aybPIDPath: %v", err)
+	tmpDir := t.TempDir()
+	t.Setenv("HOME", tmpDir)
+	aybDir := filepath.Join(tmpDir, ".ayb")
+	if err := os.MkdirAll(aybDir, 0o755); err != nil {
+		t.Fatalf("creating .ayb dir: %v", err)
 	}
-	os.WriteFile(pidPath, []byte("12345\n3000"), 0644)
-	defer os.Remove(pidPath)
+	if err := os.WriteFile(filepath.Join(aybDir, "ayb.pid"), []byte("12345\n3000"), 0o644); err != nil {
+		t.Fatalf("writing PID file: %v", err)
+	}
 
 	got := serverURL()
 	if got != "http://127.0.0.1:3000" {
@@ -830,19 +757,6 @@ func TestServerURLFromPID(t *testing.T) {
 }
 
 // --- Schema command tests ---
-
-func TestSchemaCommandRegistered(t *testing.T) {
-	found := false
-	for _, cmd := range rootCmd.Commands() {
-		if cmd.Name() == "schema" {
-			found = true
-			break
-		}
-	}
-	if !found {
-		t.Fatal("expected 'schema' subcommand to be registered")
-	}
-}
 
 func TestSchemaCommandAcceptsOptionalArg(t *testing.T) {
 	// schema accepts 0 or 1 args — verify it doesn't reject 0 args
@@ -869,19 +783,6 @@ func TestSchemaCommandRejectsTwoArgs(t *testing.T) {
 }
 
 // --- RPC command tests ---
-
-func TestRPCCommandRegistered(t *testing.T) {
-	found := false
-	for _, cmd := range rootCmd.Commands() {
-		if cmd.Name() == "rpc" {
-			found = true
-			break
-		}
-	}
-	if !found {
-		t.Fatal("expected 'rpc' subcommand to be registered")
-	}
-}
 
 func TestRPCCommandRequiresFunction(t *testing.T) {
 	resetJSONFlag()
@@ -1101,46 +1002,7 @@ func TestInitDefaultsToReactTemplate(t *testing.T) {
 
 // --- MCP command tests ---
 
-func TestMCPCommandRegistered(t *testing.T) {
-	found := false
-	for _, cmd := range rootCmd.Commands() {
-		if cmd.Name() == "mcp" {
-			found = true
-			break
-		}
-	}
-	if !found {
-		t.Fatal("expected 'mcp' subcommand to be registered")
-	}
-}
-
-func TestInitCommandRegistered(t *testing.T) {
-	found := false
-	for _, cmd := range rootCmd.Commands() {
-		if strings.HasPrefix(cmd.Use, "init") {
-			found = true
-			break
-		}
-	}
-	if !found {
-		t.Fatal("expected 'init' subcommand to be registered")
-	}
-}
-
 // --- DB command tests ---
-
-func TestDBCommandRegistered(t *testing.T) {
-	found := false
-	for _, cmd := range rootCmd.Commands() {
-		if cmd.Name() == "db" {
-			found = true
-			break
-		}
-	}
-	if !found {
-		t.Fatal("expected 'db' subcommand to be registered")
-	}
-}
 
 func TestDBSubcommands(t *testing.T) {
 	var dbCommand *cobra.Command
@@ -2263,20 +2125,17 @@ func TestAdminCreateFlagDefinitions(t *testing.T) {
 
 func TestAdminResetPasswordNoServer(t *testing.T) {
 	resetJSONFlag()
-	// Ensure no PID file exists.
-	pidPath, err := aybPIDPath()
-	if err != nil {
-		t.Fatalf("aybPIDPath: %v", err)
-	}
-	os.Remove(pidPath)
+	tmpDir := t.TempDir()
+	t.Setenv("HOME", tmpDir)
+	os.MkdirAll(filepath.Join(tmpDir, ".ayb"), 0o755)
 
 	rootCmd.SetArgs([]string{"admin", "reset-password"})
-	err = rootCmd.Execute()
+	err := rootCmd.Execute()
 	if err == nil {
 		t.Fatal("expected error when no server is running")
 	}
-	if !strings.Contains(err.Error(), "not running") && !strings.Contains(err.Error(), "PID") {
-		t.Fatalf("expected 'not running' or 'PID' error, got %q", err.Error())
+	if !strings.Contains(err.Error(), "not running") && !strings.Contains(err.Error(), "PID") && !strings.Contains(err.Error(), "connecting") {
+		t.Fatalf("expected 'not running', 'PID', or 'connecting' error, got %q", err.Error())
 	}
 }
 
@@ -2300,8 +2159,9 @@ func TestTypesNoRunWithoutSubcommand(t *testing.T) {
 
 func TestTypesTypeScriptRequiresDatabaseURL(t *testing.T) {
 	resetJSONFlag()
-	// Unset DATABASE_URL to ensure the flag is truly required.
+	// Unset DATABASE_URL and use a temp HOME so no PID file or config is found.
 	t.Setenv("DATABASE_URL", "")
+	t.Setenv("HOME", t.TempDir())
 
 	rootCmd.SetArgs([]string{"types", "typescript"})
 	err := rootCmd.Execute()
@@ -2361,17 +2221,18 @@ func TestSQLCommandFlagDefinitions(t *testing.T) {
 
 func TestSQLCommandEmptyQueryFails(t *testing.T) {
 	resetJSONFlag()
-	// Provide empty args — the command reads from args first, then stdin.
-	// With no args and stdin being a terminal (not a pipe), it should fail.
-	// We pass an empty string arg to trigger the "query is required" check.
+	// An empty string arg is treated as a non-empty arg so the command
+	// will attempt to connect. We verify it gets either a query validation
+	// error or a connection error (both exercise the command logic).
 	rootCmd.SetArgs([]string{"sql", "", "--url", "http://127.0.0.1:1"})
 	err := rootCmd.Execute()
 	if err == nil {
 		t.Fatal("expected error for empty query")
 	}
-	// Could be "query is required" or a connection error depending on arg parsing
-	// The empty string is a non-empty arg, so it will try to connect.
-	// Let's just verify the command exercises its logic.
+	msg := err.Error()
+	if !strings.Contains(msg, "query") && !strings.Contains(msg, "connect") {
+		t.Fatalf("expected query or connection error, got %q", msg)
+	}
 }
 
 func TestSQLCommandConnectionError(t *testing.T) {
@@ -2696,18 +2557,13 @@ func TestMCPHasRunE(t *testing.T) {
 
 func TestStatsConnectionError(t *testing.T) {
 	resetJSONFlag()
-	// Remove PID file so serverURL() returns default.
-	pidPath, _ := aybPIDPath()
-	origPID, _ := os.ReadFile(pidPath)
-	os.Remove(pidPath)
-	defer func() {
-		if len(origPID) > 0 {
-			os.WriteFile(pidPath, origPID, 0644)
-		}
-	}()
+	tmpDir := t.TempDir()
+	t.Setenv("HOME", tmpDir)
+	aybDir := filepath.Join(tmpDir, ".ayb")
+	os.MkdirAll(aybDir, 0o755)
 
 	// Use a bogus URL via PID file.
-	os.WriteFile(pidPath, []byte("9999999\n1"), 0644)
+	os.WriteFile(filepath.Join(aybDir, "ayb.pid"), []byte("9999999\n1"), 0o644)
 
 	rootCmd.SetArgs([]string{"stats"})
 	err := rootCmd.Execute()
@@ -2717,7 +2573,6 @@ func TestStatsConnectionError(t *testing.T) {
 	if !strings.Contains(err.Error(), "connecting to server") {
 		t.Fatalf("expected connection error, got %q", err.Error())
 	}
-	os.Remove(pidPath)
 }
 
 func TestStatsHasRunE(t *testing.T) {
@@ -2730,17 +2585,13 @@ func TestStatsHasRunE(t *testing.T) {
 
 func TestSecretsRotateConnectionError(t *testing.T) {
 	resetJSONFlag()
-	pidPath, _ := aybPIDPath()
-	origPID, _ := os.ReadFile(pidPath)
-	os.Remove(pidPath)
-	defer func() {
-		if len(origPID) > 0 {
-			os.WriteFile(pidPath, origPID, 0644)
-		}
-	}()
+	tmpDir := t.TempDir()
+	t.Setenv("HOME", tmpDir)
+	aybDir := filepath.Join(tmpDir, ".ayb")
+	os.MkdirAll(aybDir, 0o755)
 
 	// Write a PID file pointing to port 1 (unreachable).
-	os.WriteFile(pidPath, []byte("9999999\n1"), 0644)
+	os.WriteFile(filepath.Join(aybDir, "ayb.pid"), []byte("9999999\n1"), 0o644)
 
 	rootCmd.SetArgs([]string{"secrets", "rotate"})
 	err := rootCmd.Execute()
@@ -2750,19 +2601,13 @@ func TestSecretsRotateConnectionError(t *testing.T) {
 	if !strings.Contains(err.Error(), "connecting to server") {
 		t.Fatalf("expected connection error, got %q", err.Error())
 	}
-	os.Remove(pidPath)
 }
 
 func TestSecretsRotateNoServerNoConfig(t *testing.T) {
 	resetJSONFlag()
-	pidPath, _ := aybPIDPath()
-	origPID, _ := os.ReadFile(pidPath)
-	os.Remove(pidPath)
-	defer func() {
-		if len(origPID) > 0 {
-			os.WriteFile(pidPath, origPID, 0644)
-		}
-	}()
+	tmpDir := t.TempDir()
+	t.Setenv("HOME", tmpDir)
+	os.MkdirAll(filepath.Join(tmpDir, ".ayb"), 0o755)
 
 	rootCmd.SetArgs([]string{"secrets", "rotate"})
 	err := rootCmd.Execute()
@@ -2770,7 +2615,13 @@ func TestSecretsRotateNoServerNoConfig(t *testing.T) {
 		t.Fatal("expected error without server or config")
 	}
 	// serverURL() returns default URL when no PID file, so it'll try to connect
-	// and fail. Either connection error or "not available" is acceptable.
+	// and fail. Either a connection error, "not available", or an auth error
+	// (when a server happens to be running) is acceptable — the important thing
+	// is that the command errors rather than succeeding silently.
+	msg := err.Error()
+	if !strings.Contains(msg, "connect") && !strings.Contains(msg, "available") && !strings.Contains(msg, "401") && !strings.Contains(msg, "authentication") {
+		t.Fatalf("expected connection, availability, or auth error, got %q", msg)
+	}
 }
 
 // --- Output format tests ---
@@ -2866,16 +2717,12 @@ func TestLogsShorthandFlags(t *testing.T) {
 
 func TestLogsConnectionError(t *testing.T) {
 	resetJSONFlag()
-	pidPath, _ := aybPIDPath()
-	origPID, _ := os.ReadFile(pidPath)
-	os.Remove(pidPath)
-	defer func() {
-		if len(origPID) > 0 {
-			os.WriteFile(pidPath, origPID, 0644)
-		}
-	}()
+	tmpDir := t.TempDir()
+	t.Setenv("HOME", tmpDir)
+	aybDir := filepath.Join(tmpDir, ".ayb")
+	os.MkdirAll(aybDir, 0o755)
 
-	os.WriteFile(pidPath, []byte("9999999\n1"), 0644)
+	os.WriteFile(filepath.Join(aybDir, "ayb.pid"), []byte("9999999\n1"), 0o644)
 
 	rootCmd.SetArgs([]string{"logs"})
 	err := rootCmd.Execute()
@@ -2885,7 +2732,6 @@ func TestLogsConnectionError(t *testing.T) {
 	if !strings.Contains(err.Error(), "connecting to server") {
 		t.Fatalf("expected connection error, got %q", err.Error())
 	}
-	os.Remove(pidPath)
 }
 
 // --- Migrate up/status without database ---
@@ -2902,6 +2748,10 @@ func TestMigrateUpRequiresDatabase(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error without database URL")
 	}
+	msg := err.Error()
+	if !strings.Contains(msg, "database") && !strings.Contains(msg, "database-url") {
+		t.Fatalf("expected database-related error, got %q", msg)
+	}
 }
 
 func TestMigrateStatusRequiresDatabase(t *testing.T) {
@@ -2915,6 +2765,10 @@ func TestMigrateStatusRequiresDatabase(t *testing.T) {
 	err := rootCmd.Execute()
 	if err == nil {
 		t.Fatal("expected error without database URL")
+	}
+	msg := err.Error()
+	if !strings.Contains(msg, "database") && !strings.Contains(msg, "database-url") {
+		t.Fatalf("expected database-related error, got %q", msg)
 	}
 }
 

@@ -66,9 +66,6 @@ test.describe("Smoke: Admin Login", () => {
     test.slow(); // Mark as slow test - needs extra time
     test.skip(!authStatus.auth, "admin.password not configured — no-auth mode");
 
-    // Brief pause to avoid rate limiting from previous test
-    await page.waitForTimeout(3000);
-
     // Step 1: Navigate to admin dashboard
     await page.goto("/admin/", { waitUntil: "domcontentloaded" });
 

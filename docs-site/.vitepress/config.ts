@@ -30,6 +30,8 @@ export default defineConfig({
           { text: "Realtime", link: "/guide/realtime" },
           { text: "Database RPC", link: "/guide/database-rpc" },
           { text: "Email", link: "/guide/email" },
+          { text: "Email Templates", link: "/guide/email-templates" },
+          { text: "Job Queue", link: "/guide/job-queue" },
           { text: "Admin Dashboard", link: "/guide/admin-dashboard" },
         ],
       },

@@ -25,6 +25,24 @@ func runStop(cmd *cobra.Command, args []string) error {
 	pid, _, err := readAYBPID()
 	if err != nil {
 		if os.IsNotExist(err) {
+			// No PID file — check if something is actually listening on the
+			// default port. This catches orphan processes (e.g. foreground
+			// mode killed ungracefully, leaving embedded postgres alive).
+			if portInUse(8090) {
+				if jsonOut {
+					return json.NewEncoder(out).Encode(map[string]any{
+						"status":  "orphan",
+						"message": "no PID file but port 8090 is in use",
+						"port":    8090,
+					})
+				}
+				fmt.Fprintln(out, "No PID file found, but port 8090 is in use.")
+				fmt.Fprintln(out, "")
+				fmt.Fprintln(out, "  An orphan process may be holding the port. Try:")
+				fmt.Fprintln(out, "    lsof -ti :8090 | xargs kill   # find and kill the process")
+				fmt.Fprintln(out, "    ayb start                     # then start fresh")
+				return nil
+			}
 			if jsonOut {
 				return json.NewEncoder(out).Encode(map[string]any{"status": "not_running", "message": "no AYB server is running"})
 			}
@@ -37,8 +55,8 @@ func runStop(cmd *cobra.Command, args []string) error {
 	// Check if process is alive.
 	proc, err := os.FindProcess(pid)
 	if err != nil {
-		// Process doesn't exist — clean up stale PID file.
-		cleanupPIDFile()
+		// Process doesn't exist — clean up stale files.
+		cleanupServerFiles()
 		if jsonOut {
 			return json.NewEncoder(out).Encode(map[string]any{"status": "not_running", "message": "stale PID file cleaned up"})
 		}
@@ -47,7 +65,7 @@ func runStop(cmd *cobra.Command, args []string) error {
 	}
 
 	if err := proc.Signal(syscall.Signal(0)); err != nil {
-		cleanupPIDFile()
+		cleanupServerFiles()
 		if jsonOut {
 			return json.NewEncoder(out).Encode(map[string]any{"status": "not_running", "message": "stale PID file cleaned up"})
 		}
@@ -70,7 +88,7 @@ func runStop(cmd *cobra.Command, args []string) error {
 	for time.Now().Before(deadline) {
 		time.Sleep(200 * time.Millisecond)
 		if err := proc.Signal(syscall.Signal(0)); err != nil {
-			cleanupPIDFile()
+			cleanupServerFiles()
 			sp.Done()
 			if jsonOut {
 				return json.NewEncoder(out).Encode(map[string]any{"status": "stopped", "pid": pid})
@@ -80,16 +98,24 @@ func runStop(cmd *cobra.Command, args []string) error {
 		}
 	}
 
+	// Graceful shutdown timed out — escalate to SIGKILL.
 	sp.Fail()
+	if err := proc.Signal(syscall.SIGKILL); err != nil {
+		// Process may have just died.
+		cleanupServerFiles()
+		if jsonOut {
+			return json.NewEncoder(out).Encode(map[string]any{"status": "stopped", "pid": pid})
+		}
+		fmt.Fprintf(out, "AYB server (PID %d) stopped.\n", pid)
+		return nil
+	}
+	time.Sleep(1 * time.Second)
+	cleanupServerFiles()
 	if jsonOut {
-		return json.NewEncoder(out).Encode(map[string]any{"status": "timeout", "pid": pid, "message": "server did not stop within 10s"})
+		return json.NewEncoder(out).Encode(map[string]any{
+			"status": "killed", "pid": pid,
+		})
 	}
-	fmt.Fprintf(out, "AYB server (PID %d) did not stop within 10 seconds. You may need to kill it manually.\n", pid)
+	fmt.Fprintf(out, "AYB server (PID %d) force-stopped (SIGKILL).\n", pid)
 	return nil
-}
-
-func cleanupPIDFile() {
-	if path, err := aybPIDPath(); err == nil {
-		os.Remove(path)
-	}
 }

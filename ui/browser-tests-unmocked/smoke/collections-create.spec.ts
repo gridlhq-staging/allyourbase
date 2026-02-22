@@ -65,7 +65,7 @@ test.describe("Smoke: Collections Create", () => {
     await sidebar.getByRole("button", { name: /^SQL Editor$/i }).click();
 
     // Step 3: Create a simple test table via SQL
-    const sqlInput = page.locator('.cm-content[contenteditable="true"]');
+    const sqlInput = page.getByLabel("SQL query");
     await expect(sqlInput).toBeVisible({ timeout: 5000 });
 
     const createTableSQL = `CREATE TABLE IF NOT EXISTS smoke_test_records (

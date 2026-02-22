@@ -54,11 +54,11 @@ func NewHandler(pool *pgxpool.Pool, schemaCache *schema.CacheHolder, logger *slo
 
 // API limits to prevent abuse and overflow.
 const (
-	maxPage          = 100000 // cap page number to prevent integer overflow in offset
-	maxFilterLen     = 10000  // max characters in filter expression
-	maxSearchLen     = 1000   // max characters in search term
-	maxSortFields    = 10     // max number of sort fields
-	maxExpandRelations = 10   // max number of expand relations
+	maxPage            = 100000 // cap page number to prevent integer overflow in offset
+	maxFilterLen       = 10000  // max characters in filter expression
+	maxSearchLen       = 1000   // max characters in search term
+	maxSortFields      = 10     // max number of sort fields
+	maxExpandRelations = 10     // max number of expand relations
 )
 
 // Routes returns a chi.Router with all CRUD routes mounted.
