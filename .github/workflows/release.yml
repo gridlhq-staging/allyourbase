@@ -21,6 +21,11 @@ jobs:
         working-directory: ui
         run: npm install --legacy-peer-deps && npm run build
 
+      - name: Build demo apps
+        run: |
+          cd examples/kanban && npm ci && VITE_AYB_URL="" npx vite build
+          cd ../../examples/live-polls && npm ci && VITE_AYB_URL="" npx vite build
+
       - uses: actions/setup-go@v5
         with:
           go-version: "1.25"

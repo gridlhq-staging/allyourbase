@@ -4,6 +4,8 @@ before:
   hooks:
     - go mod tidy
     - bash -c "cd ui && npm install --legacy-peer-deps && npm run build"
+    - bash -c "cd examples/kanban && npm ci && VITE_AYB_URL='' npx vite build"
+    - bash -c "cd examples/live-polls && npm ci && VITE_AYB_URL='' npx vite build"
 
 builds:
   - main: ./cmd/ayb
