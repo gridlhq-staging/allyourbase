@@ -49,6 +49,13 @@ func (s *Service) RequestSMSCode(ctx context.Context, phone string) error {
 		return nil
 	}
 
+	// Test phone numbers bypass normalization, country checks, and daily limits.
+	// They are stored as E.164 strings in config and only need the predetermined
+	// code written to the DB for verification.
+	if code, ok := s.smsConfig.TestPhoneNumbers[phone]; ok {
+		return s.storeOTPCode(ctx, phone, code)
+	}
+
 	phone, err := normalizePhone(phone)
 	if err != nil {
 		return ErrInvalidPhoneNumber
@@ -56,12 +63,6 @@ func (s *Service) RequestSMSCode(ctx context.Context, phone string) error {
 
 	if !isAllowedCountry(phone, s.smsConfig.AllowedCountries) {
 		return nil // anti-enumeration: silently ignore blocked countries
-	}
-
-	// Test phone numbers bypass daily limit and provider send entirely.
-	// They only store the predetermined code in the DB for verification.
-	if code, ok := s.smsConfig.TestPhoneNumbers[phone]; ok {
-		return s.storeOTPCode(ctx, phone, code)
 	}
 
 	// Check daily limit.
@@ -98,9 +99,14 @@ func (s *Service) RequestSMSCode(ctx context.Context, phone string) error {
 // ConfirmSMSCode verifies an OTP, finds or creates the user by phone,
 // and returns tokens.
 func (s *Service) ConfirmSMSCode(ctx context.Context, phone, code string) (*User, string, string, error) {
-	phone, err := normalizePhone(phone)
-	if err != nil {
-		return nil, "", "", ErrInvalidSMSCode
+	// Test phone numbers bypass normalization (they may use fictional numbers
+	// like 555-xxx that fail libphonenumber validation).
+	if _, ok := s.smsConfig.TestPhoneNumbers[phone]; !ok {
+		var err error
+		phone, err = normalizePhone(phone)
+		if err != nil {
+			return nil, "", "", ErrInvalidSMSCode
+		}
 	}
 
 	if err := s.validateSMSCodeForPhone(ctx, phone, code); err != nil {
@@ -112,7 +118,7 @@ func (s *Service) ConfirmSMSCode(ctx context.Context, phone, code string) (*User
 
 	// Find or create user by phone.
 	var user User
-	err = s.pool.QueryRow(ctx,
+	err := s.pool.QueryRow(ctx,
 		`SELECT id, email, phone, created_at, updated_at FROM _ayb_users WHERE phone = $1`,
 		phone,
 	).Scan(&user.ID, &user.Email, &user.Phone, &user.CreatedAt, &user.UpdatedAt)
