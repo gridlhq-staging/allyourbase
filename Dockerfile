@@ -1,7 +1,7 @@
 FROM node:20-alpine AS ui-builder
 
 WORKDIR /src/ui
-COPY ui/package.json ui/package-lock.json ./
+COPY ui/package.json ui/pnpm-lock.yaml ./
 RUN npm install --legacy-peer-deps
 COPY ui/ .
 RUN npm run build
