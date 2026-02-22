@@ -25,7 +25,7 @@ jobs:
       - uses: docker/metadata-action@v5
         id: meta
         with:
-          images: ghcr.io/gridlhq/allyourbase
+          images: ghcr.io/gridlhq-staging/allyourbase
           tags: |
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
