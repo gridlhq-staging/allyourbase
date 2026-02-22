@@ -1,6 +1,7 @@
 package auth
 
 import (
+	"context"
 	"testing"
 	"time"
 
@@ -69,7 +70,7 @@ func TestCreateAuthorizationCodeValidation(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			_, err := s.CreateAuthorizationCode(nil, "cid", "uid", "https://example.com/cb", "readonly", nil, tt.challenge, tt.challengeMethod, tt.state)
+			_, err := s.CreateAuthorizationCode(context.TODO(), "cid", "uid", "https://example.com/cb", "readonly", nil, tt.challenge, tt.challengeMethod, tt.state)
 			testutil.True(t, err != nil, "expected error")
 			oauthErr, ok := err.(*OAuthError)
 			testutil.True(t, ok, "expected OAuthError, got %T", err)

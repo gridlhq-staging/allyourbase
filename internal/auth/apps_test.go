@@ -1,6 +1,7 @@
 package auth
 
 import (
+	"context"
 	"encoding/json"
 	"testing"
 
@@ -25,7 +26,7 @@ func TestCreateAppValidation(t *testing.T) {
 	svc := newTestService()
 
 	// Empty name should return ErrAppNameRequired before touching DB.
-	_, err := svc.CreateApp(nil, "", "desc", "user-1")
+	_, err := svc.CreateApp(context.TODO(), "", "desc", "user-1")
 	testutil.Equal(t, ErrAppNameRequired, err)
 }
 
@@ -34,7 +35,7 @@ func TestUpdateAppValidation(t *testing.T) {
 
 	svc := newTestService()
 
-	_, err := svc.UpdateApp(nil, "some-id", "", "desc", 100, 60)
+	_, err := svc.UpdateApp(context.TODO(), "some-id", "", "desc", 100, 60)
 	testutil.Equal(t, ErrAppNameRequired, err)
 }
 
@@ -44,7 +45,7 @@ func TestUpdateAppNegativeRateLimitRPS(t *testing.T) {
 	svc := newTestService()
 
 	// Service layer should reject negative rate limit values before touching DB.
-	_, err := svc.UpdateApp(nil, "some-id", "My App", "desc", -1, 60)
+	_, err := svc.UpdateApp(context.TODO(), "some-id", "My App", "desc", -1, 60)
 	testutil.Equal(t, ErrAppInvalidRateLimit, err)
 }
 
@@ -53,7 +54,7 @@ func TestUpdateAppNegativeRateLimitWindow(t *testing.T) {
 
 	svc := newTestService()
 
-	_, err := svc.UpdateApp(nil, "some-id", "My App", "desc", 100, -1)
+	_, err := svc.UpdateApp(context.TODO(), "some-id", "My App", "desc", 100, -1)
 	testutil.Equal(t, ErrAppInvalidRateLimit, err)
 }
 

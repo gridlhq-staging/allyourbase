@@ -1672,12 +1672,13 @@ func TestRequestSMSCode_TestPhoneNumber_NotConfigured(t *testing.T) {
 	ctx := t.Context()
 
 	// No TestPhoneNumbers configured — normal flow.
-	err := svc.RequestSMSCode(ctx, "+15550001234")
+	// Use a valid US number (555 numbers fail libphonenumber validation).
+	err := svc.RequestSMSCode(ctx, "+14155552671")
 	testutil.NoError(t, err)
 
 	// Provider.Send() should be called normally.
 	testutil.SliceLen(t, capture.Calls, 1)
-	testutil.Equal(t, "+15550001234", capture.Calls[0].To)
+	testutil.Equal(t, "+14155552671", capture.Calls[0].To)
 }
 
 // --- Server-level SMS smoke test ---

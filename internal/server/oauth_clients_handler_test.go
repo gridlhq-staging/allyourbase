@@ -17,9 +17,8 @@ import (
 
 // fakeOAuthClientManager is an in-memory fake implementing oauthClientManager.
 type fakeOAuthClientManager struct {
-	clients      []auth.OAuthClient
-	secretHashes map[string]string // clientID -> secretHash
-	listErr      error
+	clients []auth.OAuthClient
+	listErr error
 	getErr       error
 	registerErr  error
 	revokeErr    error
