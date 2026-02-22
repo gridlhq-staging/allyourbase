@@ -435,7 +435,7 @@ export function MatviewsAdmin({ schema }: MatviewsAdminProps) {
         </div>
       )}
 
-      <ToastContainer toasts={toasts} onDismiss={removeToast} />
+      <ToastContainer toasts={toasts} onRemove={removeToast} />
     </div>
   );
 }

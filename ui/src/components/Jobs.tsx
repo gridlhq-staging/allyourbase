@@ -290,7 +290,7 @@ export function Jobs() {
         </div>
       ) : null}
 
-      <ToastContainer toasts={toasts} onDismiss={removeToast} />
+      <ToastContainer toasts={toasts} onRemove={removeToast} />
     </div>
   );
 }

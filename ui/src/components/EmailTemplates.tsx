@@ -489,7 +489,7 @@ export function EmailTemplates() {
         </section>
       </div>
 
-      <ToastContainer toasts={toasts} onDismiss={removeToast} />
+      <ToastContainer toasts={toasts} onRemove={removeToast} />
     </div>
   );
 }
