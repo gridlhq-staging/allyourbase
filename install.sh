@@ -96,6 +96,54 @@ detect_downloader() {
   fi
 }
 
+# Reject unsafe env overrides before we build GitHub API URLs or write PATH
+# snippets into shell profile files.
+validate_config() {
+  repo_owner=${REPO%%/*}
+  repo_name=${REPO#*/}
+  if [ "$repo_owner" = "$REPO" ] || [ -z "$repo_owner" ] || [ -z "$repo_name" ]; then
+    error "Invalid AYB_REPO: expected GitHub owner/repo slug"
+    exit 1
+  fi
+  case "$REPO" in
+    *[!A-Za-z0-9._/-]*|*/*/*)
+      error "Invalid AYB_REPO: expected GitHub owner/repo slug"
+      exit 1
+      ;;
+  esac
+  case "$repo_owner" in
+    [A-Za-z0-9]*)
+      ;;
+    *)
+      error "Invalid AYB_REPO: expected GitHub owner/repo slug"
+      exit 1
+      ;;
+  esac
+  case "$repo_name" in
+    [A-Za-z0-9]*)
+      ;;
+    *)
+      error "Invalid AYB_REPO: expected GitHub owner/repo slug"
+      exit 1
+      ;;
+  esac
+
+  case "$INSTALL_DIR" in
+    /*)
+      ;;
+    *)
+      error "Invalid AYB_INSTALL: use an absolute path with only letters, numbers, /, ., _, +, :, and -"
+      exit 1
+      ;;
+  esac
+  case "$INSTALL_DIR" in
+    *[!A-Za-z0-9._/+:-]*)
+      error "Invalid AYB_INSTALL: use an absolute path with only letters, numbers, /, ., _, +, :, and -"
+      exit 1
+      ;;
+  esac
+}
+
 download() {
   url="$1"
   output="$2"
@@ -229,32 +277,34 @@ download_and_verify() {
   download_release_asset "$archive_name" "${tmpdir}/${archive_name}"
 
   info "Downloading checksums..."
-  if download_release_asset "checksums.txt" "${tmpdir}/checksums.txt" 2>/dev/null; then
-    info "Verifying SHA256 checksum..."
-    expected=$(grep "$archive_name" "${tmpdir}/checksums.txt" | awk '{print $1}')
-    if [ -n "$expected" ]; then
-      if command -v sha256sum > /dev/null 2>&1; then
-        actual=$(sha256sum "${tmpdir}/${archive_name}" | awk '{print $1}')
-      elif command -v shasum > /dev/null 2>&1; then
-        actual=$(shasum -a 256 "${tmpdir}/${archive_name}" | awk '{print $1}')
-      else
-        warn "No checksum tool found — skipping verification"
-        return
-      fi
+  if ! download_release_asset "checksums.txt" "${tmpdir}/checksums.txt" 2>/dev/null; then
+    error "Missing checksums.txt for ${version}; refusing unverified install."
+    exit 1
+  fi
 
-      if [ "$actual" = "$expected" ]; then
-        printf "  ${GREEN}Checksum verified${NC}\n"
-      else
-        error "Checksum verification FAILED! The download may be corrupted."
-        error "  expected: $expected"
-        error "  got:      $actual"
-        exit 1
-      fi
-    else
-      warn "Archive not found in checksums.txt — skipping verification"
-    fi
+  info "Verifying SHA256 checksum..."
+  expected=$(awk -v name="$archive_name" '$2 == name { print $1; exit }' "${tmpdir}/checksums.txt")
+  if [ -z "$expected" ]; then
+    error "No checksum entry for ${archive_name}; refusing unverified install."
+    exit 1
+  fi
+
+  if command -v sha256sum > /dev/null 2>&1; then
+    actual=$(sha256sum "${tmpdir}/${archive_name}" | awk '{print $1}')
+  elif command -v shasum > /dev/null 2>&1; then
+    actual=$(shasum -a 256 "${tmpdir}/${archive_name}" | awk '{print $1}')
   else
-    warn "No checksums file available — skipping verification"
+    error "No SHA256 tool found; cannot verify ${archive_name}."
+    exit 1
+  fi
+
+  if [ "$actual" = "$expected" ]; then
+    printf "  ${GREEN}Checksum verified${NC}\n"
+  else
+    error "Checksum verification FAILED! The download may be corrupted."
+    error "  expected: $expected"
+    error "  got:      $actual"
+    exit 1
   fi
 }
 
@@ -342,6 +392,7 @@ setup_path() {
 
 main() {
   setup_colors
+  validate_config
 
   printf "\n"
   printf "  ${BOLD}Allyourbase Installer${NC}\n"

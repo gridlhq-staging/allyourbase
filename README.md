@@ -248,3 +248,5 @@ sh /tmp/ayb-install.sh v0.0.6-beta
 ## License
 
 [MIT](LICENSE)
+
+<!-- stage5-prod-trigger-verification 2026-05-20 -->

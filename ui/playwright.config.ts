@@ -1,5 +1,5 @@
 /**
- * @module Stub summary for /Users/stuart/parallel_development/allyourbase_dev/MAR18_WS_C_phase5_features_and_phase6/allyourbase_dev/ui/playwright.config.ts.
+ * @module Playwright configuration for unmocked AYB dashboard browser tests.
  */
 import { defineConfig } from "@playwright/test";
 
@@ -13,6 +13,9 @@ const BASE_URLS = {
   staging: "https://staging.allyourbase.io",
 };
 
+/**
+ * resolveBaseURL validates Playwright environment settings and blocks production targets.
+ */
 function resolveBaseURL(): string {
   const configuredBaseURL =
     process.env.PLAYWRIGHT_BASE_URL || BASE_URLS[ENV as keyof typeof BASE_URLS];

@@ -159,7 +159,6 @@ jobs:
 
 ## Further Reading
 
-- [AI Testing Methodology](_dev/testing/AI_TESTING_METHODOLOGY.md)
-- [AYB Testing Strategy](_dev/testing/TESTING.md)
+- [AYB Testing Strategy](../../TESTING.md)
 - [OAuth Test Spec](../specs/oauth.md)
 - [BDD Specifications](../../docs/BDD_SPECIFICATIONS.md)

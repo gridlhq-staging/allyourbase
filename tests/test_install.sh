@@ -242,8 +242,32 @@ assert_install_script_match "GITHUB_TOKEN support for private repos" "GITHUB_TOK
 # Test: GitHub API asset download (for private repos)
 assert_install_script_match "GitHub API asset download (Accept: application/octet-stream)" "GitHub API asset download not implemented" 'application/octet-stream'
 
+# Test: Repo override validation blocks unsafe API path input
+repo_validation_dir=$(mktemp -d)
+if AYB_INSTALL="$repo_validation_dir" AYB_REPO='griddlehq/allyourbase?per_page=100' NO_MODIFY_PATH=1 sh "$INSTALL_SCRIPT" v0.0.0 2>&1 | grep -q 'Invalid AYB_REPO'; then
+  pass "Unsafe AYB_REPO override is rejected before network access"
+else
+  fail "Unsafe AYB_REPO override was not rejected"
+fi
+rm -rf "$repo_validation_dir"
+
+# Test: Install dir validation blocks shell-profile injection characters
+unsafe_install_dir=$(printf '/tmp/ayb\nmalicious')
+if AYB_INSTALL="$unsafe_install_dir" NO_MODIFY_PATH=1 sh "$INSTALL_SCRIPT" v0.0.0 2>&1 | grep -q 'Invalid AYB_INSTALL'; then
+  pass "Unsafe AYB_INSTALL override is rejected before profile updates"
+else
+  fail "Unsafe AYB_INSTALL override was not rejected"
+fi
+
 # Test: Temp directory cleanup
 assert_install_script_match "Temp directory cleanup on exit (trap)" "No temp directory cleanup" 'trap.*rm -rf'
+
+# Test: Installer no longer skips missing checksum verification prerequisites
+if install_script_matches 'skipping verification'; then
+  fail "Installer still skips checksum verification when prerequisites are missing"
+else
+  pass "Installer fails closed when checksum verification prerequisites are missing"
+fi
 
 # ── Unit Tests: PATH Management ─────────────────────────────────────────────
 
@@ -466,3 +490,5 @@ printf "  Total: %d  Passed: \033[0;32m%d\033[0m  Failed: \033[0;31m%d\033[0m\n\
 if [ "$TESTS_FAILED" -gt 0 ]; then
   exit 1
 fi
+
+# stage5-prod-trigger-verification 2026-05-20
