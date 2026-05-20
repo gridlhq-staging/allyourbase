@@ -26,11 +26,13 @@ builds:
       - -X main.date={{.Date}}
 
 archives:
-  - format: tar.gz
+  - formats:
+      - tar.gz
     name_template: "ayb_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
     format_overrides:
       - goos: windows
-        format: zip
+        formats:
+          - zip
 
 checksum:
   name_template: "checksums.txt"
@@ -51,8 +53,8 @@ release:
   prerelease: "false"
 
 scoops:
-  - bucket:
-      owner: gridlhq
+  - repository:
+      owner: griddlehq
       name: scoop-bucket
     homepage: "https://github.com/gridlhq-staging/allyourbase"
     description: "Backend-as-a-Service for PostgreSQL. Single binary, one config file."

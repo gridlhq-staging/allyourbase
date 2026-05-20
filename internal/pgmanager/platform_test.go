@@ -34,14 +34,14 @@ func TestPlatformKeyKnownPairs(t *testing.T) {
 func TestDownloadURLDefault(t *testing.T) {
 	t.Parallel()
 	got := downloadURL("", "16", "darwin-arm64")
-	want := "https://github.com/gridlhq/allyourbase/releases/download/pg-16/ayb-postgres-16-darwin-arm64.tar.xz"
+	want := "https://github.com/griddlehq/allyourbase/releases/download/pg-16/ayb-postgres-16-darwin-arm64.tar.xz"
 	testutil.Equal(t, want, got)
 }
 
 func TestDownloadURLDefaultLinux(t *testing.T) {
 	t.Parallel()
 	got := downloadURL("", "17", "linux-amd64")
-	want := "https://github.com/gridlhq/allyourbase/releases/download/pg-17/ayb-postgres-17-linux-amd64.tar.xz"
+	want := "https://github.com/griddlehq/allyourbase/releases/download/pg-17/ayb-postgres-17-linux-amd64.tar.xz"
 	testutil.Equal(t, want, got)
 }
 
@@ -64,7 +64,7 @@ func TestDownloadURLCustomBaseMultiplePlaceholders(t *testing.T) {
 func TestSHA256SumsURLDefault(t *testing.T) {
 	t.Parallel()
 	got := sha256SumsURL("", "16")
-	want := "https://github.com/gridlhq/allyourbase/releases/download/pg-16/SHA256SUMS"
+	want := "https://github.com/griddlehq/allyourbase/releases/download/pg-16/SHA256SUMS"
 	testutil.Equal(t, want, got)
 }
 

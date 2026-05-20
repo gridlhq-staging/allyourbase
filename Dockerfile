@@ -72,7 +72,7 @@ RUN addgroup -S ayb && adduser -S -D -h /home/ayb -G ayb ayb && install -d -o ay
 
 # Keep the container package explicitly associated with the public repo so
 # command-line pushes and workflow pushes converge on one package identity.
-LABEL org.opencontainers.image.source="https://github.com/gridlhq/allyourbase"
+LABEL org.opencontainers.image.source="https://github.com/griddlehq/allyourbase"
 LABEL org.opencontainers.image.description="Allyourbase single-binary PostgreSQL backend with auth, realtime, storage, and admin UI"
 LABEL org.opencontainers.image.licenses="MIT"
 

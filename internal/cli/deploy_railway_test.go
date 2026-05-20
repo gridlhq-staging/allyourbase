@@ -128,7 +128,7 @@ func TestRailwayProviderValidate(t *testing.T) {
 	testutil.ErrorContains(t, err, "--image")
 
 	stderr := captureStderr(t, func() {
-		err = provider.Validate(DeployConfig{ProviderOptions: map[string]string{railOptionImage: "ghcr.io/gridlhq/ayb:latest"}})
+		err = provider.Validate(DeployConfig{ProviderOptions: map[string]string{railOptionImage: "ghcr.io/gridlhq/allyourbase:latest"}})
 		testutil.NoError(t, err)
 	})
 	testutil.Contains(t, stderr, "warning")
@@ -145,7 +145,7 @@ func TestRailwayProviderDeployHappyPath(t *testing.T) {
 		ProviderOptions: map[string]string{
 			railOptionProjectName: "my-proj",
 			railOptionServiceName: "api",
-			railOptionImage:       "ghcr.io/gridlhq/ayb:latest",
+			railOptionImage:       "ghcr.io/gridlhq/allyourbase:latest",
 		},
 	}
 
@@ -160,7 +160,7 @@ func TestRailwayProviderDeployHappyPath(t *testing.T) {
 	if !reflect.DeepEqual([]railwayCreateServiceReq{{ProjectID: "proj-1", Name: "api"}}, mock.serviceReqs) {
 		t.Fatalf("unexpected service reqs: %v", mock.serviceReqs)
 	}
-	if !reflect.DeepEqual([]railwayDeployReq{{ProjectID: "proj-1", ServiceID: "svc-1", Image: "ghcr.io/gridlhq/ayb:latest"}}, mock.deployReqs) {
+	if !reflect.DeepEqual([]railwayDeployReq{{ProjectID: "proj-1", ServiceID: "svc-1", Image: "ghcr.io/gridlhq/allyourbase:latest"}}, mock.deployReqs) {
 		t.Fatalf("unexpected deploy reqs: %v", mock.deployReqs)
 	}
 
@@ -183,7 +183,7 @@ func TestRailwayProviderDeployDefaults(t *testing.T) {
 		Domain:   "api.example.com",
 		Env:      map[string]string{"AYB_DATABASE_URL": "postgres://db"},
 		ProviderOptions: map[string]string{
-			railOptionImage: "ghcr.io/gridlhq/ayb:latest",
+			railOptionImage: "ghcr.io/gridlhq/allyourbase:latest",
 		},
 	}
 
@@ -221,7 +221,7 @@ func TestRailwayProviderDeployTimeout(t *testing.T) {
 		Provider: deployProviderRailway,
 		Env:      map[string]string{"AYB_DATABASE_URL": "postgres://db"},
 		ProviderOptions: map[string]string{
-			railOptionImage: "ghcr.io/gridlhq/ayb:latest",
+			railOptionImage: "ghcr.io/gridlhq/allyourbase:latest",
 		},
 	}
 
@@ -258,7 +258,7 @@ func TestRailwayMockCallOrderDeterministic(t *testing.T) {
 		Provider: deployProviderRailway,
 		Env:      map[string]string{"AYB_DATABASE_URL": "postgres://db"},
 		ProviderOptions: map[string]string{
-			railOptionImage: "ghcr.io/gridlhq/ayb:latest",
+			railOptionImage: "ghcr.io/gridlhq/allyourbase:latest",
 		},
 	}
 	_, err := provider.Deploy(context.Background(), cfg)

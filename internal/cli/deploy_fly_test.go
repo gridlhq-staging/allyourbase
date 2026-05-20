@@ -145,7 +145,7 @@ func TestFlyProviderDeployHappyPath(t *testing.T) {
 		PostgresURL: "postgres://db.example.com:5432/app",
 		ProviderOptions: map[string]string{
 			flyOptionAppName:    "ayb-test-app",
-			flyOptionImage:      "ghcr.io/gridlhq/ayb:latest",
+			flyOptionImage:      "ghcr.io/gridlhq/allyourbase:latest",
 			flyOptionVMSize:     "shared-cpu-1x",
 			flyOptionVolumeSize: "2",
 		},
@@ -162,7 +162,7 @@ func TestFlyProviderDeployHappyPath(t *testing.T) {
 	testutil.Equal(t, "ord", mockClient.createVolumeReqs[0].Region)
 	testutil.Equal(t, 2, mockClient.createVolumeReqs[0].SizeGB)
 	testutil.Equal(t, "/data", mockClient.createMachineReqs[0].Config.Mounts[0].Path)
-	testutil.Equal(t, "ghcr.io/gridlhq/ayb:latest", mockClient.createMachineReqs[0].Config.Image)
+	testutil.Equal(t, "ghcr.io/gridlhq/allyourbase:latest", mockClient.createMachineReqs[0].Config.Image)
 	testutil.Equal(t, "shared-cpu-1x", mockClient.createMachineReqs[0].Config.Guest.Size)
 	testutil.Equal(t, "/health", mockClient.createMachineReqs[0].Config.Checks["http"].HTTP.Path)
 	testutil.Equal(t, 8090, mockClient.createMachineReqs[0].Config.Checks["http"].HTTP.Port)
@@ -194,7 +194,7 @@ func TestFlyProviderDeployAppAlreadyExists(t *testing.T) {
 		Env:      map[string]string{"AYB_DATABASE_URL": "postgres://db"},
 		ProviderOptions: map[string]string{
 			flyOptionAppName: "existing-app",
-			flyOptionImage:   "ghcr.io/gridlhq/ayb:latest",
+			flyOptionImage:   "ghcr.io/gridlhq/allyourbase:latest",
 		},
 	}
 	result, err := provider.Deploy(context.Background(), cfg)
@@ -239,7 +239,7 @@ func TestFlyProviderValidate(t *testing.T) {
 		err = provider.Validate(DeployConfig{
 			Provider:        deployProviderFly,
 			Env:             map[string]string{},
-			ProviderOptions: map[string]string{flyOptionImage: "ghcr.io/gridlhq/ayb:latest"},
+			ProviderOptions: map[string]string{flyOptionImage: "ghcr.io/gridlhq/allyourbase:latest"},
 		})
 		testutil.NoError(t, err)
 	})
@@ -259,7 +259,7 @@ func TestFlyProviderDeployDefaultsRegionToIAD(t *testing.T) {
 		Env:      map[string]string{"AYB_DATABASE_URL": "postgres://db"},
 		ProviderOptions: map[string]string{
 			flyOptionAppName: "default-region-app",
-			flyOptionImage:   "ghcr.io/gridlhq/ayb:latest",
+			flyOptionImage:   "ghcr.io/gridlhq/allyourbase:latest",
 		},
 	}
 	_, err := provider.Deploy(context.Background(), cfg)

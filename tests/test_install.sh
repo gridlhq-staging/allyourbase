@@ -108,7 +108,7 @@ section "Configuration Defaults"
 
 # Test: REPO default matches the environment (staging vs prod)
 # In staging CI: expect gridlhq-staging/allyourbase
-# In prod CI: expect gridlhq/allyourbase
+# In prod CI: expect griddlehq/allyourbase
 # Locally: accept either (dev repo has prod default, but staging sync rewrites it)
 if [ -n "${GITHUB_REPOSITORY:-}" ]; then
   case "$GITHUB_REPOSITORY" in
@@ -118,19 +118,19 @@ if [ -n "${GITHUB_REPOSITORY:-}" ]; then
         "Default REPO should be gridlhq-staging/allyourbase in staging environment" \
         'REPO=.*gridlhq-staging/allyourbase'
       ;;
-    gridlhq/allyourbase)
-      if install_script_matches 'REPO=.*gridlhq/allyourbase' && ! install_script_matches 'gridlhq-staging'; then
-        pass "Default REPO is gridlhq/allyourbase (production environment)"
+    griddlehq/allyourbase)
+      if install_script_matches 'REPO=.*griddlehq/allyourbase' && ! install_script_matches 'gridlhq-staging'; then
+        pass "Default REPO is griddlehq/allyourbase (production environment)"
       else
-        fail "Default REPO should be gridlhq/allyourbase in production environment"
+        fail "Default REPO should be griddlehq/allyourbase in production environment"
       fi
       ;;
     gridlhq/allyourbase_dev|gridl-dev/allyourbase_dev)
       # Dev repo: install.sh still defaults to the public repo identity after sync.
       assert_install_script_match \
-        "Default REPO is gridlhq/allyourbase (dev environment)" \
-        "Default REPO should be gridlhq/allyourbase in dev environment" \
-        'REPO=.*gridlhq/allyourbase'
+        "Default REPO is griddlehq/allyourbase (dev environment)" \
+        "Default REPO should be griddlehq/allyourbase in dev environment" \
+        'REPO=.*griddlehq/allyourbase'
       ;;
     *)
       fail "Unexpected GITHUB_REPOSITORY: $GITHUB_REPOSITORY"
@@ -138,10 +138,10 @@ if [ -n "${GITHUB_REPOSITORY:-}" ]; then
   esac
 else
   # Local: accept either repo (dev has prod default, staging sync rewrites it)
-  if install_script_matches 'REPO=.*gridlhq/allyourbase' || install_script_matches 'REPO=.*gridlhq-staging/allyourbase'; then
+  if install_script_matches 'REPO=.*griddlehq/allyourbase' || install_script_matches 'REPO=.*gridlhq-staging/allyourbase'; then
     pass "Default REPO is set (local environment)"
   else
-    fail "Default REPO should be gridlhq/allyourbase or gridlhq-staging/allyourbase"
+    fail "Default REPO should be griddlehq/allyourbase or gridlhq-staging/allyourbase"
   fi
 fi
 

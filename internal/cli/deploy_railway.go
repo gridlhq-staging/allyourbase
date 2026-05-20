@@ -359,7 +359,7 @@ func (p railwayProvider) Name() string {
 func (p railwayProvider) Validate(cfg DeployConfig) error {
 	opts := resolveRailwayOptions(cfg)
 	if opts.Image == "" {
-		return fmt.Errorf("railway deployment requires --image (OCI image URL to deploy)\n  Example: --image ghcr.io/gridlhq/ayb:latest")
+		return fmt.Errorf("railway deployment requires --image (OCI image URL to deploy)\n  Example: --image ghcr.io/gridlhq/allyourbase:latest")
 	}
 	warnMissingDatabaseConfig(cfg)
 	return nil

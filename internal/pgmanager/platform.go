@@ -6,7 +6,7 @@ import (
 	"strings"
 )
 
-const defaultReleaseRepo = "gridlhq/allyourbase"
+const defaultReleaseRepo = "griddlehq/allyourbase"
 
 // supportedPlatforms lists the GOOS/GOARCH pairs we build PG binaries for.
 var supportedPlatforms = map[string]bool{

@@ -5,7 +5,7 @@ buildGoModule rec {
   version = "0.0.0";
 
   src = fetchFromGitHub {
-    owner = "gridlhq";
+    owner = "griddlehq";
     repo = "allyourbase";
     rev = "v${version}";
     hash = "sha256-REPLACE_WITH_SOURCE_HASH";
@@ -26,7 +26,7 @@ buildGoModule rec {
 
   meta = with lib; {
     description = "Backend-as-a-Service for PostgreSQL. Single binary, one config file.";
-    homepage = "https://github.com/gridlhq/allyourbase";
+    homepage = "https://github.com/griddlehq/allyourbase";
     license = licenses.mit;
     maintainers = [ ];
     platforms = platforms.unix;

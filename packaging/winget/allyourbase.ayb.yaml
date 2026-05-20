@@ -9,14 +9,14 @@ ManifestVersion: 1.6.0
 Installers:
   - Architecture: x64
     InstallerType: zip
-    InstallerUrl: https://github.com/gridlhq/allyourbase/releases/download/v0.0.0/ayb_0.0.0_windows_amd64.zip
+    InstallerUrl: https://github.com/griddlehq/allyourbase/releases/download/v0.0.0/ayb_0.0.0_windows_amd64.zip
     InstallerSha256: REPLACE_WITH_SHA256_X64
     NestedInstallerType: portable
     NestedInstallerFiles:
       - RelativeFilePath: ayb.exe
   - Architecture: arm64
     InstallerType: zip
-    InstallerUrl: https://github.com/gridlhq/allyourbase/releases/download/v0.0.0/ayb_0.0.0_windows_arm64.zip
+    InstallerUrl: https://github.com/griddlehq/allyourbase/releases/download/v0.0.0/ayb_0.0.0_windows_arm64.zip
     InstallerSha256: REPLACE_WITH_SHA256_ARM64
     NestedInstallerType: portable
     NestedInstallerFiles:

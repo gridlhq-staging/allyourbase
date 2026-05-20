@@ -90,7 +90,7 @@ reject_files_match "\.package\(url: \"https://github\.com/allyourbase/allyourbas
 require_file_match "$swift_guide" "\.package\(path: \"\.\./sdk_swift\"\)" "swift-sdk.md missing local sdk_swift package path example"
 require_file_match "${guide_dir}/go-sdk.md" "go mod edit -replace=github\.com/allyourbase/ayb/sdk_go=" "go-sdk.md missing verified local replace workflow"
 require_file_match "${guide_dir}/go-sdk.md" 'Public `go get` is not available yet' "go-sdk.md missing public module-path caveat"
-reject_files_match "brew install gridlhq/tap/ayb" "public docs still advertise a nonexistent Homebrew tap" "$readme_doc" "$index_guide" "$getting_started_guide"
+reject_files_match "brew install (gridlhq|griddlehq)/tap/ayb" "public docs still advertise a nonexistent Homebrew tap" "$readme_doc" "$index_guide" "$getting_started_guide"
 reject_files_match "ghcr\.io/gridlhq/allyourbase" "public docs still advertise a private GHCR image" "$readme_doc" "$index_guide" "$getting_started_guide" "$deployment_guide" "$postgis_guide"
 reject_files_match "https://allyourbase\\.io/install\\.sh" "public docs still advertise the retired bare-domain installer URL" "$readme_doc" "$index_guide" "$getting_started_guide" "$deployment_guide"
 require_file_match "$deployment_guide" "docker build -t ayb-local" "deployment.md missing local Docker build instructions"

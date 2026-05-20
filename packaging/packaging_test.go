@@ -135,11 +135,11 @@ func TestWingetManifestContainsRequiredKeys(t *testing.T) {
 		url := requireString(t, requireMapKey(t, installer, "InstallerUrl"), "InstallerUrl")
 		switch arch {
 		case "x64":
-			if want := "https://github.com/gridlhq/allyourbase/releases/download/v0.0.0/ayb_0.0.0_windows_amd64.zip"; url != want {
+			if want := "https://github.com/griddlehq/allyourbase/releases/download/v0.0.0/ayb_0.0.0_windows_amd64.zip"; url != want {
 				t.Fatalf("installer %s url = %q, want %q", arch, url, want)
 			}
 		case "arm64":
-			if want := "https://github.com/gridlhq/allyourbase/releases/download/v0.0.0/ayb_0.0.0_windows_arm64.zip"; url != want {
+			if want := "https://github.com/griddlehq/allyourbase/releases/download/v0.0.0/ayb_0.0.0_windows_arm64.zip"; url != want {
 				t.Fatalf("installer %s url = %q, want %q", arch, url, want)
 			}
 		}
@@ -169,7 +169,7 @@ func TestScoopManifestContainsRequiredKeys(t *testing.T) {
 	}
 	requireStringEqual(t, requireMapKey(t, manifest, "version"), "version", "0.0.0")
 	requireStringEqual(t, requireMapKey(t, manifest, "bin"), "bin", "ayb.exe")
-	requireStringEqual(t, requireMapKey(t, manifest, "homepage"), "homepage", "https://github.com/gridlhq/allyourbase")
+	requireStringEqual(t, requireMapKey(t, manifest, "homepage"), "homepage", "https://github.com/griddlehq/allyourbase")
 	requireStringEqual(t, requireMapKey(t, manifest, "license"), "license", "MIT")
 	requireStringEqual(t, requireMapKey(t, manifest, "description"), "description", "Backend-as-a-Service for PostgreSQL. Single binary, one config file.")
 
@@ -183,18 +183,18 @@ func TestScoopManifestContainsRequiredKeys(t *testing.T) {
 		}
 		switch arch {
 		case "64bit":
-			if want := "https://github.com/gridlhq/allyourbase/releases/download/v0.0.0/ayb_0.0.0_windows_amd64.zip"; url != want {
+			if want := "https://github.com/griddlehq/allyourbase/releases/download/v0.0.0/ayb_0.0.0_windows_amd64.zip"; url != want {
 				t.Fatalf("architecture.%s url = %q, want %q", arch, url, want)
 			}
 		case "arm64":
-			if want := "https://github.com/gridlhq/allyourbase/releases/download/v0.0.0/ayb_0.0.0_windows_arm64.zip"; url != want {
+			if want := "https://github.com/griddlehq/allyourbase/releases/download/v0.0.0/ayb_0.0.0_windows_arm64.zip"; url != want {
 				t.Fatalf("architecture.%s url = %q, want %q", arch, url, want)
 			}
 		}
 	}
 
 	checkver := requireMap(t, requireMapKey(t, manifest, "checkver"), "checkver")
-	requireStringEqual(t, requireMapKey(t, checkver, "github"), "checkver.github", "https://github.com/gridlhq/allyourbase")
+	requireStringEqual(t, requireMapKey(t, checkver, "github"), "checkver.github", "https://github.com/griddlehq/allyourbase")
 
 	autoupdate := requireMap(t, requireMapKey(t, manifest, "autoupdate"), "autoupdate")
 	autoArch := requireMap(t, requireMapKey(t, autoupdate, "architecture"), "autoupdate.architecture")
@@ -202,13 +202,13 @@ func TestScoopManifestContainsRequiredKeys(t *testing.T) {
 		t,
 		requireMapKey(t, requireMap(t, requireMapKey(t, autoArch, "64bit"), "autoupdate.architecture.64bit"), "url"),
 		"autoupdate.architecture.64bit.url",
-		"https://github.com/gridlhq/allyourbase/releases/download/v$version/ayb_$version_windows_amd64.zip",
+		"https://github.com/griddlehq/allyourbase/releases/download/v$version/ayb_$version_windows_amd64.zip",
 	)
 	requireStringEqual(
 		t,
 		requireMapKey(t, requireMap(t, requireMapKey(t, autoArch, "arm64"), "autoupdate.architecture.arm64"), "url"),
 		"autoupdate.architecture.arm64.url",
-		"https://github.com/gridlhq/allyourbase/releases/download/v$version/ayb_$version_windows_arm64.zip",
+		"https://github.com/griddlehq/allyourbase/releases/download/v$version/ayb_$version_windows_arm64.zip",
 	)
 }
 
@@ -238,18 +238,18 @@ func TestGoreleaserContainsScoopBucketConfig(t *testing.T) {
 	}
 	firstScoop := requireMap(t, scoops[0], "scoops[0]")
 
-	bucket := requireMap(t, requireMapKey(t, firstScoop, "bucket"), "scoops[0].bucket")
+	repository := requireMap(t, requireMapKey(t, firstScoop, "repository"), "scoops[0].repository")
 
-	owner := requireString(t, requireMapKey(t, bucket, "owner"), "scoops[0].bucket.owner")
-	if owner != "gridlhq" && owner != "gridlhq-staging" {
-		t.Fatalf("scoop.bucket.owner = %q, want gridlhq or gridlhq-staging", owner)
+	owner := requireString(t, requireMapKey(t, repository, "owner"), "scoops[0].repository.owner")
+	if owner != "griddlehq" && owner != "gridlhq-staging" {
+		t.Fatalf("scoop.repository.owner = %q, want griddlehq or gridlhq-staging", owner)
 	}
-	if name := requireMapKey(t, bucket, "name"); name != "scoop-bucket" {
-		t.Fatalf("scoop.bucket.name = %v, want scoop-bucket", name)
+	if name := requireMapKey(t, repository, "name"); name != "scoop-bucket" {
+		t.Fatalf("scoop.repository.name = %v, want scoop-bucket", name)
 	}
 
 	homepage := requireString(t, requireMapKey(t, firstScoop, "homepage"), "scoops[0].homepage")
-	if homepage != "https://github.com/gridlhq/allyourbase" &&
+	if homepage != "https://github.com/griddlehq/allyourbase" &&
 		homepage != "https://github.com/gridlhq-staging/allyourbase" {
 		t.Fatalf("scoops[0].homepage = %q, want production or staging public repo", homepage)
 	}
