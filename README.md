@@ -248,5 +248,3 @@ sh /tmp/ayb-install.sh v0.0.6-beta
 ## License
 
 [MIT](LICENSE)
-
-<!-- stage-4 verify: confirm docs push trigger fires after registration -->
