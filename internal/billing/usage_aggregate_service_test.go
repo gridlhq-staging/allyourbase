@@ -413,7 +413,7 @@ func copyRowValues(dest []any, values []any) error {
 	}
 	for i := range dest {
 		target := reflect.ValueOf(dest[i])
-		if target.Kind() != reflect.Ptr || target.IsNil() {
+		if target.Kind() != reflect.Pointer || target.IsNil() {
 			return errors.New("destination must be a non-nil pointer")
 		}
 		source := reflect.ValueOf(values[i])

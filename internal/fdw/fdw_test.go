@@ -489,7 +489,7 @@ func (m mockRow) Scan(_ ...any) error { return m.err }
 
 func assignScan(dest any, value any) error {
 	dv := reflect.ValueOf(dest)
-	if dv.Kind() != reflect.Ptr || dv.IsNil() {
+	if dv.Kind() != reflect.Pointer || dv.IsNil() {
 		return fmt.Errorf("destination must be a non-nil pointer")
 	}
 	vv := reflect.ValueOf(value)
