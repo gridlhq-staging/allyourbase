@@ -24,16 +24,13 @@ vi.mock("@uiw/react-codemirror", () => ({
       />
     );
   },
+  keymap: { of: () => [] },
+  EditorView: { contentAttributes: { of: () => [] } },
 }));
 
 vi.mock("@codemirror/lang-sql", () => ({
   sql: () => [],
   PostgreSQL: {},
-}));
-
-vi.mock("@codemirror/view", () => ({
-  keymap: { of: () => [] },
-  EditorView: { contentAttributes: { of: () => [] } },
 }));
 
 vi.mock("../../api", () => ({
@@ -195,6 +192,24 @@ describe("SqlEditor", () => {
     expect(screen.getByText("Run a query to see results")).toBeInTheDocument();
   });
 
+  it("empty-results placeholder uses WCAG AA compliant contrast", () => {
+    render(<SqlEditor />);
+    const placeholder = screen.getByText("Run a query to see results");
+    // text-gray-500 (#6b7280) passes 4.5:1; text-gray-400 (#9ca3af) fails at 2.42:1
+    const classes = placeholder.className.split(" ");
+    expect(classes).toContain("text-gray-500");
+    expect(classes).not.toContain("text-gray-400");
+  });
+
+  it("keyboard hint uses WCAG AA compliant contrast", () => {
+    render(<SqlEditor />);
+    const hint = screen.getByText(/to run$/);
+    // text-gray-500 passes 4.5:1 on light backgrounds
+    const classes = hint.className.split(" ");
+    expect(classes).toContain("text-gray-500");
+    expect(classes).not.toContain("text-gray-400");
+  });
+
   it("shows success message for DDL without columns", async () => {
     mockExecuteSQL.mockResolvedValueOnce({
       columns: [],
@@ -235,6 +250,40 @@ describe("SqlEditor", () => {
 
     await waitFor(() => {
       expect(screen.getByText(/3 rows affected/)).toBeInTheDocument();
+    });
+  });
+
+  it("awaits onSchemaChange before finishing DDL execution", async () => {
+    mockExecuteSQL.mockResolvedValueOnce({
+      columns: [],
+      rows: [],
+      rowCount: 0,
+      durationMs: 2,
+    });
+    let resolveSchemaChange: (() => void) | undefined;
+    const onSchemaChange = vi.fn(
+      () =>
+        new Promise<void>((resolve) => {
+          resolveSchemaChange = resolve;
+        }),
+    );
+    const user = userEvent.setup();
+
+    localStorage.setItem("ayb_sql_query", "CREATE TABLE foo (id int);");
+    render(<SqlEditor onSchemaChange={onSchemaChange} />);
+    await user.click(screen.getByRole("button", { name: /Execute/ }));
+
+    await waitFor(() => {
+      expect(onSchemaChange).toHaveBeenCalledOnce();
+      expect(screen.getByRole("button", { name: /Running.../ })).toBeDisabled();
+    });
+
+    resolveSchemaChange?.();
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: /Execute/ })).toBeEnabled();
+      expect(
+        screen.getByText(/Statement executed successfully/),
+      ).toBeInTheDocument();
     });
   });
 

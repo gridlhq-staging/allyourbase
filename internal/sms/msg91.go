@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"time"
 )
 
 const msg91DefaultBaseURL = "https://control.msg91.com"
@@ -29,6 +30,7 @@ func NewMSG91Provider(authKey, templateID, baseURL string) *MSG91Provider {
 		authKey:    authKey,
 		templateID: templateID,
 		baseURL:    baseURL,
+		client:     http.Client{Timeout: 10 * time.Second},
 	}
 }
 
@@ -65,7 +67,7 @@ func (p *MSG91Provider) Send(ctx context.Context, to, body string) (*SendResult,
 	}
 	defer resp.Body.Close()
 
-	respBody, err := io.ReadAll(resp.Body)
+	respBody, err := io.ReadAll(io.LimitReader(resp.Body, maxResponseSize))
 	if err != nil {
 		return nil, fmt.Errorf("msg91: read response: %w", err)
 	}

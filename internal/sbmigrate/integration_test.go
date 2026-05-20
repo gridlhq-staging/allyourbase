@@ -875,7 +875,7 @@ func TestE2E_IntrospectTablesFiltersHostedManagedTables(t *testing.T) {
 	testutil.False(t, names["vector_indexes"], "internal table should be filtered")
 }
 
-func TestE2E_SchemaMigrationSkipsIncompatibleFKChain(t *testing.T) {
+func TestE2E_SchemaMigrationSkipsIncompatibleFKChains(t *testing.T) {
 	sourceURL := createIsolatedDatabaseURL(t, sharedPG.ConnString, "sb_src")
 	targetURL := createIsolatedDatabaseURL(t, sharedPG.ConnString, "sb_tgt")
 	defer dropIsolatedDatabase(t, sharedPG.ConnString, sourceURL)
@@ -890,7 +890,6 @@ func TestE2E_SchemaMigrationSkipsIncompatibleFKChain(t *testing.T) {
 	defer targetDB.Close()
 
 	_, err = sourceDB.Exec(`
-		CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 		CREATE SCHEMA auth;
 		CREATE TABLE auth.users (
 			id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -902,9 +901,17 @@ func TestE2E_SchemaMigrationSkipsIncompatibleFKChain(t *testing.T) {
 			deleted_at TIMESTAMPTZ,
 			is_anonymous BOOLEAN DEFAULT false
 		);
+		CREATE FUNCTION legacy_parent_source_only_uuid()
+		RETURNS UUID
+		LANGUAGE SQL
+		AS $$
+			SELECT gen_random_uuid();
+		$$;
 
+		-- Intentionally uses gen_random_uuid() so this FK-skip fixture avoids optional uuid-ossp setup.
 		CREATE TABLE legacy_parent (
-			id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+			id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+			source_only_marker UUID NOT NULL DEFAULT legacy_parent_source_only_uuid(),
 			name TEXT NOT NULL
 		);
 		CREATE TABLE legacy_child (
@@ -963,6 +970,7 @@ func TestE2E_SchemaMigrationSkipsIncompatibleFKChain(t *testing.T) {
 	testutil.True(t, stats.Skipped >= 2, "expected incompatible FK chain tables to be skipped")
 	testutil.Contains(t, out.String(), "skipping table legacy_parent")
 	testutil.Contains(t, out.String(), "skipping table legacy_child")
+	testutil.Contains(t, out.String(), "source/target schema incompatibility")
 
 	var parentExists bool
 	err = targetDB.QueryRow(`
@@ -1054,6 +1062,7 @@ func TestE2E_SchemaMigrationRetriesDeferredFKDependencies(t *testing.T) {
 	`)
 	testutil.NoError(t, err)
 
+	var out strings.Builder
 	migrator, err := NewMigrator(MigrationOptions{
 		SourceURL:         sourceURL,
 		TargetURL:         targetURL,
@@ -1061,17 +1070,24 @@ func TestE2E_SchemaMigrationRetriesDeferredFKDependencies(t *testing.T) {
 		SkipOAuth:         true,
 		SkipRLS:           true,
 		SkipStorage:       true,
+		Verbose:           true,
 		StoragePath:       t.TempDir(),
 		StorageExportPath: "",
+		Progress:          migrate.NewCLIReporter(&out),
 	})
 	testutil.NoError(t, err)
 	defer migrator.Close()
+	migrator.output = &out
 
 	stats, err := migrator.Migrate(context.Background())
 	testutil.NoError(t, err)
 	testutil.Equal(t, 2, stats.Tables)
 	testutil.Equal(t, 2, stats.Records)
 	testutil.Equal(t, 0, stats.Skipped)
+	testutil.Contains(t, out.String(), "CREATE TABLE products")
+	testutil.Contains(t, out.String(), "CREATE TABLE orders")
+	testutil.False(t, strings.Contains(out.String(), "skipping table orders"),
+		"deferred table should be retried and created, not skipped")
 
 	var orderCount int
 	err = targetDB.QueryRow(`SELECT COUNT(*) FROM orders`).Scan(&orderCount)

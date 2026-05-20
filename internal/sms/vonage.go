@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"time"
 )
 
 const vonageDefaultBaseURL = "https://rest.nexmo.com"
@@ -32,6 +33,7 @@ func NewVonageProvider(apiKey, apiSecret, fromNumber, baseURL string) *VonagePro
 		apiSecret:  apiSecret,
 		fromNumber: fromNumber,
 		baseURL:    baseURL,
+		client:     http.Client{Timeout: 10 * time.Second},
 	}
 }
 
@@ -57,7 +59,7 @@ func (p *VonageProvider) Send(ctx context.Context, to, body string) (*SendResult
 	}
 	defer resp.Body.Close()
 
-	respBody, err := io.ReadAll(resp.Body)
+	respBody, err := io.ReadAll(io.LimitReader(resp.Body, maxResponseSize))
 	if err != nil {
 		return nil, fmt.Errorf("vonage: read response: %w", err)
 	}

@@ -1,4 +1,5 @@
 import { vi, describe, it, expect, beforeEach } from "vitest";
+import { expectWcagContrastToken } from "../../test-utils";
 import { render, screen, waitFor, act } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { ApiExplorer } from "../ApiExplorer";
@@ -103,6 +104,12 @@ describe("ApiExplorer", () => {
     render(<ApiExplorer schema={makeSchema()} />);
     expect(screen.getByText("Send")).toBeInTheDocument();
     expect(screen.getByText("Send a request to see the response")).toBeInTheDocument();
+  });
+
+  it("keyboard hint uses WCAG AA compliant contrast token", () => {
+    render(<ApiExplorer schema={makeSchema()} />);
+    const className = screen.getByText(/Enter to send/).className;
+    expectWcagContrastToken(className);
   });
 
   it("executes request and displays response", async () => {
@@ -364,6 +371,50 @@ describe("ApiExplorer", () => {
 
     expect(screen.getByText("Recent Requests")).toBeInTheDocument();
     expect(screen.getByText("Clear")).toBeInTheDocument();
+  });
+
+  it("clears stale query params when selecting a history entry without a query string", async () => {
+    localStorage.setItem(
+      "ayb_api_explorer_history",
+      JSON.stringify([
+        {
+          method: "GET",
+          path: "/api/collections/users?filter=status%3D%27active%27",
+          status: 200,
+          durationMs: 15,
+          timestamp: "2026-03-13T00:00:00Z",
+        },
+        {
+          method: "GET",
+          path: "/api/collections/posts",
+          status: 200,
+          durationMs: 12,
+          timestamp: "2026-03-13T00:01:00Z",
+        },
+      ]),
+    );
+    mockExecute.mockResolvedValueOnce(makeResponse());
+
+    render(<ApiExplorer schema={makeSchema()} />);
+    const user = userEvent.setup();
+
+    await user.click(screen.getByText("History (2)"));
+    await user.click(screen.getByText("/api/collections/users?filter=status%3D%27active%27"));
+
+    expect(screen.getByLabelText("Request path")).toHaveValue("/api/collections/users");
+    expect(screen.getByLabelText("filter")).toHaveValue("status='active'");
+
+    await user.click(screen.getByText("History (2)"));
+    await user.click(screen.getByText("/api/collections/posts"));
+
+    expect(screen.getByLabelText("Request path")).toHaveValue("/api/collections/posts");
+    expect(screen.queryByLabelText("filter")).not.toBeInTheDocument();
+
+    await user.click(screen.getByText("Send"));
+
+    await waitFor(() => {
+      expect(mockExecute).toHaveBeenCalledWith("GET", "/api/collections/posts", undefined);
+    });
   });
 
   it("clears history when clear button clicked", async () => {

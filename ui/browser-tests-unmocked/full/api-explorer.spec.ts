@@ -1,4 +1,4 @@
-import { test, expect } from "../fixtures";
+import { test, expect, waitForDashboard } from "../fixtures";
 
 /**
  * FULL E2E TEST: API Explorer
@@ -17,7 +17,7 @@ test.describe("API Explorer (Full E2E)", () => {
     // Navigate to API Explorer
     // ============================================================
     await page.goto("/admin/");
-    await expect(page.getByText("Allyourbase").first()).toBeVisible();
+    await waitForDashboard(page);
 
     const sidebar = page.locator("aside");
     const explorerButton = sidebar.getByRole("button", { name: /^API Explorer$/i });
@@ -42,16 +42,16 @@ test.describe("API Explorer (Full E2E)", () => {
     await pathInput.fill("/api/schema");
 
     // Click execute
-    const executeButton = page.getByRole("button", { name: /send|execute|run/i });
-    await expect(executeButton.first()).toBeVisible({ timeout: 2000 });
-    await executeButton.first().click();
+    const executeButton = page.getByRole("button", { name: /^Send$/i });
+    await expect(executeButton).toBeVisible({ timeout: 2000 });
+    await executeButton.click();
 
     // ============================================================
     // VERIFY RESPONSE (scoped to main to avoid matching sidebar text)
     // ============================================================
     const mainContent = page.locator("main");
-    const statusCode = mainContent.getByText("200").or(mainContent.getByText(/2\d\d/));
-    await expect(statusCode.first()).toBeVisible({ timeout: 10000 });
+    const statusCode = mainContent.getByText(/^200\b/i).first();
+    await expect(statusCode).toBeVisible({ timeout: 10000 });
 
     // The /api/schema response JSON contains "tables" — scope to main to avoid sidebar match
     const responseBody = mainContent.getByText(/"tables"/i);
@@ -83,10 +83,10 @@ test.describe("API Explorer (Full E2E)", () => {
     // ============================================================
     await pathInput.clear();
     await pathInput.fill("/api/admin/status");
-    await executeButton.first().click();
+    await executeButton.click();
 
-    const statusResponse = mainContent.getByText("200").or(mainContent.getByText(/2\d\d/));
-    await expect(statusResponse.first()).toBeVisible({ timeout: 10000 });
+    const statusResponse = mainContent.getByText(/^200\b/i).first();
+    await expect(statusResponse).toBeVisible({ timeout: 10000 });
 
     // The /api/admin/status response contains "auth" — scope to main to avoid matching nav text
     const authField = mainContent.getByText(/"auth"/i);

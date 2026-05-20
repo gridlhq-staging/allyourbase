@@ -1,5 +1,6 @@
 import { vi, describe, it, expect, beforeEach } from "vitest";
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { screen, waitFor, within } from "@testing-library/react";
+import { renderWithProviders, expectWcagContrastToken } from "../../test-utils";
 import userEvent from "@testing-library/user-event";
 import { Users } from "../Users";
 import { listUsers, deleteUser } from "../../api";
@@ -61,8 +62,16 @@ describe("Users", () => {
 
   it("shows loading state", () => {
     mockListUsers.mockReturnValue(new Promise(() => {})); // never resolves
-    render(<Users />);
+    renderWithProviders(<Users />);
     expect(screen.getByText("Loading users...")).toBeInTheDocument();
+  });
+
+  it("loading indicator uses WCAG AA compliant contrast token", () => {
+    mockListUsers.mockReturnValue(new Promise(() => {})); // never resolves
+    renderWithProviders(<Users />);
+
+    const className = screen.getByText("Loading users...").className;
+    expectWcagContrastToken(className);
   });
 
   it("renders user list", async () => {
@@ -71,7 +80,7 @@ describe("Users", () => {
       makeUser({ id: "u2", email: "bob@test.com", emailVerified: false }),
     ];
     mockListUsers.mockResolvedValueOnce(makeResponse(users));
-    render(<Users />);
+    renderWithProviders(<Users />);
 
     await waitFor(() => {
       expect(screen.getByText("alice@example.com")).toBeInTheDocument();
@@ -81,7 +90,7 @@ describe("Users", () => {
 
   it("shows empty state when no users", async () => {
     mockListUsers.mockResolvedValueOnce(makeResponse([]));
-    render(<Users />);
+    renderWithProviders(<Users />);
 
     await waitFor(() => {
       expect(screen.getByText("No users registered yet")).toBeInTheDocument();
@@ -90,7 +99,7 @@ describe("Users", () => {
 
   it("shows error state with retry", async () => {
     mockListUsers.mockRejectedValueOnce(new Error("connection refused"));
-    render(<Users />);
+    renderWithProviders(<Users />);
 
     await waitFor(() => {
       expect(screen.getByText("connection refused")).toBeInTheDocument();
@@ -101,7 +110,7 @@ describe("Users", () => {
   it("shows total user count", async () => {
     const users = [makeUser()];
     mockListUsers.mockResolvedValueOnce(makeResponse(users, { totalItems: 1 }));
-    render(<Users />);
+    renderWithProviders(<Users />);
 
     await waitFor(() => {
       expect(screen.getByText("1 user")).toBeInTheDocument();
@@ -116,7 +125,7 @@ describe("Users", () => {
     mockListUsers.mockResolvedValueOnce(
       makeResponse(users, { totalItems: 2 }),
     );
-    render(<Users />);
+    renderWithProviders(<Users />);
 
     await waitFor(() => {
       expect(screen.getByText("2 users")).toBeInTheDocument();
@@ -129,7 +138,7 @@ describe("Users", () => {
       makeUser({ id: "u2", email: "bob@test.com", emailVerified: false }),
     ];
     mockListUsers.mockResolvedValueOnce(makeResponse(users));
-    render(<Users />);
+    renderWithProviders(<Users />);
 
     await waitFor(() => {
       expect(screen.getByText("alice@example.com")).toBeInTheDocument();
@@ -144,7 +153,7 @@ describe("Users", () => {
 
   it("search calls listUsers with search param", async () => {
     mockListUsers.mockResolvedValue(makeResponse([]));
-    render(<Users />);
+    renderWithProviders(<Users />);
 
     await waitFor(() => {
       expect(
@@ -165,7 +174,7 @@ describe("Users", () => {
 
   it("search via button click", async () => {
     mockListUsers.mockResolvedValue(makeResponse([]));
-    render(<Users />);
+    renderWithProviders(<Users />);
 
     await waitFor(() => {
       expect(screen.getByText("No users registered yet")).toBeInTheDocument();
@@ -188,7 +197,7 @@ describe("Users", () => {
     mockListUsers.mockResolvedValueOnce(
       makeResponse([makeUser()]),
     );
-    render(<Users />);
+    renderWithProviders(<Users />);
 
     await waitFor(() => {
       expect(screen.getByText("alice@example.com")).toBeInTheDocument();
@@ -208,7 +217,7 @@ describe("Users", () => {
 
   it("clear search button resets results", async () => {
     mockListUsers.mockResolvedValue(makeResponse([makeUser()]));
-    render(<Users />);
+    renderWithProviders(<Users />);
 
     await waitFor(() => {
       expect(screen.getByText("alice@example.com")).toBeInTheDocument();
@@ -236,7 +245,7 @@ describe("Users", () => {
   it("delete button opens confirmation dialog", async () => {
     const users = [makeUser()];
     mockListUsers.mockResolvedValueOnce(makeResponse(users));
-    render(<Users />);
+    renderWithProviders(<Users />);
 
     await waitFor(() => {
       expect(screen.getByText("alice@example.com")).toBeInTheDocument();
@@ -257,7 +266,7 @@ describe("Users", () => {
     const users = [makeUser()];
     mockListUsers.mockResolvedValue(makeResponse(users));
     mockDeleteUser.mockResolvedValueOnce(undefined);
-    render(<Users />);
+    renderWithProviders(<Users />);
 
     await waitFor(() => {
       expect(screen.getByText("alice@example.com")).toBeInTheDocument();
@@ -280,7 +289,7 @@ describe("Users", () => {
 
   it("cancel on delete dialog closes it", async () => {
     mockListUsers.mockResolvedValueOnce(makeResponse([makeUser()]));
-    render(<Users />);
+    renderWithProviders(<Users />);
 
     await waitFor(() => {
       expect(screen.getByText("alice@example.com")).toBeInTheDocument();
@@ -296,7 +305,7 @@ describe("Users", () => {
 
   it("shows user ID under email", async () => {
     mockListUsers.mockResolvedValueOnce(makeResponse([makeUser()]));
-    render(<Users />);
+    renderWithProviders(<Users />);
 
     await waitFor(() => {
       expect(screen.getByText("u1")).toBeInTheDocument();
@@ -311,7 +320,7 @@ describe("Users", () => {
         page: 1,
       }),
     );
-    render(<Users />);
+    renderWithProviders(<Users />);
 
     await waitFor(() => {
       expect(screen.getByText("45 users")).toBeInTheDocument();

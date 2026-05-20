@@ -1,5 +1,6 @@
-import { vi, describe, it, expect, beforeEach } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { vi, describe, it, expect, beforeEach, afterEach } from "vitest";
+import { screen, waitFor } from "@testing-library/react";
+import { renderWithProviders } from "../../test-utils";
 import userEvent from "@testing-library/user-event";
 import { Webhooks } from "../Webhooks";
 import {
@@ -43,6 +44,7 @@ const mockUpdateWebhook = vi.mocked(updateWebhook);
 const mockDeleteWebhook = vi.mocked(deleteWebhook);
 const mockTestWebhook = vi.mocked(testWebhook);
 const mockListDeliveries = vi.mocked(listWebhookDeliveries);
+let clipboardWriteText: ReturnType<typeof vi.spyOn>;
 
 function makeWebhook(
   overrides: Partial<WebhookResponse> = {},
@@ -63,20 +65,36 @@ function makeWebhook(
 describe("Webhooks", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    if (!navigator.clipboard) {
+      Object.defineProperty(navigator, "clipboard", {
+        configurable: true,
+        value: { writeText: async () => undefined },
+      });
+    }
+    clipboardWriteText = vi.spyOn(navigator.clipboard, "writeText").mockResolvedValue(undefined);
+  });
+
+  afterEach(() => {
+    clipboardWriteText.mockRestore();
   });
 
   it("shows loading state", () => {
     mockListWebhooks.mockReturnValue(new Promise(() => {}));
-    render(<Webhooks />);
+    renderWithProviders(<Webhooks />);
     expect(screen.getByText("Loading webhooks...")).toBeInTheDocument();
   });
 
   it("displays empty state when no webhooks", async () => {
     mockListWebhooks.mockResolvedValueOnce([]);
-    render(<Webhooks />);
+    renderWithProviders(<Webhooks />);
     await waitFor(() => {
       expect(
         screen.getByText("No webhooks configured yet"),
+      ).toBeInTheDocument();
+      expect(
+        screen.getByText(
+          "Deliver create, update, and delete events to external URLs in real time.",
+        ),
       ).toBeInTheDocument();
     });
   });
@@ -90,7 +108,7 @@ describe("Webhooks", () => {
         enabled: false,
       }),
     ]);
-    render(<Webhooks />);
+    renderWithProviders(<Webhooks />);
     await waitFor(() => {
       expect(screen.getByText("https://foo.com/hook")).toBeInTheDocument();
       expect(screen.getByText("https://bar.com/hook")).toBeInTheDocument();
@@ -101,7 +119,7 @@ describe("Webhooks", () => {
     mockListWebhooks.mockResolvedValueOnce([
       makeWebhook({ events: ["create", "delete"] }),
     ]);
-    render(<Webhooks />);
+    renderWithProviders(<Webhooks />);
     await waitFor(() => {
       expect(screen.getByText("create")).toBeInTheDocument();
       expect(screen.getByText("delete")).toBeInTheDocument();
@@ -110,17 +128,20 @@ describe("Webhooks", () => {
 
   it("shows 'all tables' when tables array is empty", async () => {
     mockListWebhooks.mockResolvedValueOnce([makeWebhook({ tables: [] })]);
-    render(<Webhooks />);
+    renderWithProviders(<Webhooks />);
     await waitFor(() => {
       expect(screen.getByText("all tables")).toBeInTheDocument();
     });
+    const tableScopeClasses = screen.getByText("all tables").className.split(" ");
+    expect(tableScopeClasses).toContain("text-gray-500");
+    expect(tableScopeClasses).not.toContain("text-gray-400");
   });
 
   it("shows table names when tables are set", async () => {
     mockListWebhooks.mockResolvedValueOnce([
       makeWebhook({ tables: ["posts", "users"] }),
     ]);
-    render(<Webhooks />);
+    renderWithProviders(<Webhooks />);
     await waitFor(() => {
       expect(screen.getByText("posts")).toBeInTheDocument();
       expect(screen.getByText("users")).toBeInTheDocument();
@@ -130,7 +151,7 @@ describe("Webhooks", () => {
   it("opens create modal on Add Webhook click", async () => {
     const user = userEvent.setup();
     mockListWebhooks.mockResolvedValueOnce([]);
-    render(<Webhooks />);
+    renderWithProviders(<Webhooks />);
     await waitFor(() => {
       expect(
         screen.getByText("No webhooks configured yet"),
@@ -149,7 +170,7 @@ describe("Webhooks", () => {
     mockCreateWebhook.mockResolvedValueOnce(
       makeWebhook({ url: "https://test.com/hook" }),
     );
-    render(<Webhooks />);
+    renderWithProviders(<Webhooks />);
     await waitFor(() => {
       expect(screen.getByText("Add Webhook")).toBeInTheDocument();
     });
@@ -172,7 +193,7 @@ describe("Webhooks", () => {
     const user = userEvent.setup();
     const wh = makeWebhook({ url: "https://edit-me.com/hook" });
     mockListWebhooks.mockResolvedValueOnce([wh]);
-    render(<Webhooks />);
+    renderWithProviders(<Webhooks />);
     await waitFor(() => {
       expect(screen.getByText("https://edit-me.com/hook")).toBeInTheDocument();
     });
@@ -189,7 +210,7 @@ describe("Webhooks", () => {
     const user = userEvent.setup();
     const wh = makeWebhook({ url: "https://delete-me.com/hook" });
     mockListWebhooks.mockResolvedValueOnce([wh]);
-    render(<Webhooks />);
+    renderWithProviders(<Webhooks />);
     await waitFor(() => {
       expect(
         screen.getByText("https://delete-me.com/hook"),
@@ -206,7 +227,7 @@ describe("Webhooks", () => {
     const wh = makeWebhook();
     mockListWebhooks.mockResolvedValue([wh]);
     mockDeleteWebhook.mockResolvedValueOnce();
-    render(<Webhooks />);
+    renderWithProviders(<Webhooks />);
     await waitFor(() => {
       expect(screen.getByText("https://example.com/hook")).toBeInTheDocument();
     });
@@ -229,7 +250,7 @@ describe("Webhooks", () => {
   it("closes modal on Cancel", async () => {
     const user = userEvent.setup();
     mockListWebhooks.mockResolvedValueOnce([]);
-    render(<Webhooks />);
+    renderWithProviders(<Webhooks />);
     await waitFor(() => {
       expect(screen.getByText("Add Webhook")).toBeInTheDocument();
     });
@@ -245,7 +266,7 @@ describe("Webhooks", () => {
     mockListWebhooks.mockResolvedValueOnce([
       makeWebhook({ hasSecret: true }),
     ]);
-    render(<Webhooks />);
+    renderWithProviders(<Webhooks />);
     await waitFor(() => {
       expect(
         screen.getByTitle("HMAC secret configured"),
@@ -253,9 +274,45 @@ describe("Webhooks", () => {
     });
   });
 
+  it("copies the webhook URL only after the clipboard write succeeds", async () => {
+    const user = userEvent.setup();
+    mockListWebhooks.mockResolvedValueOnce([makeWebhook()]);
+    renderWithProviders(<Webhooks />);
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Copy URL" })).toBeInTheDocument();
+    });
+
+    await user.click(screen.getByRole("button", { name: "Copy URL" }));
+
+    await waitFor(() => {
+      expect(clipboardWriteText).toHaveBeenCalledWith("https://example.com/hook");
+      expect(screen.getByText("URL copied")).toBeInTheDocument();
+    });
+  });
+
+  it("shows an error toast when copying the webhook URL fails", async () => {
+    const user = userEvent.setup();
+    clipboardWriteText.mockRejectedValueOnce(new Error("clipboard denied"));
+    mockListWebhooks.mockResolvedValueOnce([makeWebhook()]);
+    renderWithProviders(<Webhooks />);
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Copy URL" })).toBeInTheDocument();
+    });
+
+    await user.click(screen.getByRole("button", { name: "Copy URL" }));
+
+    await waitFor(() => {
+      expect(clipboardWriteText).toHaveBeenCalledWith("https://example.com/hook");
+      expect(screen.getByText("clipboard denied")).toBeInTheDocument();
+    });
+    expect(screen.queryByText("URL copied")).not.toBeInTheDocument();
+  });
+
   it("displays error on fetch failure", async () => {
     mockListWebhooks.mockRejectedValueOnce(new Error("network error"));
-    render(<Webhooks />);
+    renderWithProviders(<Webhooks />);
     await waitFor(() => {
       expect(screen.getByText("network error")).toBeInTheDocument();
     });
@@ -267,7 +324,7 @@ describe("Webhooks", () => {
     mockUpdateWebhook.mockResolvedValueOnce(
       makeWebhook({ enabled: false }),
     );
-    render(<Webhooks />);
+    renderWithProviders(<Webhooks />);
     await waitFor(() => {
       const toggle = screen.getByRole("switch");
       expect(toggle).toBeInTheDocument();
@@ -279,7 +336,7 @@ describe("Webhooks", () => {
     const user = userEvent.setup();
     mockListWebhooks.mockResolvedValueOnce([makeWebhook({ enabled: true })]);
     mockUpdateWebhook.mockResolvedValueOnce(makeWebhook({ enabled: false }));
-    render(<Webhooks />);
+    renderWithProviders(<Webhooks />);
     await waitFor(() => {
       expect(screen.getByRole("switch")).toBeInTheDocument();
     });
@@ -301,7 +358,7 @@ describe("Webhooks", () => {
       statusCode: 200,
       durationMs: 42,
     });
-    render(<Webhooks />);
+    renderWithProviders(<Webhooks />);
     await waitFor(() => {
       expect(screen.getByTitle("Test")).toBeInTheDocument();
     });
@@ -322,7 +379,7 @@ describe("Webhooks", () => {
       durationMs: 100,
       error: "Internal Server Error",
     });
-    render(<Webhooks />);
+    renderWithProviders(<Webhooks />);
     await waitFor(() => {
       expect(screen.getByTitle("Test")).toBeInTheDocument();
     });
@@ -336,7 +393,7 @@ describe("Webhooks", () => {
 
   it("shows Delivery History button per webhook", async () => {
     mockListWebhooks.mockResolvedValueOnce([makeWebhook()]);
-    render(<Webhooks />);
+    renderWithProviders(<Webhooks />);
     await waitFor(() => {
       expect(screen.getByTitle("Delivery History")).toBeInTheDocument();
     });
@@ -364,7 +421,7 @@ describe("Webhooks", () => {
       totalItems: 1,
       totalPages: 1,
     });
-    render(<Webhooks />);
+    renderWithProviders(<Webhooks />);
     await waitFor(() => {
       expect(screen.getByTitle("Delivery History")).toBeInTheDocument();
     });
@@ -380,6 +437,22 @@ describe("Webhooks", () => {
     });
   });
 
+  it("uses WCAG AA contrast tokens for delivery history loading state", async () => {
+    const user = userEvent.setup();
+    mockListWebhooks.mockResolvedValueOnce([makeWebhook()]);
+    mockListDeliveries.mockReturnValueOnce(new Promise(() => {}));
+    renderWithProviders(<Webhooks />);
+    await waitFor(() => {
+      expect(screen.getByTitle("Delivery History")).toBeInTheDocument();
+    });
+
+    await user.click(screen.getByTitle("Delivery History"));
+
+    const loadingStateClasses = screen.getByText("Loading deliveries...").className.split(" ");
+    expect(loadingStateClasses).toContain("text-gray-500");
+    expect(loadingStateClasses).not.toContain("text-gray-400");
+  });
+
   it("shows empty delivery history state", async () => {
     const user = userEvent.setup();
     mockListWebhooks.mockResolvedValueOnce([makeWebhook()]);
@@ -390,7 +463,7 @@ describe("Webhooks", () => {
       totalItems: 0,
       totalPages: 0,
     });
-    render(<Webhooks />);
+    renderWithProviders(<Webhooks />);
     await waitFor(() => {
       expect(screen.getByTitle("Delivery History")).toBeInTheDocument();
     });
@@ -402,6 +475,12 @@ describe("Webhooks", () => {
         screen.getByText("No deliveries recorded yet"),
       ).toBeInTheDocument();
     });
+
+    const emptyStateClasses = screen
+      .getByText("No deliveries recorded yet")
+      .className.split(" ");
+    expect(emptyStateClasses).toContain("text-gray-500");
+    expect(emptyStateClasses).not.toContain("text-gray-400");
   });
 
   it("shows success and failure status indicators in delivery list", async () => {
@@ -438,7 +517,7 @@ describe("Webhooks", () => {
       totalItems: 2,
       totalPages: 1,
     });
-    render(<Webhooks />);
+    renderWithProviders(<Webhooks />);
     await waitFor(() => {
       expect(screen.getByTitle("Delivery History")).toBeInTheDocument();
     });
@@ -483,7 +562,7 @@ describe("Webhooks", () => {
       totalItems: 1,
       totalPages: 1,
     });
-    render(<Webhooks />);
+    renderWithProviders(<Webhooks />);
     await waitFor(() => {
       expect(screen.getByTitle("Delivery History")).toBeInTheDocument();
     });
@@ -494,10 +573,23 @@ describe("Webhooks", () => {
       expect(screen.getByText("500")).toBeInTheDocument();
     });
 
+    const eventTableClasses = screen.getByText("posts").className.split(" ");
+    expect(eventTableClasses).toContain("text-gray-500");
+    expect(eventTableClasses).not.toContain("text-gray-400");
+    const deliveryMetaClasses = screen.getByText("100ms").parentElement?.className.split(" ");
+    expect(deliveryMetaClasses).toContain("text-gray-500");
+    expect(deliveryMetaClasses).not.toContain("text-gray-400");
+
+    const detailToggle = screen.getByRole("button", { name: /500/ });
+    expect(detailToggle).toHaveAttribute("aria-expanded", "false");
+    expect(detailToggle).toHaveAttribute("aria-controls", "webhook-delivery-detail-del_1");
+
     // Click to expand the delivery row
-    await user.click(screen.getByText("500"));
+    await user.click(detailToggle);
 
     await waitFor(() => {
+      expect(detailToggle).toHaveAttribute("aria-expanded", "true");
+      expect(screen.getByTestId("webhook-delivery-detail-del_1")).toBeInTheDocument();
       expect(screen.getByText("connection timeout")).toBeInTheDocument();
       expect(
         screen.getByText('{"action":"create","table":"posts"}'),
@@ -506,5 +598,11 @@ describe("Webhooks", () => {
         screen.getByText("Internal Server Error"),
       ).toBeInTheDocument();
     });
+
+    expect(screen.getByText("connection timeout").closest("pre")).toHaveAttribute("tabindex", "0");
+    expect(
+      screen.getByText('{"action":"create","table":"posts"}').closest("pre"),
+    ).toHaveAttribute("tabindex", "0");
+    expect(screen.getByText("Internal Server Error").closest("pre")).toHaveAttribute("tabindex", "0");
   });
 });

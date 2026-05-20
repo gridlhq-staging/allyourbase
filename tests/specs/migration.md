@@ -240,6 +240,8 @@ Error: Failed to connect to Supabase database: connection refused
 
 ---
 
+> Retirement note: Firebase migration coverage is historical in-tree support only (retired from roadmap scope). These cases document implemented behavior and do not schedule new Firebase roadmap work.
+
 ## Firebase Migration Tests
 
 ### TC-MIG-FB-001: Migrate Firebase — Auth + Firestore
@@ -251,7 +253,10 @@ Error: Failed to connect to Supabase database: connection refused
 **Fixture Structure:**
 ```
 firebase/full/
-├── firebase-export.json (auth users + Firestore collections)
+├── auth-export.json (auth users with firebase-scrypt hashes)
+├── firestore-export/
+│   ├── posts.json
+│   └── comments.json
 └── expected/
     ├── users.json (expected ayb_users with firebase-scrypt hashes)
     ├── posts.json (expected posts with JSONB metadata)
@@ -260,12 +265,15 @@ firebase/full/
 
 **Command:**
 ```bash
-ayb migrate firebase --source ./tests/fixtures/migration/firebase/full/firebase-export.json --database-url $DB_URL
+ayb migrate firebase \
+  --auth-export ./tests/fixtures/migration/firebase/full/auth-export.json \
+  --firestore-export ./tests/fixtures/migration/firebase/full/firestore-export \
+  --database-url $DB_URL
 ```
 
 **Expected Output:**
 ```
-✓ Analyzing Firebase export...
+✓ Analyzing Firebase exports...
   - Auth users: 8
   - Firestore collections: 2 (posts, comments)
 
@@ -319,8 +327,10 @@ Firebase export with user:
 
 **Expected `ayb_users` record:**
 ```sql
+-- "user123" is not a valid UUID, so FirebaseIDToUUID converts it
+-- to a deterministic UUID v5 using a fixed namespace.
 INSERT INTO ayb_users (id, email, password_hash) VALUES (
-  'user123',
+  '<deterministic-uuid-v5-of-user123>',
   'test@example.com',
   '$firebase-scrypt$<signerKey>$<saltSep>$<salt>$8$14$<hash>'
 );
@@ -332,53 +342,61 @@ INSERT INTO ayb_users (id, email, password_hash) VALUES (
 
 ---
 
-### TC-MIG-FB-003: Migrate Firebase — via firebase:// URL
+### TC-MIG-FB-003: Migrate Firebase — Full Export Inputs (Auth + Firestore + RTDB + Storage)
 
 **Story:** B-MIG-003
 **Type:** CLI
-**Fixture:** Requires real Firebase project (or mock Firebase Admin SDK)
+**Fixture:** `tests/fixtures/migration/firebase/full/` + storage fixture directory
 
 **Command:**
 ```bash
-ayb migrate firebase --source firebase://my-project-id --database-url $DB_URL
+ayb migrate firebase \
+  --auth-export ./tests/fixtures/migration/firebase/full/auth-export.json \
+  --firestore-export ./tests/fixtures/migration/firebase/full/firestore-export \
+  --rtdb-export ./tests/fixtures/migration/firebase/full/rtdb-export.json \
+  --storage-export ./tests/fixtures/migration/firebase/full/storage-export \
+  --database-url $DB_URL
 ```
 
 **Expected Behavior:**
-- Uses Firebase Admin SDK to fetch auth users and Firestore data
-- Same migration flow as JSON export
+- Uses offline export inputs only (no `firebase://` source flow in this command)
+- Runs the same pre-flight analysis + confirmation pattern as other migration commands
+- Migrates all provided source categories in one run
 
 **Assertions:**
-- Admin SDK authentication works
-- Data fetched directly from Firebase
+- Auth users are migrated with Firebase scrypt hash preservation
+- Firestore/RTDB exports are mapped into JSONB-backed tables
+- Storage files are copied to AYB storage layout
 - Migration completes successfully
 
 ---
 
-### TC-MIG-FB-004: Migrate Firebase — Invalid Export Format
+### TC-MIG-FB-004: Migrate Firebase — Malformed Auth Export JSON
 
 **Story:** B-MIG-003
 **Type:** CLI
 
 **Command:**
 ```bash
-ayb migrate firebase --source ./invalid.json --database-url $DB_URL
+ayb migrate firebase --auth-export ./invalid.json --database-url $DB_URL
 ```
 
 **File Contents:**
 ```json
 {
-  "not": "a valid firebase export"
+  invalid json
 }
 ```
 
 **Expected Output:**
 ```
-Error: Invalid Firebase export format: missing 'users' or 'collections' field
+Error: analysis failed: parsing auth export: parsing auth export JSON: ...
 ```
 
 **Assertions:**
 - Command exits with non-zero status
-- Clear error about invalid format
+- Clear error about malformed auth export JSON
+- Structurally unexpected but valid JSON is not currently documented as a missing-field validation path
 
 ---
 
@@ -431,12 +449,12 @@ ayb start --from postgres://user:pass@db.supabase.co:5432/postgres
 
 **Command:**
 ```bash
-ayb start --from ./tests/fixtures/migration/firebase/full/firebase-export.json
+ayb start --from ./tests/fixtures/migration/firebase/full/auth-export.json
 ```
 
 **Expected Behavior:**
-- Detects Firebase from `.json` file extension + contents
-- Auto-selects `fbmigrate.Migrate()`
+- Detects Firebase from `.json` file suffix
+- Auto-selects Firebase migration path and passes the file as auth export input
 
 **Assertions:**
 - Correct migrator selected
@@ -455,10 +473,10 @@ ayb start --from firebase://my-project-id
 
 **Expected Behavior:**
 - Detects Firebase from `firebase://` scheme
-- Auto-selects `fbmigrate.Migrate()`
+- Returns error: `firebase --from requires a path to a .json auth export file`
 
 **Assertions:**
-- Correct migrator selected
+- Detection occurs, but auto-migration does not proceed without a `.json` auth export path
 
 ---
 
@@ -474,16 +492,13 @@ ayb start --from ./random_directory
 
 **Expected Output:**
 ```
-Error: Unable to detect migration source type from: ./random_directory
-Supported sources:
-  - PocketBase: path to pb_data directory
-  - Supabase: postgres://...supabase...
-  - Firebase: firebase://PROJECT_ID or path to .json export
+Error: could not detect migration source type from "./random_directory" (expected: path to pb_data, postgres:// URL, or firebase:// URL)
 ```
 
 **Assertions:**
 - Command exits with non-zero status
-- Helpful error message with supported sources
+- Clear error message for unsupported source type
+- Current HEAD message lists PocketBase, Supabase, and `firebase://` URL hints; `.json` auth-export auto-detection is covered separately in TC-MIG-AUTO-003
 
 ---
 
@@ -511,10 +526,10 @@ N/A — Migration tools are CLI-only, no UI tests needed.
 5. `tests/fixtures/migration/supabase/schema-only/` — Schema without data
 6. `tests/fixtures/migration/supabase/rls-policies/` — RLS policy migration
 
-### Firebase Fixtures
-7. `tests/fixtures/migration/firebase/full/` — Auth + Firestore
-8. `tests/fixtures/migration/firebase/scrypt/` — Scrypt parameter embedding
-9. `tests/fixtures/migration/firebase/auth-only/` — Auth without Firestore
+### Firebase Fixtures (historical in-tree coverage)
+7. `tests/fixtures/migration/firebase/full/` — Auth + Firestore (historical in-tree coverage)
+8. `tests/fixtures/migration/firebase/scrypt/` — Scrypt parameter embedding (historical in-tree coverage)
+9. `tests/fixtures/migration/firebase/auth-only/` — Auth without Firestore (historical in-tree coverage)
 
 ---
 
@@ -531,4 +546,4 @@ N/A — Migration tools are CLI-only, no UI tests needed.
 
 ---
 
-**Last Updated:** Session 079 (2026-02-13)
+**Last Updated:** Session 021 (2026-03-31)

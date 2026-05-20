@@ -102,6 +102,11 @@ func (p *Pool) startHealthCheck(interval time.Duration) {
 	p.wg.Add(1)
 	go func() {
 		defer p.wg.Done()
+		defer func() {
+			if r := recover(); r != nil {
+				p.logger.Error("database health check panic recovered", "panic", r)
+			}
+		}()
 		ticker := time.NewTicker(interval)
 		defer ticker.Stop()
 

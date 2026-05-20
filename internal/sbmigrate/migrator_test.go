@@ -156,27 +156,6 @@ func TestPrintStats(t *testing.T) {
 	})
 }
 
-func TestRedactURL(t *testing.T) {
-	t.Parallel()
-	tests := []struct {
-		name  string
-		input string
-		want  string
-	}{
-		{"strips user:pass", "postgres://user:secret@db.xxx.supabase.co:5432/postgres", "postgres://db.xxx.supabase.co:5432/postgres"},
-		{"strips user only", "postgres://user@localhost:5432/db", "postgres://localhost:5432/db"},
-		{"no credentials unchanged", "postgres://localhost:5432/db", "postgres://localhost:5432/db"},
-		{"non-URL returns as-is", "not a url %%", "not a url %%"},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-			got := redactURL(tt.input)
-			testutil.Equal(t, tt.want, got)
-		})
-	}
-}
-
 func TestBuildAuthUsersCountQuery(t *testing.T) {
 	t.Parallel()
 	t.Run("filters anonymous when column exists", func(t *testing.T) {
@@ -291,8 +270,18 @@ func TestIsSkippableSchemaTableError(t *testing.T) {
 			want: false,
 		},
 		{
+			name: "wrapped postgres error is skippable",
+			err:  fmt.Errorf("wrapped: %w", &pgconn.PgError{Code: "42P01"}),
+			want: true,
+		},
+		{
 			name: "non postgres error is not skippable",
 			err:  fmt.Errorf("boom"),
+			want: false,
+		},
+		{
+			name: "nil error is not skippable",
+			err:  nil,
 			want: false,
 		},
 	}

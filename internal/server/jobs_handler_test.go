@@ -555,6 +555,10 @@ func TestHandleAdminUpdateScheduleNotFound(t *testing.T) {
 }
 
 func TestHandleAdminUpdateScheduleEnableRecomputesNextRunAt(t *testing.T) {
+	fixedNow := time.Date(2025, 1, 15, 10, 58, 0, 0, time.UTC)
+	t.Cleanup(func() { scheduleNow = time.Now })
+	scheduleNow = func() time.Time { return fixedNow }
+
 	svc := newFakeJobService()
 	// Simulate a disabled schedule with next_run_at cleared.
 	svc.schedules[0].Enabled = false
@@ -574,6 +578,8 @@ func TestHandleAdminUpdateScheduleEnableRecomputesNextRunAt(t *testing.T) {
 	testutil.Equal(t, "aaaa1111-1111-1111-1111-111111111111", svc.lastUpdateScheduleID)
 	testutil.True(t, svc.lastUpdateEnabled, "enabled should be true")
 	testutil.NotNil(t, svc.lastUpdateNextRunAt)
+	expectedNextRunAt := time.Date(2025, 1, 15, 11, 0, 0, 0, time.UTC)
+	testutil.Equal(t, expectedNextRunAt, *svc.lastUpdateNextRunAt)
 }
 
 // --- Schedules Delete ---
@@ -644,4 +650,24 @@ func TestHandleAdminDisableSchedule(t *testing.T) {
 	var sched jobs.Schedule
 	testutil.NoError(t, json.Unmarshal(w.Body.Bytes(), &sched))
 	testutil.False(t, sched.Enabled, "schedule should be disabled")
+}
+
+func TestServerHandleJobsListReturnsServiceUnavailableWithoutJobService(t *testing.T) {
+	srv := &Server{}
+	req := httptest.NewRequest("GET", "/api/admin/jobs", nil)
+	w := httptest.NewRecorder()
+
+	srv.handleJobsList(w, req)
+
+	testutil.Equal(t, http.StatusServiceUnavailable, w.Code)
+}
+
+func TestServerHandleSchedulesListReturnsServiceUnavailableWithoutJobService(t *testing.T) {
+	srv := &Server{}
+	req := httptest.NewRequest("GET", "/api/admin/schedules", nil)
+	w := httptest.NewRecorder()
+
+	srv.handleSchedulesList(w, req)
+
+	testutil.Equal(t, http.StatusServiceUnavailable, w.Code)
 }

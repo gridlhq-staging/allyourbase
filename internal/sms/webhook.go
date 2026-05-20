@@ -25,6 +25,7 @@ func NewWebhookProvider(url, secret string) *WebhookProvider {
 	return &WebhookProvider{
 		url:    url,
 		secret: secret,
+		client: http.Client{Timeout: 10 * time.Second},
 	}
 }
 
@@ -56,7 +57,7 @@ func (p *WebhookProvider) Send(ctx context.Context, to, body string) (*SendResul
 	}
 	defer resp.Body.Close()
 
-	respBody, err := io.ReadAll(resp.Body)
+	respBody, err := io.ReadAll(io.LimitReader(resp.Body, maxResponseSize))
 	if err != nil {
 		return nil, fmt.Errorf("webhook: read response: %w", err)
 	}

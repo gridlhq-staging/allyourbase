@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"time"
 )
 
 const twilioDefaultBaseURL = "https://api.twilio.com"
@@ -32,6 +33,7 @@ func NewTwilioProvider(accountSID, authToken, fromNumber, baseURL string) *Twili
 		authToken:  authToken,
 		fromNumber: fromNumber,
 		baseURL:    baseURL,
+		client:     http.Client{Timeout: 10 * time.Second},
 	}
 }
 
@@ -56,7 +58,7 @@ func (p *TwilioProvider) Send(ctx context.Context, to, body string) (*SendResult
 	}
 	defer resp.Body.Close()
 
-	respBody, err := io.ReadAll(resp.Body)
+	respBody, err := io.ReadAll(io.LimitReader(resp.Body, maxResponseSize))
 	if err != nil {
 		return nil, fmt.Errorf("twilio: read response: %w", err)
 	}

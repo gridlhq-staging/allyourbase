@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { render, screen, waitFor, fireEvent, act } from "@testing-library/react";
+import { screen, waitFor, fireEvent, act } from "@testing-library/react";
+import { renderWithProviders, expectWcagContrastToken } from "../../test-utils";
 import userEvent from "@testing-library/user-event";
 import { EmailTemplates } from "../EmailTemplates";
 import {
@@ -28,12 +29,15 @@ vi.mock("../../api", () => ({
   sendTemplateEmail: vi.fn(),
 }));
 
+const mockAddToast = vi.fn();
+const mockRemoveToast = vi.fn();
+
 vi.mock("../Toast", () => ({
   ToastContainer: () => null,
   useToast: () => ({
     toasts: [],
-    addToast: vi.fn(),
-    removeToast: vi.fn(),
+    addToast: mockAddToast,
+    removeToast: mockRemoveToast,
   }),
 }));
 
@@ -77,6 +81,16 @@ function makePreview(overrides: Partial<PreviewEmailTemplateResponse> = {}): Pre
   };
 }
 
+function deferred<T>() {
+  let resolve!: (value: T | PromiseLike<T>) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((res, rej) => {
+    resolve = res;
+    reject = rej;
+  });
+  return { promise, resolve, reject };
+}
+
 describe("EmailTemplates", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -113,7 +127,7 @@ describe("EmailTemplates", () => {
   });
 
   it("renders template list and loads first effective template", async () => {
-    render(<EmailTemplates />);
+    renderWithProviders(<EmailTemplates />);
 
     await waitFor(() => {
       expect(screen.getByRole("heading", { name: "Email Templates" })).toBeInTheDocument();
@@ -124,6 +138,27 @@ describe("EmailTemplates", () => {
     await waitFor(() => {
       expect(mockGetEmailTemplate).toHaveBeenCalledWith("auth.password_reset");
     });
+  });
+
+  it("loading indicator uses WCAG AA compliant contrast token", () => {
+    mockListEmailTemplates.mockReturnValue(new Promise(() => {}));
+    renderWithProviders(<EmailTemplates />);
+
+    const className = screen.getByText("Loading email templates...").className;
+    expectWcagContrastToken(className);
+  });
+
+  it("selected template metadata uses WCAG AA compliant contrast token", async () => {
+    renderWithProviders(<EmailTemplates />);
+    await waitFor(() => {
+      expect(screen.getByText("auth.password_reset")).toBeInTheDocument();
+    });
+
+    const selectedTemplateButton = screen.getByRole("button", { name: /auth\.password_reset/i });
+    const metadataRow = selectedTemplateButton.querySelector(".mt-1");
+    expect(metadataRow).not.toBeNull();
+    expect(metadataRow?.className).toContain("text-gray-600");
+    expect(metadataRow?.className).not.toContain("text-gray-500");
   });
 
   it("switches selected template and loads editor values", async () => {
@@ -140,7 +175,7 @@ describe("EmailTemplates", () => {
         }),
       );
 
-    render(<EmailTemplates />);
+    renderWithProviders(<EmailTemplates />);
 
     const user = userEvent.setup();
     await waitFor(() => {
@@ -170,7 +205,7 @@ describe("EmailTemplates", () => {
         }),
       );
 
-    render(<EmailTemplates />);
+    renderWithProviders(<EmailTemplates />);
 
     const user = userEvent.setup();
     await waitFor(() => {
@@ -203,7 +238,7 @@ describe("EmailTemplates", () => {
         }),
       );
 
-    render(<EmailTemplates />);
+    renderWithProviders(<EmailTemplates />);
 
     await waitFor(() => {
       expect(screen.getByText("app.club_invite")).toBeInTheDocument();
@@ -257,7 +292,7 @@ describe("EmailTemplates", () => {
         }),
       );
 
-    render(<EmailTemplates />);
+    renderWithProviders(<EmailTemplates />);
 
     const user = userEvent.setup();
     await waitFor(() => {
@@ -279,5 +314,323 @@ describe("EmailTemplates", () => {
         variables: {},
       });
     });
+  });
+
+  it("renders preview HTML in a dedicated output container for unambiguous assertions", async () => {
+    mockPreviewEmailTemplate
+      .mockResolvedValueOnce(makePreview({ html: "<p>initial</p>" }))
+      .mockResolvedValueOnce(makePreview({ html: "<p>https://sigil.example/reset/123</p>" }));
+
+    renderWithProviders(<EmailTemplates />);
+
+    await waitFor(() => {
+      expect(screen.getByLabelText("Preview Variables (JSON)")).toBeInTheDocument();
+    });
+    await waitFor(() => {
+      expect(mockPreviewEmailTemplate).toHaveBeenCalledTimes(1);
+      expect(screen.getByTestId("email-template-preview-html")).toHaveTextContent("initial");
+    });
+
+    fireEvent.change(screen.getByLabelText("Preview Variables (JSON)"), {
+      target: {
+        value: JSON.stringify({
+          AppName: "Sigil 123",
+          ActionURL: "https://sigil.example/reset/123",
+        }),
+      },
+    });
+
+    await waitFor(() => {
+      expect(mockPreviewEmailTemplate).toHaveBeenCalledTimes(2);
+    });
+    expect(mockPreviewEmailTemplate).toHaveBeenLastCalledWith("auth.password_reset", {
+      subjectTemplate: "Reset your password",
+      htmlTemplate: "<p>Click {{.ActionURL}}</p>",
+      variables: {
+        AppName: "Sigil 123",
+        ActionURL: "https://sigil.example/reset/123",
+      },
+    });
+
+    await waitFor(() => {
+      expect(screen.getByTestId("email-template-preview-html")).toHaveTextContent(
+        "https://sigil.example/reset/123",
+      );
+    });
+  });
+
+  it("makes the preview HTML output keyboard-focusable for scroll access", async () => {
+    renderWithProviders(<EmailTemplates />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("email-template-preview-html")).toBeInTheDocument();
+    });
+
+    expect(screen.getByTestId("email-template-preview-html")).toHaveAttribute("tabindex", "0");
+  });
+
+  it("ignores stale preview responses after a newer render completes", async () => {
+    const stalePreview = deferred<PreviewEmailTemplateResponse>();
+    mockPreviewEmailTemplate
+      .mockResolvedValueOnce(makePreview({ html: "<p>initial</p>" }))
+      .mockImplementationOnce(() => stalePreview.promise)
+      .mockResolvedValueOnce(makePreview({ html: "<p>https://latest.example/reset</p>" }));
+
+    renderWithProviders(<EmailTemplates />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("email-template-preview-html")).toHaveTextContent("initial");
+    });
+
+    vi.useFakeTimers();
+
+    fireEvent.change(screen.getByLabelText("Preview Variables (JSON)"), {
+      target: {
+        value: JSON.stringify({
+          AppName: "Stale App",
+          ActionURL: "https://stale.example/reset",
+        }),
+      },
+    });
+
+    await act(async () => {
+      vi.advanceTimersByTime(450);
+      await Promise.resolve();
+    });
+
+    expect(mockPreviewEmailTemplate).toHaveBeenCalledTimes(2);
+
+    fireEvent.change(screen.getByLabelText("Preview Variables (JSON)"), {
+      target: {
+        value: JSON.stringify({
+          AppName: "Latest App",
+          ActionURL: "https://latest.example/reset",
+        }),
+      },
+    });
+
+    await act(async () => {
+      vi.advanceTimersByTime(450);
+      await Promise.resolve();
+    });
+
+    expect(mockPreviewEmailTemplate).toHaveBeenCalledTimes(3);
+    expect(screen.getByTestId("email-template-preview-html")).toHaveTextContent(
+      "https://latest.example/reset",
+    );
+
+    await act(async () => {
+      stalePreview.resolve(makePreview({ html: "<p>https://stale.example/reset</p>" }));
+      await Promise.resolve();
+    });
+
+    expect(screen.getByTestId("email-template-preview-html")).toHaveTextContent(
+      "https://latest.example/reset",
+    );
+    expect(screen.getByTestId("email-template-preview-html")).not.toHaveTextContent(
+      "https://stale.example/reset",
+    );
+  });
+
+  it("reloads effective template after reset to default", async () => {
+    mockListEmailTemplates
+      .mockResolvedValueOnce({
+        items: [
+          makeListItem({
+            templateKey: "auth.password_reset",
+            source: "custom",
+            subjectTemplate: "Custom subject",
+            enabled: true,
+          }),
+        ],
+        count: 1,
+      })
+      .mockResolvedValueOnce({
+        items: [makeListItem({ templateKey: "auth.password_reset", source: "builtin" })],
+        count: 1,
+      });
+
+    mockGetEmailTemplate
+      .mockResolvedValueOnce(
+        makeEffective({
+          source: "custom",
+          templateKey: "auth.password_reset",
+          subjectTemplate: "Custom subject",
+          htmlTemplate: "<p>Custom body</p>",
+        }),
+      )
+      .mockResolvedValueOnce(
+        makeEffective({
+          source: "builtin",
+          templateKey: "auth.password_reset",
+          subjectTemplate: "Reset your password",
+          htmlTemplate: "<p>Click {{.ActionURL}}</p>",
+        }),
+      );
+
+    renderWithProviders(<EmailTemplates />);
+
+    const user = userEvent.setup();
+
+    await waitFor(() => {
+      expect(screen.getByRole("heading", { name: "auth.password_reset" })).toBeInTheDocument();
+      expect(screen.getByLabelText("Subject Template")).toHaveValue("Custom subject");
+      expect(screen.getByRole("button", { name: "Reset to Default" })).toBeInTheDocument();
+    });
+
+    await user.click(screen.getByRole("button", { name: "Reset to Default" }));
+
+    await waitFor(() => {
+      expect(mockDeleteEmailTemplate).toHaveBeenCalledWith("auth.password_reset");
+      expect(mockGetEmailTemplate).toHaveBeenLastCalledWith("auth.password_reset");
+      expect(screen.getByLabelText("Subject Template")).toHaveValue("Reset your password");
+    });
+  });
+
+  it("does not emit an error toast when deleting a custom template that no longer has an effective record", async () => {
+    mockListEmailTemplates
+      .mockResolvedValueOnce({
+        items: [
+          makeListItem({
+            templateKey: "app.club_invite",
+            source: "custom",
+            subjectTemplate: "Invite {{.Name}}",
+            enabled: true,
+          }),
+          makeListItem({
+            templateKey: "auth.password_reset",
+            source: "builtin",
+          }),
+        ],
+        count: 2,
+      })
+      .mockResolvedValueOnce({
+        items: [
+          makeListItem({
+            templateKey: "auth.password_reset",
+            source: "builtin",
+          }),
+        ],
+        count: 1,
+      });
+
+    mockGetEmailTemplate
+      .mockResolvedValueOnce(
+        makeEffective({
+          templateKey: "app.club_invite",
+          source: "custom",
+          subjectTemplate: "Invite {{.Name}}",
+          htmlTemplate: "<p>Hello {{.Name}}</p>",
+          variables: [],
+        }),
+      )
+      .mockRejectedValueOnce(new Error("template not found"))
+      .mockResolvedValueOnce(
+        makeEffective({
+          templateKey: "auth.password_reset",
+          source: "builtin",
+          subjectTemplate: "Reset your password",
+          htmlTemplate: "<p>Click {{.ActionURL}}</p>",
+        }),
+      );
+
+    renderWithProviders(<EmailTemplates />);
+    const user = userEvent.setup();
+
+    await waitFor(() => {
+      expect(screen.getByRole("heading", { name: "app.club_invite" })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Delete Template" })).toBeInTheDocument();
+    });
+
+    await user.click(screen.getByRole("button", { name: "Delete Template" }));
+
+    await waitFor(() => {
+      expect(mockDeleteEmailTemplate).toHaveBeenCalledWith("app.club_invite");
+      expect(screen.getByRole("heading", { name: "auth.password_reset" })).toBeInTheDocument();
+    });
+
+    expect(screen.getByText("Deleted app.club_invite")).toBeInTheDocument();
+    expect(screen.queryByText("template not found")).not.toBeInTheDocument();
+  });
+
+  it("ignores stale effective-load failures from a deleted template after selection moves", async () => {
+    const deletedTemplateReload = deferred<EmailTemplateEffective>();
+
+    mockListEmailTemplates
+      .mockResolvedValueOnce({
+        items: [
+          makeListItem({
+            templateKey: "app.club_invite",
+            source: "custom",
+            subjectTemplate: "Invite {{.Name}}",
+            enabled: true,
+          }),
+          makeListItem({
+            templateKey: "auth.password_reset",
+            source: "builtin",
+          }),
+        ],
+        count: 2,
+      })
+      .mockResolvedValueOnce({
+        items: [
+          makeListItem({
+            templateKey: "auth.password_reset",
+            source: "builtin",
+          }),
+        ],
+        count: 1,
+      });
+
+    let appLoads = 0;
+    mockGetEmailTemplate.mockImplementation(async (key) => {
+      if (key === "app.club_invite") {
+        appLoads += 1;
+        if (appLoads === 1) {
+          return makeEffective({
+            templateKey: "app.club_invite",
+            source: "custom",
+            subjectTemplate: "Invite {{.Name}}",
+            htmlTemplate: "<p>Hello {{.Name}}</p>",
+            variables: [],
+          });
+        }
+        return deletedTemplateReload.promise;
+      }
+
+      if (key === "auth.password_reset") {
+        return makeEffective({
+          templateKey: "auth.password_reset",
+          source: "builtin",
+          subjectTemplate: "Reset your password",
+          htmlTemplate: "<p>Click {{.ActionURL}}</p>",
+        });
+      }
+
+      throw new Error(`unexpected key ${key}`);
+    });
+
+    renderWithProviders(<EmailTemplates />);
+    const user = userEvent.setup();
+
+    await waitFor(() => {
+      expect(screen.getByRole("heading", { name: "app.club_invite" })).toBeInTheDocument();
+    });
+
+    await user.click(screen.getByRole("button", { name: "Delete Template" }));
+
+    await waitFor(() => {
+      expect(mockDeleteEmailTemplate).toHaveBeenCalledWith("app.club_invite");
+      expect(screen.getByRole("heading", { name: "auth.password_reset" })).toBeInTheDocument();
+      expect(screen.getByLabelText("Subject Template")).toHaveValue("Reset your password");
+    });
+
+    await act(async () => {
+      deletedTemplateReload.reject(new Error("template not found"));
+      await Promise.resolve();
+    });
+
+    expect(screen.queryByText("template not found")).not.toBeInTheDocument();
+    expect(screen.getByLabelText("Subject Template")).toHaveValue("Reset your password");
   });
 });

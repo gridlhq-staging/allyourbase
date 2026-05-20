@@ -1,5 +1,6 @@
 import { vi, describe, it, expect, beforeEach } from "vitest";
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { screen, waitFor, within } from "@testing-library/react";
+import { renderWithProviders, expectWcagContrastToken } from "../../test-utils";
 import userEvent from "@testing-library/user-event";
 import { ApiKeys } from "../ApiKeys";
 import {
@@ -134,8 +135,16 @@ describe("ApiKeys", () => {
 
   it("shows loading state", () => {
     mockListApiKeys.mockReturnValue(new Promise(() => {}));
-    render(<ApiKeys />);
+    renderWithProviders(<ApiKeys />);
     expect(screen.getByText("Loading API keys...")).toBeInTheDocument();
+  });
+
+  it("loading indicator uses WCAG AA compliant contrast token", () => {
+    mockListApiKeys.mockReturnValue(new Promise(() => {}));
+    renderWithProviders(<ApiKeys />);
+
+    const className = screen.getByText("Loading API keys...").className;
+    expectWcagContrastToken(className);
   });
 
   it("renders API keys list", async () => {
@@ -144,7 +153,7 @@ describe("ApiKeys", () => {
       makeKey({ id: "k2", name: "Backend Service", keyPrefix: "ayb_def67890" }),
     ];
     mockListApiKeys.mockResolvedValueOnce(makeResponse(keys));
-    render(<ApiKeys />);
+    renderWithProviders(<ApiKeys />);
 
     await waitFor(() => {
       expect(screen.getByText("CI/CD")).toBeInTheDocument();
@@ -152,18 +161,35 @@ describe("ApiKeys", () => {
     });
   });
 
+  it("key metadata uses WCAG AA compliant contrast token", async () => {
+    mockListApiKeys.mockResolvedValueOnce(makeResponse([makeKey()]));
+    renderWithProviders(<ApiKeys />);
+
+    await waitFor(() => {
+      expect(screen.getByText("CI/CD")).toBeInTheDocument();
+    });
+
+    const className = screen.getByText("k1").className;
+    expectWcagContrastToken(className);
+  });
+
   it("shows empty state when no keys", async () => {
     mockListApiKeys.mockResolvedValueOnce(makeResponse([]));
-    render(<ApiKeys />);
+    renderWithProviders(<ApiKeys />);
 
     await waitFor(() => {
       expect(screen.getByText("No API keys created yet")).toBeInTheDocument();
+      expect(
+        screen.getByText(
+          "Use API keys for service-to-service authentication between backend systems.",
+        ),
+      ).toBeInTheDocument();
     });
   });
 
   it("shows error state with retry", async () => {
     mockListApiKeys.mockRejectedValueOnce(new Error("connection refused"));
-    render(<ApiKeys />);
+    renderWithProviders(<ApiKeys />);
 
     await waitFor(() => {
       expect(screen.getByText("connection refused")).toBeInTheDocument();
@@ -176,7 +202,7 @@ describe("ApiKeys", () => {
     mockListApiKeys.mockResolvedValueOnce(
       makeResponse(keys, { totalItems: 1 }),
     );
-    render(<ApiKeys />);
+    renderWithProviders(<ApiKeys />);
 
     await waitFor(() => {
       expect(screen.getByText("1 key")).toBeInTheDocument();
@@ -191,7 +217,7 @@ describe("ApiKeys", () => {
     mockListApiKeys.mockResolvedValueOnce(
       makeResponse(keys, { totalItems: 2 }),
     );
-    render(<ApiKeys />);
+    renderWithProviders(<ApiKeys />);
 
     await waitFor(() => {
       expect(screen.getByText("2 keys")).toBeInTheDocument();
@@ -202,7 +228,7 @@ describe("ApiKeys", () => {
     mockListApiKeys.mockResolvedValueOnce(
       makeResponse([makeKey({ keyPrefix: "ayb_abc12345" })]),
     );
-    render(<ApiKeys />);
+    renderWithProviders(<ApiKeys />);
 
     await waitFor(() => {
       expect(screen.getByText("ayb_abc12345...")).toBeInTheDocument();
@@ -213,7 +239,7 @@ describe("ApiKeys", () => {
     mockListApiKeys.mockResolvedValueOnce(
       makeResponse([makeKey({ revokedAt: null })]),
     );
-    render(<ApiKeys />);
+    renderWithProviders(<ApiKeys />);
 
     await waitFor(() => {
       expect(screen.getByText("Active")).toBeInTheDocument();
@@ -224,7 +250,7 @@ describe("ApiKeys", () => {
     mockListApiKeys.mockResolvedValueOnce(
       makeResponse([makeKey({ revokedAt: "2026-02-10T13:00:00Z" })]),
     );
-    render(<ApiKeys />);
+    renderWithProviders(<ApiKeys />);
 
     await waitFor(() => {
       expect(screen.getByText("Revoked")).toBeInTheDocument();
@@ -235,7 +261,7 @@ describe("ApiKeys", () => {
     mockListApiKeys.mockResolvedValueOnce(
       makeResponse([makeKey({ lastUsedAt: null })]),
     );
-    render(<ApiKeys />);
+    renderWithProviders(<ApiKeys />);
 
     await waitFor(() => {
       expect(screen.getByText("Never")).toBeInTheDocument();
@@ -244,7 +270,7 @@ describe("ApiKeys", () => {
 
   it("create button opens create modal", async () => {
     mockListApiKeys.mockResolvedValueOnce(makeResponse([makeKey()]));
-    render(<ApiKeys />);
+    renderWithProviders(<ApiKeys />);
 
     await waitFor(() => {
       expect(screen.getByText("CI/CD")).toBeInTheDocument();
@@ -257,6 +283,22 @@ describe("ApiKeys", () => {
     expect(screen.getByLabelText("Key name")).toBeInTheDocument();
   });
 
+  it("app-scope helper text uses WCAG AA compliant contrast token", async () => {
+    mockListApiKeys.mockResolvedValueOnce(makeResponse([makeKey()]));
+    renderWithProviders(<ApiKeys />);
+
+    await waitFor(() => {
+      expect(screen.getByText("CI/CD")).toBeInTheDocument();
+    });
+
+    const user = userEvent.setup();
+    await user.click(screen.getByText("Create Key"));
+
+    const helperText = "Select an app to apply app-level scopes and rate limits.";
+    const className = screen.getByText(helperText).className;
+    expectWcagContrastToken(className);
+  });
+
   it("create flow calls createApiKey and shows key", async () => {
     mockListApiKeys.mockResolvedValue(makeResponse([]));
     const createdResponse: APIKeyCreateResponse = {
@@ -264,7 +306,7 @@ describe("ApiKeys", () => {
       apiKey: makeKey({ id: "k-new", name: "Deploy Key" }),
     };
     mockCreateApiKey.mockResolvedValueOnce(createdResponse);
-    render(<ApiKeys />);
+    renderWithProviders(<ApiKeys />);
 
     await waitFor(() => {
       expect(screen.getByText("No API keys created yet")).toBeInTheDocument();
@@ -304,7 +346,7 @@ describe("ApiKeys", () => {
 
   it("revoke button opens confirmation dialog", async () => {
     mockListApiKeys.mockResolvedValueOnce(makeResponse([makeKey()]));
-    render(<ApiKeys />);
+    renderWithProviders(<ApiKeys />);
 
     await waitFor(() => {
       expect(screen.getByText("CI/CD")).toBeInTheDocument();
@@ -324,7 +366,7 @@ describe("ApiKeys", () => {
   it("confirming revoke calls revokeApiKey and refreshes", async () => {
     mockListApiKeys.mockResolvedValue(makeResponse([makeKey()]));
     mockRevokeApiKey.mockResolvedValueOnce(undefined);
-    render(<ApiKeys />);
+    renderWithProviders(<ApiKeys />);
 
     await waitFor(() => {
       expect(screen.getByText("CI/CD")).toBeInTheDocument();
@@ -346,7 +388,7 @@ describe("ApiKeys", () => {
 
   it("cancel on revoke dialog closes it", async () => {
     mockListApiKeys.mockResolvedValueOnce(makeResponse([makeKey()]));
-    render(<ApiKeys />);
+    renderWithProviders(<ApiKeys />);
 
     await waitFor(() => {
       expect(screen.getByText("CI/CD")).toBeInTheDocument();
@@ -364,7 +406,7 @@ describe("ApiKeys", () => {
     mockListApiKeys.mockResolvedValueOnce(
       makeResponse([makeKey({ userId: "u1" })]),
     );
-    render(<ApiKeys />);
+    renderWithProviders(<ApiKeys />);
 
     await waitFor(() => {
       expect(screen.getByText("alice@example.com")).toBeInTheDocument();
@@ -375,7 +417,7 @@ describe("ApiKeys", () => {
     mockListApiKeys.mockResolvedValueOnce(
       makeResponse([makeKey({ revokedAt: "2026-02-10T13:00:00Z" })]),
     );
-    render(<ApiKeys />);
+    renderWithProviders(<ApiKeys />);
 
     await waitFor(() => {
       expect(screen.getByText("Revoked")).toBeInTheDocument();
@@ -392,17 +434,23 @@ describe("ApiKeys", () => {
         page: 1,
       }),
     );
-    render(<ApiKeys />);
+    renderWithProviders(<ApiKeys />);
 
     await waitFor(() => {
       expect(screen.getByText("45 keys")).toBeInTheDocument();
       expect(screen.getByText("1 / 3")).toBeInTheDocument();
+      expect(
+        screen.getByRole("button", { name: "Previous page" }),
+      ).toBeDisabled();
+      expect(
+        screen.getByRole("button", { name: "Next page" }),
+      ).toBeEnabled();
     });
   });
 
   it("retry button refetches keys after error", async () => {
     mockListApiKeys.mockRejectedValueOnce(new Error("network down"));
-    render(<ApiKeys />);
+    renderWithProviders(<ApiKeys />);
 
     await waitFor(() => {
       expect(screen.getByText("network down")).toBeInTheDocument();
@@ -422,7 +470,7 @@ describe("ApiKeys", () => {
 
   it("create button disabled when name is empty", async () => {
     mockListApiKeys.mockResolvedValueOnce(makeResponse([makeKey()]));
-    render(<ApiKeys />);
+    renderWithProviders(<ApiKeys />);
 
     await waitFor(() => {
       expect(screen.getByText("CI/CD")).toBeInTheDocument();
@@ -440,7 +488,7 @@ describe("ApiKeys", () => {
 
   it("create button disabled when user is not selected", async () => {
     mockListApiKeys.mockResolvedValueOnce(makeResponse([makeKey()]));
-    render(<ApiKeys />);
+    renderWithProviders(<ApiKeys />);
 
     await waitFor(() => {
       expect(screen.getByText("CI/CD")).toBeInTheDocument();
@@ -458,7 +506,7 @@ describe("ApiKeys", () => {
 
   it("cancel on create modal closes it", async () => {
     mockListApiKeys.mockResolvedValueOnce(makeResponse([makeKey()]));
-    render(<ApiKeys />);
+    renderWithProviders(<ApiKeys />);
 
     await waitFor(() => {
       expect(screen.getByText("CI/CD")).toBeInTheDocument();
@@ -478,7 +526,7 @@ describe("ApiKeys", () => {
       key: "ayb_fullkeyshownonce1234567890abcdef0123456789ab",
       apiKey: makeKey({ id: "k-new", name: "Test Key" }),
     });
-    render(<ApiKeys />);
+    renderWithProviders(<ApiKeys />);
 
     await waitFor(() => {
       expect(screen.getByText("No API keys created yet")).toBeInTheDocument();
@@ -504,7 +552,7 @@ describe("ApiKeys", () => {
       key: "ayb_fullkeyshownonce1234567890abcdef0123456789ab",
       apiKey: makeKey({ id: "k-new", name: "Test Key" }),
     });
-    render(<ApiKeys />);
+    renderWithProviders(<ApiKeys />);
 
     await waitFor(() => {
       expect(screen.getByText("No API keys created yet")).toBeInTheDocument();
@@ -527,7 +575,7 @@ describe("ApiKeys", () => {
   it("revoke refreshes key list after success", async () => {
     mockListApiKeys.mockResolvedValue(makeResponse([makeKey()]));
     mockRevokeApiKey.mockResolvedValueOnce(undefined);
-    render(<ApiKeys />);
+    renderWithProviders(<ApiKeys />);
 
     await waitFor(() => {
       expect(screen.getByText("CI/CD")).toBeInTheDocument();
@@ -553,7 +601,7 @@ describe("ApiKeys", () => {
     mockListApiKeys.mockResolvedValueOnce(
       makeResponse([makeKey({ lastUsedAt: "2026-02-09T08:00:00Z" })]),
     );
-    render(<ApiKeys />);
+    renderWithProviders(<ApiKeys />);
 
     await waitFor(() => {
       // "Never" should not appear since lastUsedAt is set
@@ -575,7 +623,7 @@ describe("ApiKeys", () => {
     mockListApiKeys.mockResolvedValueOnce(
       makeResponse([makeKey({ userId: "unknown-user-id" })]),
     );
-    render(<ApiKeys />);
+    renderWithProviders(<ApiKeys />);
 
     await waitFor(() => {
       expect(screen.getByText("unknown-user-id")).toBeInTheDocument();
@@ -586,7 +634,7 @@ describe("ApiKeys", () => {
     mockListApiKeys.mockResolvedValueOnce(
       makeResponse([makeKey({ scope: "*" })]),
     );
-    render(<ApiKeys />);
+    renderWithProviders(<ApiKeys />);
 
     await waitFor(() => {
       expect(screen.getByText("full access")).toBeInTheDocument();
@@ -597,7 +645,7 @@ describe("ApiKeys", () => {
     mockListApiKeys.mockResolvedValueOnce(
       makeResponse([makeKey({ scope: "readonly" })]),
     );
-    render(<ApiKeys />);
+    renderWithProviders(<ApiKeys />);
 
     await waitFor(() => {
       expect(screen.getByText("readonly")).toBeInTheDocument();
@@ -608,7 +656,7 @@ describe("ApiKeys", () => {
     mockListApiKeys.mockResolvedValueOnce(
       makeResponse([makeKey({ scope: "readwrite" })]),
     );
-    render(<ApiKeys />);
+    renderWithProviders(<ApiKeys />);
 
     await waitFor(() => {
       expect(screen.getByText("readwrite")).toBeInTheDocument();
@@ -619,7 +667,7 @@ describe("ApiKeys", () => {
     mockListApiKeys.mockResolvedValueOnce(
       makeResponse([makeKey({ allowedTables: ["posts", "comments"] })]),
     );
-    render(<ApiKeys />);
+    renderWithProviders(<ApiKeys />);
 
     await waitFor(() => {
       expect(screen.getByText("posts, comments")).toBeInTheDocument();
@@ -630,7 +678,7 @@ describe("ApiKeys", () => {
     mockListApiKeys.mockResolvedValueOnce(
       makeResponse([makeKey({ allowedTables: null })]),
     );
-    render(<ApiKeys />);
+    renderWithProviders(<ApiKeys />);
 
     await waitFor(() => {
       expect(screen.getByText("full access")).toBeInTheDocument();
@@ -640,7 +688,7 @@ describe("ApiKeys", () => {
 
   it("scope column header is visible", async () => {
     mockListApiKeys.mockResolvedValueOnce(makeResponse([makeKey()]));
-    render(<ApiKeys />);
+    renderWithProviders(<ApiKeys />);
 
     await waitFor(() => {
       expect(screen.getByText("Scope")).toBeInTheDocument();
@@ -649,7 +697,7 @@ describe("ApiKeys", () => {
 
   it("create form has scope selector defaulting to full access", async () => {
     mockListApiKeys.mockResolvedValueOnce(makeResponse([makeKey()]));
-    render(<ApiKeys />);
+    renderWithProviders(<ApiKeys />);
 
     await waitFor(() => {
       expect(screen.getByText("CI/CD")).toBeInTheDocument();
@@ -668,7 +716,7 @@ describe("ApiKeys", () => {
       key: "ayb_testkey",
       apiKey: makeKey({ id: "k-new", name: "Readonly Key", scope: "readonly" }),
     });
-    render(<ApiKeys />);
+    renderWithProviders(<ApiKeys />);
 
     await waitFor(() => {
       expect(screen.getByText("No API keys created yet")).toBeInTheDocument();
@@ -696,7 +744,7 @@ describe("ApiKeys", () => {
       key: "ayb_testkey",
       apiKey: makeKey({ id: "k-new", name: "Limited Key", scope: "readwrite", allowedTables: ["posts"] }),
     });
-    render(<ApiKeys />);
+    renderWithProviders(<ApiKeys />);
 
     await waitFor(() => {
       expect(screen.getByText("No API keys created yet")).toBeInTheDocument();
@@ -728,7 +776,7 @@ describe("ApiKeys", () => {
         makeApp({ id: "a-analytics", name: "Analytics" }),
       ]),
     );
-    render(<ApiKeys />);
+    renderWithProviders(<ApiKeys />);
 
     await waitFor(() => {
       expect(screen.getByText("CI/CD")).toBeInTheDocument();
@@ -753,7 +801,7 @@ describe("ApiKeys", () => {
       key: "ayb_testkey",
       apiKey: makeKey({ id: "k-new", name: "Orders Key", appId: "a-orders" }),
     });
-    render(<ApiKeys />);
+    renderWithProviders(<ApiKeys />);
 
     await waitFor(() => {
       expect(screen.getByText("No API keys created yet")).toBeInTheDocument();
@@ -783,7 +831,7 @@ describe("ApiKeys", () => {
     mockListApiKeys.mockResolvedValueOnce(
       makeResponse([makeKey({ appId: "a-orders" })]),
     );
-    render(<ApiKeys />);
+    renderWithProviders(<ApiKeys />);
 
     await waitFor(() => {
       expect(screen.getByText("Orders Service")).toBeInTheDocument();
@@ -799,7 +847,7 @@ describe("ApiKeys", () => {
     mockListApiKeys.mockResolvedValueOnce(
       makeResponse([makeKey({ appId: "a-orders" })]),
     );
-    render(<ApiKeys />);
+    renderWithProviders(<ApiKeys />);
 
     await waitFor(() => {
       expect(screen.getByText("Rate: 120 req/60s")).toBeInTheDocument();
@@ -810,7 +858,7 @@ describe("ApiKeys", () => {
     mockListApiKeys.mockResolvedValueOnce(
       makeResponse([makeKey({ appId: null })]),
     );
-    render(<ApiKeys />);
+    renderWithProviders(<ApiKeys />);
 
     await waitFor(() => {
       expect(screen.getByText("User-scoped")).toBeInTheDocument();
@@ -826,7 +874,7 @@ describe("ApiKeys", () => {
     mockListApiKeys.mockResolvedValueOnce(
       makeResponse([makeKey({ appId: "a-free" })]),
     );
-    render(<ApiKeys />);
+    renderWithProviders(<ApiKeys />);
 
     await waitFor(() => {
       expect(screen.getByText("Rate: unlimited")).toBeInTheDocument();
@@ -838,7 +886,7 @@ describe("ApiKeys", () => {
     mockListApiKeys.mockResolvedValueOnce(
       makeResponse([makeKey({ appId: "a-unknown" })]),
     );
-    render(<ApiKeys />);
+    renderWithProviders(<ApiKeys />);
 
     await waitFor(() => {
       expect(screen.getByText("a-unknown")).toBeInTheDocument();
@@ -858,7 +906,7 @@ describe("ApiKeys", () => {
       key: "ayb_testkey",
       apiKey: makeKey({ id: "k-new", name: "App Key", appId: "a-orders" }),
     });
-    render(<ApiKeys />);
+    renderWithProviders(<ApiKeys />);
 
     await waitFor(() => {
       expect(screen.getByText("No API keys created yet")).toBeInTheDocument();
@@ -885,7 +933,7 @@ describe("ApiKeys", () => {
       key: "ayb_testkey",
       apiKey: makeKey({ id: "k-new", name: "Test Key", scope: "readonly" }),
     });
-    render(<ApiKeys />);
+    renderWithProviders(<ApiKeys />);
 
     await waitFor(() => {
       expect(screen.getByText("No API keys created yet")).toBeInTheDocument();
@@ -915,7 +963,7 @@ describe("ApiKeys", () => {
         allowedTables: ["orders", "products"],
       }),
     });
-    render(<ApiKeys />);
+    renderWithProviders(<ApiKeys />);
 
     await waitFor(() => {
       expect(screen.getByText("No API keys created yet")).toBeInTheDocument();

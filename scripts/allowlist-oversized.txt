@@ -1,0 +1,2 @@
+# Stage 4 deferred oversized Go files.
+# Format: path:line_count

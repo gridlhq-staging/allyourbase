@@ -1,0 +1,696 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+TMP_DIR="$(mktemp -d)"
+SERVER_PIDS=()
+cleanup() {
+  for pid in "${SERVER_PIDS[@]}"; do
+    if [[ -n "$pid" ]]; then
+      kill "$pid" 2>/dev/null || true
+      wait "$pid" 2>/dev/null || true
+    fi
+  done
+  chmod -R u+w "$TMP_DIR" 2>/dev/null || true
+  rm -rf "$TMP_DIR"
+}
+trap cleanup EXIT
+
+find_free_port() {
+  python3 -c 'import socket; s=socket.socket(); s.bind(("127.0.0.1",0)); print(s.getsockname()[1]); s.close()'
+}
+
+PASS_COUNT=0
+
+assert_contains() {
+  local file_path="$1"
+  local needle="$2"
+  local fail_message="$3"
+  if ! grep -Fq -- "$needle" "$file_path"; then
+    echo "FAIL: ${fail_message}"
+    echo "--- ${file_path} ---"
+    cat "$file_path"
+    exit 1
+  fi
+}
+
+assert_not_contains() {
+  local file_path="$1"
+  local needle="$2"
+  local fail_message="$3"
+  if grep -Fq -- "$needle" "$file_path"; then
+    echo "FAIL: ${fail_message}"
+    echo "--- ${file_path} ---"
+    cat "$file_path"
+    exit 1
+  fi
+}
+
+assert_equals() {
+  local actual="$1"
+  local expected="$2"
+  local fail_message="$3"
+  if [[ "$actual" != "$expected" ]]; then
+    echo "FAIL: ${fail_message}"
+    echo "expected: ${expected}"
+    echo "actual:   ${actual}"
+    exit 1
+  fi
+}
+
+assert_nonempty_dynamic_jwt_secret() {
+  local file_path="$1"
+  local fail_message="$2"
+  if ! grep -Eq '^AYB_AUTH_JWT_SECRET=.+$' "$file_path"; then
+    echo "FAIL: ${fail_message}"
+    echo "--- ${file_path} ---"
+    cat "$file_path"
+    exit 1
+  fi
+  if grep -Fq -- "AYB_AUTH_JWT_SECRET=stage3-load-jwt-secret-0123456789" "$file_path"; then
+    echo "FAIL: ${fail_message}"
+    echo "--- ${file_path} ---"
+    cat "$file_path"
+    exit 1
+  fi
+}
+
+# run_direct_make invokes a Makefile target with the standard direct-mode env
+# (no local server boot). Args: RECORD_PATH TARGET LABEL PORT
+run_direct_make() {
+  local record_path="$1" target="$2" label="$3" port="$4"
+  if ! env -u AYB_AUTH_ENABLED -u AYB_AUTH_JWT_SECRET \
+    PATH="${TMP_DIR}/bin:${PATH}" \
+    HOME="${TMP_DIR}/home" \
+    K6_RECORD_PATH="$record_path" \
+    LOAD_K6_BIN="${TMP_DIR}/bin/k6" \
+    AYB_BASE_URL="http://127.0.0.1:${port}" \
+    make "$target" > "${TMP_DIR}/${label}.stdout" 2> "${TMP_DIR}/${label}.stderr"; then
+    echo "FAIL: make ${target} failed"
+    cat "${TMP_DIR}/${label}.stdout"
+    cat "${TMP_DIR}/${label}.stderr"
+    exit 1
+  fi
+}
+
+# run_local_make invokes a Makefile -local target, booting the fixture server.
+# Args: RECORD_PATH TARGET LABEL PORT AUTH_LOG TOKEN_NAME
+run_local_make_with_expectation() {
+  local expect_success="$1" record_path="$2" target="$3" label="$4" port="$5" auth_log="$6" token_name="$7"
+  if env -u AYB_AUTH_ENABLED -u AYB_AUTH_JWT_SECRET \
+    PATH="${TMP_DIR}/bin:${PATH}" \
+    HOME="${TMP_DIR}/home" \
+    K6_RECORD_PATH="$record_path" \
+    LOAD_K6_BIN="${TMP_DIR}/bin/k6" \
+    REQUIRE_HEALTH_READY=1 \
+    AYB_BASE_URL="http://127.0.0.1:${port}" \
+    AYB_HEALTH_URL="http://127.0.0.1:${port}/health" \
+    AYB_ADMIN_PASSWORD='password-from-file' \
+    AYB_START_COMMAND="python3 \"${TMP_DIR}/auth_server.py\" ${port} \"${auth_log}\" password-from-file ${token_name}" \
+    make "$target" > "${TMP_DIR}/${label}.stdout" 2> "${TMP_DIR}/${label}.stderr"; then
+    if [[ "$expect_success" == "0" ]]; then
+      echo "FAIL: make ${target} unexpectedly succeeded"
+      cat "${TMP_DIR}/${label}.stdout"
+      cat "${TMP_DIR}/${label}.stderr"
+      exit 1
+    fi
+    return 0
+  fi
+  if [[ "$expect_success" == "1" ]]; then
+    echo "FAIL: make ${target} failed"
+    cat "${TMP_DIR}/${label}.stdout"
+    cat "${TMP_DIR}/${label}.stderr"
+    exit 1
+  fi
+}
+
+run_local_make() {
+  run_local_make_with_expectation "1" "$@"
+}
+
+run_local_make_expect_failure() {
+  run_local_make_with_expectation "0" "$@"
+}
+
+assert_local_unsafe_guard_refusal() {
+  local label="$1" target="$2" record_path="$3" auth_log="$4"
+  assert_contains "${TMP_DIR}/${label}.stderr" "Refusing dangerous local load tier ${target}" "${target} should emit the shared unsafe-tier refusal message"
+  assert_contains "${TMP_DIR}/${label}.stderr" "AYB_LOAD_UNSAFE=1" "${target} should document the explicit AYB_LOAD_UNSAFE=1 opt-in contract"
+  if [[ -e "$record_path" ]]; then
+    echo "FAIL: ${target} should fail before k6 starts when AYB_LOAD_UNSAFE is unset"
+    cat "$record_path"
+    exit 1
+  fi
+  if [[ -e "$auth_log" ]]; then
+    echo "FAIL: ${target} should fail before scripts/run-with-ayb.sh starts AYB when AYB_LOAD_UNSAFE is unset"
+    cat "$auth_log"
+    exit 1
+  fi
+}
+
+assert_contains "tests/load/ayb-load.toml" "[managed_pg]" "load harness config should define managed_pg overrides"
+assert_contains "tests/load/ayb-load.toml" 'extensions = ["pgvector", "pg_trgm"]' "load harness config should disable pg_cron by pinning only pgvector and pg_trgm"
+PASS_COUNT=$((PASS_COUNT + 1))
+
+STARTUP_TEST_PORT="$(find_free_port)"
+
+LOAD_CONFIG_START_STDOUT="${TMP_DIR}/load-config-start.stdout"
+LOAD_CONFIG_START_STDERR="${TMP_DIR}/load-config-start.stderr"
+LOAD_CONFIG_START_LOG="${TMP_DIR}/load-config-start.log"
+if ! AYB_ADMIN_PASSWORD="stage4-load-admin-password" \
+  AYB_AUTH_ENABLED=true \
+  AYB_AUTH_JWT_SECRET="stage4-load-jwt-secret-0123456789" \
+  AYB_HEALTH_TIMEOUT_SECONDS=45 \
+  AYB_HEALTH_URL="http://127.0.0.1:${STARTUP_TEST_PORT}/health" \
+  AYB_START_LOG="${LOAD_CONFIG_START_LOG}" \
+  AYB_START_COMMAND="./ayb start --foreground --config tests/load/ayb-load.toml --host 127.0.0.1 --port ${STARTUP_TEST_PORT}" \
+  bash scripts/run-with-ayb.sh "curl -fsS http://127.0.0.1:${STARTUP_TEST_PORT}/health > /dev/null" > "${LOAD_CONFIG_START_STDOUT}" 2> "${LOAD_CONFIG_START_STDERR}"; then
+  echo "FAIL: load-specific AYB startup should succeed with pg_cron-free config"
+  cat "${LOAD_CONFIG_START_STDOUT}"
+  cat "${LOAD_CONFIG_START_STDERR}"
+  exit 1
+fi
+PASS_COUNT=$((PASS_COUNT + 1))
+
+LOCAL_TARGET_SEMICOLON_LINES="$(
+  grep -nE '^[[:space:]]*@bash -lc .*run-with-ayb\.sh "load_resolve_admin_token; \$\(LOAD_' Makefile || true
+)"
+if [[ -n "$LOCAL_TARGET_SEMICOLON_LINES" ]]; then
+  echo "FAIL: local Makefile load targets must use && between load_resolve_admin_token and k6 command"
+  echo "$LOCAL_TARGET_SEMICOLON_LINES"
+  exit 1
+fi
+
+LOCAL_TARGET_AND_COUNT="$(
+  grep -Ec '^[[:space:]]*@bash -lc .*run-with-ayb\.sh "load_resolve_admin_token && \$\(LOAD_' Makefile || true
+)"
+assert_equals "$LOCAL_TARGET_AND_COUNT" "6" "all six local Makefile load targets should use && fail-fast separators"
+PASS_COUNT=$((PASS_COUNT + 1))
+
+LOCAL_TARGET_MISSING_EXPORTS="$(
+  grep -nE '^[[:space:]]*@bash -lc .*run-with-ayb\.sh "load_resolve_admin_token && \$\(LOAD_' Makefile | \
+    grep -v 'export -f load_base_url_is_loopback load_exchange_admin_password_for_token load_resolve_admin_token;' || true
+)"
+if [[ -n "$LOCAL_TARGET_MISSING_EXPORTS" ]]; then
+  echo "FAIL: local Makefile load targets that call load_resolve_admin_token in run-with-ayb must export helper functions"
+  echo "$LOCAL_TARGET_MISSING_EXPORTS"
+  exit 1
+fi
+PASS_COUNT=$((PASS_COUNT + 1))
+
+assert_contains "Makefile" "LOAD_LOCAL_AYB_START_COMMAND := ./ayb start --foreground --config tests/load/ayb-load.toml" "load-specific local start command should pin pg_cron-free ayb.toml"
+PASS_COUNT=$((PASS_COUNT + 1))
+
+mkdir -p "${TMP_DIR}/home/.ayb" "${TMP_DIR}/bin"
+printf "password-from-file\n" > "${TMP_DIR}/home/.ayb/admin-token"
+
+cat > "${TMP_DIR}/auth_server.py" <<'PY'
+#!/usr/bin/env python3
+import json
+import pathlib
+import sys
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+port = int(sys.argv[1])
+auth_log_path = pathlib.Path(sys.argv[2])
+expected_password = sys.argv[3]
+issued_token = sys.argv[4]
+
+
+class Handler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        if self.path == "/health":
+            body = b"ok\n"
+            self.send_response(200)
+            self.send_header("Content-Type", "text/plain")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+            return
+
+        self.send_error(404)
+
+    def do_POST(self):
+        if self.path != "/api/admin/auth":
+            self.send_error(404)
+            return
+
+        length = int(self.headers.get("Content-Length", "0"))
+        raw_body = self.rfile.read(length)
+        auth_log_path.write_bytes(raw_body)
+        try:
+            payload = json.loads(raw_body.decode("utf-8"))
+        except json.JSONDecodeError:
+            self.send_error(400)
+            return
+
+        if payload.get("password") != expected_password:
+            self.send_error(401)
+            return
+
+        response = json.dumps({"token": issued_token}).encode("utf-8")
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(response)))
+        self.end_headers()
+        self.wfile.write(response)
+
+    def log_message(self, _format, *_args):
+        return
+
+
+ThreadingHTTPServer(("127.0.0.1", port), Handler).serve_forever()
+PY
+chmod +x "${TMP_DIR}/auth_server.py"
+
+cat > "${TMP_DIR}/bin/k6" <<'K6'
+#!/usr/bin/env bash
+set -euo pipefail
+: "${K6_RECORD_PATH:?missing K6_RECORD_PATH}"
+{
+  printf 'argv=%s\n' "$*"
+  printf 'AYB_ADMIN_TOKEN=%s\n' "${AYB_ADMIN_TOKEN:-}"
+  if [[ -n "${AYB_AUTH_ENABLED+x}" ]]; then
+    printf 'AYB_AUTH_ENABLED=%s\n' "${AYB_AUTH_ENABLED}"
+  fi
+  if [[ -n "${AYB_AUTH_JWT_SECRET+x}" ]]; then
+    printf 'AYB_AUTH_JWT_SECRET=%s\n' "${AYB_AUTH_JWT_SECRET}"
+  fi
+  if [[ -n "${K6_VUS+x}" ]]; then
+    printf 'K6_VUS=%s\n' "${K6_VUS}"
+  fi
+  if [[ -n "${K6_ITERATIONS+x}" ]]; then
+    printf 'K6_ITERATIONS=%s\n' "${K6_ITERATIONS}"
+  fi
+  if [[ -n "${AYB_POOL_PRESSURE_VUS+x}" ]]; then
+    printf 'AYB_POOL_PRESSURE_VUS=%s\n' "${AYB_POOL_PRESSURE_VUS}"
+  fi
+  if [[ -n "${AYB_POOL_PRESSURE_ITERATIONS+x}" ]]; then
+    printf 'AYB_POOL_PRESSURE_ITERATIONS=%s\n' "${AYB_POOL_PRESSURE_ITERATIONS}"
+  fi
+  printf 'AYB_AUTH_RATE_LIMIT=%s\n' "${AYB_AUTH_RATE_LIMIT:-}"
+  printf 'AYB_RATE_LIMIT_API=%s\n' "${AYB_RATE_LIMIT_API:-}"
+  printf 'AYB_RATE_LIMIT_API_ANONYMOUS=%s\n' "${AYB_RATE_LIMIT_API_ANONYMOUS:-}"
+  printf 'AYB_BASE_URL=%s\n' "${AYB_BASE_URL:-}"
+  printf '%s\n' '--'
+} >> "$K6_RECORD_PATH"
+
+if [[ "${REQUIRE_HEALTH_READY:-0}" == "1" ]]; then
+  curl -fsS "${AYB_BASE_URL}/health" > /dev/null
+fi
+K6
+chmod +x "${TMP_DIR}/bin/k6"
+
+DIRECT_AUTH_LOG="${TMP_DIR}/direct-auth.log"
+DIRECT_PORT="$(find_free_port)"
+python3 "${TMP_DIR}/auth_server.py" "$DIRECT_PORT" "$DIRECT_AUTH_LOG" "password-from-file" "token-from-direct-auth" > "${TMP_DIR}/direct.server.log" 2>&1 &
+DIRECT_SERVER_PID=$!
+SERVER_PIDS+=("$DIRECT_SERVER_PID")
+
+wait_for_http() {
+  local url="$1"
+  local fail_message="$2"
+  for _ in $(seq 1 50); do
+    if curl -fsS "$url" > /dev/null 2>&1; then
+      return 0
+    fi
+    sleep 0.1
+  done
+
+  echo "FAIL: ${fail_message}"
+  exit 1
+}
+
+wait_for_http "http://127.0.0.1:${DIRECT_PORT}/health" "direct auth fixture did not become healthy"
+
+DIRECT_RECORD_PATH="${TMP_DIR}/direct-k6.log"
+run_direct_make "$DIRECT_RECORD_PATH" load-admin-status direct "$DIRECT_PORT"
+
+assert_contains "$DIRECT_RECORD_PATH" "argv=run" "k6 should be invoked in run mode for direct target"
+assert_contains "$DIRECT_RECORD_PATH" "tests/load/scenarios/admin_status.js" "direct target should execute admin_status scenario"
+assert_contains "$DIRECT_RECORD_PATH" "AYB_ADMIN_TOKEN=token-from-direct-auth" "direct target should export bearer token returned by /api/admin/auth"
+assert_contains "$DIRECT_RECORD_PATH" "AYB_AUTH_RATE_LIMIT=10000" "direct target should export load-safe auth rate limit"
+assert_contains "$DIRECT_RECORD_PATH" "AYB_RATE_LIMIT_API=10000/min" "direct target should export load-safe API rate limit"
+assert_contains "$DIRECT_RECORD_PATH" "AYB_RATE_LIMIT_API_ANONYMOUS=10000/min" "direct target should export load-safe anonymous API rate limit"
+assert_not_contains "$DIRECT_RECORD_PATH" "AYB_AUTH_ENABLED=" "baseline direct target should not force auth enablement for the Stage 2 server config"
+assert_not_contains "$DIRECT_RECORD_PATH" "AYB_AUTH_JWT_SECRET=" "baseline direct target should not inject auth jwt config"
+assert_contains "$DIRECT_AUTH_LOG" "\"password\": \"password-from-file\"" "direct target should exchange the saved admin password via /api/admin/auth"
+PASS_COUNT=$((PASS_COUNT + 1))
+
+AUTH_DIRECT_RECORD_PATH="${TMP_DIR}/auth-direct-k6.log"
+run_direct_make "$AUTH_DIRECT_RECORD_PATH" load-auth-request-path auth-direct "$DIRECT_PORT"
+
+assert_contains "$AUTH_DIRECT_RECORD_PATH" "argv=run" "auth direct target should execute k6 run"
+assert_contains "$AUTH_DIRECT_RECORD_PATH" "tests/load/scenarios/auth_register_login_refresh.js" "auth direct target should execute auth request-path scenario"
+assert_contains "$AUTH_DIRECT_RECORD_PATH" "AYB_ADMIN_TOKEN=token-from-direct-auth" "auth direct target should resolve admin auth bootstrap token"
+assert_contains "$AUTH_DIRECT_RECORD_PATH" "AYB_AUTH_ENABLED=true" "auth direct target should enable auth for auth scenario smoke runs"
+assert_nonempty_dynamic_jwt_secret "$AUTH_DIRECT_RECORD_PATH" "auth direct target should inject a non-empty, non-static jwt secret for auth scenario smoke runs"
+assert_not_contains "Makefile" "/api/auth/register" "makefile should not duplicate auth payload request logic"
+assert_not_contains "Makefile" "/api/auth/login" "makefile should not duplicate auth payload request logic"
+assert_not_contains "Makefile" "/api/auth/refresh" "makefile should not duplicate auth payload request logic"
+PASS_COUNT=$((PASS_COUNT + 1))
+
+DATA_PATH_DIRECT_RECORD_PATH="${TMP_DIR}/data-path-direct-k6.log"
+run_direct_make "$DATA_PATH_DIRECT_RECORD_PATH" load-data-path data-path-direct "$DIRECT_PORT"
+
+assert_contains "$DATA_PATH_DIRECT_RECORD_PATH" "argv=run" "data-path direct target should execute k6 run"
+assert_contains "$DATA_PATH_DIRECT_RECORD_PATH" "tests/load/scenarios/data_path_crud_batch.js" "data-path direct target should execute CRUD/batch scenario"
+assert_contains "$DATA_PATH_DIRECT_RECORD_PATH" "AYB_ADMIN_TOKEN=token-from-direct-auth" "data-path direct target should resolve admin auth bootstrap token"
+assert_contains "$DATA_PATH_DIRECT_RECORD_PATH" "AYB_AUTH_RATE_LIMIT=10000" "data-path direct target should export load-safe auth rate limit"
+assert_contains "$DATA_PATH_DIRECT_RECORD_PATH" "AYB_RATE_LIMIT_API=10000/min" "data-path direct target should export load-safe API rate limit"
+assert_contains "$DATA_PATH_DIRECT_RECORD_PATH" "AYB_RATE_LIMIT_API_ANONYMOUS=10000/min" "data-path direct target should export load-safe anonymous API rate limit"
+PASS_COUNT=$((PASS_COUNT + 1))
+
+POOL_PRESSURE_DIRECT_RECORD_PATH="${TMP_DIR}/pool-pressure-direct-k6.log"
+run_direct_make "$POOL_PRESSURE_DIRECT_RECORD_PATH" load-data-pool-pressure pool-pressure-direct "$DIRECT_PORT"
+
+assert_contains "$POOL_PRESSURE_DIRECT_RECORD_PATH" "argv=run" "pool-pressure direct target should execute k6 run"
+assert_contains "$POOL_PRESSURE_DIRECT_RECORD_PATH" "tests/load/scenarios/data_pool_pressure.js" "pool-pressure direct target should execute admin SQL pressure scenario"
+assert_contains "$POOL_PRESSURE_DIRECT_RECORD_PATH" "AYB_ADMIN_TOKEN=token-from-direct-auth" "pool-pressure direct target should resolve admin auth bootstrap token"
+assert_contains "$POOL_PRESSURE_DIRECT_RECORD_PATH" "AYB_AUTH_RATE_LIMIT=10000" "pool-pressure direct target should export load-safe auth rate limit"
+assert_contains "$POOL_PRESSURE_DIRECT_RECORD_PATH" "AYB_RATE_LIMIT_API=10000/min" "pool-pressure direct target should export load-safe API rate limit"
+assert_contains "$POOL_PRESSURE_DIRECT_RECORD_PATH" "AYB_RATE_LIMIT_API_ANONYMOUS=10000/min" "pool-pressure direct target should export load-safe anonymous API rate limit"
+assert_not_contains "Makefile" "SELECT pg_sleep(2)" "makefile should not duplicate admin SQL pressure query bodies"
+assert_not_contains "Makefile" "CREATE TABLE" "makefile should not embed Stage 4 fixture DDL bodies"
+assert_not_contains "Makefile" "DROP TABLE" "makefile should not embed Stage 4 fixture teardown DDL bodies"
+PASS_COUNT=$((PASS_COUNT + 1))
+
+REALTIME_DIRECT_RECORD_PATH="${TMP_DIR}/realtime-direct-k6.log"
+run_direct_make "$REALTIME_DIRECT_RECORD_PATH" load-realtime-ws realtime-direct "$DIRECT_PORT"
+
+assert_contains "$REALTIME_DIRECT_RECORD_PATH" "argv=run" "realtime direct target should execute k6 run"
+assert_contains "$REALTIME_DIRECT_RECORD_PATH" "tests/load/scenarios/realtime_ws_subscribe.js" "realtime direct target should execute Stage 5 websocket scenario"
+assert_contains "$REALTIME_DIRECT_RECORD_PATH" "AYB_ADMIN_TOKEN=token-from-direct-auth" "realtime direct target should resolve admin auth bootstrap token"
+assert_contains "$REALTIME_DIRECT_RECORD_PATH" "AYB_AUTH_ENABLED=true" "realtime direct target should enable auth for websocket user sessions"
+assert_nonempty_dynamic_jwt_secret "$REALTIME_DIRECT_RECORD_PATH" "realtime direct target should inject a non-empty, non-static jwt secret for websocket user sessions"
+assert_contains "$REALTIME_DIRECT_RECORD_PATH" "AYB_AUTH_RATE_LIMIT=10000" "realtime direct target should export load-safe auth rate limit"
+assert_contains "$REALTIME_DIRECT_RECORD_PATH" "AYB_RATE_LIMIT_API=10000/min" "realtime direct target should export load-safe API rate limit"
+assert_contains "$REALTIME_DIRECT_RECORD_PATH" "AYB_RATE_LIMIT_API_ANONYMOUS=10000/min" "realtime direct target should export load-safe anonymous API rate limit"
+assert_not_contains "Makefile" "\"type\":\"subscribe\"" "makefile should not duplicate realtime websocket payload bodies"
+PASS_COUNT=$((PASS_COUNT + 1))
+
+DIRECT_ENV_FALLBACK_AUTH_LOG="${TMP_DIR}/direct-env-fallback-auth.log"
+DIRECT_ENV_FALLBACK_PORT="$(find_free_port)"
+python3 "${TMP_DIR}/auth_server.py" "$DIRECT_ENV_FALLBACK_PORT" "$DIRECT_ENV_FALLBACK_AUTH_LOG" "password-from-env" "token-from-env-admin-password" > "${TMP_DIR}/direct-env-fallback.server.log" 2>&1 &
+DIRECT_ENV_FALLBACK_SERVER_PID=$!
+SERVER_PIDS+=("$DIRECT_ENV_FALLBACK_SERVER_PID")
+wait_for_http "http://127.0.0.1:${DIRECT_ENV_FALLBACK_PORT}/health" "direct env-fallback auth fixture did not become healthy"
+
+DIRECT_ENV_FALLBACK_HOME="${TMP_DIR}/direct-env-fallback-home"
+mkdir -p "${DIRECT_ENV_FALLBACK_HOME}/.ayb"
+printf "stale-password-from-file\n" > "${DIRECT_ENV_FALLBACK_HOME}/.ayb/admin-token"
+
+DIRECT_ENV_FALLBACK_RECORD_PATH="${TMP_DIR}/direct-env-fallback-k6.log"
+if ! env -u AYB_AUTH_ENABLED -u AYB_AUTH_JWT_SECRET \
+  PATH="${TMP_DIR}/bin:${PATH}" \
+  HOME="${DIRECT_ENV_FALLBACK_HOME}" \
+  K6_RECORD_PATH="${DIRECT_ENV_FALLBACK_RECORD_PATH}" \
+  LOAD_K6_BIN="${TMP_DIR}/bin/k6" \
+  AYB_BASE_URL="http://127.0.0.1:${DIRECT_ENV_FALLBACK_PORT}" \
+  AYB_ADMIN_PASSWORD="password-from-env" \
+  make load-realtime-ws > "${TMP_DIR}/direct-env-fallback.stdout" 2> "${TMP_DIR}/direct-env-fallback.stderr"; then
+  echo "FAIL: make load-realtime-ws failed in env-first admin password fallback contract"
+  cat "${TMP_DIR}/direct-env-fallback.stdout"
+  cat "${TMP_DIR}/direct-env-fallback.stderr"
+  exit 1
+fi
+
+assert_contains "$DIRECT_ENV_FALLBACK_RECORD_PATH" "AYB_ADMIN_TOKEN=token-from-env-admin-password" "load_resolve_admin_token should prioritize AYB_ADMIN_PASSWORD when file password is stale"
+assert_contains "$DIRECT_ENV_FALLBACK_AUTH_LOG" "\"password\": \"password-from-env\"" "load_resolve_admin_token should exchange AYB_ADMIN_PASSWORD before file fallback"
+kill "$DIRECT_ENV_FALLBACK_SERVER_PID" 2>/dev/null || true
+wait "$DIRECT_ENV_FALLBACK_SERVER_PID" 2>/dev/null || true
+PASS_COUNT=$((PASS_COUNT + 1))
+
+DIRECT_INVALID_FALLBACK_AUTH_LOG="${TMP_DIR}/direct-invalid-fallback-auth.log"
+DIRECT_INVALID_FALLBACK_PORT="$(find_free_port)"
+python3 "${TMP_DIR}/auth_server.py" "$DIRECT_INVALID_FALLBACK_PORT" "$DIRECT_INVALID_FALLBACK_AUTH_LOG" "password-that-never-matches" "token-that-should-not-be-issued" > "${TMP_DIR}/direct-invalid-fallback.server.log" 2>&1 &
+DIRECT_INVALID_FALLBACK_SERVER_PID=$!
+SERVER_PIDS+=("$DIRECT_INVALID_FALLBACK_SERVER_PID")
+wait_for_http "http://127.0.0.1:${DIRECT_INVALID_FALLBACK_PORT}/health" "direct invalid-fallback auth fixture did not become healthy"
+
+DIRECT_INVALID_FALLBACK_HOME="${TMP_DIR}/direct-invalid-fallback-home"
+mkdir -p "${DIRECT_INVALID_FALLBACK_HOME}/.ayb"
+printf "stale-password-from-file\n" > "${DIRECT_INVALID_FALLBACK_HOME}/.ayb/admin-token"
+
+DIRECT_INVALID_FALLBACK_RECORD_PATH="${TMP_DIR}/direct-invalid-fallback-k6.log"
+if env -u AYB_AUTH_ENABLED -u AYB_AUTH_JWT_SECRET \
+  PATH="${TMP_DIR}/bin:${PATH}" \
+  HOME="${DIRECT_INVALID_FALLBACK_HOME}" \
+  K6_RECORD_PATH="${DIRECT_INVALID_FALLBACK_RECORD_PATH}" \
+  LOAD_K6_BIN="${TMP_DIR}/bin/k6" \
+  AYB_BASE_URL="http://127.0.0.1:${DIRECT_INVALID_FALLBACK_PORT}" \
+  AYB_ADMIN_PASSWORD="another-stale-password" \
+  make load-realtime-ws > "${TMP_DIR}/direct-invalid-fallback.stdout" 2> "${TMP_DIR}/direct-invalid-fallback.stderr"; then
+  echo "FAIL: make load-realtime-ws should fail when all admin token bootstrap sources are invalid"
+  cat "${TMP_DIR}/direct-invalid-fallback.stdout"
+  cat "${TMP_DIR}/direct-invalid-fallback.stderr"
+  exit 1
+fi
+
+assert_contains "${TMP_DIR}/direct-invalid-fallback.stderr" "Unable to resolve AYB admin token" "load_resolve_admin_token should fail fast when /api/admin/auth rejects all password sources"
+assert_contains "$DIRECT_INVALID_FALLBACK_AUTH_LOG" "\"password\": \"stale-password-from-file\"" "load_resolve_admin_token should attempt file fallback only after env password exchange fails"
+if [[ -s "$DIRECT_INVALID_FALLBACK_RECORD_PATH" ]]; then
+  echo "FAIL: k6 should not run when load_resolve_admin_token cannot bootstrap AYB_ADMIN_TOKEN"
+  cat "$DIRECT_INVALID_FALLBACK_RECORD_PATH"
+  exit 1
+fi
+kill "$DIRECT_INVALID_FALLBACK_SERVER_PID" 2>/dev/null || true
+wait "$DIRECT_INVALID_FALLBACK_SERVER_PID" 2>/dev/null || true
+PASS_COUNT=$((PASS_COUNT + 1))
+
+for tier in 100 500 1000; do
+  HTTP_TIER_RECORD_PATH="${TMP_DIR}/http-tier-${tier}-k6.log"
+  : > "$HTTP_TIER_RECORD_PATH"
+  run_direct_make "$HTTP_TIER_RECORD_PATH" "load-http-${tier}" "http-tier-${tier}" "$DIRECT_PORT"
+  assert_contains "$HTTP_TIER_RECORD_PATH" "tests/load/scenarios/admin_status.js" "load-http-${tier} should include the admin status scenario"
+  assert_contains "$HTTP_TIER_RECORD_PATH" "tests/load/scenarios/auth_register_login_refresh.js" "load-http-${tier} should include the auth request-path scenario"
+  assert_contains "$HTTP_TIER_RECORD_PATH" "tests/load/scenarios/data_path_crud_batch.js" "load-http-${tier} should include the data-path scenario"
+  assert_contains "$HTTP_TIER_RECORD_PATH" "tests/load/scenarios/data_pool_pressure.js" "load-http-${tier} should include the pool-pressure scenario"
+  assert_contains "$HTTP_TIER_RECORD_PATH" "K6_VUS=${tier}" "load-http-${tier} should set K6_VUS for non-pool scenarios"
+  assert_contains "$HTTP_TIER_RECORD_PATH" "K6_ITERATIONS=${tier}" "load-http-${tier} should set K6_ITERATIONS for non-pool scenarios"
+  assert_contains "$HTTP_TIER_RECORD_PATH" "AYB_POOL_PRESSURE_VUS=${tier}" "load-http-${tier} should map tier VUs to pool-pressure specific env"
+  assert_contains "$HTTP_TIER_RECORD_PATH" "AYB_POOL_PRESSURE_ITERATIONS=${tier}" "load-http-${tier} should map tier iterations to pool-pressure specific env"
+  assert_contains "$HTTP_TIER_RECORD_PATH" "AYB_ADMIN_TOKEN=token-from-direct-auth" "load-http-${tier} should resolve admin token through shared bootstrap helpers"
+  PASS_COUNT=$((PASS_COUNT + 1))
+done
+
+for tier in 1000 5000 10000; do
+  REALTIME_TIER_RECORD_PATH="${TMP_DIR}/realtime-tier-${tier}-k6.log"
+  : > "$REALTIME_TIER_RECORD_PATH"
+  run_direct_make "$REALTIME_TIER_RECORD_PATH" "load-realtime-ws-${tier}" "realtime-tier-${tier}" "$DIRECT_PORT"
+  assert_contains "$REALTIME_TIER_RECORD_PATH" "tests/load/scenarios/realtime_ws_subscribe.js" "load-realtime-ws-${tier} should execute the shared websocket scenario"
+  assert_contains "$REALTIME_TIER_RECORD_PATH" "AYB_ADMIN_TOKEN=token-from-direct-auth" "load-realtime-ws-${tier} should preserve admin token resolution via shared bootstrap helpers"
+  assert_contains "$REALTIME_TIER_RECORD_PATH" "AYB_AUTH_ENABLED=true" "load-realtime-ws-${tier} should preserve auth bootstrap for websocket subscriptions"
+  assert_nonempty_dynamic_jwt_secret "$REALTIME_TIER_RECORD_PATH" "load-realtime-ws-${tier} should preserve shared auth secret bootstrap"
+  assert_contains "$REALTIME_TIER_RECORD_PATH" "K6_VUS=${tier}" "load-realtime-ws-${tier} should set K6_VUS through shared env parsing path"
+  assert_contains "$REALTIME_TIER_RECORD_PATH" "K6_ITERATIONS=${tier}" "load-realtime-ws-${tier} should set K6_ITERATIONS through shared env parsing path"
+  PASS_COUNT=$((PASS_COUNT + 1))
+done
+
+HELP_OUTPUT_PATH="${TMP_DIR}/make-help.out"
+make help > "$HELP_OUTPUT_PATH"
+for target in \
+  load-http-100 \
+  load-http-500 \
+  load-http-1000 \
+  load-http-100-local \
+  load-http-500-local \
+  load-http-1000-local \
+  load-realtime-ws-1000 \
+  load-realtime-ws-5000 \
+  load-realtime-ws-10000 \
+  load-realtime-ws-1000-local \
+  load-realtime-ws-5000-local \
+  load-realtime-ws-10000-local; do
+  assert_contains "$HELP_OUTPUT_PATH" "$target" "make help should list ${target} as a stable Stage 6 entry point"
+done
+assert_contains "$HELP_OUTPUT_PATH" "load-http-1000-local" "make help should list load-http-1000-local as a guarded target"
+assert_contains "$HELP_OUTPUT_PATH" "AYB_LOAD_UNSAFE=1" "make help should surface guarded target warnings from Makefile target comments"
+PASS_COUNT=$((PASS_COUNT + 1))
+
+kill "$DIRECT_SERVER_PID" 2>/dev/null || true
+wait "$DIRECT_SERVER_PID" 2>/dev/null || true
+
+LOCAL_RECORD_PATH="${TMP_DIR}/local-k6.log"
+LOCAL_AUTH_LOG="${TMP_DIR}/local-auth.log"
+LOCAL_PORT="18091"
+run_local_make "$LOCAL_RECORD_PATH" load-admin-status-local local "$LOCAL_PORT" "$LOCAL_AUTH_LOG" token-from-local-auth
+
+assert_contains "$LOCAL_RECORD_PATH" "argv=run" "local target should execute k6 run"
+assert_contains "$LOCAL_RECORD_PATH" "tests/load/scenarios/admin_status.js" "local target should execute admin_status scenario"
+assert_contains "$LOCAL_RECORD_PATH" "AYB_ADMIN_TOKEN=token-from-local-auth" "local target should resolve saved admin password after AYB is ready"
+assert_contains "$LOCAL_RECORD_PATH" "AYB_BASE_URL=http://127.0.0.1:${LOCAL_PORT}" "local target should pass base URL to k6"
+assert_not_contains "$LOCAL_RECORD_PATH" "AYB_AUTH_ENABLED=" "baseline local target should not force auth enablement for the started Stage 2 server"
+assert_not_contains "$LOCAL_RECORD_PATH" "AYB_AUTH_JWT_SECRET=" "baseline local target should not inject auth jwt config"
+assert_contains "$LOCAL_AUTH_LOG" "\"password\": \"password-from-file\"" "local target should exchange the saved admin password via /api/admin/auth"
+PASS_COUNT=$((PASS_COUNT + 1))
+
+AUTH_LOCAL_RECORD_PATH="${TMP_DIR}/auth-local-k6.log"
+AUTH_LOCAL_AUTH_LOG="${TMP_DIR}/auth-local-auth.log"
+AUTH_LOCAL_PORT="18092"
+run_local_make "$AUTH_LOCAL_RECORD_PATH" load-auth-request-path-local auth-local "$AUTH_LOCAL_PORT" "$AUTH_LOCAL_AUTH_LOG" token-from-auth-local-auth
+
+assert_contains "$AUTH_LOCAL_RECORD_PATH" "argv=run" "auth local target should execute k6 run"
+assert_contains "$AUTH_LOCAL_RECORD_PATH" "tests/load/scenarios/auth_register_login_refresh.js" "auth local target should execute auth request-path scenario"
+assert_contains "$AUTH_LOCAL_RECORD_PATH" "AYB_ADMIN_TOKEN=token-from-auth-local-auth" "auth local target should resolve saved admin password via /api/admin/auth"
+assert_contains "$AUTH_LOCAL_RECORD_PATH" "AYB_BASE_URL=http://127.0.0.1:${AUTH_LOCAL_PORT}" "auth local target should pass base URL to k6"
+assert_contains "$AUTH_LOCAL_RECORD_PATH" "AYB_AUTH_ENABLED=true" "auth local target should enable auth for the started server"
+assert_nonempty_dynamic_jwt_secret "$AUTH_LOCAL_RECORD_PATH" "auth local target should inject a non-empty, non-static jwt secret for the started server"
+assert_contains "$AUTH_LOCAL_AUTH_LOG" "\"password\": \"password-from-file\"" "auth local target should exchange the saved admin password via /api/admin/auth"
+PASS_COUNT=$((PASS_COUNT + 1))
+
+DATA_PATH_LOCAL_RECORD_PATH="${TMP_DIR}/data-path-local-k6.log"
+DATA_PATH_LOCAL_AUTH_LOG="${TMP_DIR}/data-path-local-auth.log"
+DATA_PATH_LOCAL_PORT="18093"
+run_local_make "$DATA_PATH_LOCAL_RECORD_PATH" load-data-path-local data-path-local "$DATA_PATH_LOCAL_PORT" "$DATA_PATH_LOCAL_AUTH_LOG" token-from-data-path-local-auth
+
+assert_contains "$DATA_PATH_LOCAL_RECORD_PATH" "argv=run" "data-path local target should execute k6 run"
+assert_contains "$DATA_PATH_LOCAL_RECORD_PATH" "tests/load/scenarios/data_path_crud_batch.js" "data-path local target should execute CRUD/batch scenario"
+assert_contains "$DATA_PATH_LOCAL_RECORD_PATH" "AYB_ADMIN_TOKEN=token-from-data-path-local-auth" "data-path local target should resolve saved admin password via /api/admin/auth"
+assert_contains "$DATA_PATH_LOCAL_RECORD_PATH" "AYB_BASE_URL=http://127.0.0.1:${DATA_PATH_LOCAL_PORT}" "data-path local target should pass base URL to k6"
+assert_contains "$DATA_PATH_LOCAL_RECORD_PATH" "AYB_AUTH_ENABLED=true" "data-path local target should enable auth for the started server"
+assert_nonempty_dynamic_jwt_secret "$DATA_PATH_LOCAL_RECORD_PATH" "data-path local target should inject a non-empty, non-static jwt secret for the started server"
+assert_contains "$DATA_PATH_LOCAL_AUTH_LOG" "\"password\": \"password-from-file\"" "data-path local target should exchange the saved admin password via /api/admin/auth"
+PASS_COUNT=$((PASS_COUNT + 1))
+
+POOL_PRESSURE_LOCAL_RECORD_PATH="${TMP_DIR}/pool-pressure-local-k6.log"
+POOL_PRESSURE_LOCAL_AUTH_LOG="${TMP_DIR}/pool-pressure-local-auth.log"
+POOL_PRESSURE_LOCAL_PORT="18094"
+run_local_make "$POOL_PRESSURE_LOCAL_RECORD_PATH" load-data-pool-pressure-local pool-pressure-local "$POOL_PRESSURE_LOCAL_PORT" "$POOL_PRESSURE_LOCAL_AUTH_LOG" token-from-pool-pressure-local-auth
+
+assert_contains "$POOL_PRESSURE_LOCAL_RECORD_PATH" "argv=run" "pool-pressure local target should execute k6 run"
+assert_contains "$POOL_PRESSURE_LOCAL_RECORD_PATH" "tests/load/scenarios/data_pool_pressure.js" "pool-pressure local target should execute admin SQL pressure scenario"
+assert_contains "$POOL_PRESSURE_LOCAL_RECORD_PATH" "AYB_ADMIN_TOKEN=token-from-pool-pressure-local-auth" "pool-pressure local target should resolve saved admin password via /api/admin/auth"
+assert_contains "$POOL_PRESSURE_LOCAL_RECORD_PATH" "AYB_BASE_URL=http://127.0.0.1:${POOL_PRESSURE_LOCAL_PORT}" "pool-pressure local target should pass base URL to k6"
+assert_contains "$POOL_PRESSURE_LOCAL_AUTH_LOG" "\"password\": \"password-from-file\"" "pool-pressure local target should exchange the saved admin password via /api/admin/auth"
+PASS_COUNT=$((PASS_COUNT + 1))
+
+REALTIME_LOCAL_RECORD_PATH="${TMP_DIR}/realtime-local-k6.log"
+REALTIME_LOCAL_AUTH_LOG="${TMP_DIR}/realtime-local-auth.log"
+REALTIME_LOCAL_PORT="18095"
+run_local_make "$REALTIME_LOCAL_RECORD_PATH" load-realtime-ws-local realtime-local "$REALTIME_LOCAL_PORT" "$REALTIME_LOCAL_AUTH_LOG" token-from-realtime-local-auth
+
+assert_contains "$REALTIME_LOCAL_RECORD_PATH" "argv=run" "realtime local target should execute k6 run"
+assert_contains "$REALTIME_LOCAL_RECORD_PATH" "tests/load/scenarios/realtime_ws_subscribe.js" "realtime local target should execute Stage 5 websocket scenario"
+assert_contains "$REALTIME_LOCAL_RECORD_PATH" "AYB_ADMIN_TOKEN=token-from-realtime-local-auth" "realtime local target should resolve saved admin password via /api/admin/auth"
+assert_contains "$REALTIME_LOCAL_RECORD_PATH" "AYB_BASE_URL=http://127.0.0.1:${REALTIME_LOCAL_PORT}" "realtime local target should pass base URL to k6"
+assert_contains "$REALTIME_LOCAL_RECORD_PATH" "AYB_AUTH_ENABLED=true" "realtime local target should enable auth for the started server"
+assert_nonempty_dynamic_jwt_secret "$REALTIME_LOCAL_RECORD_PATH" "realtime local target should inject a non-empty, non-static jwt secret for the started server"
+assert_contains "$REALTIME_LOCAL_AUTH_LOG" "\"password\": \"password-from-file\"" "realtime local target should exchange the saved admin password via /api/admin/auth"
+PASS_COUNT=$((PASS_COUNT + 1))
+
+for tier in 100 500; do
+  HTTP_TIER_LOCAL_RECORD_PATH="${TMP_DIR}/http-tier-local-${tier}-k6.log"
+  HTTP_TIER_LOCAL_AUTH_LOG="${TMP_DIR}/http-tier-local-${tier}-auth.log"
+  HTTP_TIER_LOCAL_PORT="$((18100 + tier))"
+  run_local_make "$HTTP_TIER_LOCAL_RECORD_PATH" "load-http-${tier}-local" "http-tier-local-${tier}" "$HTTP_TIER_LOCAL_PORT" "$HTTP_TIER_LOCAL_AUTH_LOG" "token-from-http-tier-local-${tier}-auth"
+  assert_contains "$HTTP_TIER_LOCAL_RECORD_PATH" "tests/load/scenarios/admin_status.js" "load-http-${tier}-local should include the admin status scenario"
+  assert_contains "$HTTP_TIER_LOCAL_RECORD_PATH" "tests/load/scenarios/auth_register_login_refresh.js" "load-http-${tier}-local should include the auth request-path scenario"
+  assert_contains "$HTTP_TIER_LOCAL_RECORD_PATH" "tests/load/scenarios/data_path_crud_batch.js" "load-http-${tier}-local should include the data-path scenario"
+  assert_contains "$HTTP_TIER_LOCAL_RECORD_PATH" "tests/load/scenarios/data_pool_pressure.js" "load-http-${tier}-local should include the pool-pressure scenario"
+  assert_contains "$HTTP_TIER_LOCAL_RECORD_PATH" "AYB_AUTH_ENABLED=true" "load-http-${tier}-local should export auth env before wrapping direct scale-tier targets"
+  assert_nonempty_dynamic_jwt_secret "$HTTP_TIER_LOCAL_RECORD_PATH" "load-http-${tier}-local should export a non-empty, non-static jwt secret before wrapping direct scale-tier targets"
+  assert_contains "$HTTP_TIER_LOCAL_RECORD_PATH" "K6_VUS=${tier}" "load-http-${tier}-local should set K6_VUS for non-pool scenarios"
+  assert_contains "$HTTP_TIER_LOCAL_RECORD_PATH" "K6_ITERATIONS=${tier}" "load-http-${tier}-local should set K6_ITERATIONS for non-pool scenarios"
+  assert_contains "$HTTP_TIER_LOCAL_RECORD_PATH" "AYB_POOL_PRESSURE_VUS=${tier}" "load-http-${tier}-local should map tier VUs to pool-pressure specific env"
+  assert_contains "$HTTP_TIER_LOCAL_RECORD_PATH" "AYB_POOL_PRESSURE_ITERATIONS=${tier}" "load-http-${tier}-local should map tier iterations to pool-pressure specific env"
+  assert_contains "$HTTP_TIER_LOCAL_AUTH_LOG" "\"password\": \"password-from-file\"" "load-http-${tier}-local should still resolve admin auth through /api/admin/auth after run-with-ayb readiness"
+  PASS_COUNT=$((PASS_COUNT + 1))
+done
+
+HTTP_TIER_1000_UNSAFE_RECORD_PATH="${TMP_DIR}/http-tier-local-1000-unsafe-refusal-k6.log"
+HTTP_TIER_1000_UNSAFE_AUTH_LOG="${TMP_DIR}/http-tier-local-1000-unsafe-refusal-auth.log"
+HTTP_TIER_1000_UNSAFE_PORT="19100"
+run_local_make_expect_failure "$HTTP_TIER_1000_UNSAFE_RECORD_PATH" "load-http-1000-local" "http-tier-local-1000-unsafe-refusal" "$HTTP_TIER_1000_UNSAFE_PORT" "$HTTP_TIER_1000_UNSAFE_AUTH_LOG" "token-from-http-tier-local-1000-unsafe-refusal-auth"
+assert_local_unsafe_guard_refusal "http-tier-local-1000-unsafe-refusal" "load-http-1000-local" "$HTTP_TIER_1000_UNSAFE_RECORD_PATH" "$HTTP_TIER_1000_UNSAFE_AUTH_LOG"
+PASS_COUNT=$((PASS_COUNT + 1))
+
+HTTP_TIER_1000_UNSAFE_ALLOWED_RECORD_PATH="${TMP_DIR}/http-tier-local-1000-unsafe-allowed-k6.log"
+HTTP_TIER_1000_UNSAFE_ALLOWED_AUTH_LOG="${TMP_DIR}/http-tier-local-1000-unsafe-allowed-auth.log"
+HTTP_TIER_1000_UNSAFE_ALLOWED_PORT="19101"
+AYB_LOAD_UNSAFE=1 run_local_make "$HTTP_TIER_1000_UNSAFE_ALLOWED_RECORD_PATH" "load-http-1000-local" "http-tier-local-1000-unsafe-allowed" "$HTTP_TIER_1000_UNSAFE_ALLOWED_PORT" "$HTTP_TIER_1000_UNSAFE_ALLOWED_AUTH_LOG" "token-from-http-tier-local-1000-unsafe-allowed-auth"
+assert_contains "$HTTP_TIER_1000_UNSAFE_ALLOWED_RECORD_PATH" "tests/load/scenarios/admin_status.js" "load-http-1000-local should include the admin status scenario once AYB_LOAD_UNSAFE=1 is set"
+assert_contains "$HTTP_TIER_1000_UNSAFE_ALLOWED_RECORD_PATH" "tests/load/scenarios/auth_register_login_refresh.js" "load-http-1000-local should include the auth request-path scenario once AYB_LOAD_UNSAFE=1 is set"
+assert_contains "$HTTP_TIER_1000_UNSAFE_ALLOWED_RECORD_PATH" "tests/load/scenarios/data_path_crud_batch.js" "load-http-1000-local should include the data-path scenario once AYB_LOAD_UNSAFE=1 is set"
+assert_contains "$HTTP_TIER_1000_UNSAFE_ALLOWED_RECORD_PATH" "tests/load/scenarios/data_pool_pressure.js" "load-http-1000-local should include the pool-pressure scenario once AYB_LOAD_UNSAFE=1 is set"
+assert_contains "$HTTP_TIER_1000_UNSAFE_ALLOWED_RECORD_PATH" "K6_VUS=1000" "load-http-1000-local should set K6_VUS once AYB_LOAD_UNSAFE=1 is set"
+assert_contains "$HTTP_TIER_1000_UNSAFE_ALLOWED_RECORD_PATH" "K6_ITERATIONS=1000" "load-http-1000-local should set K6_ITERATIONS once AYB_LOAD_UNSAFE=1 is set"
+assert_contains "$HTTP_TIER_1000_UNSAFE_ALLOWED_RECORD_PATH" "AYB_POOL_PRESSURE_VUS=1000" "load-http-1000-local should map pool-pressure VUs once AYB_LOAD_UNSAFE=1 is set"
+assert_contains "$HTTP_TIER_1000_UNSAFE_ALLOWED_RECORD_PATH" "AYB_POOL_PRESSURE_ITERATIONS=1000" "load-http-1000-local should map pool-pressure iterations once AYB_LOAD_UNSAFE=1 is set"
+assert_contains "$HTTP_TIER_1000_UNSAFE_ALLOWED_AUTH_LOG" "\"password\": \"password-from-file\"" "load-http-1000-local should still resolve admin auth through /api/admin/auth after AYB_LOAD_UNSAFE=1 opt-in"
+PASS_COUNT=$((PASS_COUNT + 1))
+
+for tier in 1000; do
+  REALTIME_TIER_LOCAL_RECORD_PATH="${TMP_DIR}/realtime-tier-local-${tier}-k6.log"
+  REALTIME_TIER_LOCAL_AUTH_LOG="${TMP_DIR}/realtime-tier-local-${tier}-auth.log"
+  REALTIME_TIER_LOCAL_PORT="$((18200 + tier / 100))"
+  run_local_make "$REALTIME_TIER_LOCAL_RECORD_PATH" "load-realtime-ws-${tier}-local" "realtime-tier-local-${tier}" "$REALTIME_TIER_LOCAL_PORT" "$REALTIME_TIER_LOCAL_AUTH_LOG" "token-from-realtime-tier-local-${tier}-auth"
+  assert_contains "$REALTIME_TIER_LOCAL_RECORD_PATH" "tests/load/scenarios/realtime_ws_subscribe.js" "load-realtime-ws-${tier}-local should execute the shared websocket scenario"
+  assert_contains "$REALTIME_TIER_LOCAL_RECORD_PATH" "AYB_AUTH_ENABLED=true" "load-realtime-ws-${tier}-local should export auth env before wrapping direct scale-tier targets"
+  assert_nonempty_dynamic_jwt_secret "$REALTIME_TIER_LOCAL_RECORD_PATH" "load-realtime-ws-${tier}-local should export a non-empty, non-static jwt secret before wrapping direct scale-tier targets"
+  assert_contains "$REALTIME_TIER_LOCAL_RECORD_PATH" "K6_VUS=${tier}" "load-realtime-ws-${tier}-local should set K6_VUS through wrapped direct target invocation"
+  assert_contains "$REALTIME_TIER_LOCAL_RECORD_PATH" "K6_ITERATIONS=${tier}" "load-realtime-ws-${tier}-local should set K6_ITERATIONS through wrapped direct target invocation"
+  assert_contains "$REALTIME_TIER_LOCAL_AUTH_LOG" "\"password\": \"password-from-file\"" "load-realtime-ws-${tier}-local should still resolve admin auth through /api/admin/auth after run-with-ayb readiness"
+  PASS_COUNT=$((PASS_COUNT + 1))
+done
+
+for tier in 5000 10000; do
+  REALTIME_TIER_LOCAL_UNSAFE_RECORD_PATH="${TMP_DIR}/realtime-tier-local-${tier}-unsafe-refusal-k6.log"
+  REALTIME_TIER_LOCAL_UNSAFE_AUTH_LOG="${TMP_DIR}/realtime-tier-local-${tier}-unsafe-refusal-auth.log"
+  REALTIME_TIER_LOCAL_UNSAFE_PORT="$((19300 + tier / 100))"
+  run_local_make_expect_failure "$REALTIME_TIER_LOCAL_UNSAFE_RECORD_PATH" "load-realtime-ws-${tier}-local" "realtime-tier-local-${tier}-unsafe-refusal" "$REALTIME_TIER_LOCAL_UNSAFE_PORT" "$REALTIME_TIER_LOCAL_UNSAFE_AUTH_LOG" "token-from-realtime-tier-local-${tier}-unsafe-refusal-auth"
+  assert_local_unsafe_guard_refusal "realtime-tier-local-${tier}-unsafe-refusal" "load-realtime-ws-${tier}-local" "$REALTIME_TIER_LOCAL_UNSAFE_RECORD_PATH" "$REALTIME_TIER_LOCAL_UNSAFE_AUTH_LOG"
+  PASS_COUNT=$((PASS_COUNT + 1))
+
+  REALTIME_TIER_LOCAL_UNSAFE_ALLOWED_RECORD_PATH="${TMP_DIR}/realtime-tier-local-${tier}-unsafe-allowed-k6.log"
+  REALTIME_TIER_LOCAL_UNSAFE_ALLOWED_AUTH_LOG="${TMP_DIR}/realtime-tier-local-${tier}-unsafe-allowed-auth.log"
+  REALTIME_TIER_LOCAL_UNSAFE_ALLOWED_PORT="$((19400 + tier / 100))"
+  AYB_LOAD_UNSAFE=1 run_local_make "$REALTIME_TIER_LOCAL_UNSAFE_ALLOWED_RECORD_PATH" "load-realtime-ws-${tier}-local" "realtime-tier-local-${tier}-unsafe-allowed" "$REALTIME_TIER_LOCAL_UNSAFE_ALLOWED_PORT" "$REALTIME_TIER_LOCAL_UNSAFE_ALLOWED_AUTH_LOG" "token-from-realtime-tier-local-${tier}-unsafe-allowed-auth"
+  assert_contains "$REALTIME_TIER_LOCAL_UNSAFE_ALLOWED_RECORD_PATH" "tests/load/scenarios/realtime_ws_subscribe.js" "load-realtime-ws-${tier}-local should execute the shared websocket scenario once AYB_LOAD_UNSAFE=1 is set"
+  assert_contains "$REALTIME_TIER_LOCAL_UNSAFE_ALLOWED_RECORD_PATH" "AYB_AUTH_ENABLED=true" "load-realtime-ws-${tier}-local should export auth env once AYB_LOAD_UNSAFE=1 is set"
+  assert_nonempty_dynamic_jwt_secret "$REALTIME_TIER_LOCAL_UNSAFE_ALLOWED_RECORD_PATH" "load-realtime-ws-${tier}-local should export a non-empty, non-static jwt secret once AYB_LOAD_UNSAFE=1 is set"
+  assert_contains "$REALTIME_TIER_LOCAL_UNSAFE_ALLOWED_RECORD_PATH" "K6_VUS=${tier}" "load-realtime-ws-${tier}-local should set K6_VUS once AYB_LOAD_UNSAFE=1 is set"
+  assert_contains "$REALTIME_TIER_LOCAL_UNSAFE_ALLOWED_RECORD_PATH" "K6_ITERATIONS=${tier}" "load-realtime-ws-${tier}-local should set K6_ITERATIONS once AYB_LOAD_UNSAFE=1 is set"
+  assert_contains "$REALTIME_TIER_LOCAL_UNSAFE_ALLOWED_AUTH_LOG" "\"password\": \"password-from-file\"" "load-realtime-ws-${tier}-local should still resolve admin auth through /api/admin/auth after AYB_LOAD_UNSAFE=1 opt-in"
+  PASS_COUNT=$((PASS_COUNT + 1))
+done
+
+SUSTAINED_SOAK_DIRECT_RECORD_PATH="${TMP_DIR}/sustained-soak-direct-k6.log"
+SUSTAINED_SOAK_DIRECT_AUTH_LOG="${TMP_DIR}/sustained-soak-direct-auth.log"
+SUSTAINED_SOAK_DIRECT_PORT="18097"
+python3 "${TMP_DIR}/auth_server.py" "${SUSTAINED_SOAK_DIRECT_PORT}" "${SUSTAINED_SOAK_DIRECT_AUTH_LOG}" "password-from-file" "token-from-sustained-soak-direct-auth" > "${TMP_DIR}/sustained-soak-direct.server.log" 2>&1 &
+SUSTAINED_SOAK_DIRECT_SERVER_PID=$!
+SERVER_PIDS+=("$SUSTAINED_SOAK_DIRECT_SERVER_PID")
+wait_for_http "http://127.0.0.1:${SUSTAINED_SOAK_DIRECT_PORT}/health" "sustained-soak direct auth fixture did not become healthy"
+# Note: sustained-soak server cleanup on failure is handled by the EXIT trap,
+# so run_direct_make's exit 1 is safe here.
+run_direct_make "$SUSTAINED_SOAK_DIRECT_RECORD_PATH" load-sustained-soak sustained-soak-direct "$SUSTAINED_SOAK_DIRECT_PORT"
+
+assert_contains "$SUSTAINED_SOAK_DIRECT_RECORD_PATH" "argv=run" "sustained-soak direct target should execute k6 run"
+assert_contains "$SUSTAINED_SOAK_DIRECT_RECORD_PATH" "tests/load/scenarios/sustained_soak.js" "sustained-soak direct target should execute Stage 6 soak scenario"
+assert_contains "$SUSTAINED_SOAK_DIRECT_RECORD_PATH" "AYB_ADMIN_TOKEN=token-from-sustained-soak-direct-auth" "sustained-soak direct target should resolve admin auth bootstrap token"
+assert_contains "$SUSTAINED_SOAK_DIRECT_RECORD_PATH" "AYB_AUTH_ENABLED=true" "sustained-soak direct target should enable auth for mixed workload flows"
+assert_nonempty_dynamic_jwt_secret "$SUSTAINED_SOAK_DIRECT_RECORD_PATH" "sustained-soak direct target should inject a non-empty, non-static jwt secret for mixed workload flows"
+assert_contains "$SUSTAINED_SOAK_DIRECT_RECORD_PATH" "AYB_AUTH_RATE_LIMIT=10000" "sustained-soak direct target should export load-safe auth rate limit"
+assert_contains "$SUSTAINED_SOAK_DIRECT_RECORD_PATH" "AYB_RATE_LIMIT_API=10000/min" "sustained-soak direct target should export load-safe API rate limit"
+assert_contains "$SUSTAINED_SOAK_DIRECT_RECORD_PATH" "AYB_RATE_LIMIT_API_ANONYMOUS=10000/min" "sustained-soak direct target should export load-safe anonymous API rate limit"
+assert_contains "$SUSTAINED_SOAK_DIRECT_AUTH_LOG" "\"password\": \"password-from-file\"" "sustained-soak direct target should exchange the saved admin password via /api/admin/auth"
+kill "$SUSTAINED_SOAK_DIRECT_SERVER_PID" 2>/dev/null || true
+wait "$SUSTAINED_SOAK_DIRECT_SERVER_PID" 2>/dev/null || true
+PASS_COUNT=$((PASS_COUNT + 1))
+
+SUSTAINED_SOAK_LOCAL_RECORD_PATH="${TMP_DIR}/sustained-soak-local-k6.log"
+SUSTAINED_SOAK_LOCAL_AUTH_LOG="${TMP_DIR}/sustained-soak-local-auth.log"
+SUSTAINED_SOAK_LOCAL_PORT="18096"
+run_local_make "$SUSTAINED_SOAK_LOCAL_RECORD_PATH" load-sustained-soak-local sustained-soak-local "$SUSTAINED_SOAK_LOCAL_PORT" "$SUSTAINED_SOAK_LOCAL_AUTH_LOG" token-from-sustained-soak-local-auth
+
+assert_contains "$SUSTAINED_SOAK_LOCAL_RECORD_PATH" "argv=run" "sustained-soak local target should execute k6 run"
+assert_contains "$SUSTAINED_SOAK_LOCAL_RECORD_PATH" "tests/load/scenarios/sustained_soak.js" "sustained-soak local target should execute Stage 6 soak scenario"
+assert_contains "$SUSTAINED_SOAK_LOCAL_RECORD_PATH" "AYB_ADMIN_TOKEN=token-from-sustained-soak-local-auth" "sustained-soak local target should resolve saved admin password via /api/admin/auth"
+assert_contains "$SUSTAINED_SOAK_LOCAL_RECORD_PATH" "AYB_BASE_URL=http://127.0.0.1:${SUSTAINED_SOAK_LOCAL_PORT}" "sustained-soak local target should pass base URL to k6"
+assert_contains "$SUSTAINED_SOAK_LOCAL_RECORD_PATH" "AYB_AUTH_ENABLED=true" "sustained-soak local target should enable auth for mixed workload flows"
+assert_nonempty_dynamic_jwt_secret "$SUSTAINED_SOAK_LOCAL_RECORD_PATH" "sustained-soak local target should inject a non-empty, non-static jwt secret for mixed workload flows"
+assert_contains "$SUSTAINED_SOAK_LOCAL_AUTH_LOG" "\"password\": \"password-from-file\"" "sustained-soak local target should exchange the saved admin password via /api/admin/auth"
+PASS_COUNT=$((PASS_COUNT + 1))
+
+assert_equals "$PASS_COUNT" "35" "expected startup config assertions, static separator and export assertions, direct/local targets, admin token fallback coverage, guarded local unsafe-tier refusal/allow contracts, help output, and sustained-soak load target assertions to run"
+echo "PASS: load Makefile targets use fail-fast local separators, bootstrap env once, enforce AYB_LOAD_UNSAFE=1 for dangerous local tiers, and run k6 after local readiness for baseline, tiered HTTP/realtime aliases, auth request-path, data-path, pool-pressure, realtime websocket, and sustained-soak scenarios"

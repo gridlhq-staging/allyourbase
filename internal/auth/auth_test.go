@@ -1,6 +1,7 @@
 package auth
 
 import (
+	"context"
 	"encoding/hex"
 	"strings"
 	"sync"
@@ -17,8 +18,21 @@ const testSecret = "test-secret-that-is-at-least-32-characters-long!!"
 func init() {
 	// Use minimal argon2id params in unit tests for speed.
 	// Production params (64 MiB, 3 iterations) take ~250ms per hash.
-	argonMemory = 1024 // 1 MiB
-	argonTime = 1
+	if err := ConfigureArgon2(1024, 1, 2); err != nil {
+		panic(err)
+	}
+}
+
+func newJWTTestService(tokenDur time.Duration) *Service {
+	return newJWTTestServiceWithClock(tokenDur, nil)
+}
+
+func newJWTTestServiceWithClock(tokenDur time.Duration, now func() time.Time) *Service {
+	return &Service{
+		jwtSecret: []byte(testSecret),
+		tokenDur:  tokenDur,
+		now:       now,
+	}
 }
 
 func TestHashAndVerifyPassword(t *testing.T) {
@@ -31,6 +45,34 @@ func TestHashAndVerifyPassword(t *testing.T) {
 	ok, err := verifyPassword(hash, "mypassword123")
 	testutil.NoError(t, err)
 	testutil.True(t, ok, "correct password should verify")
+}
+
+func TestNewService_InitializesMFAFailureTracker(t *testing.T) {
+	t.Parallel()
+
+	svc := NewService(nil, testSecret, time.Hour, 7*24*time.Hour, 8, testutil.DiscardLogger())
+	userID := "user-lockout-init"
+
+	for i := 0; i < emailMFALockoutCount; i++ {
+		svc.RecordMFAFailure(userID)
+	}
+
+	testutil.True(t, svc.IsMFALocked(userID), "new service should enforce MFA lockout without extra init")
+}
+
+func TestLogin_NilPoolReturnsErrorNotPanic(t *testing.T) {
+	t.Parallel()
+
+	svc := NewService(nil, testSecret, time.Hour, 7*24*time.Hour, 8, testutil.DiscardLogger())
+	defer func() {
+		if r := recover(); r != nil {
+			t.Fatalf("Login panicked with nil pool: %v", r)
+		}
+	}()
+
+	_, _, _, err := svc.Login(context.Background(), "a@b.com", "pw")
+	testutil.True(t, err != nil, "expected error when pool is nil")
+	testutil.Contains(t, err.Error(), "database pool is not configured")
 }
 
 func TestVerifyPasswordWrong(t *testing.T) {
@@ -106,17 +148,14 @@ func TestIsBcryptHash(t *testing.T) {
 
 func TestGenerateAndValidateToken(t *testing.T) {
 	t.Parallel()
-	svc := &Service{
-		jwtSecret: []byte(testSecret),
-		tokenDur:  time.Hour,
-	}
+	svc := newJWTTestService(time.Hour)
 
 	user := &User{
 		ID:    "550e8400-e29b-41d4-a716-446655440000",
 		Email: "test@example.com",
 	}
 
-	token, err := svc.generateToken(user)
+	token, err := svc.generateToken(context.Background(), user)
 	testutil.NoError(t, err)
 	testutil.True(t, len(token) > 0, "token should not be empty")
 
@@ -133,15 +172,52 @@ func TestGenerateAndValidateToken(t *testing.T) {
 		"token duration should be ~1 hour, got %v", dur)
 }
 
-func TestValidateTokenExpired(t *testing.T) {
+func TestValidateTokenSkewBoundaries(t *testing.T) {
 	t.Parallel()
-	svc := &Service{
-		jwtSecret: []byte(testSecret),
-		tokenDur:  -time.Hour, // expired immediately
+
+	issuedAt := time.Date(2030, time.January, 2, 3, 4, 5, 0, time.UTC)
+	currentTime := issuedAt
+
+	svc := newJWTTestServiceWithClock(time.Minute, func() time.Time { return currentTime })
+
+	user := &User{
+		ID:    "skew-user-id",
+		Email: "skew@example.com",
 	}
 
+	token, err := svc.generateToken(context.Background(), user)
+	testutil.NoError(t, err)
+
+	claims := &Claims{}
+	parser := jwt.NewParser(jwt.WithoutClaimsValidation())
+	_, _, err = parser.ParseUnverified(token, claims)
+	testutil.NoError(t, err)
+
+	claims.NotBefore = jwt.NewNumericDate(issuedAt.Add(30 * time.Second))
+	tokenWithNBF, err := jwt.NewWithClaims(jwt.SigningMethodHS256, claims).SignedString([]byte(testSecret))
+	testutil.NoError(t, err)
+
+	currentTime = issuedAt.Add(29 * time.Second)
+	_, err = svc.ValidateToken(tokenWithNBF)
+	testutil.ErrorContains(t, err, "token is not valid yet")
+
+	currentTime = issuedAt.Add(30 * time.Second)
+	validClaims, err := svc.ValidateToken(tokenWithNBF)
+	testutil.NoError(t, err)
+	testutil.Equal(t, user.ID, validClaims.Subject)
+	testutil.Equal(t, user.Email, validClaims.Email)
+
+	currentTime = issuedAt.Add(time.Minute + time.Second)
+	_, err = svc.ValidateToken(tokenWithNBF)
+	testutil.ErrorContains(t, err, "token is expired")
+}
+
+func TestValidateTokenExpired(t *testing.T) {
+	t.Parallel()
+	svc := newJWTTestService(-time.Hour) // expired immediately
+
 	user := &User{ID: "test-id", Email: "test@example.com"}
-	token, err := svc.generateToken(user)
+	token, err := svc.generateToken(context.Background(), user)
 	testutil.NoError(t, err)
 
 	_, err = svc.ValidateToken(token)
@@ -150,13 +226,10 @@ func TestValidateTokenExpired(t *testing.T) {
 
 func TestValidateTokenTampered(t *testing.T) {
 	t.Parallel()
-	svc := &Service{
-		jwtSecret: []byte(testSecret),
-		tokenDur:  time.Hour,
-	}
+	svc := newJWTTestService(time.Hour)
 
 	user := &User{ID: "test-id", Email: "test@example.com"}
-	token, err := svc.generateToken(user)
+	token, err := svc.generateToken(context.Background(), user)
 	testutil.NoError(t, err)
 
 	// Tamper with the token by replacing the signature.
@@ -188,14 +261,50 @@ func TestValidateTokenWrongSigningMethod(t *testing.T) {
 
 func TestValidateTokenWrongSecret(t *testing.T) {
 	t.Parallel()
-	svc1 := &Service{jwtSecret: []byte(testSecret), tokenDur: time.Hour}
+	svc1 := newJWTTestService(time.Hour)
 	svc2 := &Service{jwtSecret: []byte("different-secret-that-is-also-32-chars-long!!")}
 
 	user := &User{ID: "test-id", Email: "test@example.com"}
-	token, err := svc1.generateToken(user)
+	token, err := svc1.generateToken(context.Background(), user)
 	testutil.NoError(t, err)
 
 	_, err = svc2.ValidateToken(token)
+	testutil.ErrorContains(t, err, "invalid token")
+}
+
+func TestValidateTokenTooLarge(t *testing.T) {
+	t.Parallel()
+
+	svc := newJWTTestService(time.Hour)
+
+	oversized := strings.Repeat("a", maxJWTTokenLength+1)
+	_, err := svc.ValidateToken(oversized)
+	testutil.ErrorContains(t, err, "token too large")
+}
+
+func TestValidateTokenWithoutJWTSecret(t *testing.T) {
+	t.Parallel()
+
+	svc := &Service{}
+	_, err := svc.ValidateToken("header.payload.signature")
+	testutil.ErrorContains(t, err, "jwt secret is not configured")
+}
+
+func TestGenerateTokenWithoutJWTSecret(t *testing.T) {
+	t.Parallel()
+
+	svc := &Service{tokenDur: time.Hour}
+	_, err := svc.generateToken(context.Background(), &User{ID: "test-id", Email: "test@example.com"})
+	testutil.ErrorContains(t, err, "jwt secret is not configured")
+}
+
+func TestValidateTokenAtSizeLimitFallsThroughToJWTValidation(t *testing.T) {
+	t.Parallel()
+
+	svc := newJWTTestService(time.Hour)
+
+	atLimit := strings.Repeat("a", maxJWTTokenLength)
+	_, err := svc.ValidateToken(atLimit)
 	testutil.ErrorContains(t, err, "invalid token")
 }
 
@@ -212,11 +321,13 @@ func TestValidateEmail(t *testing.T) {
 		{"no at", "userexample.com", "invalid email format"},
 		{"no domain dot", "user@example", "invalid email format"},
 		{"at at start", "@example.com", "invalid email format"},
+		{"newline injection", "user@example.com\nBcc:evil@example.com", "invalid email format"},
+		{"carriage return injection", "user@example.com\rBcc:evil@example.com", "invalid email format"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			err := validateEmail(tt.email)
+			err := validateAuthEmail(tt.email)
 			if tt.wantErr == "" {
 				testutil.NoError(t, err)
 			} else {
@@ -292,11 +403,11 @@ func TestVerifyPasswordCorruptedHash(t *testing.T) {
 
 func TestRotateJWTSecretChangesSecret(t *testing.T) {
 	t.Parallel()
-	svc := &Service{jwtSecret: []byte(testSecret), tokenDur: time.Hour}
+	svc := newJWTTestService(time.Hour)
 
 	// Issue a token with the old secret.
 	user := &User{ID: "test-id", Email: "test@example.com"}
-	oldToken, err := svc.generateToken(user)
+	oldToken, err := svc.generateToken(context.Background(), user)
 	testutil.NoError(t, err)
 
 	// Validate works before rotation.
@@ -317,7 +428,7 @@ func TestRotateJWTSecretChangesSecret(t *testing.T) {
 	testutil.ErrorContains(t, err, "invalid token")
 
 	// New token should validate.
-	newToken, err := svc.generateToken(user)
+	newToken, err := svc.generateToken(context.Background(), user)
 	testutil.NoError(t, err)
 	claims, err := svc.ValidateToken(newToken)
 	testutil.NoError(t, err)
@@ -326,7 +437,7 @@ func TestRotateJWTSecretChangesSecret(t *testing.T) {
 
 func TestRotateJWTSecretProducesDifferentSecrets(t *testing.T) {
 	t.Parallel()
-	svc := &Service{jwtSecret: []byte(testSecret), tokenDur: time.Hour}
+	svc := newJWTTestService(time.Hour)
 
 	s1, err := svc.RotateJWTSecret()
 	testutil.NoError(t, err)
@@ -340,14 +451,14 @@ func TestRotateJWTSecretProducesDifferentSecrets(t *testing.T) {
 // jwtSecretMu RWMutex properly protects concurrent access.
 func TestRotateJWTSecretConcurrentSafe(t *testing.T) {
 	t.Parallel()
-	svc := &Service{jwtSecret: []byte(testSecret), tokenDur: time.Hour}
+	svc := newJWTTestService(time.Hour)
 	user := &User{ID: "concurrent-test", Email: "concurrent@example.com"}
 
 	var wg sync.WaitGroup
 	const workers = 8
 
 	// Issue a token before the goroutines start so validators have something to work with.
-	initialToken, err := svc.generateToken(user)
+	initialToken, err := svc.generateToken(context.Background(), user)
 	testutil.NoError(t, err)
 
 	// Goroutines that continuously rotate the secret.
@@ -369,7 +480,7 @@ func TestRotateJWTSecretConcurrentSafe(t *testing.T) {
 		go func() {
 			defer wg.Done()
 			for j := 0; j < 10; j++ {
-				tok, err := svc.generateToken(user)
+				tok, err := svc.generateToken(context.Background(), user)
 				if err == nil && tok != "" {
 					_, _ = svc.ValidateToken(tok)
 				}
@@ -384,7 +495,7 @@ func TestRotateJWTSecretConcurrentSafe(t *testing.T) {
 
 func TestIssueTestToken(t *testing.T) {
 	t.Parallel()
-	svc := &Service{jwtSecret: []byte(testSecret), tokenDur: time.Hour}
+	svc := newJWTTestService(time.Hour)
 
 	token, err := svc.IssueTestToken("user-123", "test@example.com")
 	testutil.NoError(t, err)
@@ -436,13 +547,10 @@ func TestValidateTokenBoundaryConditions(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			svc := &Service{
-				jwtSecret: []byte(testSecret),
-				tokenDur:  tt.tokenDur,
-			}
+			svc := newJWTTestService(tt.tokenDur)
 
 			user := &User{ID: "test-id", Email: "test@example.com"}
-			token, err := svc.generateToken(user)
+			token, err := svc.generateToken(context.Background(), user)
 			testutil.NoError(t, err)
 
 			if tt.waitBefore > 0 {

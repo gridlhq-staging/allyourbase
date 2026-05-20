@@ -1,24 +1,16 @@
-// Package emailtemplates provides custom email template storage, rendering,
-// and fallback to built-in defaults embedded in the binary.
 package emailtemplates
 
 import (
 	"context"
 	"errors"
 	"fmt"
-	"html"
-	htmltemplate "html/template"
 	"log/slog"
 	"regexp"
 	"sort"
-	"strings"
 	"sync"
-	texttemplate "text/template"
 	"time"
 
 	"github.com/allyourbase/ayb/internal/mailer"
-	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 // Sentinel errors.
@@ -83,21 +75,21 @@ type BuiltinTemplate struct {
 	Variables       []string
 }
 
-// DefaultBuiltins constructs the built-in template map from the embedded
-// mailer templates and their default subjects. Used by start.go to wire
-// the email template service.
 func DefaultBuiltins() map[string]BuiltinTemplate {
-	systemVars := []string{"AppName", "ActionURL"}
-	builtins := make(map[string]BuiltinTemplate, 3)
+	systemVars, mfaVars := []string{"AppName", "ActionURL"}, []string{"AppName", "Code"}
+	builtins := make(map[string]BuiltinTemplate, 5)
 
 	keys := []struct {
 		key     string
 		subject string
 		file    string
+		vars    []string
 	}{
-		{"auth.password_reset", mailer.DefaultPasswordResetSubject, "password_reset.html"},
-		{"auth.email_verification", mailer.DefaultVerificationSubject, "verification.html"},
-		{"auth.magic_link", mailer.DefaultMagicLinkSubject, "magic_link.html"},
+		{"auth.password_reset", mailer.DefaultPasswordResetSubject, "password_reset.html", systemVars},
+		{"auth.email_verification", mailer.DefaultVerificationSubject, "verification.html", systemVars},
+		{"auth.magic_link", mailer.DefaultMagicLinkSubject, "magic_link.html", systemVars},
+		{"auth.mfa_email_enroll", mailer.DefaultMFAEmailEnrollSubject, "mfa_email_enroll.html", mfaVars},
+		{"auth.mfa_email_challenge", mailer.DefaultMFAEmailChallengeSubject, "mfa_email_challenge.html", mfaVars},
 	}
 	for _, k := range keys {
 		html, err := mailer.BuiltinHTMLTemplate(k.file)
@@ -105,139 +97,9 @@ func DefaultBuiltins() map[string]BuiltinTemplate {
 			// Embedded templates must always be available; panic on missing.
 			panic(fmt.Sprintf("missing built-in email template %q: %v", k.file, err))
 		}
-		builtins[k.key] = BuiltinTemplate{
-			SubjectTemplate: k.subject,
-			HTMLTemplate:    html,
-			Variables:       systemVars,
-		}
+		builtins[k.key] = BuiltinTemplate{SubjectTemplate: k.subject, HTMLTemplate: html, Variables: k.vars}
 	}
 	return builtins
-}
-
-// Store handles database CRUD for custom email templates.
-type Store struct {
-	pool *pgxpool.Pool
-}
-
-// TemplateStore defines storage operations needed by Service.
-type TemplateStore interface {
-	Upsert(ctx context.Context, key, subjectTpl, htmlTpl string) (*Template, error)
-	Get(ctx context.Context, key string) (*Template, error)
-	List(ctx context.Context) ([]*Template, error)
-	Delete(ctx context.Context, key string) error
-	SetEnabled(ctx context.Context, key string, enabled bool) error
-}
-
-// NewStore creates a new template store.
-func NewStore(pool *pgxpool.Pool) *Store {
-	return &Store{pool: pool}
-}
-
-// Upsert creates or updates a custom template override. It validates the key
-// format and parses both templates to catch syntax errors before saving.
-func (s *Store) Upsert(ctx context.Context, key, subjectTpl, htmlTpl string) (*Template, error) {
-	if err := ValidateKey(key); err != nil {
-		return nil, err
-	}
-
-	// Enforce size limits before parsing (matches DB CHECK constraints).
-	if len(subjectTpl) > MaxSubjectLen {
-		return nil, fmt.Errorf("%w: subject exceeds %d characters", ErrTooLarge, MaxSubjectLen)
-	}
-	if len(htmlTpl) > MaxHTMLLen {
-		return nil, fmt.Errorf("%w: html exceeds %d characters", ErrTooLarge, MaxHTMLLen)
-	}
-
-	// Parse templates to catch syntax errors before saving.
-	if _, err := parseSubject(key, subjectTpl); err != nil {
-		return nil, fmt.Errorf("%w: subject: %v", ErrParseFailed, err)
-	}
-	if _, err := parseHTML(key, htmlTpl); err != nil {
-		return nil, fmt.Errorf("%w: html: %v", ErrParseFailed, err)
-	}
-
-	var t Template
-	err := s.pool.QueryRow(ctx,
-		`INSERT INTO _ayb_email_templates (template_key, subject_template, html_template)
-		 VALUES ($1, $2, $3)
-		 ON CONFLICT (template_key) DO UPDATE
-		   SET subject_template = EXCLUDED.subject_template,
-		       html_template = EXCLUDED.html_template,
-		       updated_at = now()
-		 RETURNING id, template_key, subject_template, html_template, enabled, created_at, updated_at`,
-		key, subjectTpl, htmlTpl,
-	).Scan(&t.ID, &t.TemplateKey, &t.SubjectTemplate, &t.HTMLTemplate,
-		&t.Enabled, &t.CreatedAt, &t.UpdatedAt)
-	if err != nil {
-		return nil, fmt.Errorf("upserting template %q: %w", key, err)
-	}
-	return &t, nil
-}
-
-// Get returns a custom template by key, or ErrNotFound.
-func (s *Store) Get(ctx context.Context, key string) (*Template, error) {
-	var t Template
-	err := s.pool.QueryRow(ctx,
-		`SELECT id, template_key, subject_template, html_template, enabled, created_at, updated_at
-		 FROM _ayb_email_templates WHERE template_key = $1`, key,
-	).Scan(&t.ID, &t.TemplateKey, &t.SubjectTemplate, &t.HTMLTemplate,
-		&t.Enabled, &t.CreatedAt, &t.UpdatedAt)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return nil, ErrNotFound
-	}
-	if err != nil {
-		return nil, fmt.Errorf("getting template %q: %w", key, err)
-	}
-	return &t, nil
-}
-
-// List returns all custom template overrides.
-func (s *Store) List(ctx context.Context) ([]*Template, error) {
-	rows, err := s.pool.Query(ctx,
-		`SELECT id, template_key, subject_template, html_template, enabled, created_at, updated_at
-		 FROM _ayb_email_templates ORDER BY template_key`)
-	if err != nil {
-		return nil, fmt.Errorf("listing templates: %w", err)
-	}
-	defer rows.Close()
-
-	var templates []*Template
-	for rows.Next() {
-		var t Template
-		if err := rows.Scan(&t.ID, &t.TemplateKey, &t.SubjectTemplate, &t.HTMLTemplate,
-			&t.Enabled, &t.CreatedAt, &t.UpdatedAt); err != nil {
-			return nil, fmt.Errorf("scanning template row: %w", err)
-		}
-		templates = append(templates, &t)
-	}
-	return templates, rows.Err()
-}
-
-// Delete removes a custom template override by key.
-func (s *Store) Delete(ctx context.Context, key string) error {
-	tag, err := s.pool.Exec(ctx,
-		`DELETE FROM _ayb_email_templates WHERE template_key = $1`, key)
-	if err != nil {
-		return fmt.Errorf("deleting template %q: %w", key, err)
-	}
-	if tag.RowsAffected() == 0 {
-		return ErrNotFound
-	}
-	return nil
-}
-
-// SetEnabled toggles the enabled flag on a custom template.
-func (s *Store) SetEnabled(ctx context.Context, key string, enabled bool) error {
-	tag, err := s.pool.Exec(ctx,
-		`UPDATE _ayb_email_templates SET enabled = $2, updated_at = now()
-		 WHERE template_key = $1`, key, enabled)
-	if err != nil {
-		return fmt.Errorf("toggling template %q enabled: %w", key, err)
-	}
-	if tag.RowsAffected() == 0 {
-		return ErrNotFound
-	}
-	return nil
 }
 
 // Service provides template rendering with fallback to built-in defaults.
@@ -497,88 +359,4 @@ func (s *Service) Send(ctx context.Context, key, to string, vars map[string]stri
 		HTML:    rendered.HTML,
 		Text:    rendered.Text,
 	})
-}
-
-// renderTemplates parses and executes subject + HTML templates against vars.
-func renderTemplates(ctx context.Context, key, subjectTpl, htmlTpl string, vars map[string]string) (*RenderedEmail, error) {
-	// Parse subject (text/template).
-	st, err := parseSubject(key, subjectTpl)
-	if err != nil {
-		return nil, fmt.Errorf("%w: subject: %v", ErrParseFailed, err)
-	}
-
-	// Parse HTML (html/template).
-	ht, err := parseHTML(key, htmlTpl)
-	if err != nil {
-		return nil, fmt.Errorf("%w: html: %v", ErrParseFailed, err)
-	}
-
-	// Check context before execution.
-	if err := ctx.Err(); err != nil {
-		return nil, fmt.Errorf("%w: %v", ErrRenderFailed, err)
-	}
-
-	// Execute subject.
-	var subBuf strings.Builder
-	if err := st.Execute(&subBuf, vars); err != nil {
-		return nil, fmt.Errorf("%w: subject: %v", ErrRenderFailed, err)
-	}
-
-	// Execute HTML.
-	var htmlBuf strings.Builder
-	if err := ht.Execute(&htmlBuf, vars); err != nil {
-		return nil, fmt.Errorf("%w: html: %v", ErrRenderFailed, err)
-	}
-
-	html := htmlBuf.String()
-	text := stripHTML(html)
-
-	return &RenderedEmail{
-		Subject: subBuf.String(),
-		HTML:    html,
-		Text:    text,
-	}, nil
-}
-
-// parseSubject parses a subject template string with missingkey=error.
-func parseSubject(key, tpl string) (*texttemplate.Template, error) {
-	return texttemplate.New(key + ".subject").
-		Option("missingkey=error").
-		Parse(tpl)
-}
-
-// parseHTML parses an HTML template string with missingkey=error and empty FuncMap.
-func parseHTML(key, tpl string) (*htmltemplate.Template, error) {
-	return htmltemplate.New(key + ".html").
-		Option("missingkey=error").
-		Funcs(htmltemplate.FuncMap{}).
-		Parse(tpl)
-}
-
-// stripHTML removes HTML tags, decodes HTML entities, and collapses whitespace
-// for plaintext fallback.
-func stripHTML(s string) string {
-	var out strings.Builder
-	inTag := false
-	for _, r := range s {
-		switch {
-		case r == '<':
-			inTag = true
-		case r == '>':
-			inTag = false
-		case !inTag:
-			out.WriteRune(r)
-		}
-	}
-	// Decode HTML entities (e.g. &amp; → &, &#39; → ', &lt; → <).
-	decoded := html.UnescapeString(out.String())
-	lines := strings.Split(decoded, "\n")
-	var result []string
-	for _, line := range lines {
-		trimmed := strings.TrimSpace(line)
-		if trimmed != "" {
-			result = append(result, trimmed)
-		}
-	}
-	return strings.Join(result, "\n")
 }

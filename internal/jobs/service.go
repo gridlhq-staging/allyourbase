@@ -2,7 +2,6 @@ package jobs
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"log/slog"
 	"sync"
@@ -117,6 +116,7 @@ func (s *Service) workerLoop(ctx context.Context, workerNum int) {
 	}
 }
 
+// pollAndProcess claims the next available job from the queue, dispatches it to the registered handler with lease renewal, and records the success or failure result.
 func (s *Service) pollAndProcess(ctx context.Context, workerID string) {
 	job, err := s.store.Claim(ctx, workerID, s.cfg.LeaseDuration)
 	if err != nil {
@@ -162,9 +162,27 @@ func (s *Service) pollAndProcess(ctx context.Context, workerID string) {
 	// Stop lease renewal before updating final state.
 	renewCancel()
 
+	// If the handler context expired (ShutdownTimeout) but the handler did not
+	// propagate the cancellation error, treat the job as timed-out rather than
+	// completed — the handler's nil return is unreliable when its context has
+	// been cancelled.
+	if jobErr == nil && handlerCtx.Err() != nil {
+		jobErr = handlerCtx.Err()
+	}
+
+	// If the handler timed out, the handler context is already cancelled and
+	// cannot be used for terminal state persistence. Use a short-lived fresh
+	// context so failed/completed state is still durably recorded.
+	persistCtx := handlerCtx
+	persistCancel := func() {}
+	if handlerCtx.Err() != nil {
+		persistCtx, persistCancel = context.WithTimeout(context.Background(), 5*time.Second)
+	}
+	defer persistCancel()
+
 	if jobErr != nil {
 		backoff := ComputeBackoff(job.Attempts)
-		_, failErr := s.store.Fail(handlerCtx, job.ID, jobErr.Error(), backoff)
+		_, failErr := s.store.Fail(persistCtx, job.ID, jobErr.Error(), backoff)
 		if failErr != nil {
 			s.logger.Error("failed to record job failure",
 				"job_id", job.ID, "error", failErr)
@@ -175,7 +193,7 @@ func (s *Service) pollAndProcess(ctx context.Context, workerID string) {
 		return
 	}
 
-	_, completeErr := s.store.Complete(handlerCtx, job.ID)
+	_, completeErr := s.store.Complete(persistCtx, job.ID)
 	if completeErr != nil {
 		s.logger.Error("failed to complete job",
 			"job_id", job.ID, "error", completeErr)
@@ -227,6 +245,7 @@ func (s *Service) schedulerLoop(ctx context.Context) {
 	}
 }
 
+// Processes all due schedules by computing their next run times from cron expressions and enqueuing corresponding jobs.
 func (s *Service) schedulerTick(ctx context.Context) {
 	schedules, err := s.store.DueSchedules(ctx)
 	if err != nil {
@@ -266,6 +285,7 @@ func (s *Service) schedulerTick(ctx context.Context) {
 	}
 }
 
+// Periodically recovers stalled jobs whose leases have expired, moving them back to the ready state for retry.
 func (s *Service) recoveryLoop(ctx context.Context) {
 	defer s.wg.Done()
 	// Run recovery at the lease duration interval (minimum 30s).
@@ -316,138 +336,4 @@ func CronNextTime(cronExpr, tz string, refTime time.Time) (time.Time, error) {
 	}
 
 	return next.UTC(), nil
-}
-
-// --- Delegate methods to Store for convenience ---
-
-// Enqueue delegates to the underlying store.
-func (s *Service) Enqueue(ctx context.Context, jobType string, payload json.RawMessage, opts EnqueueOpts) (*Job, error) {
-	return s.store.Enqueue(ctx, jobType, payload, opts)
-}
-
-// Get delegates to the underlying store.
-func (s *Service) Get(ctx context.Context, jobID string) (*Job, error) {
-	return s.store.Get(ctx, jobID)
-}
-
-// List delegates to the underlying store.
-func (s *Service) List(ctx context.Context, state, jobType string, limit, offset int) ([]Job, error) {
-	return s.store.List(ctx, state, jobType, limit, offset)
-}
-
-// Stats delegates to the underlying store.
-func (s *Service) Stats(ctx context.Context) (*QueueStats, error) {
-	return s.store.Stats(ctx)
-}
-
-// Cancel delegates to the underlying store.
-func (s *Service) Cancel(ctx context.Context, jobID string) (*Job, error) {
-	return s.store.Cancel(ctx, jobID)
-}
-
-// RetryNow delegates to the underlying store.
-func (s *Service) RetryNow(ctx context.Context, jobID string) (*Job, error) {
-	return s.store.RetryNow(ctx, jobID)
-}
-
-// CreateSchedule delegates to the underlying store.
-func (s *Service) CreateSchedule(ctx context.Context, sched *Schedule) (*Schedule, error) {
-	return s.store.CreateSchedule(ctx, sched)
-}
-
-// GetSchedule delegates to the underlying store.
-func (s *Service) GetSchedule(ctx context.Context, id string) (*Schedule, error) {
-	return s.store.GetSchedule(ctx, id)
-}
-
-// GetScheduleByName delegates to the underlying store.
-func (s *Service) GetScheduleByName(ctx context.Context, name string) (*Schedule, error) {
-	return s.store.GetScheduleByName(ctx, name)
-}
-
-// ListSchedules delegates to the underlying store.
-func (s *Service) ListSchedules(ctx context.Context) ([]Schedule, error) {
-	return s.store.ListSchedules(ctx)
-}
-
-// UpdateSchedule delegates to the underlying store.
-func (s *Service) UpdateSchedule(ctx context.Context, id string, cronExpr, timezone string, payload json.RawMessage, enabled bool, nextRunAt *time.Time) (*Schedule, error) {
-	return s.store.UpdateSchedule(ctx, id, cronExpr, timezone, payload, enabled, nextRunAt)
-}
-
-// DeleteSchedule delegates to the underlying store.
-func (s *Service) DeleteSchedule(ctx context.Context, id string) error {
-	return s.store.DeleteSchedule(ctx, id)
-}
-
-// SetScheduleEnabled delegates to the underlying store.
-func (s *Service) SetScheduleEnabled(ctx context.Context, id string, enabled bool) (*Schedule, error) {
-	var nextRunAt *time.Time
-	if enabled {
-		// Recompute next_run_at from now.
-		sched, err := s.store.GetSchedule(ctx, id)
-		if err != nil {
-			return nil, err
-		}
-		t, err := CronNextTime(sched.CronExpr, sched.Timezone, time.Now())
-		if err != nil {
-			return nil, err
-		}
-		nextRunAt = &t
-	}
-	return s.store.SetScheduleEnabled(ctx, id, enabled, nextRunAt)
-}
-
-// RegisterDefaultSchedules inserts the built-in schedule definitions (idempotent).
-func (s *Service) RegisterDefaultSchedules(ctx context.Context) error {
-	defaults := []Schedule{
-		{
-			Name:        "session_cleanup_hourly",
-			JobType:     "stale_session_cleanup",
-			CronExpr:    "0 * * * *",
-			Timezone:    "UTC",
-			Enabled:     true,
-			MaxAttempts: 3,
-		},
-		{
-			Name:        "webhook_delivery_prune_daily",
-			JobType:     "webhook_delivery_prune",
-			Payload:     json.RawMessage(`{"retention_hours": 168}`),
-			CronExpr:    "0 3 * * *",
-			Timezone:    "UTC",
-			Enabled:     true,
-			MaxAttempts: 3,
-		},
-		{
-			Name:        "expired_oauth_cleanup_daily",
-			JobType:     "expired_oauth_cleanup",
-			CronExpr:    "0 4 * * *",
-			Timezone:    "UTC",
-			Enabled:     true,
-			MaxAttempts: 3,
-		},
-		{
-			Name:        "expired_auth_cleanup_daily",
-			JobType:     "expired_auth_cleanup",
-			CronExpr:    "0 5 * * *",
-			Timezone:    "UTC",
-			Enabled:     true,
-			MaxAttempts: 3,
-		},
-	}
-
-	for i := range defaults {
-		sched := &defaults[i]
-		// Compute initial next_run_at.
-		next, err := CronNextTime(sched.CronExpr, sched.Timezone, time.Now())
-		if err != nil {
-			return fmt.Errorf("compute next_run_at for %s: %w", sched.Name, err)
-		}
-		sched.NextRunAt = &next
-
-		if _, err := s.store.UpsertSchedule(ctx, sched); err != nil {
-			return fmt.Errorf("upsert default schedule %s: %w", sched.Name, err)
-		}
-	}
-	return nil
 }

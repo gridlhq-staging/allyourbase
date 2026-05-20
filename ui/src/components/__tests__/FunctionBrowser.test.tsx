@@ -1,4 +1,5 @@
 import { vi, describe, it, expect, beforeEach } from "vitest";
+import { expectWcagContrastToken } from "../../test-utils";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { FunctionBrowser } from "../FunctionBrowser";
@@ -145,6 +146,74 @@ describe("FunctionBrowser", () => {
     expect(mockCallRpc).toHaveBeenCalledWith("add_numbers", { a: 10, b: 32 });
   });
 
+  it("executes non-public functions with their schema-qualified RPC name", async () => {
+    mockCallRpc.mockResolvedValueOnce({ status: 204, data: null });
+    const user = userEvent.setup();
+    render(
+      <FunctionBrowser
+        functions={{
+          "analytics.refresh_rollups": {
+            schema: "analytics",
+            name: "refresh_rollups",
+            parameters: null,
+            returnType: "void",
+            returnsSet: false,
+            isVoid: true,
+          },
+        }}
+      />,
+    );
+
+    await user.click(screen.getByText("refresh_rollups"));
+    await user.click(screen.getByRole("button", { name: /Execute/ }));
+
+    await waitFor(() => {
+      expect(mockCallRpc).toHaveBeenCalledWith("analytics.refresh_rollups", {});
+    });
+  });
+
+  it("URL-encodes schema-qualified RPC names before execution", async () => {
+    mockCallRpc.mockResolvedValueOnce({ status: 204, data: null });
+    const user = userEvent.setup();
+    render(
+      <FunctionBrowser
+        functions={{
+          'analytics.rollup/refresh?preview#v2': {
+            schema: "analytics",
+            name: "rollup/refresh?preview#v2",
+            parameters: null,
+            returnType: "void",
+            returnsSet: false,
+            isVoid: true,
+          },
+        }}
+      />,
+    );
+
+    await user.click(screen.getByText("rollup/refresh?preview#v2"));
+    await user.click(screen.getByRole("button", { name: /Execute/ }));
+
+    await waitFor(() => {
+      expect(mockCallRpc).toHaveBeenCalledWith(
+        "analytics.rollup%2Frefresh%3Fpreview%23v2",
+        {},
+      );
+    });
+  });
+
+  it("makes execution result output keyboard-focusable for scroll access", async () => {
+    mockCallRpc.mockResolvedValueOnce({ status: 200, data: 42 });
+    const user = userEvent.setup();
+    render(<FunctionBrowser functions={sampleFunctions} />);
+
+    await user.click(screen.getByText("add_numbers"));
+    await user.click(screen.getByRole("button", { name: /Execute/ }));
+
+    const resultValue = await screen.findByText("42");
+    const resultPre = resultValue.closest("pre");
+    expect(resultPre).toHaveAttribute("tabindex", "0");
+  });
+
   it("executes void function and shows void result", async () => {
     mockCallRpc.mockResolvedValueOnce({ status: 204, data: null });
     const user = userEvent.setup();
@@ -224,5 +293,11 @@ describe("FunctionBrowser", () => {
       // Duration is dynamic but should contain "ms"
       expect(screen.getByText(/\d+ms/)).toBeDefined();
     });
+  });
+
+  it("schema prefix uses WCAG AA compliant contrast token", () => {
+    render(<FunctionBrowser functions={sampleFunctions} />);
+    const className = screen.getByText("stats.").className;
+    expectWcagContrastToken(className);
   });
 });

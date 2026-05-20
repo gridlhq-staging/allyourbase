@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { CommandPalette, CommandPaletteHint } from "../CommandPalette";
@@ -43,7 +43,7 @@ describe("CommandPalette", () => {
     );
     expect(screen.getByRole("dialog")).toBeInTheDocument();
     expect(screen.getByPlaceholderText("Search tables, pages...")).toBeInTheDocument();
-    // All 4 tables + 13 navigation items
+    // All 4 tables + 14 navigation items
     expect(screen.getByText("users")).toBeInTheDocument();
     expect(screen.getByText("posts")).toBeInTheDocument();
     expect(screen.getByText("SQL Editor")).toBeInTheDocument();
@@ -71,6 +71,13 @@ describe("CommandPalette", () => {
       <CommandPalette open={true} onClose={onClose} onSelect={onSelect} tables={tables} />,
     );
     expect(screen.getByText("Email Templates")).toBeInTheDocument();
+  });
+
+  it("includes Push Notifications in navigation items", () => {
+    render(
+      <CommandPalette open={true} onClose={onClose} onSelect={onSelect} tables={tables} />,
+    );
+    expect(screen.getByText("Push Notifications")).toBeInTheDocument();
   });
 
   it("calls onSelect with sms-health view when SMS Health clicked", async () => {
@@ -154,6 +161,23 @@ describe("CommandPalette", () => {
     expect(action.kind).toBe("view");
     if (action.kind === "view") {
       expect(action.view).toBe("email-templates");
+    }
+    expect(onClose).toHaveBeenCalledOnce();
+  });
+
+  it("calls onSelect with push view when Push Notifications clicked", async () => {
+    const user = userEvent.setup();
+    render(
+      <CommandPalette open={true} onClose={onClose} onSelect={onSelect} tables={tables} />,
+    );
+
+    await user.click(screen.getByText("Push Notifications"));
+
+    expect(onSelect).toHaveBeenCalledOnce();
+    const action: CommandAction = onSelect.mock.calls[0][0];
+    expect(action.kind).toBe("view");
+    if (action.kind === "view") {
+      expect(action.view).toBe("push");
     }
     expect(onClose).toHaveBeenCalledOnce();
   });
@@ -300,5 +324,22 @@ describe("CommandPaletteHint", () => {
   it("shows keyboard shortcut", () => {
     render(<CommandPaletteHint onClick={vi.fn()} />);
     expect(screen.getByText("K")).toBeInTheDocument();
+  });
+
+  it("uses WCAG AA compliant contrast on search hint text", () => {
+    render(<CommandPaletteHint onClick={vi.fn()} />);
+    const btn = screen.getByText("Search...").closest("button")!;
+    // text-gray-500 (#6b7280) passes 4.5:1 on white; text-gray-400 (#9ca3af) fails at 2.53:1
+    expect(btn.className).toContain("text-gray-500");
+  });
+
+  it("keeps dark-mode hint styles free of redundant hover tokens", () => {
+    render(<CommandPaletteHint onClick={vi.fn()} />);
+    const btn = screen.getByText("Search...").closest("button")!;
+
+    expect(btn.className).toContain("dark:text-gray-300");
+    expect(btn.className).toContain("dark:bg-gray-800");
+    expect(btn.className).not.toContain("dark:hover:text-gray-300");
+    expect(btn.className).not.toContain("dark:hover:bg-gray-800");
   });
 });

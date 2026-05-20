@@ -1,4 +1,4 @@
-import { test, expect, execSQL, seedRecord } from "../fixtures";
+import { test, expect, execSQL, seedRecord, waitForDashboard } from "../fixtures";
 
 /**
  * FULL E2E TEST: Table Browser Advanced Features
@@ -42,7 +42,7 @@ test.describe("Table Browser Advanced (Full E2E)", () => {
 
     // Act: navigate to the table
     await page.goto("/admin/");
-    await expect(page.getByText("Allyourbase").first()).toBeVisible();
+    await waitForDashboard(page);
     const sidebar = page.locator("aside");
     const tableLink = sidebar.getByText(tableName, { exact: true });
     await expect(tableLink).toBeVisible({ timeout: 10000 });
@@ -68,7 +68,7 @@ test.describe("Table Browser Advanced (Full E2E)", () => {
     // Setup: Create table with sample data via SQL
     // ============================================================
     await page.goto("/admin/");
-    await expect(page.getByText("Allyourbase").first()).toBeVisible();
+    await waitForDashboard(page);
 
     const sidebar = page.locator("aside");
 
@@ -88,7 +88,7 @@ test.describe("Table Browser Advanced (Full E2E)", () => {
         created_at TIMESTAMPTZ DEFAULT NOW()
       );
     `);
-    await page.getByRole("button", { name: /run|execute/i }).click();
+    await page.getByRole("button", { name: /^Execute$/i }).click();
     await expect(page.getByText(/statement executed successfully/i)).toBeVisible({ timeout: 10000 });
 
     // Insert 5 records (separate SQL execution)
@@ -100,12 +100,12 @@ test.describe("Table Browser Advanced (Full E2E)", () => {
         ('Delta Widget', 'active', 88),
         ('Epsilon Device', 'inactive', 15);
     `);
-    await page.getByRole("button", { name: /run|execute/i }).click();
+    await page.getByRole("button", { name: /^Execute$/i }).click();
     await expect(page.getByText(/rows? affected/i)).toBeVisible({ timeout: 10000 });
 
     // Reload to see new table
     await page.reload();
-    await expect(page.getByText("Allyourbase").first()).toBeVisible();
+    await waitForDashboard(page);
 
     // Navigate to the test table
     const tableLink = sidebar.getByText(tableName, { exact: true });
@@ -183,7 +183,7 @@ test.describe("Table Browser Advanced (Full E2E)", () => {
     const cleanupSql = page.getByLabel("SQL query");
     await expect(cleanupSql).toBeVisible({ timeout: 5000 });
     await cleanupSql.fill(`DROP TABLE IF EXISTS ${tableName};`);
-    await page.getByRole("button", { name: /run|execute/i }).click();
+    await page.getByRole("button", { name: /^Execute$/i }).click();
 
   });
 });

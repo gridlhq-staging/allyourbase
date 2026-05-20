@@ -4,9 +4,9 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
-	"unicode"
 
 	"github.com/allyourbase/ayb/internal/schema"
+	"github.com/allyourbase/ayb/internal/sqlutil"
 )
 
 // parseFilter parses a filter expression string and returns parameterized SQL.
@@ -61,142 +61,6 @@ const (
 type token struct {
 	kind  tokenKind
 	value string
-}
-
-// tokenize breaks the input into tokens.
-func tokenize(input string) ([]token, error) {
-	var tokens []token
-	runes := []rune(input)
-	i := 0
-
-	for i < len(runes) {
-		ch := runes[i]
-
-		// Skip whitespace.
-		if unicode.IsSpace(ch) {
-			i++
-			continue
-		}
-
-		// String literal.
-		if ch == '\'' {
-			var buf []rune
-			j := i + 1
-			for j < len(runes) && runes[j] != '\'' {
-				if runes[j] == '\\' && j+1 < len(runes) {
-					j++ // skip backslash, take next char literally
-				}
-				buf = append(buf, runes[j])
-				j++
-			}
-			if j >= len(runes) {
-				return nil, fmt.Errorf("unterminated string at position %d", i)
-			}
-			tokens = append(tokens, token{tokString, string(buf)})
-			i = j + 1
-			continue
-		}
-
-		// Operators and punctuation.
-		if ch == '(' {
-			tokens = append(tokens, token{tokLParen, "("})
-			i++
-			continue
-		}
-		if ch == ')' {
-			tokens = append(tokens, token{tokRParen, ")"})
-			i++
-			continue
-		}
-		if ch == ',' {
-			tokens = append(tokens, token{tokComma, ","})
-			i++
-			continue
-		}
-
-		// Two-char operators.
-		if i+1 < len(runes) {
-			two := string(runes[i : i+2])
-			switch two {
-			case "&&":
-				tokens = append(tokens, token{tokAnd, "&&"})
-				i += 2
-				continue
-			case "||":
-				tokens = append(tokens, token{tokOr, "||"})
-				i += 2
-				continue
-			case "!=":
-				tokens = append(tokens, token{tokOp, "!="})
-				i += 2
-				continue
-			case ">=":
-				tokens = append(tokens, token{tokOp, ">="})
-				i += 2
-				continue
-			case "<=":
-				tokens = append(tokens, token{tokOp, "<="})
-				i += 2
-				continue
-			case "!~":
-				tokens = append(tokens, token{tokOp, "!~"})
-				i += 2
-				continue
-			}
-		}
-
-		// Single-char operators.
-		if ch == '=' || ch == '>' || ch == '<' || ch == '~' {
-			tokens = append(tokens, token{tokOp, string(ch)})
-			i++
-			continue
-		}
-
-		// Numbers.
-		if unicode.IsDigit(ch) || (ch == '-' && i+1 < len(runes) && unicode.IsDigit(runes[i+1])) {
-			j := i
-			if ch == '-' {
-				j++
-			}
-			for j < len(runes) && (unicode.IsDigit(runes[j]) || runes[j] == '.') {
-				j++
-			}
-			tokens = append(tokens, token{tokNumber, string(runes[i:j])})
-			i = j
-			continue
-		}
-
-		// Identifiers and keywords.
-		if unicode.IsLetter(ch) || ch == '_' {
-			j := i
-			for j < len(runes) && (unicode.IsLetter(runes[j]) || unicode.IsDigit(runes[j]) || runes[j] == '_' || runes[j] == '.') {
-				j++
-			}
-			word := string(runes[i:j])
-			upper := strings.ToUpper(word)
-
-			switch upper {
-			case "AND":
-				tokens = append(tokens, token{tokAnd, "AND"})
-			case "OR":
-				tokens = append(tokens, token{tokOr, "OR"})
-			case "IN":
-				tokens = append(tokens, token{tokIn, "IN"})
-			case "TRUE", "FALSE":
-				tokens = append(tokens, token{tokBool, strings.ToLower(word)})
-			case "NULL":
-				tokens = append(tokens, token{tokNull, "null"})
-			default:
-				tokens = append(tokens, token{tokIdent, word})
-			}
-			i = j
-			continue
-		}
-
-		return nil, fmt.Errorf("unexpected character '%c' at position %d", ch, i)
-	}
-
-	return tokens, nil
 }
 
 // AST node types.
@@ -375,7 +239,7 @@ func (p *parser) parseComparison() (filterNode, error) {
 	if col == nil {
 		return nil, fmt.Errorf("unknown column: %s", ident.value)
 	}
-	quotedCol := quoteIdent(ident.value)
+	quotedCol := sqlutil.QuoteIdent(ident.value)
 
 	// Check for IN.
 	next := p.peek()

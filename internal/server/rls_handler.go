@@ -1,13 +1,16 @@
+// Package server Provides HTTP handlers for managing PostgreSQL row-level security policies and applying storage RLS templates to tables.
 package server
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"regexp"
 	"strings"
 
 	"github.com/allyourbase/ayb/internal/httputil"
+	"github.com/allyourbase/ayb/internal/sqlutil"
 	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -74,9 +77,55 @@ func (a *poolAdapter) Exec(ctx context.Context, sql string, args ...any) error {
 
 // identifierRE validates SQL identifiers (table/policy names).
 var identifierRE = regexp.MustCompile(`^[a-zA-Z_][a-zA-Z0-9_]*$`)
+var bucketNameRE = regexp.MustCompile(`^[a-z0-9_-]+$`)
 
 func isValidIdentifier(s string) bool {
 	return identifierRE.MatchString(s)
+}
+
+func isValidBucketName(s string) bool {
+	return len(s) > 0 && len(s) <= 63 && bucketNameRE.MatchString(s)
+}
+
+// parseRlsTableIdentifier parses a table identifier string in the form 'schema.table' or 'table', validates both parts, and returns the schema and table names separately.
+func parseRlsTableIdentifier(raw string) (schema string, table string, err error) {
+	if raw == "" {
+		return "", "", errors.New("table name is required")
+	}
+
+	schema, table, hasSchema := strings.Cut(raw, ".")
+	if !hasSchema {
+		if !isValidIdentifier(raw) {
+			return "", "", errors.New("invalid table name")
+		}
+		return "", raw, nil
+	}
+	if !isValidIdentifier(schema) {
+		return "", "", errors.New("invalid schema name")
+	}
+	if !isValidIdentifier(table) {
+		return "", "", errors.New("invalid table name")
+	}
+	return schema, table, nil
+}
+
+func buildQualifiedTableSQL(schema string, table string) string {
+	if schema == "" {
+		return sqlutil.QuoteIdent(table)
+	}
+	return sqlutil.QuoteQualifiedName(schema, table)
+}
+
+// isSafePolicyExpression performs a minimal guard against stacked SQL statements.
+// RLS expressions are SQL snippets, so we cannot heavily parse/transform them here,
+// but we reject statement separators and comment tokens that can break out of the
+// intended CREATE POLICY statement.
+func isSafePolicyExpression(expr string) bool {
+	return !strings.Contains(expr, ";") &&
+		!strings.Contains(expr, "--") &&
+		!strings.Contains(expr, "/*") &&
+		!strings.Contains(expr, "*/") &&
+		!strings.ContainsRune(expr, '\x00')
 }
 
 // handleListRlsPolicies returns all RLS policies, optionally filtered by table.
@@ -85,10 +134,25 @@ func handleListRlsPolicies(pool *pgxpool.Pool) http.HandlerFunc {
 	return handleListRlsPoliciesWithQuerier(q)
 }
 
+// handleListRlsPoliciesWithQuerier returns an HTTP handler that lists all row-level security policies, optionally filtered by table name.
 func handleListRlsPoliciesWithQuerier(q rlsQuerier) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		table := chi.URLParam(r, "table")
-		policies, err := listPolicies(r.Context(), q, table)
+		rawTable := chi.URLParam(r, "table")
+		if rawTable == "" {
+			policies, err := listPolicies(r.Context(), q, "", "")
+			if err != nil {
+				httputil.WriteError(w, http.StatusInternalServerError, "failed to list policies")
+				return
+			}
+			httputil.WriteJSON(w, http.StatusOK, policies)
+			return
+		}
+		schema, table, err := parseRlsTableIdentifier(rawTable)
+		if err != nil {
+			httputil.WriteError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		policies, err := listPolicies(r.Context(), q, schema, table)
 		if err != nil {
 			httputil.WriteError(w, http.StatusInternalServerError, "failed to list policies")
 			return
@@ -97,7 +161,8 @@ func handleListRlsPoliciesWithQuerier(q rlsQuerier) http.HandlerFunc {
 	}
 }
 
-func listPolicies(ctx context.Context, q rlsQuerier, table string) ([]RlsPolicy, error) {
+// listPolicies queries the database for all RLS policies, optionally filtered by table name, returning a slice of RlsPolicy structs.
+func listPolicies(ctx context.Context, q rlsQuerier, schema string, table string) ([]RlsPolicy, error) {
 	query := `
 		SELECT
 			n.nspname AS table_schema,
@@ -122,7 +187,10 @@ func listPolicies(ctx context.Context, q rlsQuerier, table string) ([]RlsPolicy,
 		WHERE n.nspname NOT IN ('pg_catalog', 'information_schema')
 	`
 	args := []any{}
-	if table != "" {
+	if table != "" && schema != "" {
+		query += " AND n.nspname = $1 AND c.relname = $2"
+		args = append(args, schema, table)
+	} else if table != "" {
 		query += " AND c.relname = $1"
 		args = append(args, table)
 	}
@@ -161,219 +229,32 @@ func handleGetRlsStatus(pool *pgxpool.Pool) http.HandlerFunc {
 	return handleGetRlsStatusWithQuerier(q)
 }
 
+// handleGetRlsStatusWithQuerier returns an HTTP handler that retrieves whether RLS is enabled and force-enforced on a table.
 func handleGetRlsStatusWithQuerier(q rlsQuerier) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		table := chi.URLParam(r, "table")
-		if table == "" {
-			httputil.WriteError(w, http.StatusBadRequest, "table name is required")
-			return
-		}
-		if !isValidIdentifier(table) {
-			httputil.WriteError(w, http.StatusBadRequest, "invalid table name")
+		rawTable := chi.URLParam(r, "table")
+		schema, table, err := parseRlsTableIdentifier(rawTable)
+		if err != nil {
+			httputil.WriteError(w, http.StatusBadRequest, err.Error())
 			return
 		}
 
 		var status RlsTableStatus
-		err := q.QueryRow(r.Context(),
-			`SELECT relrowsecurity, relforcerowsecurity
+		query := `SELECT relrowsecurity, relforcerowsecurity
 			 FROM pg_class c
 			 JOIN pg_namespace n ON n.oid = c.relnamespace
-			 WHERE c.relname = $1 AND n.nspname NOT IN ('pg_catalog', 'information_schema')
-			 LIMIT 1`, table,
-		).Scan(&status.RlsEnabled, &status.ForceRls)
+			 WHERE c.relname = $1 AND n.nspname NOT IN ('pg_catalog', 'information_schema')`
+		args := []any{table}
+		if schema != "" {
+			query += " AND n.nspname = $2"
+			args = append(args, schema)
+		}
+		query += " LIMIT 1"
+		err = q.QueryRow(r.Context(), query, args...).Scan(&status.RlsEnabled, &status.ForceRls)
 		if err != nil {
 			httputil.WriteError(w, http.StatusNotFound, "table not found")
 			return
 		}
 		httputil.WriteJSON(w, http.StatusOK, status)
-	}
-}
-
-type createPolicyRequest struct {
-	Table      string   `json:"table"`
-	Schema     string   `json:"schema"`
-	Name       string   `json:"name"`
-	Command    string   `json:"command"`
-	Permissive *bool    `json:"permissive"`
-	Roles      []string `json:"roles"`
-	Using      string   `json:"using"`
-	WithCheck  string   `json:"withCheck"`
-}
-
-// handleCreateRlsPolicy creates a new RLS policy.
-func handleCreateRlsPolicy(pool *pgxpool.Pool) http.HandlerFunc {
-	q := &poolAdapter{pool: pool}
-	return handleCreateRlsPolicyWithQuerier(q)
-}
-
-func handleCreateRlsPolicyWithQuerier(q rlsQuerier) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		var req createPolicyRequest
-		if !httputil.DecodeJSON(w, r, &req) {
-			return
-		}
-		if req.Table == "" {
-			httputil.WriteError(w, http.StatusBadRequest, "table is required")
-			return
-		}
-		if req.Name == "" {
-			httputil.WriteError(w, http.StatusBadRequest, "name is required")
-			return
-		}
-		if !isValidIdentifier(req.Table) {
-			httputil.WriteError(w, http.StatusBadRequest, "invalid table name")
-			return
-		}
-		if !isValidIdentifier(req.Name) {
-			httputil.WriteError(w, http.StatusBadRequest, "invalid policy name")
-			return
-		}
-
-		schema := req.Schema
-		if schema == "" {
-			schema = "public"
-		}
-		if !isValidIdentifier(schema) {
-			httputil.WriteError(w, http.StatusBadRequest, "invalid schema name")
-			return
-		}
-
-		cmd := strings.ToUpper(req.Command)
-		if cmd == "" {
-			cmd = "ALL"
-		}
-		validCommands := map[string]bool{"ALL": true, "SELECT": true, "INSERT": true, "UPDATE": true, "DELETE": true}
-		if !validCommands[cmd] {
-			httputil.WriteErrorWithDocURL(w, http.StatusBadRequest, "command must be one of: ALL, SELECT, INSERT, UPDATE, DELETE",
-				"https://allyourbase.io/guide/authentication#row-level-security-rls")
-			return
-		}
-
-		// Build CREATE POLICY statement using quoted identifiers for safety.
-		var sb strings.Builder
-		sb.WriteString(fmt.Sprintf(`CREATE POLICY %q ON %q.%q`, req.Name, schema, req.Table))
-
-		// Permissive/Restrictive (default PERMISSIVE)
-		if req.Permissive != nil && !*req.Permissive {
-			sb.WriteString(" AS RESTRICTIVE")
-		}
-
-		sb.WriteString(fmt.Sprintf(" FOR %s", cmd))
-
-		if len(req.Roles) > 0 {
-			quoted := make([]string, len(req.Roles))
-			for i, role := range req.Roles {
-				if role == "PUBLIC" || role == "public" {
-					quoted[i] = "PUBLIC"
-				} else {
-					if !isValidIdentifier(role) {
-						httputil.WriteError(w, http.StatusBadRequest, "invalid role name: "+role)
-						return
-					}
-					quoted[i] = fmt.Sprintf("%q", role)
-				}
-			}
-			sb.WriteString(fmt.Sprintf(" TO %s", strings.Join(quoted, ", ")))
-		}
-
-		if req.Using != "" {
-			sb.WriteString(fmt.Sprintf(" USING (%s)", req.Using))
-		}
-		if req.WithCheck != "" {
-			sb.WriteString(fmt.Sprintf(" WITH CHECK (%s)", req.WithCheck))
-		}
-
-		if err := q.Exec(r.Context(), sb.String()); err != nil {
-			httputil.WriteError(w, http.StatusBadRequest, "failed to create policy: "+err.Error())
-			return
-		}
-		httputil.WriteJSON(w, http.StatusCreated, map[string]string{"message": "policy created"})
-	}
-}
-
-// handleDeleteRlsPolicy drops an RLS policy.
-func handleDeleteRlsPolicy(pool *pgxpool.Pool) http.HandlerFunc {
-	q := &poolAdapter{pool: pool}
-	return handleDeleteRlsPolicyWithQuerier(q)
-}
-
-func handleDeleteRlsPolicyWithQuerier(q rlsQuerier) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		table := chi.URLParam(r, "table")
-		policy := chi.URLParam(r, "policy")
-
-		if table == "" || policy == "" {
-			httputil.WriteError(w, http.StatusBadRequest, "table and policy name are required")
-			return
-		}
-		if !isValidIdentifier(table) {
-			httputil.WriteError(w, http.StatusBadRequest, "invalid table name")
-			return
-		}
-		if !isValidIdentifier(policy) {
-			httputil.WriteError(w, http.StatusBadRequest, "invalid policy name")
-			return
-		}
-
-		stmt := fmt.Sprintf(`DROP POLICY %q ON %q`, policy, table)
-		if err := q.Exec(r.Context(), stmt); err != nil {
-			httputil.WriteError(w, http.StatusBadRequest, "failed to drop policy: "+err.Error())
-			return
-		}
-		w.WriteHeader(http.StatusNoContent)
-	}
-}
-
-// handleEnableRls enables RLS on a table.
-func handleEnableRls(pool *pgxpool.Pool) http.HandlerFunc {
-	q := &poolAdapter{pool: pool}
-	return handleEnableRlsWithQuerier(q)
-}
-
-func handleEnableRlsWithQuerier(q rlsQuerier) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		table := chi.URLParam(r, "table")
-		if table == "" {
-			httputil.WriteError(w, http.StatusBadRequest, "table name is required")
-			return
-		}
-		if !isValidIdentifier(table) {
-			httputil.WriteError(w, http.StatusBadRequest, "invalid table name")
-			return
-		}
-
-		stmt := fmt.Sprintf(`ALTER TABLE %q ENABLE ROW LEVEL SECURITY`, table)
-		if err := q.Exec(r.Context(), stmt); err != nil {
-			httputil.WriteError(w, http.StatusBadRequest, "failed to enable RLS: "+err.Error())
-			return
-		}
-		httputil.WriteJSON(w, http.StatusOK, map[string]string{"message": "RLS enabled on " + table})
-	}
-}
-
-// handleDisableRls disables RLS on a table.
-func handleDisableRls(pool *pgxpool.Pool) http.HandlerFunc {
-	q := &poolAdapter{pool: pool}
-	return handleDisableRlsWithQuerier(q)
-}
-
-func handleDisableRlsWithQuerier(q rlsQuerier) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		table := chi.URLParam(r, "table")
-		if table == "" {
-			httputil.WriteError(w, http.StatusBadRequest, "table name is required")
-			return
-		}
-		if !isValidIdentifier(table) {
-			httputil.WriteError(w, http.StatusBadRequest, "invalid table name")
-			return
-		}
-
-		stmt := fmt.Sprintf(`ALTER TABLE %q DISABLE ROW LEVEL SECURITY`, table)
-		if err := q.Exec(r.Context(), stmt); err != nil {
-			httputil.WriteError(w, http.StatusBadRequest, "failed to disable RLS: "+err.Error())
-			return
-		}
-		httputil.WriteJSON(w, http.StatusOK, map[string]string{"message": "RLS disabled on " + table})
 	}
 }

@@ -5,11 +5,13 @@ package jobs_test
 import (
 	"context"
 	"encoding/json"
+	"os"
 	"testing"
 	"time"
 
 	"github.com/allyourbase/ayb/internal/jobs"
 	"github.com/allyourbase/ayb/internal/migrations"
+	"github.com/allyourbase/ayb/internal/storage"
 	"github.com/allyourbase/ayb/internal/testutil"
 )
 
@@ -25,6 +27,90 @@ func setupHandlerDB(t *testing.T) {
 	err = runner.Bootstrap(ctx)
 	testutil.NoError(t, err)
 	_, err = runner.Run(ctx)
+	testutil.NoError(t, err)
+}
+
+type resumableCleanupFixture struct {
+	userID       string
+	expiredName  string
+	activeName   string
+	expiredPath  string
+	activePath   string
+	expiredBytes int64
+	activeBytes  int64
+}
+
+func seedResumableCleanupFixture(t *testing.T, ctx context.Context, userEmail, expiredName, activeName string, expiredBytes, activeBytes int64) resumableCleanupFixture {
+	t.Helper()
+
+	fixture := resumableCleanupFixture{
+		expiredName:  expiredName,
+		activeName:   activeName,
+		expiredBytes: expiredBytes,
+		activeBytes:  activeBytes,
+	}
+
+	err := sharedPG.Pool.QueryRow(ctx,
+		`INSERT INTO _ayb_users (email, password_hash) VALUES ($1, 'hash')
+		 RETURNING id`, userEmail).Scan(&fixture.userID)
+	testutil.NoError(t, err)
+
+	tempDir := t.TempDir()
+	fixture.expiredPath = tempDir + "/" + expiredName + ".tmp"
+	fixture.activePath = tempDir + "/" + activeName + ".tmp"
+
+	err = os.WriteFile(fixture.expiredPath, []byte("payload"), 0o600)
+	testutil.NoError(t, err)
+	err = os.WriteFile(fixture.activePath, []byte("payload"), 0o600)
+	testutil.NoError(t, err)
+
+	_, err = sharedPG.Pool.Exec(ctx,
+		`INSERT INTO _ayb_storage_usage (user_id, bytes_used, updated_at) VALUES ($1, $2, NOW())`,
+		fixture.userID, fixture.expiredBytes+fixture.activeBytes)
+	testutil.NoError(t, err)
+
+	_, err = sharedPG.Pool.Exec(ctx,
+		`INSERT INTO _ayb_storage_uploads (bucket, name, path, user_id, total_size, uploaded_size, status, expires_at)
+		 VALUES ('test-bucket', $1, $2, $3, $4, $4, 'active', NOW() - interval '1 hour')`,
+		fixture.expiredName, fixture.expiredPath, fixture.userID, fixture.expiredBytes)
+	testutil.NoError(t, err)
+
+	_, err = sharedPG.Pool.Exec(ctx,
+		`INSERT INTO _ayb_storage_uploads (bucket, name, path, user_id, total_size, uploaded_size, status, expires_at)
+		 VALUES ('test-bucket', $1, $2, $3, $4, $4, 'active', NOW() + interval '1 day')`,
+		fixture.activeName, fixture.activePath, fixture.userID, fixture.activeBytes)
+	testutil.NoError(t, err)
+
+	return fixture
+}
+
+func assertResumableCleanupFixture(t *testing.T, ctx context.Context, fixture resumableCleanupFixture) {
+	t.Helper()
+
+	var expiredCount int
+	err := sharedPG.Pool.QueryRow(ctx,
+		`SELECT COUNT(*) FROM _ayb_storage_uploads WHERE bucket = 'test-bucket' AND name = $1`,
+		fixture.expiredName,
+	).Scan(&expiredCount)
+	testutil.NoError(t, err)
+	testutil.Equal(t, 0, expiredCount)
+
+	var activeCount int
+	err = sharedPG.Pool.QueryRow(ctx,
+		`SELECT COUNT(*) FROM _ayb_storage_uploads WHERE bucket = 'test-bucket' AND name = $1`,
+		fixture.activeName,
+	).Scan(&activeCount)
+	testutil.NoError(t, err)
+	testutil.Equal(t, 1, activeCount)
+
+	var bytesUsed int64
+	err = sharedPG.Pool.QueryRow(ctx, `SELECT bytes_used FROM _ayb_storage_usage WHERE user_id = $1`, fixture.userID).Scan(&bytesUsed)
+	testutil.NoError(t, err)
+	testutil.Equal(t, fixture.activeBytes, bytesUsed)
+
+	_, err = os.Stat(fixture.expiredPath)
+	testutil.True(t, os.IsNotExist(err))
+	_, err = os.Stat(fixture.activePath)
 	testutil.NoError(t, err)
 }
 
@@ -103,6 +189,93 @@ func TestWebhookDeliveryPruneHandlerDefaultRetention(t *testing.T) {
 	handler := jobs.WebhookDeliveryPruneHandler(pool, testutil.DiscardLogger())
 	err := handler(ctx, nil)
 	testutil.NoError(t, err) // no deliveries, no error
+}
+
+func TestAuditLogRetentionHandlerDefaultRetention(t *testing.T) {
+	setupHandlerDB(t)
+	ctx := context.Background()
+	pool := sharedPG.Pool
+
+	_, err := pool.Exec(ctx, `
+		INSERT INTO _ayb_audit_log (table_name, operation, timestamp) VALUES
+		 ('orders', 'INSERT', NOW() - interval '120 days'),
+		 ('orders', 'UPDATE', NOW() - interval '91 days'),
+		 ('orders', 'DELETE', NOW() - interval '89 days'),
+		 ('orders', 'INSERT', NOW() - interval '1 day')`)
+	testutil.NoError(t, err)
+
+	handler := jobs.AuditLogRetentionHandler(pool, 90, testutil.DiscardLogger())
+	err = handler(ctx, nil)
+	testutil.NoError(t, err)
+
+	var count int
+	err = pool.QueryRow(ctx, `SELECT COUNT(*) FROM _ayb_audit_log`).Scan(&count)
+	testutil.NoError(t, err)
+	testutil.Equal(t, 2, count)
+}
+
+func TestAuditLogRetentionHandlerPayloadOverridesDefault(t *testing.T) {
+	setupHandlerDB(t)
+	ctx := context.Background()
+	pool := sharedPG.Pool
+
+	_, err := pool.Exec(ctx, `
+		INSERT INTO _ayb_audit_log (table_name, operation, timestamp) VALUES
+		 ('orders', 'INSERT', NOW() - interval '40 days'),
+		 ('orders', 'UPDATE', NOW() - interval '20 days')`)
+	testutil.NoError(t, err)
+
+	handler := jobs.AuditLogRetentionHandler(pool, 90, testutil.DiscardLogger())
+	err = handler(ctx, json.RawMessage(`{"retention_days": 30}`))
+	testutil.NoError(t, err)
+
+	var count int
+	err = pool.QueryRow(ctx, `SELECT COUNT(*) FROM _ayb_audit_log`).Scan(&count)
+	testutil.NoError(t, err)
+	testutil.Equal(t, 1, count)
+}
+
+func TestRequestLogRetentionHandlerDefaultRetention(t *testing.T) {
+	setupHandlerDB(t)
+	ctx := context.Background()
+	pool := sharedPG.Pool
+
+	_, err := pool.Exec(ctx, `
+		INSERT INTO _ayb_request_logs (method, path, status_code, timestamp) VALUES
+		 ('GET', '/old', 200, NOW() - interval '120 days'),
+		 ('GET', '/young', 200, NOW() - interval '10 days'),
+		 ('POST', '/younger', 201, NOW() - interval '1 day')`)
+	testutil.NoError(t, err)
+
+	handler := jobs.RequestLogRetentionHandler(pool, 90, testutil.DiscardLogger())
+	err = handler(ctx, nil)
+	testutil.NoError(t, err)
+
+	var count int
+	err = pool.QueryRow(ctx, `SELECT COUNT(*) FROM _ayb_request_logs`).Scan(&count)
+	testutil.NoError(t, err)
+	testutil.Equal(t, 2, count)
+}
+
+func TestRequestLogRetentionHandlerPayloadOverridesDefault(t *testing.T) {
+	setupHandlerDB(t)
+	ctx := context.Background()
+	pool := sharedPG.Pool
+
+	_, err := pool.Exec(ctx, `
+		INSERT INTO _ayb_request_logs (method, path, status_code, timestamp) VALUES
+		 ('GET', '/old', 200, NOW() - interval '40 days'),
+		 ('GET', '/young', 200, NOW() - interval '20 days')`)
+	testutil.NoError(t, err)
+
+	handler := jobs.RequestLogRetentionHandler(pool, 90, testutil.DiscardLogger())
+	err = handler(ctx, json.RawMessage(`{"retention_days": 30}`))
+	testutil.NoError(t, err)
+
+	var count int
+	err = pool.QueryRow(ctx, `SELECT COUNT(*) FROM _ayb_request_logs`).Scan(&count)
+	testutil.NoError(t, err)
+	testutil.Equal(t, 1, count)
 }
 
 func TestExpiredOAuthCleanupHandler(t *testing.T) {
@@ -243,7 +416,7 @@ func TestMatviewRefreshHandlerIntegration(t *testing.T) {
 	cfg.SchedulerTick = 200 * time.Millisecond
 
 	svc := jobs.NewService(store, testutil.DiscardLogger(), cfg)
-	jobs.RegisterBuiltinHandlers(svc, pool, testutil.DiscardLogger())
+	jobs.RegisterBuiltinHandlers(svc, pool, nil, testutil.DiscardLogger())
 
 	// Enqueue a matview refresh job.
 	_, err = svc.Enqueue(ctx, "materialized_view_refresh",
@@ -318,37 +491,57 @@ func TestHandlersRunThroughService(t *testing.T) {
 	cfg.WorkerConcurrency = 2
 	cfg.SchedulerTick = 200 * time.Millisecond
 
+	storageSvc := storage.NewService(sharedPG.Pool, nil, "", testutil.DiscardLogger(), 0)
 	svc := jobs.NewService(store, testutil.DiscardLogger(), cfg)
-	jobs.RegisterBuiltinHandlers(svc, sharedPG.Pool, testutil.DiscardLogger())
+	jobs.RegisterBuiltinHandlers(svc, sharedPG.Pool, storageSvc, testutil.DiscardLogger())
 
-	// Seed a user for the cleanup jobs to delete from.
-	var userID string
-	err := sharedPG.Pool.QueryRow(ctx,
-		`INSERT INTO _ayb_users (email, password_hash) VALUES ('svc@example.com', 'hash')
-		 RETURNING id`).Scan(&userID)
-	testutil.NoError(t, err)
+	fixture := seedResumableCleanupFixture(
+		t,
+		ctx,
+		"svc@example.com",
+		"expired-through-service.txt",
+		"active-through-service.txt",
+		120,
+		180,
+	)
 
 	// Insert expired session.
-	_, err = sharedPG.Pool.Exec(ctx,
+	_, err := sharedPG.Pool.Exec(ctx,
 		`INSERT INTO _ayb_sessions (user_id, token_hash, expires_at)
-		 VALUES ($1, 'exp_sess', NOW() - interval '1 hour')`, userID)
+			 VALUES ($1, 'exp_sess', NOW() - interval '1 hour')`, fixture.userID)
 	testutil.NoError(t, err)
 
-	// Enqueue the cleanup job.
+	// Enqueue the cleanup jobs.
 	_, err = svc.Enqueue(ctx, "stale_session_cleanup", nil, jobs.EnqueueOpts{})
+	testutil.NoError(t, err)
+	_, err = svc.Enqueue(ctx, "expired_resumable_upload_cleanup", nil, jobs.EnqueueOpts{})
 	testutil.NoError(t, err)
 
 	svc.Start(ctx)
 	defer svc.Stop()
 
-	// Wait for job to complete.
+	// Wait for jobs to complete.
 	deadline := time.After(5 * time.Second)
 	for {
-		completed, err := svc.List(ctx, "completed", "stale_session_cleanup", 10, 0)
+		staleCompleted, err := svc.List(ctx, "completed", "stale_session_cleanup", 10, 0)
 		testutil.NoError(t, err)
-		if len(completed) == 1 {
+		resumableCompleted, err := svc.List(ctx, "completed", "expired_resumable_upload_cleanup", 10, 0)
+		testutil.NoError(t, err)
+		if len(staleCompleted) == 1 && len(resumableCompleted) == 1 {
 			break
 		}
+
+		staleFailed, err := svc.List(ctx, "failed", "stale_session_cleanup", 10, 0)
+		testutil.NoError(t, err)
+		if len(staleFailed) > 0 {
+			t.Fatalf("stale_session_cleanup failed: %v", staleFailed[0].LastError)
+		}
+		resumableFailed, err := svc.List(ctx, "failed", "expired_resumable_upload_cleanup", 10, 0)
+		testutil.NoError(t, err)
+		if len(resumableFailed) > 0 {
+			t.Fatalf("expired_resumable_upload_cleanup failed: %v", resumableFailed[0].LastError)
+		}
+
 		select {
 		case <-deadline:
 			t.Fatal("timed out waiting for handler execution")
@@ -362,4 +555,70 @@ func TestHandlersRunThroughService(t *testing.T) {
 	err = sharedPG.Pool.QueryRow(ctx, `SELECT COUNT(*) FROM _ayb_sessions`).Scan(&count)
 	testutil.NoError(t, err)
 	testutil.Equal(t, 0, count)
+
+	assertResumableCleanupFixture(t, ctx, fixture)
+}
+
+func TestResumableUploadCleanupHandler(t *testing.T) {
+	setupHandlerDB(t)
+	ctx := context.Background()
+	pool := sharedPG.Pool
+	storageSvc := storage.NewService(pool, nil, "", testutil.DiscardLogger(), 0)
+
+	fixture := seedResumableCleanupFixture(
+		t,
+		ctx,
+		"resumable@example.com",
+		"expired.txt",
+		"active.txt",
+		100,
+		200,
+	)
+
+	handler := jobs.ResumableUploadCleanupHandler(storageSvc, testutil.DiscardLogger())
+	err := handler(ctx, nil)
+	testutil.NoError(t, err)
+
+	var uploadCount int
+	err = pool.QueryRow(ctx, `SELECT COUNT(*) FROM _ayb_storage_uploads WHERE bucket = 'test-bucket'`).Scan(&uploadCount)
+	testutil.NoError(t, err)
+	testutil.Equal(t, 1, uploadCount)
+
+	assertResumableCleanupFixture(t, ctx, fixture)
+}
+
+func TestResumableUploadCleanupHandlerRequiresStorageService(t *testing.T) {
+	handler := jobs.ResumableUploadCleanupHandler(nil, testutil.DiscardLogger())
+	err := handler(context.Background(), nil)
+	testutil.Error(t, err)
+	testutil.Contains(t, err.Error(), "storage service is nil")
+}
+
+type fakeProviderTokenRefreshService struct {
+	calls  int
+	window time.Duration
+	err    error
+}
+
+func (f *fakeProviderTokenRefreshService) RefreshExpiringProviderTokens(_ context.Context, window time.Duration) error {
+	f.calls++
+	f.window = window
+	return f.err
+}
+
+func TestProviderTokenRefreshJobHandler(t *testing.T) {
+	svc := &fakeProviderTokenRefreshService{}
+	handler := jobs.ProviderTokenRefreshJobHandler(svc)
+
+	err := handler(context.Background(), nil)
+	testutil.NoError(t, err)
+	testutil.Equal(t, 1, svc.calls)
+	testutil.Equal(t, 10*time.Minute, svc.window)
+
+	svc = &fakeProviderTokenRefreshService{}
+	handler = jobs.ProviderTokenRefreshJobHandler(svc)
+	err = handler(context.Background(), json.RawMessage(`{"window_seconds": 120}`))
+	testutil.NoError(t, err)
+	testutil.Equal(t, 1, svc.calls)
+	testutil.Equal(t, 120*time.Second, svc.window)
 }
