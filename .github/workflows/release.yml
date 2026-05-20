@@ -15,7 +15,7 @@ jobs:
 
       - uses: actions/setup-node@v6
         with:
-          node-version: "20"
+          node-version: "22"
 
       - name: Build Admin UI
         working-directory: ui
@@ -63,7 +63,7 @@ jobs:
 
       - uses: actions/setup-node@v6
         with:
-          node-version: "20"
+          node-version: "22"
 
       - uses: actions/setup-go@v6
         with:

@@ -21,7 +21,7 @@ jobs:
 
       - uses: actions/setup-node@v6
         with:
-          node-version: "20"
+          node-version: "22"
 
       - name: Enable pnpm
         run: corepack enable pnpm
@@ -127,7 +127,7 @@ jobs:
 
       - uses: actions/setup-node@v6
         with:
-          node-version: "20"
+          node-version: "22"
           cache: "npm"
           cache-dependency-path: sdk/package-lock.json
 
@@ -247,7 +247,7 @@ jobs:
 
       - uses: actions/setup-node@v6
         with:
-          node-version: "20"
+          node-version: "22"
 
       - name: Install JS SDK dependencies
         run: cd sdk && npm ci
@@ -268,7 +268,7 @@ jobs:
 
       - uses: actions/setup-node@v6
         with:
-          node-version: "20"
+          node-version: "22"
 
       - name: Install JS SDK dependencies
         run: cd sdk && npm ci
@@ -290,7 +290,7 @@ jobs:
 
       - uses: actions/setup-node@v6
         with:
-          node-version: "20"
+          node-version: "22"
 
       - name: Enable pnpm
         run: corepack enable pnpm
@@ -346,7 +346,7 @@ jobs:
 
       - uses: actions/setup-node@v6
         with:
-          node-version: "20"
+          node-version: "22"
 
       - name: Enable pnpm
         run: corepack enable pnpm
@@ -383,7 +383,7 @@ jobs:
 
       - uses: actions/setup-node@v6
         with:
-          node-version: "20"
+          node-version: "22"
 
       - name: Enable pnpm
         run: corepack enable pnpm
@@ -442,7 +442,7 @@ jobs:
 
       - uses: actions/setup-node@v6
         with:
-          node-version: "20"
+          node-version: "22"
 
       - name: Enable pnpm
         run: corepack enable pnpm
