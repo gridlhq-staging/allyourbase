@@ -251,7 +251,12 @@ BEGIN
       'CREATE VIEW', 'ALTER VIEW',
       'CREATE MATERIALIZED VIEW', 'ALTER MATERIALIZED VIEW',
       'CREATE TYPE', 'ALTER TYPE',
-      'CREATE FUNCTION', 'ALTER FUNCTION'
+      'CREATE FUNCTION', 'ALTER FUNCTION',
+      -- Index DDL must invalidate the cache: the schema cache models
+      -- each table's indexes (Table.Indexes), and endpoints such as
+      -- GET /api/admin/vector/indexes read index data straight from the
+      -- cache. Without these tags a freshly created index never appears.
+      'CREATE INDEX', 'ALTER INDEX'
     )
     AND cmd.schema_name IS DISTINCT FROM 'pg_temp'
     AND cmd.schema_name NOT LIKE 'pg_%'
@@ -273,7 +278,10 @@ BEGIN
   FOR obj IN SELECT * FROM pg_event_trigger_dropped_objects()
   LOOP
     IF obj.object_type IN (
-      'table', 'foreign table', 'view', 'materialized view', 'type', 'function'
+      'table', 'foreign table', 'view', 'materialized view', 'type', 'function',
+      -- 'index': keep Table.Indexes in the cache consistent when an
+      -- index is dropped (mirrors the CREATE INDEX tag above).
+      'index'
     )
     AND obj.is_temporary IS false
     AND obj.schema_name NOT LIKE 'pg_%'

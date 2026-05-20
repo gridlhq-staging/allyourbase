@@ -29,6 +29,46 @@ type vectorIndexInfo struct {
 	Definition string `json:"definition"`
 }
 
+// resolveVectorIndexTable validates that req's table and column exist and that
+// the column is a vector column, returning the table's actual schema. On a
+// validation failure it writes a 400 response and returns ok=false.
+//
+// The schema cache is eventually consistent (the watcher reloads it on a
+// debounced DDL notification), so a client that creates a table and
+// immediately indexes it can race the reload. On a cache miss this forces a
+// synchronous reload before concluding the table is absent — otherwise the
+// request gets a spurious "table not found" 400.
+func (s *Server) resolveVectorIndexTable(w http.ResponseWriter, r *http.Request, req *vectorIndexRequest) (schemaName string, ok bool) {
+	sc := s.schema.Get()
+	if (sc == nil || sc.TableByName(req.Table) == nil) && s.pool != nil {
+		if err := s.schema.ReloadWait(r.Context()); err != nil {
+			s.logger.Warn("vector index create: synchronous schema reload failed", "error", err)
+		}
+		sc = s.schema.Get()
+	}
+	// Without a cache there is nothing to validate against; keep the
+	// caller-supplied schema and let the CREATE INDEX DDL be authoritative.
+	if sc == nil {
+		return req.Schema, true
+	}
+
+	tbl := sc.TableByName(req.Table)
+	if tbl == nil {
+		httputil.WriteError(w, http.StatusBadRequest, fmt.Sprintf("table %q not found", req.Table))
+		return "", false
+	}
+	col := tbl.ColumnByName(req.Column)
+	if col == nil {
+		httputil.WriteError(w, http.StatusBadRequest, fmt.Sprintf("column %q not found in table %q", req.Column, req.Table))
+		return "", false
+	}
+	if !col.IsVector {
+		httputil.WriteError(w, http.StatusBadRequest, fmt.Sprintf("column %q is not a vector column (type: %s)", req.Column, col.TypeName))
+		return "", false
+	}
+	return tbl.Schema, true
+}
+
 // handleAdminVectorIndexCreate handles POST /admin/vector/indexes.
 func (s *Server) handleAdminVectorIndexCreate(w http.ResponseWriter, r *http.Request) {
 	var req vectorIndexRequest
@@ -60,26 +100,12 @@ func (s *Server) handleAdminVectorIndexCreate(w http.ResponseWriter, r *http.Req
 		req.Schema = "public"
 	}
 
-	// Validate the table/column exists and is a vector column via schema cache.
-	sc := s.schema.Get()
-	if sc != nil {
-		tbl := sc.TableByName(req.Table)
-		if tbl == nil {
-			httputil.WriteError(w, http.StatusBadRequest, fmt.Sprintf("table %q not found", req.Table))
-			return
-		}
-		col := tbl.ColumnByName(req.Column)
-		if col == nil {
-			httputil.WriteError(w, http.StatusBadRequest, fmt.Sprintf("column %q not found in table %q", req.Column, req.Table))
-			return
-		}
-		if !col.IsVector {
-			httputil.WriteError(w, http.StatusBadRequest, fmt.Sprintf("column %q is not a vector column (type: %s)", req.Column, col.TypeName))
-			return
-		}
-		// Use the table's actual schema.
-		req.Schema = tbl.Schema
+	// Validate the table/column and resolve the table's actual schema.
+	resolvedSchema, ok := s.resolveVectorIndexTable(w, r, &req)
+	if !ok {
+		return
 	}
+	req.Schema = resolvedSchema
 
 	// Auto-generate index name if not provided.
 	if req.IndexName == "" {

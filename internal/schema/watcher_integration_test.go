@@ -188,3 +188,126 @@ func TestWatcherAlterTableDetected(t *testing.T) {
 	}
 	t.Fatal("watcher did not detect ALTER TABLE within 5 seconds")
 }
+
+// TestWatcherCreateIndexDetected guards the fix for the schema cache missing
+// CREATE INDEX events. The cache models each table's indexes (Table.Indexes)
+// and endpoints like GET /api/admin/vector/indexes read index data from it,
+// so a CREATE INDEX must trigger a reload via the _ayb_ddl_notify trigger.
+func TestWatcherCreateIndexDetected(t *testing.T) {
+	ctx := context.Background()
+	resetDB(t, ctx)
+
+	_, err := sharedPG.Pool.Exec(ctx, `CREATE TABLE idx_watch_test (id SERIAL PRIMARY KEY, name TEXT)`)
+	testutil.NoError(t, err)
+
+	logger := testutil.DiscardLogger()
+	ch := schema.NewCacheHolder(sharedPG.Pool, logger)
+	watcher := schema.NewWatcher(ch, sharedPG.Pool, sharedPG.ConnString, logger)
+
+	watchCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
+	go watcher.Start(watchCtx)
+
+	select {
+	case <-ch.Ready():
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting for initial schema load")
+	}
+
+	// The freshly created index must not already be in the initial cache.
+	const newIndexName = "idx_watch_test_name"
+	for _, tbl := range ch.Get().Tables {
+		if tbl.Name == "idx_watch_test" {
+			for _, idx := range tbl.Indexes {
+				testutil.True(t, idx.Name != newIndexName,
+					"index should not exist before CREATE INDEX")
+			}
+		}
+	}
+
+	// Create an index — the watcher must detect it via NOTIFY and reload.
+	_, err = sharedPG.Pool.Exec(ctx, `CREATE INDEX `+newIndexName+` ON idx_watch_test(name)`)
+	testutil.NoError(t, err)
+
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		sc := ch.Get()
+		if sc != nil {
+			for _, tbl := range sc.Tables {
+				if tbl.Name != "idx_watch_test" {
+					continue
+				}
+				for _, idx := range tbl.Indexes {
+					if idx.Name == newIndexName {
+						// Success — CREATE INDEX was detected.
+						cancel()
+						return
+					}
+				}
+			}
+		}
+		time.Sleep(200 * time.Millisecond)
+	}
+	t.Fatal("watcher did not detect CREATE INDEX within 5 seconds")
+}
+
+// TestWatcherDropIndexDetected guards the matching _ayb_drop_notify change so
+// that dropping an index also keeps Table.Indexes consistent in the cache.
+func TestWatcherDropIndexDetected(t *testing.T) {
+	ctx := context.Background()
+	resetDB(t, ctx)
+
+	const droppedIndexName = "idx_drop_watch_name"
+	_, err := sharedPG.Pool.Exec(ctx, `
+		CREATE TABLE idx_drop_watch (id SERIAL PRIMARY KEY, name TEXT);
+		CREATE INDEX `+droppedIndexName+` ON idx_drop_watch(name);
+	`)
+	testutil.NoError(t, err)
+
+	logger := testutil.DiscardLogger()
+	ch := schema.NewCacheHolder(sharedPG.Pool, logger)
+	watcher := schema.NewWatcher(ch, sharedPG.Pool, sharedPG.ConnString, logger)
+
+	watchCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
+	go watcher.Start(watchCtx)
+
+	select {
+	case <-ch.Ready():
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting for initial schema load")
+	}
+
+	// Confirm the index is present in the initial cache.
+	indexPresent := func(sc *schema.SchemaCache) bool {
+		for _, tbl := range sc.Tables {
+			if tbl.Name != "idx_drop_watch" {
+				continue
+			}
+			for _, idx := range tbl.Indexes {
+				if idx.Name == droppedIndexName {
+					return true
+				}
+			}
+		}
+		return false
+	}
+	testutil.True(t, indexPresent(ch.Get()), "index should be in initial cache")
+
+	// Drop the index — the watcher must detect it via NOTIFY and reload.
+	_, err = sharedPG.Pool.Exec(ctx, `DROP INDEX `+droppedIndexName+``)
+	testutil.NoError(t, err)
+
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		if sc := ch.Get(); sc != nil && !indexPresent(sc) {
+			// Success — DROP INDEX was detected.
+			cancel()
+			return
+		}
+		time.Sleep(200 * time.Millisecond)
+	}
+	t.Fatal("watcher did not detect DROP INDEX within 5 seconds")
+}

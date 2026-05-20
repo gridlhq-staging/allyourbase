@@ -1,4 +1,4 @@
-.PHONY: build dev test test-sdk test-sdk-go test-sdk-python test-sdk-dart test-sdk-swift test-sdk-kotlin test-sdk-react test-sdk-ssr test-sdk-all test-ui test-integration test-demo-smoke test-demo-e2e test-e2e test-smoke test-browser-full test-full test-all test-everything test-api-smoke test-api-journey lint check check-sizes check-ui-lint check-browser-tests-lint check-func-sizes check-installer check-sync-pipeline check-sdk-build release-candidate-check clean ui demos release docker docker-runtime-smoke help sync-openapi build-postgres load-admin-status load-admin-status-local load-auth-request-path load-auth-request-path-local load-data-path load-data-path-local load-data-pool-pressure load-data-pool-pressure-local load-http-100 load-http-100-local load-http-500 load-http-500-local load-http-1000 load-http-1000-local load-realtime-ws load-realtime-ws-local load-realtime-ws-1000 load-realtime-ws-1000-local load-realtime-ws-5000 load-realtime-ws-5000-local load-realtime-ws-10000 load-realtime-ws-10000-local load-sustained-soak load-sustained-soak-local
+.PHONY: build dev test test-sdk test-sdk-go test-sdk-python test-sdk-dart test-sdk-swift test-sdk-kotlin test-sdk-react test-sdk-ssr test-sdk-all test-sdk-integration test-ui test-integration test-demo-smoke test-demo-e2e test-e2e test-smoke test-browser-full test-full test-all test-everything test-api-smoke test-api-journey lint check check-sizes check-ui-lint check-browser-tests-lint check-func-sizes check-installer check-sync-pipeline check-sdk-build release-candidate-check clean ui demos release docker docker-runtime-smoke help sync-openapi build-postgres load-admin-status load-admin-status-local load-auth-request-path load-auth-request-path-local load-data-path load-data-path-local load-data-pool-pressure load-data-pool-pressure-local load-http-100 load-http-100-local load-http-500 load-http-500-local load-http-1000 load-http-1000-local load-realtime-ws load-realtime-ws-local load-realtime-ws-1000 load-realtime-ws-1000-local load-realtime-ws-5000 load-realtime-ws-5000-local load-realtime-ws-10000 load-realtime-ws-10000-local load-sustained-soak load-sustained-soak-local
 
 # Build variables
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
@@ -192,13 +192,17 @@ test-demo-smoke: ## Run demo smoke tests only — schema apply, tables, RLS, CRU
 	go run ./internal/testutil/cmd/testpg -- go tool gotestsum --format testdox -- -tags=integration -count=1 -run TestDemoSmoke ./internal/e2e/
 
 test-smoke: build ## Run Playwright smoke tests — 8 critical paths, ~5 min (builds + starts server)
-	@bash scripts/run-with-ayb.sh 'cd ui && npm run test:browser -- --project=smoke'
+	@bash -lc '$(BROWSER_EXPORT_AUTH_ENV); bash scripts/run-with-ayb.sh "cd ui && npm run test:browser -- --project=smoke"'
 
 test-browser-full: build ## Run Playwright full browser suite, ~15 min (builds + starts server)
 	@bash -lc '$(BROWSER_EXPORT_AUTH_ENV); bash scripts/run-with-ayb.sh "cd ui && npm run test:browser -- --project=full"'
 
 test-e2e: build ## Run all Playwright tests — smoke + full (builds + starts server)
 	@bash -lc '$(BROWSER_EXPORT_AUTH_ENV); bash scripts/run-with-ayb.sh "cd ui && npm run test:browser"'
+
+test-sdk-integration: build ## Run the SDK integration suite against a live AYB — auth + storage (builds + starts server)
+	cd sdk && npm ci
+	@bash -lc '$(BROWSER_EXPORT_AUTH_ENV); export AYB_STORAGE_ENABLED=true; bash scripts/run-with-ayb.sh "cd sdk && npm run test:integration"'
 
 load-admin-status: ## Run direct k6 baseline scenario against AYB_BASE_URL (default http://127.0.0.1:8090)
 	@bash -lc '$(LOAD_BOOTSTRAP_FUNCTIONS); load_export_env; load_resolve_admin_token; $(LOAD_ADMIN_STATUS_K6_COMMAND)'

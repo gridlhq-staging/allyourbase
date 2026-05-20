@@ -72,10 +72,14 @@ test.describe("Vector Indexes Lifecycle (Full E2E)", () => {
           await page.reload();
           await waitForDashboard(page);
           await page.locator("aside").getByRole("button", { name: /^Vector Indexes$/i }).click();
+          // Wait (bounded) for the row to render: clicking the nav button
+          // triggers an async GET /api/admin/vector/indexes fetch, so an
+          // instant isVisible() races the load and makes this poll flaky.
           return page
             .getByRole("row", { name: new RegExp(tableName) })
             .first()
-            .isVisible()
+            .waitFor({ state: "visible", timeout: 3000 })
+            .then(() => true)
             .catch(() => false);
         },
         { timeout: 30000 },
