@@ -17,6 +17,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -60,62 +61,126 @@ func newTestHarnessServer(archive []byte, sums string) *httptest.Server {
 	}))
 }
 
-// newTestPGHarness packages the system's PG binaries into a test fixture tarball,
-// serves it via HTTP, and returns a configured harness.
+// testPGVersion is the PostgreSQL major version the harness packages and serves.
+const testPGVersion = "16"
+
+// pgFixture memoizes the shared PostgreSQL test fixture for this package.
+//
+// The archive is built from the local Postgres install and is byte-identical
+// for every test, and the extracted binaries are immutable and read-only — so
+// the two most expensive steps of harness setup (xz compression, ~12s under
+// -race, and the per-test download+extract) run exactly once for the whole
+// package rather than once per test. Without this, the managed-PG integration
+// tests collectively overrun Go's default 10-minute per-package test timeout
+// in CI.
+//
+// A shared read-only binary directory is safe here because the integration
+// runner executes tests sequentially (`go test -p 1`) and none of these tests
+// call t.Parallel. Each test still gets an isolated data dir, runtime/socket
+// dir, and port, so per-test state stays fully isolated.
+var pgFixture struct {
+	once    sync.Once
+	archive []byte // tar.xz bytes (still served so the download path is exercised)
+	sums    string // SHA256SUMS body matching archive
+	binDir  string // shared, pre-extracted, read-only PG binaries
+	rootDir string // parent temp dir holding binDir + archive (removed in TestMain)
+	skip    string // non-empty => pg_config/platform missing; every test skips
+}
+
+// ensurePGFixture builds the shared PG fixture once. It skips the calling test
+// when Postgres is unavailable, and fails it when the fixture build itself
+// failed (which is reported in detail by the first integration test to run).
+func ensurePGFixture(t *testing.T) {
+	t.Helper()
+	pgFixture.once.Do(func() {
+		pgConfig, err := exec.LookPath("pg_config")
+		if err != nil {
+			pgFixture.skip = "pg_config not found — install PostgreSQL to run integration tests"
+			return
+		}
+		platform, err := platformKey()
+		if err != nil {
+			pgFixture.skip = fmt.Sprintf("unsupported test platform: %v", err)
+			return
+		}
+
+		binDir := mustPGConfigDir(t, pgConfig, "--bindir")
+		libDir := mustPGConfigDir(t, pgConfig, "--pkglibdir")
+		shareDir := mustPGConfigDir(t, pgConfig, "--sharedir")
+
+		archive := buildTestArchive(t, binDir, libDir, shareDir)
+		hash := fmt.Sprintf("%x", sha256.Sum256(archive))
+		archiveName := fmt.Sprintf("ayb-postgres-%s-%s.tar.xz", testPGVersion, platform)
+
+		// Extract the binaries once into a shared, read-only directory. Every
+		// test's Manager.Start then cache-hits via binariesReady() and skips
+		// the redundant per-test download+extract. The download path itself
+		// still has dedicated coverage in download_test.go / extract_test.go.
+		rootDir, err := os.MkdirTemp("", "aybpgfix")
+		if err != nil {
+			t.Fatalf("creating PG fixture dir: %v", err)
+		}
+		archivePath := filepath.Join(rootDir, archiveName)
+		if err := os.WriteFile(archivePath, archive, 0o644); err != nil {
+			t.Fatalf("writing PG fixture archive: %v", err)
+		}
+		sharedBinDir := filepath.Join(rootDir, "bin-extracted")
+		if err := extractTarXZ(archivePath, sharedBinDir); err != nil {
+			t.Fatalf("extracting PG fixture archive: %v", err)
+		}
+
+		pgFixture.archive = archive
+		pgFixture.sums = fmt.Sprintf("%s  %s\n", hash, archiveName)
+		pgFixture.binDir = sharedBinDir
+		pgFixture.rootDir = rootDir
+	})
+	if pgFixture.skip != "" {
+		t.Skip(pgFixture.skip)
+	}
+	if pgFixture.binDir == "" {
+		t.Fatal("PG test fixture failed to build — see the first integration test failure in this package")
+	}
+}
+
+// TestMain runs the integration suite and removes the shared PG fixture dir.
+func TestMain(m *testing.M) {
+	code := m.Run()
+	if pgFixture.rootDir != "" {
+		_ = os.RemoveAll(pgFixture.rootDir)
+	}
+	os.Exit(code)
+}
+
+// mustPGConfigDir runs `pg_config <flag>` and returns the trimmed directory path.
+func mustPGConfigDir(t *testing.T, pgConfig, flag string) string {
+	t.Helper()
+	out, err := exec.Command(pgConfig, flag).Output()
+	if err != nil {
+		t.Fatalf("pg_config %s failed: %v", flag, err)
+	}
+	return trimNL(string(out))
+}
+
+// newTestPGHarness serves the (memoized) system PG binary fixture over HTTP and
+// returns a per-test configured harness with isolated data/runtime/port that
+// reuses the package-shared, pre-extracted binary directory.
 func newTestPGHarness(t *testing.T) *testPGHarness {
 	t.Helper()
 
-	// Find pg_config to locate system PG installation.
-	pgConfig, err := exec.LookPath("pg_config")
-	if err != nil {
-		t.Skip("pg_config not found — install PostgreSQL to run integration tests")
-	}
+	ensurePGFixture(t)
 
-	binDirOut, err := exec.Command(pgConfig, "--bindir").Output()
-	if err != nil {
-		t.Fatalf("pg_config --bindir failed: %v", err)
-	}
-	libDirOut, err := exec.Command(pgConfig, "--pkglibdir").Output()
-	if err != nil {
-		t.Fatalf("pg_config --pkglibdir failed: %v", err)
-	}
-	shareDirOut, err := exec.Command(pgConfig, "--sharedir").Output()
-	if err != nil {
-		t.Fatalf("pg_config --sharedir failed: %v", err)
-	}
-
-	binDir := trimNL(string(binDirOut))
-	libDir := trimNL(string(libDirOut))
-	shareDir := trimNL(string(shareDirOut))
-
-	// Build a minimal tar.xz archive.
-	archive := buildTestArchive(t, binDir, libDir, shareDir)
-
-	// Compute SHA256.
-	h := sha256.Sum256(archive)
-	hash := fmt.Sprintf("%x", h)
-
-	platform, err := platformKey()
-	if err != nil {
-		t.Skipf("unsupported test platform: %v", err)
-	}
-	version := "16"
-	archiveName := fmt.Sprintf("ayb-postgres-%s-%s.tar.xz", version, platform)
-
-	sums := fmt.Sprintf("%s  %s\n", hash, archiveName)
-
-	srv := newTestHarnessServer(archive, sums)
+	srv := newTestHarnessServer(pgFixture.archive, pgFixture.sums)
 
 	tempDir := t.TempDir()
 
 	cfg := Config{
 		Port:                   findFreePort(t),
 		DataDir:                filepath.Join(tempDir, "data"),
-		RuntimeDir:             filepath.Join(tempDir, "run"),
+		RuntimeDir:             shortSocketDir(t),
 		BinCacheDir:            filepath.Join(tempDir, "cache"),
-		BinDir:                 filepath.Join(tempDir, "bindir"),
+		BinDir:                 pgFixture.binDir, // shared, pre-extracted, read-only
 		BinaryURL:              srv.URL + "/{version}/{platform}.tar.xz",
-		PGVersion:              version,
+		PGVersion:              testPGVersion,
 		Extensions:             nil, // extensions tested separately
 		SharedPreloadLibraries: nil,
 		Logger:                 testutil.DiscardLogger(),
@@ -238,6 +303,23 @@ func findFreePort(t *testing.T) uint32 {
 	port := ln.Addr().(*net.TCPAddr).Port
 	ln.Close()
 	return uint32(port)
+}
+
+// shortSocketDir returns a short-path directory for Postgres's Unix socket.
+// Postgres places its socket at <RuntimeDir>/.s.PGSQL.<port>, and the OS caps
+// the socket path at sizeof(sockaddr_un.sun_path) — 104 bytes on macOS, 108 on
+// Linux. A t.TempDir() path embeds the test name plus a "/NNN" subdir, and on
+// macOS (where the temp root is a long /var/folders/... path) that overflows
+// the limit for longer-named tests — Postgres then fails to create the socket
+// and pg_ctl exits non-zero. Allocating the socket dir via os.MkdirTemp with a
+// short prefix keeps the full socket path comfortably under the limit while
+// still being unique per test and cleaned up afterward.
+func shortSocketDir(t *testing.T) string {
+	t.Helper()
+	dir, err := os.MkdirTemp("", "aybpg")
+	testutil.NoError(t, err)
+	t.Cleanup(func() { _ = os.RemoveAll(dir) })
+	return dir
 }
 
 func trimNL(s string) string {

@@ -1,7 +1,10 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-readonly DEFAULT_MATRIX_PATH="_dev/COVERAGE_MATRIX.md"
+# The matrix doc lives alongside this script (like scripts/allowlist-oversized.txt)
+# so the CI gate, which runs on the synced staging/prod mirrors, can find it.
+# _dev/ is dev-repo-only and is not synced to those mirrors.
+readonly DEFAULT_MATRIX_PATH="scripts/COVERAGE_MATRIX.md"
 readonly MATRIX_PATH="${COVERAGE_MATRIX_PATH:-$DEFAULT_MATRIX_PATH}"
 readonly DEFAULT_LAYOUT_TYPES_PATH="ui/src/components/layout-types.ts"
 readonly LAYOUT_TYPES_PATH="${COVERAGE_MATRIX_LAYOUT_TYPES_PATH:-$DEFAULT_LAYOUT_TYPES_PATH}"
