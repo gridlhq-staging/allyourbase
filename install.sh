@@ -380,3 +380,5 @@ main() {
 }
 
 main "$@"
+
+# stage-4 verify: confirm push+release triggers now registered (no behavior change)
