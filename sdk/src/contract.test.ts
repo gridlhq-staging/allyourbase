@@ -1,9 +1,27 @@
 import { describe, it, expect } from "vitest";
 import { AYBClient } from "./client";
 import { AYBError } from "./errors";
+import { AYBClient as PublicAYBClient } from "./index";
+import type { AuthResponse as PublicAuthResponse, ListResponse as PublicListResponse, StorageObject as PublicStorageObject, User as PublicUser } from "./index";
 import { mockFetchSequence } from "./test_utils/mockFetchSequence";
+import type { AuthResponse, ListResponse, StorageObject, User } from "./types";
 
 describe("SDK contract fixtures", () => {
+  it("public barrel re-exports core client and canonical types", () => {
+    const publicClient = new PublicAYBClient("https://api.example.com");
+    expect(publicClient).toBeInstanceOf(AYBClient);
+
+    const assertAuthType = (_value: AuthResponse): void => {};
+    const assertListType = (_value: ListResponse<Record<string, unknown>>): void => {};
+    const assertStorageType = (_value: StorageObject): void => {};
+    const assertUserType = (_value: User): void => {};
+
+    assertAuthType({} as PublicAuthResponse);
+    assertListType({} as PublicListResponse<Record<string, unknown>>);
+    assertStorageType({} as PublicStorageObject);
+    assertUserType({} as PublicUser);
+  });
+
   it("auth response fixture normalizes user aliases", async () => {
     const fetchFn = mockFetchSequence([
       {

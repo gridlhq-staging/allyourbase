@@ -6,10 +6,12 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io/fs"
 	"sync/atomic"
 	"testing"
 	"time"
 
+	"github.com/allyourbase/ayb/examples"
 	"github.com/allyourbase/ayb/internal/jobs"
 	"github.com/allyourbase/ayb/internal/testutil"
 )
@@ -81,6 +83,100 @@ func TestRegisterBillingUsageSyncSchedule_RegistersJob(t *testing.T) {
 	testutil.Equal(t, "UTC", found.Timezone)
 	testutil.Equal(t, 3, found.MaxAttempts)
 	testutil.True(t, found.Enabled)
+}
+
+func TestRegisterAnonymousUserCleanupSchedule_RegistersJob(t *testing.T) {
+	svc := setupService(t)
+	ctx := context.Background()
+
+	err := jobs.RegisterAnonymousUserCleanupSchedule(ctx, svc)
+	testutil.NoError(t, err)
+	schedules, err := svc.ListSchedules(ctx)
+	testutil.NoError(t, err)
+
+	var found *jobs.Schedule
+	for _, sched := range schedules {
+		if sched.Name == "anonymous_user_cleanup_daily" {
+			s := sched
+			found = &s
+			break
+		}
+	}
+	testutil.True(t, found != nil, "anonymous user cleanup schedule should be registered")
+	testutil.Equal(t, "anonymous_user_cleanup_daily", found.Name)
+	testutil.Equal(t, "anonymous_user_cleanup", found.JobType)
+	testutil.Equal(t, "0 6 * * *", found.CronExpr)
+	testutil.Equal(t, "UTC", found.Timezone)
+	testutil.Equal(t, 3, found.MaxAttempts)
+	testutil.True(t, found.Enabled)
+}
+
+func TestRegisterAnonymousUserCleanupSchedule_Idempotent(t *testing.T) {
+	svc := setupService(t)
+	ctx := context.Background()
+
+	err := jobs.RegisterAnonymousUserCleanupSchedule(ctx, svc)
+	testutil.NoError(t, err)
+	err = jobs.RegisterAnonymousUserCleanupSchedule(ctx, svc)
+	testutil.NoError(t, err)
+
+	schedules, err := svc.ListSchedules(ctx)
+	testutil.NoError(t, err)
+
+	count := 0
+	for _, sched := range schedules {
+		if sched.Name == "anonymous_user_cleanup_daily" {
+			count++
+		}
+	}
+	testutil.Equal(t, 1, count)
+}
+
+func TestRegisterMoviesReembedSchedule_RegistersJob(t *testing.T) {
+	svc := setupService(t)
+	ctx := context.Background()
+
+	err := jobs.RegisterMoviesReembedSchedule(ctx, svc)
+	testutil.NoError(t, err)
+	schedules, err := svc.ListSchedules(ctx)
+	testutil.NoError(t, err)
+
+	var found *jobs.Schedule
+	for _, sched := range schedules {
+		if sched.Name == "movies_reembed_daily" {
+			s := sched
+			found = &s
+			break
+		}
+	}
+	testutil.True(t, found != nil, "movies reembed schedule should be registered")
+	testutil.Equal(t, "movies_reembed_daily", found.Name)
+	testutil.Equal(t, "movies_reembed", found.JobType)
+	testutil.Equal(t, "30 2 * * *", found.CronExpr)
+	testutil.Equal(t, "UTC", found.Timezone)
+	testutil.Equal(t, 3, found.MaxAttempts)
+	testutil.True(t, found.Enabled)
+	testutil.Equal(t, "{}", string(found.Payload))
+}
+
+func TestRegisterMoviesReembedSchedule_Idempotent(t *testing.T) {
+	svc := setupService(t)
+	ctx := context.Background()
+
+	err := jobs.RegisterMoviesReembedSchedule(ctx, svc)
+	testutil.NoError(t, err)
+	err = jobs.RegisterMoviesReembedSchedule(ctx, svc)
+	testutil.NoError(t, err)
+
+	schedules, err := svc.ListSchedules(ctx)
+	testutil.NoError(t, err)
+	count := 0
+	for _, sched := range schedules {
+		if sched.Name == "movies_reembed_daily" {
+			count++
+		}
+	}
+	testutil.Equal(t, 1, count)
 }
 
 // --- Worker Loop Tests ---
@@ -888,6 +984,7 @@ func TestRegisterDefaultSchedules(t *testing.T) {
 	testutil.True(t, names["expired_resumable_upload_cleanup"], "missing expired_resumable_upload_cleanup")
 	testutil.True(t, names["audit_log_retention_daily"], "missing audit_log_retention_daily")
 	testutil.True(t, names["request_log_retention_daily"], "missing request_log_retention_daily")
+	testutil.True(t, names["movies_reembed_daily"], "missing movies_reembed_daily")
 
 	// Idempotent: running again should not error or create duplicates.
 	err = svc.RegisterDefaultSchedules(ctx)
@@ -1003,4 +1100,65 @@ func TestProviderTokenRefreshScheduleRunsHandler(t *testing.T) {
 
 	testutil.Equal(t, int32(1), atomic.LoadInt32(&fake.calls))
 	testutil.Equal(t, 90*time.Second, time.Duration(atomic.LoadInt64(&fake.windowNanos)))
+}
+
+func TestMoviesReembedScheduleRunsHandler(t *testing.T) {
+	svc := setupService(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
+	defer cancel()
+
+	jobs.RegisterMoviesReembedHandler(svc, sharedPG.Pool, testutil.DiscardLogger())
+
+	schemaSQL, err := fs.ReadFile(examples.FS, "movies/schema.sql")
+	testutil.NoError(t, err)
+	_, err = sharedPG.Pool.Exec(ctx, string(schemaSQL))
+	testutil.NoError(t, err)
+	seedSQL, err := fs.ReadFile(examples.FS, "movies/seed.sql")
+	testutil.NoError(t, err)
+	_, err = sharedPG.Pool.Exec(ctx, string(seedSQL))
+	testutil.NoError(t, err)
+
+	_, err = sharedPG.Pool.Exec(ctx, `UPDATE movies SET embedding='[9,9,9]' WHERE slug='inception'`)
+	testutil.NoError(t, err)
+
+	past := time.Now().Add(-1 * time.Minute)
+	_, err = svc.CreateSchedule(ctx, &jobs.Schedule{
+		Name:        "movies_reembed_test_schedule",
+		JobType:     "movies_reembed",
+		CronExpr:    "*/1 * * * *",
+		Timezone:    "UTC",
+		Enabled:     true,
+		MaxAttempts: 3,
+		NextRunAt:   &past,
+		Payload:     json.RawMessage(`{}`),
+	})
+	testutil.NoError(t, err)
+
+	svc.Start(ctx)
+	defer svc.Stop()
+
+	deadline := time.After(4 * time.Second)
+	for {
+		completed, err := svc.List(ctx, "completed", "movies_reembed", 10, 0)
+		testutil.NoError(t, err)
+		if len(completed) == 1 {
+			break
+		}
+		failed, err := svc.List(ctx, "failed", "movies_reembed", 10, 0)
+		testutil.NoError(t, err)
+		if len(failed) > 0 {
+			t.Fatalf("movies_reembed failed: %v", failed[0].LastError)
+		}
+		select {
+		case <-deadline:
+			t.Fatal("timed out waiting for movies_reembed schedule to run")
+		default:
+			time.Sleep(50 * time.Millisecond)
+		}
+	}
+
+	var embeddingText string
+	err = sharedPG.Pool.QueryRow(ctx, `SELECT embedding::text FROM movies WHERE slug = 'inception'`).Scan(&embeddingText)
+	testutil.NoError(t, err)
+	testutil.Equal(t, "[0.91,0.12,0.18]", embeddingText)
 }

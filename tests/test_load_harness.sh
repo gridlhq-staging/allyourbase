@@ -92,6 +92,18 @@ run_direct_make() {
   fi
 }
 
+# build_auth_start_command shell-quotes every fixture argv value before it
+# crosses the AYB_START_COMMAND -> bash -lc boundary in scripts/run-with-ayb.sh.
+build_auth_start_command() {
+  local port="$1" auth_log="$2" token_name="$3"
+  printf 'python3 %q %q %q %q %q' \
+    "${TMP_DIR}/auth_server.py" \
+    "$port" \
+    "$auth_log" \
+    "password-from-file" \
+    "$token_name"
+}
+
 # run_local_make invokes a Makefile -local target, booting the fixture server.
 # Args: RECORD_PATH TARGET LABEL PORT AUTH_LOG TOKEN_NAME
 run_local_make_with_expectation() {
@@ -101,12 +113,12 @@ run_local_make_with_expectation() {
     HOME="${TMP_DIR}/home" \
     K6_RECORD_PATH="$record_path" \
     LOAD_K6_BIN="${TMP_DIR}/bin/k6" \
-    REQUIRE_HEALTH_READY=1 \
-    AYB_BASE_URL="http://127.0.0.1:${port}" \
-    AYB_HEALTH_URL="http://127.0.0.1:${port}/health" \
-    AYB_ADMIN_PASSWORD='password-from-file' \
-    AYB_START_COMMAND="python3 \"${TMP_DIR}/auth_server.py\" ${port} \"${auth_log}\" password-from-file ${token_name}" \
-    make "$target" > "${TMP_DIR}/${label}.stdout" 2> "${TMP_DIR}/${label}.stderr"; then
+      REQUIRE_HEALTH_READY=1 \
+      AYB_BASE_URL="http://127.0.0.1:${port}" \
+      AYB_HEALTH_URL="http://127.0.0.1:${port}/health" \
+      AYB_ADMIN_PASSWORD='password-from-file' \
+      AYB_START_COMMAND="$(build_auth_start_command "$port" "$auth_log" "$token_name")" \
+      make "$target" > "${TMP_DIR}/${label}.stdout" 2> "${TMP_DIR}/${label}.stderr"; then
     if [[ "$expect_success" == "0" ]]; then
       echo "FAIL: make ${target} unexpectedly succeeded"
       cat "${TMP_DIR}/${label}.stdout"
@@ -288,6 +300,9 @@ set -euo pipefail
     printf 'AYB_POOL_PRESSURE_ITERATIONS=%s\n' "${AYB_POOL_PRESSURE_ITERATIONS}"
   fi
   printf 'AYB_AUTH_RATE_LIMIT=%s\n' "${AYB_AUTH_RATE_LIMIT:-}"
+  if [[ -n "${AYB_AUTH_RATE_LIMIT_AUTH+x}" ]]; then
+    printf 'AYB_AUTH_RATE_LIMIT_AUTH=%s\n' "${AYB_AUTH_RATE_LIMIT_AUTH}"
+  fi
   printf 'AYB_RATE_LIMIT_API=%s\n' "${AYB_RATE_LIMIT_API:-}"
   printf 'AYB_RATE_LIMIT_API_ANONYMOUS=%s\n' "${AYB_RATE_LIMIT_API_ANONYMOUS:-}"
   printf 'AYB_BASE_URL=%s\n' "${AYB_BASE_URL:-}"
@@ -578,6 +593,20 @@ assert_nonempty_dynamic_jwt_secret "$REALTIME_LOCAL_RECORD_PATH" "realtime local
 assert_contains "$REALTIME_LOCAL_AUTH_LOG" "\"password\": \"password-from-file\"" "realtime local target should exchange the saved admin password via /api/admin/auth"
 PASS_COUNT=$((PASS_COUNT + 1))
 
+SHELL_ESCAPE_TOKEN_MARKER="${TMP_DIR}/realtime-local-token-substitution-ran"
+SHELL_ESCAPE_TOKEN_NAME='token with spaces $(touch '"${SHELL_ESCAPE_TOKEN_MARKER}"')'
+REALTIME_LOCAL_SHELL_ESCAPE_RECORD_PATH="${TMP_DIR}/realtime-local-shell-escape-k6.log"
+REALTIME_LOCAL_SHELL_ESCAPE_AUTH_LOG="${TMP_DIR}/realtime-local-shell-escape-auth.log"
+REALTIME_LOCAL_SHELL_ESCAPE_PORT="18098"
+run_local_make "$REALTIME_LOCAL_SHELL_ESCAPE_RECORD_PATH" load-realtime-ws-local realtime-local-shell-escape "$REALTIME_LOCAL_SHELL_ESCAPE_PORT" "$REALTIME_LOCAL_SHELL_ESCAPE_AUTH_LOG" "$SHELL_ESCAPE_TOKEN_NAME"
+assert_contains "$REALTIME_LOCAL_SHELL_ESCAPE_RECORD_PATH" "AYB_ADMIN_TOKEN=${SHELL_ESCAPE_TOKEN_NAME}" "realtime local target should preserve shell metacharacters in fixture token values as data"
+if [[ -e "$SHELL_ESCAPE_TOKEN_MARKER" ]]; then
+  echo "FAIL: realtime local target should not execute command substitution embedded in fixture token values"
+  exit 1
+fi
+assert_contains "$REALTIME_LOCAL_SHELL_ESCAPE_AUTH_LOG" "\"password\": \"password-from-file\"" "realtime local target should still exchange the saved admin password when fixture token values contain shell metacharacters"
+PASS_COUNT=$((PASS_COUNT + 1))
+
 for tier in 100 500; do
   HTTP_TIER_LOCAL_RECORD_PATH="${TMP_DIR}/http-tier-local-${tier}-k6.log"
   HTTP_TIER_LOCAL_AUTH_LOG="${TMP_DIR}/http-tier-local-${tier}-auth.log"
@@ -623,15 +652,24 @@ for tier in 1000; do
   REALTIME_TIER_LOCAL_RECORD_PATH="${TMP_DIR}/realtime-tier-local-${tier}-k6.log"
   REALTIME_TIER_LOCAL_AUTH_LOG="${TMP_DIR}/realtime-tier-local-${tier}-auth.log"
   REALTIME_TIER_LOCAL_PORT="$((18200 + tier / 100))"
-  run_local_make "$REALTIME_TIER_LOCAL_RECORD_PATH" "load-realtime-ws-${tier}-local" "realtime-tier-local-${tier}" "$REALTIME_TIER_LOCAL_PORT" "$REALTIME_TIER_LOCAL_AUTH_LOG" "token-from-realtime-tier-local-${tier}-auth"
+  AYB_LOAD_UNSAFE=1 run_local_make "$REALTIME_TIER_LOCAL_RECORD_PATH" "load-realtime-ws-${tier}-local" "realtime-tier-local-${tier}" "$REALTIME_TIER_LOCAL_PORT" "$REALTIME_TIER_LOCAL_AUTH_LOG" "token-from-realtime-tier-local-${tier}-auth"
   assert_contains "$REALTIME_TIER_LOCAL_RECORD_PATH" "tests/load/scenarios/realtime_ws_subscribe.js" "load-realtime-ws-${tier}-local should execute the shared websocket scenario"
   assert_contains "$REALTIME_TIER_LOCAL_RECORD_PATH" "AYB_AUTH_ENABLED=true" "load-realtime-ws-${tier}-local should export auth env before wrapping direct scale-tier targets"
   assert_nonempty_dynamic_jwt_secret "$REALTIME_TIER_LOCAL_RECORD_PATH" "load-realtime-ws-${tier}-local should export a non-empty, non-static jwt secret before wrapping direct scale-tier targets"
+  assert_not_contains "$REALTIME_TIER_LOCAL_RECORD_PATH" "AYB_AUTH_RATE_LIMIT_AUTH=" "load-realtime-ws-${tier}-local should not force an auth-sensitive route limiter override when the caller leaves AYB_AUTH_RATE_LIMIT_AUTH unset"
   assert_contains "$REALTIME_TIER_LOCAL_RECORD_PATH" "K6_VUS=${tier}" "load-realtime-ws-${tier}-local should set K6_VUS through wrapped direct target invocation"
   assert_contains "$REALTIME_TIER_LOCAL_RECORD_PATH" "K6_ITERATIONS=${tier}" "load-realtime-ws-${tier}-local should set K6_ITERATIONS through wrapped direct target invocation"
   assert_contains "$REALTIME_TIER_LOCAL_AUTH_LOG" "\"password\": \"password-from-file\"" "load-realtime-ws-${tier}-local should still resolve admin auth through /api/admin/auth after run-with-ayb readiness"
   PASS_COUNT=$((PASS_COUNT + 1))
 done
+
+REALTIME_TIER_LOCAL_AUTH_LIMIT_OVERRIDE_RECORD_PATH="${TMP_DIR}/realtime-tier-local-1000-auth-limit-override-k6.log"
+REALTIME_TIER_LOCAL_AUTH_LIMIT_OVERRIDE_AUTH_LOG="${TMP_DIR}/realtime-tier-local-1000-auth-limit-override-auth.log"
+REALTIME_TIER_LOCAL_AUTH_LIMIT_OVERRIDE_PORT="18211"
+AYB_AUTH_RATE_LIMIT_AUTH="45/min" AYB_LOAD_UNSAFE=1 run_local_make "$REALTIME_TIER_LOCAL_AUTH_LIMIT_OVERRIDE_RECORD_PATH" "load-realtime-ws-1000-local" "realtime-tier-local-1000-auth-limit-override" "$REALTIME_TIER_LOCAL_AUTH_LIMIT_OVERRIDE_PORT" "$REALTIME_TIER_LOCAL_AUTH_LIMIT_OVERRIDE_AUTH_LOG" "token-from-realtime-tier-local-1000-auth-limit-override-auth"
+assert_contains "$REALTIME_TIER_LOCAL_AUTH_LIMIT_OVERRIDE_RECORD_PATH" "AYB_AUTH_RATE_LIMIT_AUTH=45/min" "load-realtime-ws-1000-local should preserve caller-provided AYB_AUTH_RATE_LIMIT_AUTH values"
+assert_contains "$REALTIME_TIER_LOCAL_AUTH_LIMIT_OVERRIDE_AUTH_LOG" "\"password\": \"password-from-file\"" "load-realtime-ws-1000-local should still resolve admin auth through /api/admin/auth when AYB_AUTH_RATE_LIMIT_AUTH is caller-provided"
+PASS_COUNT=$((PASS_COUNT + 1))
 
 for tier in 5000 10000; do
   REALTIME_TIER_LOCAL_UNSAFE_RECORD_PATH="${TMP_DIR}/realtime-tier-local-${tier}-unsafe-refusal-k6.log"
@@ -692,5 +730,5 @@ assert_nonempty_dynamic_jwt_secret "$SUSTAINED_SOAK_LOCAL_RECORD_PATH" "sustaine
 assert_contains "$SUSTAINED_SOAK_LOCAL_AUTH_LOG" "\"password\": \"password-from-file\"" "sustained-soak local target should exchange the saved admin password via /api/admin/auth"
 PASS_COUNT=$((PASS_COUNT + 1))
 
-assert_equals "$PASS_COUNT" "35" "expected startup config assertions, static separator and export assertions, direct/local targets, admin token fallback coverage, guarded local unsafe-tier refusal/allow contracts, help output, and sustained-soak load target assertions to run"
+assert_equals "$PASS_COUNT" "37" "expected startup config assertions, static separator and export assertions, direct/local targets, admin token fallback coverage, guarded local unsafe-tier refusal/allow contracts, shell-escaped token coverage, help output, and sustained-soak load target assertions to run"
 echo "PASS: load Makefile targets use fail-fast local separators, bootstrap env once, enforce AYB_LOAD_UNSAFE=1 for dangerous local tiers, and run k6 after local readiness for baseline, tiered HTTP/realtime aliases, auth request-path, data-path, pool-pressure, realtime websocket, and sustained-soak scenarios"

@@ -3,6 +3,7 @@ package cli
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"io/fs"
@@ -14,23 +15,42 @@ import (
 )
 
 func applyDemoSchema(baseURL, name string) (string, error) {
-	schemaSQL, err := fs.ReadFile(examples.FS, name+"/schema.sql")
-	if err != nil {
-		return "", fmt.Errorf("reading embedded schema.sql: %w", err)
-	}
-
 	token, err := resolveDemoAdminToken(baseURL)
 	if err != nil {
 		return "", fmt.Errorf("authenticating with server: %w", err)
 	}
 
-	body, err := json.Marshal(map[string]string{"query": string(schemaSQL)})
+	schemaSQL, err := fs.ReadFile(examples.FS, name+"/schema.sql")
+	if err != nil {
+		return "", fmt.Errorf("reading embedded schema.sql: %w", err)
+	}
+	schemaResult, err := applyDemoSQL(baseURL, token, string(schemaSQL))
+	if err != nil {
+		return "", err
+	}
+
+	seedSQL, err := fs.ReadFile(examples.FS, name+"/seed.sql")
+	if err != nil {
+		if !errors.Is(err, fs.ErrNotExist) {
+			return "", fmt.Errorf("reading embedded seed.sql: %w", err)
+		}
+		return schemaResult, nil
+	}
+	if _, err := applyDemoSQL(baseURL, token, string(seedSQL)); err != nil {
+		return "", err
+	}
+
+	return schemaResult, nil
+}
+
+func applyDemoSQL(baseURL, token, query string) (string, error) {
+	body, err := json.Marshal(map[string]string{"query": query})
 	if err != nil {
 		return "", fmt.Errorf("encoding request: %w", err)
 	}
 	req, err := http.NewRequest("POST", baseURL+"/api/admin/sql/", bytes.NewReader(body))
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("building request: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
 	if token != "" {

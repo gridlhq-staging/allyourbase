@@ -150,12 +150,14 @@ composer.lock
 # Demo build output is committed (used by go:embed)
 !examples/kanban/dist/
 !examples/live-polls/dist/
+!examples/movies/dist/
 
 # Lock files for dependencies (keep Cargo.lock for binaries, ignore others)
 **/package-lock.json
 !sdk/package-lock.json
 !examples/kanban/package-lock.json
 !examples/live-polls/package-lock.json
+!examples/movies/package-lock.json
 
 # ML model caches
 **/.fastembed_cache/
@@ -193,6 +195,8 @@ node_modules
 !examples/kanban/dist/**
 !examples/live-polls/dist/
 !examples/live-polls/dist/**
+!examples/movies/dist/
+!examples/movies/dist/**
 !ui/dist/
 !ui/dist/**
 

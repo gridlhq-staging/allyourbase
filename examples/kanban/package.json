@@ -11,7 +11,8 @@
     "lint:e2e": "eslint tests/"
   },
   "dependencies": {
-    "@allyourbase/js": "^0.1.0",
+    "@allyourbase/js": "file:../../sdk",
+    "@allyourbase/react": "file:../../sdk_react",
     "@hello-pangea/dnd": "^17.0.0",
     "react": "^18.3.0",
     "react-dom": "^18.3.0"

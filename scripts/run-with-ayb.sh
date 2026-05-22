@@ -19,9 +19,11 @@ ADMIN_TOKEN_HAD_ORIGINAL=0
 # Rate-limit overrides prevent load/browser tests from being throttled.
 export AYB_AUTH_RATE_LIMIT="${AYB_AUTH_RATE_LIMIT:-10000}"
 export AYB_AUTH_ANONYMOUS_RATE_LIMIT="${AYB_AUTH_ANONYMOUS_RATE_LIMIT:-10000}"
-export AYB_AUTH_RATE_LIMIT_AUTH="${AYB_AUTH_RATE_LIMIT_AUTH:-10000/min}"
 export AYB_RATE_LIMIT_API="${AYB_RATE_LIMIT_API:-10000/min}"
 export AYB_RATE_LIMIT_API_ANONYMOUS="${AYB_RATE_LIMIT_API_ANONYMOUS:-10000/min}"
+if [[ -n "${AYB_AUTH_RATE_LIMIT_AUTH+x}" ]]; then
+  export AYB_AUTH_RATE_LIMIT_AUTH
+fi
 
 # Auth enablement and JWT secret are only propagated when the caller explicitly
 # sets them (e.g., load_export_auth_env or BROWSER_EXPORT_AUTH_ENV). Baseline

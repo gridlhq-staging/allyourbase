@@ -291,12 +291,7 @@ func wireJobsPushTenantBackupAndBranch(args wireServicesArgs, phase *wireService
 		if err := phase.state.jobSvc.RegisterDefaultSchedulesWithAuditRetention(args.ctx, args.cfg.Audit.RetentionDays, args.cfg.Logging.RequestLogRetentionDays); err != nil {
 			args.logger.Error("failed to register default job schedules", "error", err)
 		}
-		if args.core.authSvc != nil {
-			jobs.RegisterProviderTokenRefreshHandler(phase.state.jobSvc, args.core.authSvc)
-			if err := jobs.RegisterProviderTokenRefreshSchedule(args.ctx, phase.state.jobSvc); err != nil {
-				args.logger.Warn("failed to register provider token refresh schedule", "error", err)
-			}
-		}
+		wireAuthMaintenanceJobs(args.ctx, phase.state.jobSvc, args.core.authSvc, args.logger)
 		if phase.aiLogStore != nil {
 			jobs.RegisterAIUsageAggregationHandler(phase.state.jobSvc, phase.aiLogStore)
 			if err := jobs.RegisterAIUsageAggregationSchedule(args.ctx, phase.state.jobSvc); err != nil {

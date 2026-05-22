@@ -336,7 +336,7 @@ func (s *AssistantService) prepareCall(req AssistantRequest) (preparedAssistantC
 	if providerName == "" {
 		providerName = strings.TrimSpace(s.aiConfig.DefaultProvider)
 	}
-	provider, model, err := ResolveProvider(s.registry, providerName, strings.TrimSpace(req.Model), s.aiConfig)
+	provider, model, err := ResolveProvider(s.registry, providerName, strings.TrimSpace(req.Model), "", s.aiConfig)
 	if err != nil {
 		return preparedAssistantCall{}, fmt.Errorf("resolve assistant provider: %w", err)
 	}

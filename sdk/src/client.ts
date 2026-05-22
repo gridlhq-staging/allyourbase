@@ -1,6 +1,3 @@
-/**
- * @module Stub summary for /Users/stuart/parallel_development/allyourbase_dev/mar24_pm_4_scaffold_sdk_first_run_fix/allyourbase_dev/sdk/src/client.ts.
- */
 import { AYBError } from "./errors";
 import { AuthClient } from "./auth";
 import { RecordsClient } from "./records";
@@ -8,10 +5,12 @@ import { StorageClient } from "./storage";
 import { RealtimeClient } from "./realtime";
 import { encodePathSegment } from "./helpers";
 import type {
+  AuthPersistence,
   AuthStateListener,
   AuthSession,
   ClientOptions,
   HealthResponse,
+  PersistedAuthSession,
   RpcOptions,
 } from "./types";
 
@@ -31,6 +30,8 @@ export class AYBClient {
   private _token: string | null = null;
   private _refreshToken: string | null = null;
   private _authListeners: Set<AuthStateListener> = new Set();
+  private authPersistence?: AuthPersistence;
+  private restoreSessionPromise: Promise<void>;
 
   readonly auth: AuthClient;
   readonly records: RecordsClient;
@@ -40,11 +41,14 @@ export class AYBClient {
   constructor(baseURL: string, options?: ClientOptions) {
     this.baseURL = baseURL.replace(/\/+$/, "");
     this._fetch = options?.fetch ?? globalThis.fetch.bind(globalThis);
+    this.authPersistence = options?.authPersistence;
 
     this.auth = new AuthClient(this);
     this.records = new RecordsClient(this);
     this.storage = new StorageClient(this);
     this.realtime = new RealtimeClient(this);
+
+    this.restoreSessionPromise = this.restorePersistedSession();
   }
 
   /** Current access token, if authenticated. */
@@ -72,11 +76,13 @@ export class AYBClient {
   /** Manually set auth tokens (e.g. from storage). */
   setTokens(token: string, refreshToken: string): void {
     this.setAuthState(token, refreshToken);
+    this.persistSessionBestEffort({ token, refreshToken });
   }
 
   /** Clear stored auth tokens. */
   clearTokens(): void {
     this.setAuthState(null, null);
+    this.clearPersistedSessionBestEffort();
   }
 
   /** Authenticate with an API key instead of JWT tokens. */
@@ -133,11 +139,6 @@ export class AYBClient {
     return res.json();
   }
 
-  /** @internal */
-  setTokensInternal(token: string, refreshToken: string): void {
-    this.setAuthState(token, refreshToken);
-  }
-
   /** Check server and database health without requiring auth. */
   async health(): Promise<HealthResponse> {
     return this.request<HealthResponse>("/health", { skipAuth: true });
@@ -176,5 +177,46 @@ export class AYBClient {
   /** @internal */
   getBaseURL(): string {
     return this.baseURL;
+  }
+
+  /** @internal Await best-effort auth session restore from persistence. */
+  waitForSessionRestore(): Promise<void> {
+    return this.restoreSessionPromise;
+  }
+
+  private async restorePersistedSession(): Promise<void> {
+    const load = this.authPersistence?.load;
+    if (!load) {
+      return;
+    }
+    try {
+      const session = await load();
+      if (!session) {
+        return;
+      }
+      this.setAuthState(session.token, session.refreshToken);
+    } catch {
+      // Best-effort: persistence failures must not break client construction.
+    }
+  }
+
+  private persistSessionBestEffort(session: PersistedAuthSession): void {
+    const save = this.authPersistence?.save;
+    if (!save) {
+      return;
+    }
+    void Promise.resolve(save(session)).catch(() => {
+      // Best-effort: token state remains in memory even if persistence fails.
+    });
+  }
+
+  private clearPersistedSessionBestEffort(): void {
+    const clear = this.authPersistence?.clear;
+    if (!clear) {
+      return;
+    }
+    void Promise.resolve(clear()).catch(() => {
+      // Best-effort: token state remains in memory even if persistence fails.
+    });
   }
 }

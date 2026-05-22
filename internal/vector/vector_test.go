@@ -231,6 +231,14 @@ func TestBuildNearestQueryWithFilter(t *testing.T) {
 	}
 }
 
+func TestFormatVectorLiteralAvoidsExponentNotation(t *testing.T) {
+	got := FormatVectorLiteral([]float64{0.0000001, -2.5, 3})
+	want := "[0.0000001,-2.5,3]"
+	if got != want {
+		t.Fatalf("FormatVectorLiteral() = %q, want %q", got, want)
+	}
+}
+
 // --- Vector column detection ---
 
 func TestIsVectorColumn(t *testing.T) {

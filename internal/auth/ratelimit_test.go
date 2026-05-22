@@ -87,6 +87,66 @@ func TestRateLimiterMiddleware(t *testing.T) {
 	testutil.True(t, retryAfter > 0 && retryAfter <= 61, "Retry-After should be 1-61, got %d", retryAfter)
 }
 
+func TestRateLimiterMiddlewareThrottleContract(t *testing.T) {
+	t.Parallel()
+	const limit = 2
+	const window = 100 * time.Millisecond
+	rl := NewRateLimiter(limit, window)
+	defer rl.Stop()
+
+	handler := rl.Middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	const ip = "192.168.1.100:9999"
+
+	for i := 0; i < limit; i++ {
+		req := httptest.NewRequest(http.MethodPost, "/", nil)
+		req.RemoteAddr = ip
+		w := httptest.NewRecorder()
+		handler.ServeHTTP(w, req)
+		testutil.Equal(t, http.StatusOK, w.Code)
+		remaining, err := strconv.Atoi(w.Header().Get("X-RateLimit-Remaining"))
+		testutil.NoError(t, err)
+		testutil.Equal(t, limit-1-i, remaining)
+	}
+
+	beforeDeny := time.Now()
+	req := httptest.NewRequest(http.MethodPost, "/", nil)
+	req.RemoteAddr = ip
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+
+	testutil.Equal(t, http.StatusTooManyRequests, w.Code)
+	testutil.Equal(t, "0", w.Header().Get("X-RateLimit-Remaining"))
+	testutil.Equal(t, strconv.Itoa(limit), w.Header().Get("X-RateLimit-Limit"))
+
+	resetEpoch, err := strconv.ParseInt(w.Header().Get("X-RateLimit-Reset"), 10, 64)
+	testutil.NoError(t, err)
+	testutil.True(t, resetEpoch >= beforeDeny.Unix(),
+		"X-RateLimit-Reset should not be in the past, got %d vs now %d", resetEpoch, beforeDeny.Unix())
+
+	retryAfter, err := strconv.Atoi(w.Header().Get("Retry-After"))
+	testutil.NoError(t, err)
+	testutil.True(t, retryAfter >= 1, "Retry-After must be positive, got %d", retryAfter)
+	maxRetryAfter := int(window.Seconds()) + 2
+	testutil.True(t, retryAfter <= maxRetryAfter,
+		"Retry-After must be bounded by window, got %d, max %d", retryAfter, maxRetryAfter)
+
+	time.Sleep(window * 3)
+
+	req = httptest.NewRequest(http.MethodPost, "/", nil)
+	req.RemoteAddr = ip
+	w = httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+
+	testutil.Equal(t, http.StatusOK, w.Code)
+	recoveredRemaining, err := strconv.Atoi(w.Header().Get("X-RateLimit-Remaining"))
+	testutil.NoError(t, err)
+	testutil.True(t, recoveredRemaining > 0,
+		"after window rollover, X-RateLimit-Remaining should be > 0, got %d", recoveredRemaining)
+}
+
 func TestRateLimiterMiddlewareHeaders(t *testing.T) {
 	t.Parallel()
 	rl := NewRateLimiter(3, time.Minute)

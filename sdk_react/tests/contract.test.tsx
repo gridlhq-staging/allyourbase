@@ -1,13 +1,48 @@
 import React from "react";
-import { renderHook, waitFor } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
-import { AYBProvider, useAuth, useQuery } from "../src";
+import { act, renderHook, waitFor } from "@testing-library/react";
+import { describe, expect, it, vi } from "vitest";
+import { AYBProvider, AybLoginBar, DemoSuggestionChip, useAuth, useAybAnonymousBootstrap, useQuery } from "../src";
 import type { AYBClientLike } from "../src/types";
 import { AYBClient } from "../../sdk/src/client";
 import type { AuthResponse, ListResponse } from "../../sdk/src/types";
 import { mockFetchSequence } from "../../sdk/src/test_utils/mockFetchSequence";
 
+class FakeEventSource {
+  private listeners = new Map<string, ((event: MessageEvent) => void)[]>();
+
+  constructor(_url: string) {
+    queueMicrotask(() => {
+      this.emit("connected", { clientId: "state_123" });
+    });
+  }
+
+  addEventListener(type: string, listener: (event: MessageEvent) => void) {
+    const list = this.listeners.get(type) ?? [];
+    list.push(listener);
+    this.listeners.set(type, list);
+  }
+
+  close() {}
+
+  emit(type: string, data: unknown) {
+    const list = this.listeners.get(type) ?? [];
+    const event = { data: JSON.stringify(data) } as MessageEvent;
+    for (const listener of list) {
+      listener(event);
+    }
+  }
+}
+
 describe("react contract parity", () => {
+  it("public barrel exports shared movies-demo react surface", () => {
+    expect(typeof AYBProvider).toBe("function");
+    expect(typeof AybLoginBar).toBe("function");
+    expect(typeof useAuth).toBe("function");
+    expect(typeof useQuery).toBe("function");
+    expect(typeof useAybAnonymousBootstrap).toBe("function");
+    expect(typeof DemoSuggestionChip).toBe("function");
+  });
+
   it("useAuth consumes canonical auth fixture shape parsed by core SDK", async () => {
     const fetchFn = mockFetchSequence([
       {
@@ -40,9 +75,7 @@ describe("react contract parity", () => {
     const auth: AuthResponse = await core.auth.login("dev@allyourbase.io", "secret");
     expect(auth.user.emailVerified).toBe(true);
 
-    const wrapper = ({ children }: { children: React.ReactNode }) => (
-      <AYBProvider client={core as unknown as AYBClientLike}>{children}</AYBProvider>
-    );
+    const wrapper = ({ children }: { children: React.ReactNode }) => <AYBProvider client={core as unknown as AYBClientLike}>{children}</AYBProvider>;
 
     const { result } = renderHook(() => useAuth(), { wrapper });
 
@@ -87,9 +120,7 @@ describe("react contract parity", () => {
     const list: ListResponse<Record<string, unknown>> = await core.records.list("posts");
     expect(list.totalItems).toBe(2);
 
-    const wrapper = ({ children }: { children: React.ReactNode }) => (
-      <AYBProvider client={core as unknown as AYBClientLike}>{children}</AYBProvider>
-    );
+    const wrapper = ({ children }: { children: React.ReactNode }) => <AYBProvider client={core as unknown as AYBClientLike}>{children}</AYBProvider>;
 
     const { result } = renderHook(() => useQuery<Record<string, unknown>>("posts"), { wrapper });
 
@@ -98,5 +129,96 @@ describe("react contract parity", () => {
       expect(result.current.data?.items[0]?.title).toBe("First");
       expect(result.current.data?.items[1]?.title).toBe("Second");
     });
+  });
+
+  it("useAuth drives canonical anonymous/link-email/oauth methods with core token persistence", async () => {
+    const persistence = { save: vi.fn(), clear: vi.fn() };
+    let eventSource: FakeEventSource | null = null;
+    vi.stubGlobal(
+      "EventSource",
+      class {
+        constructor(url: string) {
+          eventSource = new FakeEventSource(url);
+          return eventSource;
+        }
+      },
+    );
+
+    const fetchFn = mockFetchSequence([
+      {
+        status: 200,
+        body: {
+          token: "anon_token",
+          refreshToken: "anon_refresh",
+          user: { id: "anon_1", is_anonymous: true },
+        },
+      },
+      {
+        status: 200,
+        body: {
+          id: "anon_1",
+          is_anonymous: true,
+        },
+      },
+      {
+        status: 200,
+        body: {
+          token: "link_token",
+          refreshToken: "link_refresh",
+          user: { id: "usr_2", email: "alice@demo.test", linked_at: "2026-01-02T00:00:00Z" },
+        },
+      },
+      {
+        status: 200,
+        body: {
+          id: "usr_2",
+          email: "alice@demo.test",
+          linked_at: "2026-01-02T00:00:00Z",
+        },
+      },
+      {
+        status: 200,
+        body: {
+          id: "usr_oauth",
+          email: "oauth@demo.test",
+        },
+      },
+    ]);
+
+    const core = new AYBClient("https://api.example.com", { fetch: fetchFn, authPersistence: persistence });
+    const wrapper = ({ children }: { children: React.ReactNode }) => <AYBProvider client={core as unknown as AYBClientLike}>{children}</AYBProvider>;
+    const { result } = renderHook(() => useAuth(), { wrapper });
+
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    await act(async () => {
+      await result.current.signInAnonymously();
+    });
+    await waitFor(() => expect(result.current.token).toBe("anon_token"));
+
+    await act(async () => {
+      await result.current.linkEmail("alice@demo.test", "password123");
+    });
+    await waitFor(() => expect(result.current.user?.email).toBe("alice@demo.test"));
+
+    await act(async () => {
+      const oauth = result.current.signInWithOAuth("google", {
+        urlCallback: async () => {
+          setTimeout(() => {
+            eventSource?.emit("oauth", {
+              token: "oauth_token",
+              refreshToken: "oauth_refresh",
+              user: { id: "usr_oauth", email: "oauth@demo.test" },
+            });
+          }, 0);
+        },
+      });
+      await oauth;
+    });
+
+    await waitFor(() => expect(result.current.user?.email).toBe("oauth@demo.test"));
+    expect(persistence.save).toHaveBeenCalledWith({ token: "anon_token", refreshToken: "anon_refresh" });
+    expect(persistence.save).toHaveBeenCalledWith({ token: "link_token", refreshToken: "link_refresh" });
+    expect(persistence.save).toHaveBeenCalledWith({ token: "oauth_token", refreshToken: "oauth_refresh" });
   });
 });

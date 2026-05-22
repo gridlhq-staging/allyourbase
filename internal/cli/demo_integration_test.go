@@ -142,6 +142,24 @@ func sqlQueryScalar(t *testing.T, baseURL, token, query string) float64 {
 	return row[0].(float64)
 }
 
+// sqlQueryStringColumn runs a query expected to return a single text column and
+// returns each row's first value as a string.
+func sqlQueryStringColumn(t *testing.T, baseURL, token, query string) []string {
+	t.Helper()
+	resp, body := postAdminSQL(t, baseURL, token, query)
+	testutil.Equal(t, http.StatusOK, resp.StatusCode)
+	rows, ok := body["rows"].([]any)
+	if !ok {
+		t.Fatalf("expected rows for query: %s", query)
+	}
+	out := make([]string, 0, len(rows))
+	for _, r := range rows {
+		row := r.([]any)
+		out = append(out, fmt.Sprintf("%v", row[0]))
+	}
+	return out
+}
+
 // ---------------------------------------------------------------------------
 // RLS policies (checks pg_policies count — complements e2e's rowsecurity flag check)
 // ---------------------------------------------------------------------------
@@ -285,6 +303,10 @@ func TestDemoHTTPEndToEnd_LivePolls(t *testing.T) {
 	testDemoHTTPEndToEnd(t, "live-polls")
 }
 
+func TestDemoHTTPEndToEnd_Movies(t *testing.T) {
+	testDemoHTTPEndToEnd(t, "movies")
+}
+
 func testDemoHTTPEndToEnd(t *testing.T, demoName string) {
 	ts := newDemoServer(t)
 	defer ts.Close()
@@ -331,4 +353,64 @@ func testDemoHTTPEndToEnd(t *testing.T, demoName string) {
 	testutil.NoError(t, err)
 	defer spaResp.Body.Close()
 	testutil.Equal(t, http.StatusOK, spaResp.StatusCode)
+}
+
+func TestApplyDemoSchemaMoviesIsIdempotentAndSeedsOnce(t *testing.T) {
+	ts := newDemoServer(t)
+	defer ts.Close()
+
+	adminToken := getAdminToken(t, ts.URL)
+	t.Setenv("AYB_ADMIN_TOKEN", adminToken)
+
+	firstResult, err := applyDemoSchema(ts.URL, "movies")
+	testutil.NoError(t, err)
+	testutil.Equal(t, "applied", firstResult)
+
+	rowCountAfterFirstApply := sqlQueryScalar(t, ts.URL, adminToken, "SELECT COUNT(*) FROM movies")
+	if rowCountAfterFirstApply == 0 {
+		t.Fatal("expected movies seed to create at least one row")
+	}
+
+	secondResult, err := applyDemoSchema(ts.URL, "movies")
+	testutil.NoError(t, err)
+	testutil.Equal(t, "applied", secondResult)
+
+	rowCountAfterSecondApply := sqlQueryScalar(t, ts.URL, adminToken, "SELECT COUNT(*) FROM movies")
+	testutil.Equal(t, rowCountAfterFirstApply, rowCountAfterSecondApply)
+}
+
+// Reapplying the movies seed against unchanged rows must not bump updated_at —
+// state idempotency, not just row-count idempotency.
+func TestApplyDemoSchemaMoviesSeedRerunPreservesUpdatedAt(t *testing.T) {
+	ts := newDemoServer(t)
+	defer ts.Close()
+
+	adminToken := getAdminToken(t, ts.URL)
+	t.Setenv("AYB_ADMIN_TOKEN", adminToken)
+
+	_, err := applyDemoSchema(ts.URL, "movies")
+	testutil.NoError(t, err)
+
+	const tsQuery = "SELECT updated_at::text FROM movies ORDER BY slug"
+	first := sqlQueryStringColumn(t, ts.URL, adminToken, tsQuery)
+	if len(first) == 0 {
+		t.Fatal("expected at least one movies row after first apply")
+	}
+
+	// Sleep briefly so a stray now() write would produce a strictly different
+	// timestamp on the second apply.
+	time.Sleep(50 * time.Millisecond)
+
+	_, err = applyDemoSchema(ts.URL, "movies")
+	testutil.NoError(t, err)
+
+	second := sqlQueryStringColumn(t, ts.URL, adminToken, tsQuery)
+	if len(second) != len(first) {
+		t.Fatalf("row count mismatch: first=%d second=%d", len(first), len(second))
+	}
+	for i := range first {
+		if first[i] != second[i] {
+			t.Fatalf("updated_at mutated on rerun for row %d: %q -> %q", i, first[i], second[i])
+		}
+	}
 }

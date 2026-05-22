@@ -4,8 +4,10 @@ import {
   encodePathSegment,
   encodePathWithSlashes,
   normalizeAuthResponse,
+  normalizeMagicLinkConfirmResponse,
   normalizeRealtimeEvent,
   normalizeStorageListResponse,
+  normalizeUser,
 } from "./helpers";
 
 describe("sdk helpers", () => {
@@ -31,6 +33,73 @@ describe("sdk helpers", () => {
     expect(normalized.user.id).toBe("7");
     expect(normalized.user.emailVerified).toBe(true);
     expect(normalized.user.createdAt).toBe("2026-03-01T00:00:00Z");
+  });
+
+  it("normalizes anonymous user fields into canonical SDK shape", () => {
+    const normalized = normalizeUser({
+      id: "anon-1",
+      is_anonymous: true,
+      linked_at: "2026-05-20T10:11:12Z",
+      phone: "+15555550123",
+      createdAt: "2026-05-20T09:00:00Z",
+      updatedAt: "2026-05-20T10:00:00Z",
+    } as unknown);
+
+    expect(normalized.id).toBe("anon-1");
+    expect(normalized.email).toBeUndefined();
+    expect(normalized.isAnonymous).toBe(true);
+    expect(normalized.linkedAt).toBe("2026-05-20T10:11:12Z");
+    expect(normalized.phone).toBe("+15555550123");
+    expect(normalized).not.toHaveProperty("is_anonymous");
+    expect(normalized).not.toHaveProperty("linked_at");
+  });
+
+  it("normalizes backend empty-string sentinels for anonymous optional fields", () => {
+    const normalized = normalizeUser({
+      id: "anon-2",
+      email: "",
+      phone: "",
+      is_anonymous: true,
+      linked_at: "2026-05-20T10:11:12Z",
+      created_at: "2026-05-20T09:00:00Z",
+      updated_at: "2026-05-20T10:00:00Z",
+    } as unknown);
+
+    expect(normalized.id).toBe("anon-2");
+    expect(normalized.email).toBeUndefined();
+    expect(normalized.phone).toBeUndefined();
+    expect(normalized.isAnonymous).toBe(true);
+    expect(normalized.linkedAt).toBe("2026-05-20T10:11:12Z");
+  });
+
+  it("normalizes magic-link confirm full auth response", () => {
+    const normalized = normalizeMagicLinkConfirmResponse({
+      token: "tok",
+      refreshToken: "ref",
+      user: {
+        id: "1",
+        email: "demo@example.com",
+        email_verified: true,
+      },
+    } as unknown);
+
+    expect("token" in normalized).toBe(true);
+    if ("token" in normalized) {
+      expect(normalized.user.emailVerified).toBe(true);
+      expect(normalized.token).toBe("tok");
+      expect(normalized.refreshToken).toBe("ref");
+    }
+  });
+
+  it("normalizes magic-link confirm MFA pending response", () => {
+    const normalized = normalizeMagicLinkConfirmResponse({
+      mfa_pending: true,
+      mfa_token: "pending-token",
+    } as unknown);
+    expect(normalized).toEqual({
+      mfaPending: true,
+      mfaToken: "pending-token",
+    });
   });
 
   it("normalizes storage list defaults and realtime old_record", () => {

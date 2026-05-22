@@ -10,6 +10,7 @@ import (
 	"testing/fstest"
 
 	"github.com/allyourbase/ayb/examples"
+	"github.com/allyourbase/ayb/internal/vector"
 )
 
 func TestDemoCommandRegistered(t *testing.T) {
@@ -29,6 +30,7 @@ func TestDemoRegistryComplete(t *testing.T) {
 	expected := map[string]int{
 		"kanban":     5173,
 		"live-polls": 5175,
+		"movies":     5177,
 	}
 	for name, port := range expected {
 		demo, ok := demoRegistry[name]
@@ -73,7 +75,7 @@ func TestDemoRequiresName(t *testing.T) {
 }
 
 func TestEmbeddedDemoFSContainsSchemas(t *testing.T) {
-	for _, name := range []string{"kanban", "live-polls"} {
+	for _, name := range []string{"kanban", "live-polls", "movies"} {
 		data, err := fs.ReadFile(examples.FS, name+"/schema.sql")
 		if err != nil {
 			t.Errorf("reading embedded %s/schema.sql: %v", name, err)
@@ -85,6 +87,41 @@ func TestEmbeddedDemoFSContainsSchemas(t *testing.T) {
 		if !strings.Contains(string(data), "CREATE TABLE") {
 			t.Errorf("embedded %s/schema.sql doesn't contain CREATE TABLE", name)
 		}
+	}
+}
+
+func TestEmbeddedDemoFSContainsMoviesSeed(t *testing.T) {
+	data, err := fs.ReadFile(examples.FS, "movies/seed.sql")
+	if err != nil {
+		t.Fatalf("reading embedded movies/seed.sql: %v", err)
+	}
+	if len(data) == 0 {
+		t.Fatal("embedded movies/seed.sql is empty")
+	}
+	content := string(data)
+	if !strings.Contains(content, "INSERT INTO movies") {
+		t.Fatal("movies/seed.sql should insert into movies table")
+	}
+	if !strings.Contains(content, "ON CONFLICT") {
+		t.Fatal("movies/seed.sql should be upsert-safe")
+	}
+}
+
+func TestEmbeddedDemoFSContainsMoviesEmbeddingsArtifact(t *testing.T) {
+	seed, err := fs.ReadFile(examples.FS, "movies/seed.sql")
+	if err != nil {
+		t.Fatalf("reading embedded movies/seed.sql: %v", err)
+	}
+	artifact, err := fs.ReadFile(examples.FS, "movies/embeddings.json")
+	if err != nil {
+		t.Fatalf("reading embedded movies/embeddings.json: %v", err)
+	}
+	decoded, err := vector.LoadCommittedMoviesEmbeddingArtifact(seed, artifact)
+	if err != nil {
+		t.Fatalf("embedded movies artifact should decode and match embedded seed checksum: %v", err)
+	}
+	if len(decoded.Records) == 0 {
+		t.Fatal("embedded movies artifact has no records")
 	}
 }
 
@@ -159,7 +196,7 @@ func TestEmbeddedSchemasHaveRLS(t *testing.T) {
 
 // TestDemoDistContainsIndexHTML verifies each demo's dist/ has an index.html.
 func TestDemoDistContainsIndexHTML(t *testing.T) {
-	for _, name := range []string{"kanban", "live-polls"} {
+	for _, name := range []string{"kanban", "live-polls", "movies"} {
 		distFS, err := examples.DemoDist(name)
 		if err != nil {
 			t.Fatalf("DemoDist(%q): %v", name, err)
@@ -177,7 +214,7 @@ func TestDemoDistContainsIndexHTML(t *testing.T) {
 
 // TestDemoDistContainsAssets verifies each demo's dist/ has at least one JS and CSS file.
 func TestDemoDistContainsAssets(t *testing.T) {
-	for _, name := range []string{"kanban", "live-polls"} {
+	for _, name := range []string{"kanban", "live-polls", "movies"} {
 		distFS, err := examples.DemoDist(name)
 		if err != nil {
 			t.Fatalf("DemoDist(%q): %v", name, err)
@@ -352,7 +389,7 @@ func TestDemoFileHandler_FaviconServed(t *testing.T) {
 // TestDemoFileHandler_WithRealDemoDist verifies the handler works with the
 // actual embedded demo dist/ filesystem, not just the test fixture.
 func TestDemoFileHandler_WithRealDemoDist(t *testing.T) {
-	for _, name := range []string{"kanban", "live-polls"} {
+	for _, name := range []string{"kanban", "live-polls", "movies"} {
 		t.Run(name, func(t *testing.T) {
 			distFS, err := examples.DemoDist(name)
 			if err != nil {
@@ -503,5 +540,65 @@ func TestRequireDemoAuthEnabledReturnsActionableError(t *testing.T) {
 	}
 	if !strings.Contains(msg, "ayb stop && ayb demo <name>") {
 		t.Fatalf("expected actionable restart instructions, got: %s", msg)
+	}
+}
+
+func TestDemoAdminAuthProxyInjection(t *testing.T) {
+	var gotAdminPath, gotNonAdminPath string
+	var gotAdminAuth, gotNonAdminAuth string
+
+	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasPrefix(r.URL.Path, "/api/admin/") {
+			gotAdminPath = r.URL.Path
+			gotAdminAuth = r.Header.Get("Authorization")
+		} else {
+			gotNonAdminPath = r.URL.Path
+			gotNonAdminAuth = r.Header.Get("Authorization")
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer backend.Close()
+
+	mux := buildDemoMux(testDistFS(), backend.URL, "test-admin-token-123")
+
+	// Admin path should get Authorization injected.
+	req1 := httptest.NewRequest("GET", "/api/admin/movies/search", nil)
+	w1 := httptest.NewRecorder()
+	mux.ServeHTTP(w1, req1)
+	if gotAdminPath != "/api/admin/movies/search" {
+		t.Errorf("admin path not proxied, got %q", gotAdminPath)
+	}
+	if gotAdminAuth != "Bearer test-admin-token-123" {
+		t.Errorf("admin auth not injected, got %q", gotAdminAuth)
+	}
+
+	// Non-admin path should NOT get Authorization injected.
+	req2 := httptest.NewRequest("GET", "/api/auth/me", nil)
+	w2 := httptest.NewRecorder()
+	mux.ServeHTTP(w2, req2)
+	if gotNonAdminPath != "/api/auth/me" {
+		t.Errorf("non-admin path not proxied, got %q", gotNonAdminPath)
+	}
+	if gotNonAdminAuth != "" {
+		t.Errorf("non-admin path should not have auth injected, got %q", gotNonAdminAuth)
+	}
+}
+
+func TestDemoAdminAuthProxyNoTokenNoInjection(t *testing.T) {
+	var gotAuth string
+
+	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotAuth = r.Header.Get("Authorization")
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer backend.Close()
+
+	mux := buildDemoMux(testDistFS(), backend.URL, "")
+
+	req := httptest.NewRequest("GET", "/api/admin/movies/search", nil)
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, req)
+	if gotAuth != "" {
+		t.Errorf("empty admin token should not inject auth, got %q", gotAuth)
 	}
 }

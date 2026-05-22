@@ -199,6 +199,23 @@ type RunSQLOutput struct {
 	DurationMs float64  `json:"durationMs"`
 }
 
+type SearchMoviesInput struct {
+	Query string `json:"query" jsonschema:"Search text query"`
+	Limit *int   `json:"limit,omitempty" jsonschema:"Optional result limit between 1 and 50"`
+}
+
+type SearchMoviesRow struct {
+	Slug        string  `json:"slug"`
+	Title       string  `json:"title"`
+	Overview    string  `json:"overview"`
+	ReleaseYear int     `json:"release_year"`
+	Similarity  float64 `json:"similarity"`
+}
+
+type SearchMoviesOutput struct {
+	Rows []SearchMoviesRow `json:"rows"`
+}
+
 type CallFunctionInput struct {
 	Function string         `json:"function" jsonschema:"PostgreSQL function name"`
 	Args     map[string]any `json:"args,omitempty" jsonschema:"Named arguments"`

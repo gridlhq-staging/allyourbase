@@ -4,11 +4,14 @@
 import { AYBError } from "./errors";
 import {
   normalizeAuthResponse,
+  normalizeMagicLinkConfirmResponse,
   normalizeUser,
   openPopup,
 } from "./helpers";
 import type {
   AuthResponse,
+  MagicLinkConfirmResponse,
+  MagicLinkRequestResponse,
   OAuthOptions,
   OAuthProvider,
   User,
@@ -17,8 +20,8 @@ import type {
 interface AuthClientRuntime {
   request<T>(path: string, init?: RequestInit & { skipAuth?: boolean }): Promise<T>;
   refreshToken: string | null;
+  setTokens(token: string, refreshToken: string): void;
   clearTokens(): void;
-  setTokensInternal(token: string, refreshToken: string): void;
   emitAuthEvent(event: "SIGNED_IN" | "SIGNED_OUT" | "TOKEN_REFRESHED"): void;
   getBaseURL(): string;
 }
@@ -36,10 +39,7 @@ export class AuthClient {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ email, password }),
     });
-    const normalized = normalizeAuthResponse(res);
-    this.client.setTokensInternal(normalized.token, normalized.refreshToken);
-    this.client.emitAuthEvent("SIGNED_IN");
-    return normalized;
+    return this.applySignedInSession(res);
   }
 
   /** Log in with email and password. */
@@ -49,10 +49,49 @@ export class AuthClient {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ email, password }),
     });
-    const normalized = normalizeAuthResponse(res);
-    this.client.setTokensInternal(normalized.token, normalized.refreshToken);
-    this.client.emitAuthEvent("SIGNED_IN");
+    return this.applySignedInSession(res);
+  }
+
+  /** Sign in with an anonymous account. */
+  async signInAnonymously(): Promise<AuthResponse> {
+    const res = await this.client.request<AuthResponse>("/api/auth/anonymous", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+    });
+    return this.applySignedInSession(res);
+  }
+
+  /** Send a passwordless sign-in email. */
+  async requestMagicLink(email: string): Promise<MagicLinkRequestResponse> {
+    return this.client.request<MagicLinkRequestResponse>("/api/auth/magic-link", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email }),
+    });
+  }
+
+  /** Confirm a passwordless sign-in token. */
+  async confirmMagicLink(token: string): Promise<MagicLinkConfirmResponse> {
+    const res = await this.client.request<unknown>("/api/auth/magic-link/confirm", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ token }),
+    });
+    const normalized = normalizeMagicLinkConfirmResponse(res);
+    if ("token" in normalized) {
+      return this.applySignedInSession(normalized);
+    }
     return normalized;
+  }
+
+  /** Convert an anonymous account to email/password auth. */
+  async linkEmail(email: string, password: string): Promise<AuthResponse> {
+    const res = await this.client.request<AuthResponse>("/api/auth/link/email", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email, password }),
+    });
+    return this.applySignedInSession(res);
   }
 
   /** Refresh the access token using the stored refresh token. */
@@ -63,7 +102,7 @@ export class AuthClient {
       body: JSON.stringify({ refreshToken: this.client.refreshToken }),
     });
     const normalized = normalizeAuthResponse(res);
-    this.client.setTokensInternal(normalized.token, normalized.refreshToken);
+    this.client.setTokens(normalized.token, normalized.refreshToken);
     this.client.emitAuthEvent("TOKEN_REFRESHED");
     return normalized;
   }
@@ -168,7 +207,7 @@ export class AuthClient {
       }
 
       const result = await waitForAuth(popup);
-      this.client.setTokensInternal(result.token, result.refreshToken);
+      this.client.setTokens(result.token, result.refreshToken);
       this.client.emitAuthEvent("SIGNED_IN");
       close();
       return result;
@@ -193,7 +232,7 @@ export class AuthClient {
     const token = params.get("token");
     const refreshToken = params.get("refreshToken");
     if (!token || !refreshToken) return null;
-    this.client.setTokensInternal(token, refreshToken);
+    this.client.setTokens(token, refreshToken);
     this.client.emitAuthEvent("SIGNED_IN");
     window.history.replaceState(
       null,
@@ -302,5 +341,12 @@ export class AuthClient {
         }
       };
     });
+  }
+
+  private applySignedInSession(response: AuthResponse): AuthResponse {
+    const normalized = normalizeAuthResponse(response);
+    this.client.setTokens(normalized.token, normalized.refreshToken);
+    this.client.emitAuthEvent("SIGNED_IN");
+    return normalized;
   }
 }

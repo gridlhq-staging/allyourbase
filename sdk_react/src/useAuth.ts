@@ -3,7 +3,15 @@
  */
 import { useCallback, useEffect, useState } from "react";
 import { useAYBClient } from "./provider";
-import type { UseAuthResult, UserLike } from "./types";
+import type { OAuthOptions, OAuthProvider, UseAuthResult, UserLike } from "./types";
+
+function isUnauthorizedError(err: unknown): boolean {
+  if (!err || typeof err !== "object") {
+    return false;
+  }
+  const status = (err as { status?: unknown }).status;
+  return status === 401 || status === 403;
+}
 
 /**
  * Manages authentication state and automatically syncs with the client's auth provider. Loads the current user on mount and resubscribes to auth state changes, handling token updates and session management. Returns current user data, tokens, loading/error states, and authentication methods.
@@ -24,17 +32,22 @@ export function useAuth(): UseAuthResult {
     }
 
     setLoading(true);
+    let unauthorizedSession = false;
     try {
       const me = await client.auth.me();
       setUser(me);
       setError(null);
     } catch (err) {
+      if (isUnauthorizedError(err)) {
+        unauthorizedSession = true;
+        client.clearTokens?.();
+      }
       setUser(null);
       setError(err as Error);
     } finally {
       setLoading(false);
-      setToken(client.token);
-      setRefreshToken(client.refreshToken);
+      setToken(unauthorizedSession ? null : client.token);
+      setRefreshToken(unauthorizedSession ? null : client.refreshToken);
     }
   }, [client]);
 
@@ -43,6 +56,9 @@ export function useAuth(): UseAuthResult {
 
     const run = async () => {
       try {
+        if (client.waitForSessionRestore) {
+          await client.waitForSessionRestore();
+        }
         if (mounted) {
           await loadMe();
         }
@@ -91,6 +107,24 @@ export function useAuth(): UseAuthResult {
     [client, loadMe],
   );
 
+  const signInAnonymously = useCallback(async () => {
+    await client.auth.signInAnonymously();
+  }, [client]);
+
+  const linkEmail = useCallback(
+    async (email: string, password: string) => {
+      await client.auth.linkEmail(email, password);
+    },
+    [client],
+  );
+
+  const signInWithOAuth = useCallback(
+    async (provider: OAuthProvider, options?: OAuthOptions) => {
+      await client.auth.signInWithOAuth(provider, options);
+    },
+    [client],
+  );
+
   const logout = useCallback(async () => {
     await client.auth.logout();
     setUser(null);
@@ -112,6 +146,9 @@ export function useAuth(): UseAuthResult {
     refreshToken,
     login,
     register,
+    signInAnonymously,
+    linkEmail,
+    signInWithOAuth,
     logout,
     refresh,
   };

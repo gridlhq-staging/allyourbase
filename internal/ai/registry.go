@@ -41,7 +41,11 @@ func (r *Registry) Get(name string) (Provider, error) {
 // ResolveProvider resolves a provider and model from explicit args or config defaults.
 // If providerName is empty, the config default is used.
 // If model is empty, the provider-specific or config-level default is used.
-func ResolveProvider(reg *Registry, providerName, model string, cfg config.AIConfig) (Provider, string, error) {
+// If byokKey is non-empty, a fresh per-request Provider is constructed from
+// config via NewProviderFromConfig using byokKey as the API key (overriding
+// config / vault / env). This is the single signature used for both standard
+// and BYOK resolution — callers that do not need BYOK pass "" for byokKey.
+func ResolveProvider(reg *Registry, providerName, model, byokKey string, cfg config.AIConfig) (Provider, string, error) {
 	if providerName == "" {
 		providerName = cfg.DefaultProvider
 	}
@@ -49,9 +53,28 @@ func ResolveProvider(reg *Registry, providerName, model string, cfg config.AICon
 		return nil, "", fmt.Errorf("no AI provider specified and no default configured")
 	}
 
-	p, err := reg.Get(providerName)
-	if err != nil {
-		return nil, "", err
+	var p Provider
+	if byokKey != "" {
+		// BYOK path: construct a fresh per-request provider with the override
+		// key. We deliberately ignore the registered singleton (which has its
+		// own wrappers like retry/breaker/logging) because the override key
+		// is request-scoped and must not leak into shared state.
+		pcfg, ok := cfg.Providers[providerName]
+		if !ok {
+			return nil, "", fmt.Errorf("BYOK requested for unknown provider %q", providerName)
+		}
+		pcfg.APIKey = byokKey
+		freshProvider, err := NewProviderFromConfig(providerName, pcfg, nil)
+		if err != nil {
+			return nil, "", fmt.Errorf("BYOK provider construction failed: %w", err)
+		}
+		p = freshProvider
+	} else {
+		var err error
+		p, err = reg.Get(providerName)
+		if err != nil {
+			return nil, "", err
+		}
 	}
 
 	if model == "" {

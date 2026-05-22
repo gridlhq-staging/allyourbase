@@ -30,6 +30,13 @@ const (
 	billingUsageSyncScheduleName       = "billing_usage_sync"
 	auditLogRetentionDefaultDays       = 90
 	requestLogRetentionDefaultDays     = 7
+	moviesReembedJobType               = "movies_reembed"
+	moviesReembedScheduleName          = "movies_reembed_daily"
+	moviesReembedCronExpr              = "30 2 * * *"
+
+	anonymousUserCleanupJobType      = "anonymous_user_cleanup"
+	anonymousUserCleanupScheduleName = "anonymous_user_cleanup_daily"
+	anonymousUserCleanupCronExpr     = "0 6 * * *"
 )
 
 var usageSyncNow = func() time.Time { return time.Now() }
@@ -137,6 +144,7 @@ func RegisterBuiltinHandlers(svc *Service, pool *pgxpool.Pool, storageSvc *stora
 	svc.RegisterHandler(resumableUploadCleanupJobType, ResumableUploadCleanupHandler(storageSvc, logger))
 	svc.RegisterHandler("audit_log_retention", AuditLogRetentionHandler(pool, auditLogRetentionDefaultDays, logger))
 	svc.RegisterHandler("request_log_retention", RequestLogRetentionHandler(pool, requestLogRetentionDefaultDays, logger))
+	RegisterMoviesReembedHandler(svc, pool, logger)
 
 	mvStore := matview.NewStore(pool)
 	mvSvc := matview.NewService(mvStore)
@@ -167,6 +175,14 @@ func RegisterBillingUsageSyncHandler(svc *Service, billingSvc billing.BillingSer
 	svc.RegisterHandler(billingUsageSyncJobType, BillingUsageSyncJobHandler(billingSvc, billingUsageSyncStore{pool: pool}))
 }
 
+// RegisterMoviesReembedHandler registers the built-in movies embedding repair handler.
+func RegisterMoviesReembedHandler(svc *Service, pool *pgxpool.Pool, logger *slog.Logger) {
+	if svc == nil || pool == nil {
+		return
+	}
+	svc.RegisterHandler(moviesReembedJobType, MoviesReembedHandler(pool, logger))
+}
+
 // RegisterProviderTokenRefreshSchedule registers a 5-minute schedule for proactive refresh.
 func RegisterProviderTokenRefreshSchedule(ctx context.Context, svc *Service) error {
 	schedule := &Schedule{
@@ -174,6 +190,20 @@ func RegisterProviderTokenRefreshSchedule(ctx context.Context, svc *Service) err
 		JobType:     providerTokenRefreshJobType,
 		Payload:     json.RawMessage(`{"window_seconds":600}`),
 		CronExpr:    providerTokenRefreshCronExpression,
+		Timezone:    "UTC",
+		Enabled:     true,
+		MaxAttempts: 3,
+	}
+	return registerSchedule(ctx, svc, schedule)
+}
+
+// RegisterMoviesReembedSchedule registers a daily schedule for movies embedding repairs.
+func RegisterMoviesReembedSchedule(ctx context.Context, svc *Service) error {
+	schedule := &Schedule{
+		Name:        moviesReembedScheduleName,
+		JobType:     moviesReembedJobType,
+		Payload:     json.RawMessage(`{}`),
+		CronExpr:    moviesReembedCronExpr,
 		Timezone:    "UTC",
 		Enabled:     true,
 		MaxAttempts: 3,
@@ -236,4 +266,24 @@ func usageSyncCronExpr(usageSyncIntervalSecs int) (string, error) {
 	default:
 		return "", fmt.Errorf("unsupported billing usage sync interval: %d seconds", usageSyncIntervalSecs)
 	}
+}
+
+func RegisterAnonymousUserCleanupHandler(svc *Service, cleaner AnonymousUserCleaner, logger *slog.Logger) {
+	if svc == nil || cleaner == nil {
+		return
+	}
+	svc.RegisterHandler(anonymousUserCleanupJobType, AnonymousUserCleanupHandler(cleaner, logger))
+}
+
+func RegisterAnonymousUserCleanupSchedule(ctx context.Context, svc *Service) error {
+	schedule := &Schedule{
+		Name:        anonymousUserCleanupScheduleName,
+		JobType:     anonymousUserCleanupJobType,
+		Payload:     json.RawMessage(`{}`),
+		CronExpr:    anonymousUserCleanupCronExpr,
+		Timezone:    "UTC",
+		Enabled:     true,
+		MaxAttempts: 3,
+	}
+	return registerSchedule(ctx, svc, schedule)
 }

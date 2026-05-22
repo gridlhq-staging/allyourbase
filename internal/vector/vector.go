@@ -105,7 +105,7 @@ func BuildNearestQuery(p NearestParams) (string, []any, error) {
 	args = append(args, p.FilterArgs...)
 
 	vecParamIdx := len(args) + 1
-	args = append(args, formatVector(p.QueryVector))
+	args = append(args, FormatVectorLiteral(p.QueryVector))
 
 	// Distance expression as a computed column.
 	distExpr := fmt.Sprintf("%s %s $%d AS _distance",
@@ -176,8 +176,9 @@ func BuildCreateIndexSQL(p IndexParams) (string, error) {
 	return sql, nil
 }
 
-// formatVector formats a float64 slice as a pgvector literal string "[0.1,0.2,0.3]".
-func formatVector(v []float64) string {
+// FormatVectorLiteral formats a float64 slice as a pgvector literal string
+// ("[0.1,0.2,0.3]") using non-exponent float rendering.
+func FormatVectorLiteral(v []float64) string {
 	parts := make([]string, len(v))
 	for i, f := range v {
 		parts[i] = strconv.FormatFloat(f, 'f', -1, 64)

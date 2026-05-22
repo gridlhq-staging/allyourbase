@@ -1,26 +1,52 @@
 import { AYBClient } from "@allyourbase/js";
 
 const url = import.meta.env.VITE_AYB_URL ?? "http://localhost:8090";
-export const ayb = new AYBClient(url);
+const TOKEN_KEY = "ayb_token";
+const REFRESH_TOKEN_KEY = "ayb_refresh_token";
+const ANONYMOUS_BOOTSTRAP_OPTOUT_KEY = "ayb_anonymous_bootstrap_optout";
+export const ayb = new AYBClient(url, {
+  authPersistence: {
+    load: () => {
+      const token = sessionStorage.getItem(TOKEN_KEY);
+      const refreshToken = sessionStorage.getItem(REFRESH_TOKEN_KEY);
+      if (!token || !refreshToken) {
+        return null;
+      }
+      return { token, refreshToken };
+    },
+    save: ({ token, refreshToken }) => {
+      // Keep demo auth tokens scoped to the current browser tab.
+      sessionStorage.setItem(TOKEN_KEY, token);
+      sessionStorage.setItem(REFRESH_TOKEN_KEY, refreshToken);
+    },
+    clear: () => {
+      sessionStorage.removeItem(TOKEN_KEY);
+      sessionStorage.removeItem(REFRESH_TOKEN_KEY);
+    },
+  },
+});
 
 const EMAIL_KEY = "ayb_email";
 
-// Restore persisted tokens on load.
-const token = localStorage.getItem("ayb_token");
-const refresh = localStorage.getItem("ayb_refresh_token");
-if (token && refresh) {
-  ayb.setTokens(token, refresh);
-}
-
 export function persistTokens(email?: string) {
-  if (ayb.token) localStorage.setItem("ayb_token", ayb.token);
-  if (ayb.refreshToken) localStorage.setItem("ayb_refresh_token", ayb.refreshToken);
   if (email) localStorage.setItem(EMAIL_KEY, email);
 }
 
+export function isAnonymousBootstrapEnabled(): boolean {
+  return localStorage.getItem(ANONYMOUS_BOOTSTRAP_OPTOUT_KEY) !== "1";
+}
+
+export function disableAnonymousBootstrap() {
+  localStorage.setItem(ANONYMOUS_BOOTSTRAP_OPTOUT_KEY, "1");
+}
+
+export function clearAnonymousBootstrapOptOut() {
+  localStorage.removeItem(ANONYMOUS_BOOTSTRAP_OPTOUT_KEY);
+}
+
 export function clearPersistedTokens() {
-  localStorage.removeItem("ayb_token");
-  localStorage.removeItem("ayb_refresh_token");
+  sessionStorage.removeItem(TOKEN_KEY);
+  sessionStorage.removeItem(REFRESH_TOKEN_KEY);
   localStorage.removeItem(EMAIL_KEY);
   ayb.clearTokens();
 }

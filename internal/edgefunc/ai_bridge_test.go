@@ -125,6 +125,51 @@ function handler(req) {
 	}
 }
 
+func TestAIGenerateTextSeparatesMessagesFromOpts(t *testing.T) {
+	pool := NewPool(1, WithPoolAIGenerate(func(_ context.Context, messages []map[string]any, opts map[string]any) (string, error) {
+		if len(messages) != 1 {
+			t.Fatalf("expected 1 message, got %d", len(messages))
+		}
+		if _, ok := opts["messages"]; ok {
+			t.Fatal("messages should not be present in opts")
+		}
+		model, ok := opts["model"].(string)
+		if !ok {
+			t.Fatalf("expected opts.model to stay string, got %T", opts["model"])
+		}
+		if model != "gpt-4o-mini" {
+			t.Fatalf("expected model gpt-4o-mini, got %q", model)
+		}
+		temperature, ok := opts["temperature"].(float64)
+		if !ok {
+			t.Fatalf("expected opts.temperature float64 from JS number, got %T", opts["temperature"])
+		}
+		if temperature != 0.2 {
+			t.Fatalf("expected temperature 0.2, got %v", temperature)
+		}
+		return "ok", nil
+	}))
+	defer pool.Close()
+
+	code := `
+function handler(req) {
+	var text = ayb.ai.generateText({
+		messages: [{ role: "user", content: "hi" }],
+		model: "gpt-4o-mini",
+		temperature: 0.2
+	});
+	return { statusCode: 200, body: text };
+}
+`
+	resp, err := pool.Execute(context.Background(), code, "handler", Request{Method: "GET", Path: "/"}, nil, nil)
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if string(resp.Body) != "ok" {
+		t.Fatalf("expected body ok, got %q", resp.Body)
+	}
+}
+
 // --- ayb.ai.renderPrompt ---
 
 func TestAIRenderPromptSuccess(t *testing.T) {

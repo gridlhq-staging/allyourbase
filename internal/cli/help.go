@@ -133,11 +133,12 @@ func styledHelp(cmd *cobra.Command, _ []string) {
 	// Flags.
 	printFlags(cmd, c)
 
-	// Demo hints (root only).
+	// Demo hints (root only), derived from demoRegistry.
 	if cmd == rootCmd {
 		fmt.Fprintf(w, "%s\n", heading("DEMOS", c))
-		fmt.Fprintf(w, "  %s  %s\n", green("ayb demo kanban    ", c), dim("# Trello-lite kanban board  (port 5173)", c))
-		fmt.Fprintf(w, "  %s  %s\n", green("ayb demo live-polls", c), dim("# real-time polling app     (port 5175)", c))
+		for _, line := range formatDemoHints(c) {
+			fmt.Fprintln(w, line)
+		}
 		fmt.Fprintln(w)
 	}
 

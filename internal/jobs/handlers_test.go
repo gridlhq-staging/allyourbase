@@ -5,10 +5,13 @@ package jobs_test
 import (
 	"context"
 	"encoding/json"
+	"io/fs"
 	"os"
 	"testing"
 	"time"
 
+	"github.com/allyourbase/ayb/examples"
+	"github.com/allyourbase/ayb/internal/auth"
 	"github.com/allyourbase/ayb/internal/jobs"
 	"github.com/allyourbase/ayb/internal/migrations"
 	"github.com/allyourbase/ayb/internal/storage"
@@ -479,6 +482,78 @@ func TestMatviewRefreshHandlerIntegration(t *testing.T) {
 	testutil.Equal(t, 60, total) // 10+20+30
 }
 
+func TestMoviesReembedHandlerRepairsDriftedEmbeddings(t *testing.T) {
+	setupHandlerDB(t)
+	ctx := context.Background()
+	pool := sharedPG.Pool
+
+	schemaSQL, err := fs.ReadFile(examples.FS, "movies/schema.sql")
+	testutil.NoError(t, err)
+	_, err = pool.Exec(ctx, string(schemaSQL))
+	testutil.NoError(t, err)
+	seedSQL, err := fs.ReadFile(examples.FS, "movies/seed.sql")
+	testutil.NoError(t, err)
+	_, err = pool.Exec(ctx, string(seedSQL))
+	testutil.NoError(t, err)
+
+	frozen := time.Date(2001, time.January, 1, 0, 0, 0, 0, time.UTC)
+	_, err = pool.Exec(ctx, `UPDATE movies SET embedding='[9,9,9]', updated_at=$1 WHERE slug='inception'`, frozen)
+	testutil.NoError(t, err)
+	_, err = pool.Exec(ctx, `UPDATE movies SET updated_at=$1 WHERE slug='arrival'`, frozen)
+	testutil.NoError(t, err)
+
+	handler := jobs.MoviesReembedHandler(pool, testutil.DiscardLogger())
+	err = handler(ctx, nil)
+	testutil.NoError(t, err)
+
+	var inceptionEmbedding string
+	var inceptionUpdatedAt time.Time
+	err = pool.QueryRow(ctx, `SELECT embedding::text, updated_at FROM movies WHERE slug='inception'`).Scan(&inceptionEmbedding, &inceptionUpdatedAt)
+	testutil.NoError(t, err)
+	testutil.Equal(t, "[0.91,0.12,0.18]", inceptionEmbedding)
+	testutil.True(t, inceptionUpdatedAt.After(frozen))
+
+	var arrivalEmbedding string
+	var arrivalUpdatedAt time.Time
+	err = pool.QueryRow(ctx, `SELECT embedding::text, updated_at FROM movies WHERE slug='arrival'`).Scan(&arrivalEmbedding, &arrivalUpdatedAt)
+	testutil.NoError(t, err)
+	testutil.Equal(t, "[0.31,0.88,0.22]", arrivalEmbedding)
+	testutil.True(t, arrivalUpdatedAt.Equal(frozen))
+}
+
+func TestMoviesReembedHandlerSkipsWhenMoviesSchemaMissing(t *testing.T) {
+	setupHandlerDB(t)
+	ctx := context.Background()
+
+	handler := jobs.MoviesReembedHandler(sharedPG.Pool, testutil.DiscardLogger())
+	err := handler(ctx, nil)
+	testutil.NoError(t, err)
+}
+
+func TestMoviesReembedHandlerSkipsWhenMoviesTableIsNotDemoSchema(t *testing.T) {
+	setupHandlerDB(t)
+	ctx := context.Background()
+	pool := sharedPG.Pool
+
+	_, err := pool.Exec(ctx, `
+		CREATE TABLE public.movies (
+			slug text PRIMARY KEY,
+			title text NOT NULL
+		)`)
+	testutil.NoError(t, err)
+	_, err = pool.Exec(ctx, `INSERT INTO public.movies (slug, title) VALUES ('custom-entry', 'Custom Entry')`)
+	testutil.NoError(t, err)
+
+	handler := jobs.MoviesReembedHandler(pool, testutil.DiscardLogger())
+	err = handler(ctx, nil)
+	testutil.NoError(t, err)
+
+	var count int
+	err = pool.QueryRow(ctx, `SELECT COUNT(*) FROM public.movies`).Scan(&count)
+	testutil.NoError(t, err)
+	testutil.Equal(t, 1, count)
+}
+
 func TestHandlersRunThroughService(t *testing.T) {
 	setupHandlerDB(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -621,4 +696,43 @@ func TestProviderTokenRefreshJobHandler(t *testing.T) {
 	testutil.NoError(t, err)
 	testutil.Equal(t, 1, svc.calls)
 	testutil.Equal(t, 120*time.Second, svc.window)
+}
+
+type fakeAnonymousUserCleaner struct {
+	calls int
+	ttl   time.Duration
+	count int64
+	err   error
+}
+
+func (f *fakeAnonymousUserCleaner) CleanupAnonymousUsers(_ context.Context, ttl time.Duration) (int64, error) {
+	f.calls++
+	f.ttl = ttl
+	return f.count, f.err
+}
+
+func TestAnonymousUserCleanupHandler(t *testing.T) {
+	cleaner := &fakeAnonymousUserCleaner{count: 7}
+	handler := jobs.AnonymousUserCleanupHandler(cleaner, testutil.DiscardLogger())
+
+	err := handler(context.Background(), nil)
+	testutil.NoError(t, err)
+	testutil.Equal(t, 1, cleaner.calls)
+	testutil.Equal(t, auth.DefaultAnonymousTTL, cleaner.ttl)
+}
+
+func TestAnonymousUserCleanupHandlerReturnsError(t *testing.T) {
+	cleaner := &fakeAnonymousUserCleaner{err: os.ErrClosed}
+	handler := jobs.AnonymousUserCleanupHandler(cleaner, testutil.DiscardLogger())
+
+	err := handler(context.Background(), nil)
+	testutil.Error(t, err)
+	testutil.Contains(t, err.Error(), "anonymous_user_cleanup")
+}
+
+func TestAnonymousUserCleanupHandlerNilCleaner(t *testing.T) {
+	handler := jobs.AnonymousUserCleanupHandler(nil, testutil.DiscardLogger())
+	err := handler(context.Background(), nil)
+	testutil.Error(t, err)
+	testutil.Contains(t, err.Error(), "cleaner is nil")
 }

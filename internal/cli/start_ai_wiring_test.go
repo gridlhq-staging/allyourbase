@@ -73,7 +73,102 @@ func (m *wiringMockPromptStore) ListVersions(_ context.Context, _ uuid.UUID) ([]
 	return nil, nil
 }
 
+type captureGenerateProvider struct {
+	lastReq      ai.GenerateTextRequest
+	responseText string
+	callCount    int
+}
+
+func (p *captureGenerateProvider) GenerateText(_ context.Context, req ai.GenerateTextRequest) (ai.GenerateTextResponse, error) {
+	p.lastReq = req
+	p.callCount++
+	if p.responseText == "" {
+		p.responseText = "captured"
+	}
+	return ai.GenerateTextResponse{Text: p.responseText}, nil
+}
+
 // --- tests ---
+
+func TestWireAIEdgeCallbacksMapsGenerateRequest(t *testing.T) {
+	reg := ai.NewRegistry()
+	provider := &captureGenerateProvider{responseText: "captured"}
+	reg.Register("capture", provider)
+
+	aiCfg := config.AIConfig{
+		DefaultProvider: "capture",
+		DefaultModel:    "default-model",
+		Providers: map[string]config.ProviderConfig{
+			"capture": {DefaultModel: "provider-default-model"},
+		},
+	}
+
+	pool := edgefunc.NewPool(1)
+	defer pool.Close()
+	wireAIEdgeCallbacks(pool, reg, aiCfg, ai.NewPromptCache(), nil)
+
+	code := `
+function handler(req) {
+	var text = ayb.ai.generateText({
+		messages: [{ role: "user", content: "hello from js" }],
+		provider: "capture",
+		model: "movies-stage-model",
+		systemPrompt: "keep response short",
+		maxTokens: 321
+	});
+	return { statusCode: 200, body: text };
+}
+`
+	resp, err := pool.Execute(context.Background(), code, "handler", edgefunc.Request{Method: "GET", Path: "/"}, nil, nil)
+	testutil.NoError(t, err)
+	testutil.Equal(t, "captured", string(resp.Body))
+
+	testutil.Equal(t, "movies-stage-model", provider.lastReq.Model)
+	testutil.Equal(t, "keep response short", provider.lastReq.SystemPrompt)
+	testutil.Equal(t, 321, provider.lastReq.MaxTokens)
+	testutil.Equal(t, 1, len(provider.lastReq.Messages))
+	testutil.Equal(t, "user", provider.lastReq.Messages[0].Role)
+	testutil.Equal(t, 1, len(provider.lastReq.Messages[0].Content))
+	testutil.Equal(t, "text", provider.lastReq.Messages[0].Content[0].Type)
+	testutil.Equal(t, "hello from js", provider.lastReq.Messages[0].Content[0].Text)
+}
+
+func TestWireAIEdgeCallbacksPrefersExplicitProviderOverDefault(t *testing.T) {
+	reg := ai.NewRegistry()
+	defaultProvider := &captureGenerateProvider{responseText: "default-provider"}
+	explicitProvider := &captureGenerateProvider{responseText: "explicit-provider"}
+	reg.Register("default-provider", defaultProvider)
+	reg.Register("explicit-provider", explicitProvider)
+
+	aiCfg := config.AIConfig{
+		DefaultProvider: "default-provider",
+		DefaultModel:    "global-default-model",
+		Providers: map[string]config.ProviderConfig{
+			"default-provider":  {DefaultModel: "default-model"},
+			"explicit-provider": {DefaultModel: "explicit-model"},
+		},
+	}
+
+	pool := edgefunc.NewPool(1)
+	defer pool.Close()
+	wireAIEdgeCallbacks(pool, reg, aiCfg, ai.NewPromptCache(), nil)
+
+	code := `
+function handler(req) {
+	var text = ayb.ai.generateText({
+		messages: [{ role: "user", content: "provider override smoke" }],
+		provider: "explicit-provider"
+	});
+	return { statusCode: 200, body: text };
+}
+`
+	resp, err := pool.Execute(context.Background(), code, "handler", edgefunc.Request{Method: "GET", Path: "/"}, nil, nil)
+	testutil.NoError(t, err)
+	testutil.Equal(t, "explicit-provider", string(resp.Body))
+	testutil.Equal(t, 0, defaultProvider.callCount)
+	testutil.Equal(t, 1, explicitProvider.callCount)
+	testutil.Equal(t, "explicit-model", explicitProvider.lastReq.Model)
+}
 
 // TestAIWiringBuildRegistryAndWrapProviders verifies the wiring pattern from
 // start.go: BuildRegistry → retry+logging wrapping → closures produce correct
@@ -136,7 +231,7 @@ func TestAIWiringBuildRegistryAndWrapProviders(t *testing.T) {
 	pool.SetAIGenerate(func(callCtx context.Context, messages []map[string]any, opts map[string]any) (string, error) {
 		providerName, _ := opts["provider"].(string)
 		model, _ := opts["model"].(string)
-		provider, resolvedModel, resolveErr := ai.ResolveProvider(reg, providerName, model, aiCfg)
+		provider, resolvedModel, resolveErr := ai.ResolveProvider(reg, providerName, model, "", aiCfg)
 		if resolveErr != nil {
 			return "", resolveErr
 		}
@@ -204,7 +299,7 @@ func TestAIWiringBuildRegistryAndWrapProviders(t *testing.T) {
 
 		// We need to test through the closure we captured. Since the pool
 		// doesn't expose the function, we test the same closure pattern.
-		provider, resolvedModel, resolveErr := ai.ResolveProvider(reg, "", "", aiCfg)
+		provider, resolvedModel, resolveErr := ai.ResolveProvider(reg, "", "", "", aiCfg)
 		testutil.NoError(t, resolveErr)
 		testutil.Equal(t, "llama3", resolvedModel)
 
@@ -245,21 +340,21 @@ func TestAIWiringBuildRegistryAndWrapProviders(t *testing.T) {
 
 	t.Run("ResolveProviderDefault", func(t *testing.T) {
 		// Empty provider/model should resolve via config defaults.
-		p, model, resolveErr := ai.ResolveProvider(reg, "", "", aiCfg)
+		p, model, resolveErr := ai.ResolveProvider(reg, "", "", "", aiCfg)
 		testutil.NoError(t, resolveErr)
 		testutil.Equal(t, "llama3", model)
 		testutil.NotNil(t, p)
 	})
 
 	t.Run("ResolveProviderExplicit", func(t *testing.T) {
-		p, model, resolveErr := ai.ResolveProvider(reg, "ollama", "custom-model", aiCfg)
+		p, model, resolveErr := ai.ResolveProvider(reg, "ollama", "custom-model", "", aiCfg)
 		testutil.NoError(t, resolveErr)
 		testutil.Equal(t, "custom-model", model)
 		testutil.NotNil(t, p)
 	})
 
 	t.Run("ResolveProviderUnknown", func(t *testing.T) {
-		_, _, resolveErr := ai.ResolveProvider(reg, "nonexistent", "", aiCfg)
+		_, _, resolveErr := ai.ResolveProvider(reg, "nonexistent", "", "", aiCfg)
 		testutil.NotNil(t, resolveErr)
 		testutil.Contains(t, resolveErr.Error(), "unknown AI provider")
 	})
@@ -288,7 +383,7 @@ func TestAIWiringSkippedWhenNoProviders(t *testing.T) {
 	testutil.NoError(t, err)
 
 	// Resolving should fail since nothing is registered.
-	_, _, resolveErr := ai.ResolveProvider(reg, "", "", aiCfg)
+	_, _, resolveErr := ai.ResolveProvider(reg, "", "", "", aiCfg)
 	testutil.NotNil(t, resolveErr)
 }
 

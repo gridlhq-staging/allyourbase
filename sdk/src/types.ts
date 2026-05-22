@@ -32,6 +32,20 @@ export interface AuthResponse {
   user: User;
 }
 
+/** Successful response body for POST /api/auth/magic-link. */
+export interface MagicLinkRequestResponse {
+  message: string;
+}
+
+/** MFA challenge response body when magic-link confirm requires second factor. */
+export interface MFAPendingAuthResponse {
+  mfaPending: true;
+  mfaToken: string;
+}
+
+/** Response body for POST /api/auth/magic-link/confirm. */
+export type MagicLinkConfirmResponse = AuthResponse | MFAPendingAuthResponse;
+
 /** Health check response returned by GET /health. */
 export interface HealthResponse {
   status: string;
@@ -41,7 +55,10 @@ export interface HealthResponse {
 /** User record from the auth system. */
 export interface User {
   id: string;
-  email: string;
+  email?: string;
+  phone?: string;
+  isAnonymous?: boolean;
+  linkedAt?: string;
   emailVerified?: boolean;
   createdAt?: string;
   updatedAt?: string;
@@ -129,10 +146,25 @@ export interface BatchResult<T = Record<string, unknown>> {
   body?: T;
 }
 
+/** Token pair persisted outside the client for auth session restore. */
+export interface PersistedAuthSession {
+  token: string;
+  refreshToken: string;
+}
+
+/** Optional persistence callbacks for best-effort auth session storage. */
+export interface AuthPersistence {
+  load?: () => PersistedAuthSession | null | Promise<PersistedAuthSession | null>;
+  save?: (session: PersistedAuthSession) => void | Promise<void>;
+  clear?: () => void | Promise<void>;
+}
+
 /** Client configuration options. */
 export interface ClientOptions {
   /** Custom fetch implementation (e.g. for Node.js < 18). */
   fetch?: typeof globalThis.fetch;
+  /** Optional auth session persistence callbacks. */
+  authPersistence?: AuthPersistence;
 }
 
 /** Notify metadata sent with RPC requests to trigger realtime events. */

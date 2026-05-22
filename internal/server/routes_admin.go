@@ -430,6 +430,8 @@ func (s *Server) registerAdminPlatformRoutes(r chi.Router) {
 
 	s.registerAdminAIRoutes(r)
 
+	s.registerAdminMoviesRoutes(r)
+
 	s.registerAdminUsageRoutes(r)
 
 	// Tenant management (admin-auth gated).

@@ -25,7 +25,7 @@ func wireAIEdgeCallbacks(edgePool *edgefunc.Pool, reg *ai.Registry, aiCfg config
 	edgePool.SetAIGenerate(func(callCtx context.Context, messages []map[string]any, opts map[string]any) (string, error) {
 		providerName, _ := opts["provider"].(string)
 		model, _ := opts["model"].(string)
-		provider, resolvedModel, err := ai.ResolveProvider(reg, providerName, model, aiCfg)
+		provider, resolvedModel, err := ai.ResolveProvider(reg, providerName, model, "", aiCfg)
 		if err != nil {
 			return "", err
 		}
@@ -34,11 +34,8 @@ func wireAIEdgeCallbacks(edgePool *edgefunc.Pool, reg *ai.Registry, aiCfg config
 			req.SystemPrompt = sp
 		}
 		if mt, ok := opts["maxTokens"]; ok {
-			switch v := mt.(type) {
-			case int:
+			if v, ok := parseJSNumericInt(mt); ok {
 				req.MaxTokens = v
-			case float64:
-				req.MaxTokens = int(v)
 			}
 		}
 		for _, m := range messages {
@@ -77,6 +74,38 @@ func wireAIEdgeCallbacks(edgePool *edgefunc.Pool, reg *ai.Registry, aiCfg config
 		}
 		return ai.ParseDocument(callCtx, req, nil, reg)
 	})
+}
+
+// parseJSNumericInt converts any Go numeric type to int. Goja currently only produces int64/float64, but the full switch is intentional defense against future engine changes.
+func parseJSNumericInt(value any) (int, bool) {
+	switch v := value.(type) {
+	case int:
+		return v, true
+	case int8:
+		return int(v), true
+	case int16:
+		return int(v), true
+	case int32:
+		return int(v), true
+	case int64:
+		return int(v), true
+	case uint:
+		return int(v), true
+	case uint8:
+		return int(v), true
+	case uint16:
+		return int(v), true
+	case uint32:
+		return int(v), true
+	case uint64:
+		return int(v), true
+	case float32:
+		return int(v), true
+	case float64:
+		return int(v), true
+	default:
+		return 0, false
+	}
 }
 
 // wireAIEmbedding sets up the semantic search embedding function if an embedding-capable provider is available.

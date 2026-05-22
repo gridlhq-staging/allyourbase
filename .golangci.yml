@@ -5,6 +5,9 @@ linters:
   enable:
     - govet
     - staticcheck
+  exclusions:
+    paths:
+      - examples/.*/node_modules/.*
   settings:
     staticcheck:
       checks:

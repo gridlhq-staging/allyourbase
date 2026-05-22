@@ -1,47 +1,61 @@
 import { useCallback, useEffect, useState } from "react";
+import { useAuth, useAybAnonymousBootstrap } from "@allyourbase/react";
 import AuthForm from "./components/AuthForm";
 import CreatePoll from "./components/CreatePoll";
 import PollCard from "./components/PollCard";
 import { useRealtime, type RealtimeEvent } from "./hooks/useRealtime";
-import { ayb, isLoggedIn, clearPersistedTokens } from "./lib/ayb";
+import {
+  ayb,
+  clearAnonymousBootstrapOptOut,
+  clearPersistedTokens,
+  disableAnonymousBootstrap,
+  isAnonymousBootstrapEnabled,
+} from "./lib/ayb";
 import type { Poll, PollOption, Vote } from "./types";
 
-/** Fetch all records from a collection, paginating through server limits. */
 async function fetchAll<T>(table: string, opts: Record<string, unknown> = {}): Promise<T[]> {
-  const PAGE_SIZE = 500; // server max
+  const pageSize = 500;
   const items: T[] = [];
   let page = 1;
   for (;;) {
-    const res = await ayb.records.list<T>(table, { ...opts, page, perPage: PAGE_SIZE });
+    const res = await ayb.records.list<T>(table, { ...opts, page, perPage: pageSize });
     items.push(...res.items);
-    if (res.items.length < PAGE_SIZE) break;
+    if (res.items.length < pageSize) break;
     page++;
   }
   return items;
 }
 
 export default function App() {
-  const [authed, setAuthed] = useState(isLoggedIn());
+  const { user, token, loading, logout } = useAuth();
+  const [anonymousBootstrapEnabled, setAnonymousBootstrapEnabled] = useState(isAnonymousBootstrapEnabled);
+  const { bootstrapping } = useAybAnonymousBootstrap({ enabled: anonymousBootstrapEnabled });
+  const authed = Boolean(token) && Boolean(user) && !user.isAnonymous;
   const [userId, setUserId] = useState<string | null>(null);
   const [userEmail, setUserEmail] = useState<string | null>(null);
   const [polls, setPolls] = useState<Poll[]>([]);
   const [optionsMap, setOptionsMap] = useState<Map<string, PollOption[]>>(new Map());
   const [votesMap, setVotesMap] = useState<Map<string, Vote[]>>(new Map());
   const [showCreate, setShowCreate] = useState(false);
+  const [logoutPending, setLogoutPending] = useState(false);
+  const [logoutError, setLogoutError] = useState<string | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
-  // Load current user on mount.
   useEffect(() => {
-    if (authed) {
-      ayb.auth.me().then((u) => {
-        setUserId(u.id);
-        setUserEmail(u.email ?? null);
-      }).catch(() => {});
+    if (!authed || !user) {
+      setUserId(null);
+      setUserEmail(null);
+      return;
     }
-  }, [authed]);
+    setUserId(user.id);
+    setUserEmail(user.email ?? null);
+  }, [authed, user]);
 
-  // Load all polls, options, and votes.
   useEffect(() => {
-    if (!authed) return;
+    if (!authed) {
+      setLoadError(null);
+      return;
+    }
     async function load() {
       try {
         const [pollRes, allOpts, allVotes] = await Promise.all([
@@ -51,73 +65,66 @@ export default function App() {
         ]);
         setPolls(pollRes.items);
 
-        const om = new Map<string, PollOption[]>();
-        for (const o of allOpts) {
-          const arr = om.get(o.poll_id) ?? [];
-          arr.push(o);
-          om.set(o.poll_id, arr);
+        const optionMap = new Map<string, PollOption[]>();
+        for (const option of allOpts) {
+          const pollOptions = optionMap.get(option.poll_id) ?? [];
+          pollOptions.push(option);
+          optionMap.set(option.poll_id, pollOptions);
         }
-        // Merge with existing state to avoid discarding SSE-delivered data.
         setOptionsMap((prev) => {
           const next = new Map(prev);
-          for (const [pollId, opts] of om) {
-            next.set(pollId, opts);
+          for (const [pollId, pollOptions] of optionMap) {
+            next.set(pollId, pollOptions);
           }
           return next;
         });
 
-        const vm = new Map<string, Vote[]>();
-        for (const v of allVotes) {
-          const arr = vm.get(v.poll_id) ?? [];
-          arr.push(v);
-          vm.set(v.poll_id, arr);
+        const voteMap = new Map<string, Vote[]>();
+        for (const vote of allVotes) {
+          const pollVotes = voteMap.get(vote.poll_id) ?? [];
+          pollVotes.push(vote);
+          voteMap.set(vote.poll_id, pollVotes);
         }
         setVotesMap((prev) => {
           const next = new Map(prev);
-          for (const [pollId, votes] of vm) {
-            next.set(pollId, votes);
+          for (const [pollId, pollVotes] of voteMap) {
+            next.set(pollId, pollVotes);
           }
           return next;
         });
+        setLoadError(null);
       } catch {
-        // Polls load empty if server unavailable.
+        setLoadError("Could not load polls. Please refresh.");
       }
     }
-    load();
+    void load();
   }, [authed]);
 
-  // Realtime: update votes, polls, options on changes.
   const handleRealtime = useCallback((event: RealtimeEvent) => {
     if (event.table === "votes") {
       const vote = event.record as unknown as Vote;
       setVotesMap((prev) => {
         const next = new Map(prev);
-        const arr = [...(next.get(vote.poll_id) ?? [])];
+        const pollVotes = [...(next.get(vote.poll_id) ?? [])];
         if (event.action === "create") {
-          // Dedup against the optimistic update from handleVoteCast, which may
-          // have added this vote to local state before the SSE "create" arrives.
-          // (Vote changes fire "update", not "create", so this only deduplicates
-          // the first-vote optimistic path.)
-          const idx = arr.findIndex((v) => v.user_id === vote.user_id);
-          if (idx >= 0) {
-            arr[idx] = vote;
+          const existingIndex = pollVotes.findIndex((entry) => entry.user_id === vote.user_id);
+          if (existingIndex >= 0) {
+            pollVotes[existingIndex] = vote;
           } else {
-            arr.push(vote);
+            pollVotes.push(vote);
           }
         } else if (event.action === "update") {
-          const idx = arr.findIndex((v) => v.id === vote.id);
-          if (idx >= 0) {
-            arr[idx] = vote;
+          const existingIndex = pollVotes.findIndex((entry) => entry.id === vote.id);
+          if (existingIndex >= 0) {
+            pollVotes[existingIndex] = vote;
           } else {
-            // Vote wasn't in local state yet (e.g. load() hadn't included it).
-            arr.push(vote);
+            pollVotes.push(vote);
           }
         } else if (event.action === "delete") {
-          const filtered = arr.filter((v) => v.id !== vote.id);
-          next.set(vote.poll_id, filtered);
+          next.set(vote.poll_id, pollVotes.filter((entry) => entry.id !== vote.id));
           return next;
         }
-        next.set(vote.poll_id, arr);
+        next.set(vote.poll_id, pollVotes);
         return next;
       });
     }
@@ -125,39 +132,32 @@ export default function App() {
     if (event.table === "polls") {
       const poll = event.record as unknown as Poll;
       if (event.action === "create") {
-        setPolls((prev) => (prev.find((p) => p.id === poll.id) ? prev : [poll, ...prev]));
+        setPolls((prev) => (prev.find((entry) => entry.id === poll.id) ? prev : [poll, ...prev]));
       } else if (event.action === "update") {
-        setPolls((prev) => prev.map((p) => (p.id === poll.id ? poll : p)));
+        setPolls((prev) => prev.map((entry) => (entry.id === poll.id ? poll : entry)));
       } else if (event.action === "delete") {
-        setPolls((prev) => prev.filter((p) => p.id !== poll.id));
+        setPolls((prev) => prev.filter((entry) => entry.id !== poll.id));
       }
     }
 
     if (event.table === "poll_options") {
-      const opt = event.record as unknown as PollOption;
+      const option = event.record as unknown as PollOption;
       if (event.action === "create") {
         setOptionsMap((prev) => {
           const next = new Map(prev);
-          const arr = [...(next.get(opt.poll_id) ?? [])];
-          if (!arr.find((o) => o.id === opt.id)) arr.push(opt);
-          next.set(opt.poll_id, arr);
+          const pollOptions = [...(next.get(option.poll_id) ?? [])];
+          if (!pollOptions.find((entry) => entry.id === option.id)) pollOptions.push(option);
+          next.set(option.poll_id, pollOptions);
           return next;
         });
       }
     }
   }, []);
 
-  // Only subscribe to realtime when authenticated — the EventSource URL includes
-  // the JWT token, which is not available until after login. Passing an empty
-  // array when logged out prevents creating an unauthenticated SSE connection
-  // that would get a 401 and never be replaced after login (effect deps unchanged).
   useRealtime(authed ? ["polls", "poll_options", "votes"] : [], handleRealtime);
 
   function handlePollCreated(poll: Poll, options: PollOption[]) {
-    // Guard against the SSE create event arriving before this callback — if the
-    // poll was already added via realtime, skip the duplicate rather than
-    // prepending it again.
-    setPolls((prev) => (prev.find((p) => p.id === poll.id) ? prev : [poll, ...prev]));
+    setPolls((prev) => (prev.find((entry) => entry.id === poll.id) ? prev : [poll, ...prev]));
     setOptionsMap((prev) => {
       const next = new Map(prev);
       next.set(poll.id, options);
@@ -167,36 +167,58 @@ export default function App() {
   }
 
   function handleClosePoll(pollId: string) {
-    setPolls((prev) => prev.map((p) => (p.id === pollId ? { ...p, is_closed: true } : p)));
+    setPolls((prev) => prev.map((poll) => (poll.id === pollId ? { ...poll, is_closed: true } : poll)));
   }
 
   function handleVoteCast(vote: Vote) {
     setVotesMap((prev) => {
       const next = new Map(prev);
-      const arr = [...(next.get(vote.poll_id) ?? [])];
-      const idx = arr.findIndex((v) => v.user_id === vote.user_id);
-      if (idx >= 0) {
-        arr[idx] = vote;
+      const pollVotes = [...(next.get(vote.poll_id) ?? [])];
+      const existingIndex = pollVotes.findIndex((entry) => entry.user_id === vote.user_id);
+      if (existingIndex >= 0) {
+        pollVotes[existingIndex] = vote;
       } else {
-        arr.push(vote);
+        pollVotes.push(vote);
       }
-      next.set(vote.poll_id, arr);
+      next.set(vote.poll_id, pollVotes);
       return next;
     });
   }
 
-  function handleLogout() {
-    clearPersistedTokens();
-    setAuthed(false);
-    setUserId(null);
-    setUserEmail(null);
-    setPolls([]);
-    setOptionsMap(new Map());
-    setVotesMap(new Map());
+  async function handleLogout() {
+    const bootstrapEnabledBeforeLogout = anonymousBootstrapEnabled;
+    setLogoutPending(true);
+    setLogoutError(null);
+    setAnonymousBootstrapEnabled(false);
+    disableAnonymousBootstrap();
+    try {
+      await logout();
+      clearPersistedTokens();
+      setPolls([]);
+      setOptionsMap(new Map());
+      setVotesMap(new Map());
+    } catch {
+      if (bootstrapEnabledBeforeLogout) {
+        setAnonymousBootstrapEnabled(true);
+        clearAnonymousBootstrapOptOut();
+      }
+      setLogoutError("Sign out failed. Please try again.");
+    } finally {
+      setLogoutPending(false);
+    }
+  }
+
+  function handleAuth(email: string) {
+    setAnonymousBootstrapEnabled(true);
+    setUserEmail(email);
+  }
+
+  if (bootstrapping || loading) {
+    return <div className="min-h-screen flex items-center justify-center text-gray-400">Loading...</div>;
   }
 
   if (!authed) {
-    return <AuthForm onAuth={() => setAuthed(true)} />;
+    return <AuthForm onAuth={handleAuth} />;
   }
 
   return (
@@ -204,6 +226,16 @@ export default function App() {
       <header className="border-b border-gray-800 px-4 py-3 flex justify-between items-center">
         <h1 className="text-xl font-bold">Live Polls</h1>
         <div className="flex gap-3 items-center">
+          {logoutError && (
+            <span role="alert" className="text-xs text-red-400">
+              {logoutError}
+            </span>
+          )}
+          {loadError && (
+            <span role="alert" className="text-xs text-red-400">
+              {loadError}
+            </span>
+          )}
           {userEmail && (
             <span data-testid="user-email" className="text-xs text-gray-500 hidden sm:block">
               {userEmail}
@@ -216,10 +248,11 @@ export default function App() {
             {showCreate ? "Cancel" : "+ New Poll"}
           </button>
           <button
-            onClick={handleLogout}
-            className="text-gray-400 hover:text-white text-sm"
+            onClick={() => void handleLogout()}
+            disabled={logoutPending}
+            className="text-gray-400 hover:text-white text-sm disabled:opacity-60"
           >
-            Sign out
+            {logoutPending ? "Signing out..." : "Sign out"}
           </button>
         </div>
       </header>

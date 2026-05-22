@@ -75,6 +75,7 @@ jobs:
         run: |
           cd examples/kanban && npm ci && VITE_AYB_URL="" npx vite build
           cd ../../examples/live-polls && npm ci && VITE_AYB_URL="" npx vite build
+          cd ../../examples/movies && npm ci && VITE_AYB_URL="" npx vite build
 
       - uses: actions/setup-go@v6
         with:
@@ -303,6 +304,7 @@ jobs:
         run: |
           cd examples/kanban && npm ci && VITE_AYB_URL="" npx vite build
           cd ../../examples/live-polls && npm ci && VITE_AYB_URL="" npx vite build
+          cd ../../examples/movies && npm ci && VITE_AYB_URL="" npx vite build
 
       - uses: actions/setup-go@v6
         with:
@@ -359,6 +361,7 @@ jobs:
         run: |
           cd examples/kanban && npm ci && VITE_AYB_URL="" npx vite build
           cd ../../examples/live-polls && npm ci && VITE_AYB_URL="" npx vite build
+          cd ../../examples/movies && npm ci && VITE_AYB_URL="" npx vite build
 
       - uses: actions/setup-go@v6
         with:
@@ -403,6 +406,7 @@ jobs:
         run: |
           cd examples/kanban && npm ci && VITE_AYB_URL="" npx vite build
           cd ../../examples/live-polls && npm ci && VITE_AYB_URL="" npx vite build
+          cd ../../examples/movies && npm ci && VITE_AYB_URL="" npx vite build
 
       - uses: actions/setup-go@v6
         with:
@@ -468,6 +472,7 @@ jobs:
         run: |
           cd examples/kanban && npm ci && VITE_AYB_URL="" npx vite build
           cd ../../examples/live-polls && npm ci && VITE_AYB_URL="" npx vite build
+          cd ../../examples/movies && npm ci && VITE_AYB_URL="" npx vite build
 
       - uses: actions/setup-go@v6
         with:

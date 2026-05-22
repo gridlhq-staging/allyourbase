@@ -2,6 +2,12 @@
  * @module Type definitions for the React SDK including authentication state management, client interface, and query/auth result types.
  */
 export type AuthStateEvent = "SIGNED_IN" | "SIGNED_OUT" | "TOKEN_REFRESHED";
+export type OAuthProvider = "google" | "github";
+
+export interface OAuthOptions {
+  scopes?: string[];
+  urlCallback?: (url: string) => void | Promise<void>;
+}
 
 export type AuthStateListener = (
   event: AuthStateEvent,
@@ -10,7 +16,13 @@ export type AuthStateListener = (
 
 export interface UserLike {
   id: string;
-  email: string;
+  email?: string;
+  phone?: string;
+  isAnonymous?: boolean;
+  linkedAt?: string;
+  emailVerified?: boolean;
+  createdAt?: string;
+  updatedAt?: string;
   [key: string]: unknown;
 }
 
@@ -20,10 +32,15 @@ export interface UserLike {
 export interface AYBClientLike {
   token: string | null;
   refreshToken: string | null;
+  clearTokens?: () => void;
+  waitForSessionRestore?: () => Promise<void>;
   onAuthStateChange(listener: AuthStateListener): () => void;
   auth: {
     login(email: string, password: string): Promise<unknown>;
     register(email: string, password: string): Promise<unknown>;
+    signInAnonymously(): Promise<unknown>;
+    linkEmail(email: string, password: string): Promise<unknown>;
+    signInWithOAuth(provider: OAuthProvider, options?: OAuthOptions): Promise<unknown>;
     logout(): Promise<void>;
     refresh(): Promise<unknown>;
     me(): Promise<UserLike>;
@@ -62,6 +79,22 @@ export interface UseAuthResult {
   refreshToken: string | null;
   login: (email: string, password: string) => Promise<void>;
   register: (email: string, password: string) => Promise<void>;
+  signInAnonymously: () => Promise<void>;
+  linkEmail: (email: string, password: string) => Promise<void>;
+  signInWithOAuth: (provider: OAuthProvider, options?: OAuthOptions) => Promise<void>;
   logout: () => Promise<void>;
   refresh: () => Promise<void>;
+}
+
+export interface DemoSuggestion {
+  label: string;
+  email: string;
+  password: string;
+}
+
+export interface AybAuthMethods {
+  password: boolean;
+  oauth: boolean;
+  anonymous: boolean;
+  canUpgradeAnonymous: boolean;
 }

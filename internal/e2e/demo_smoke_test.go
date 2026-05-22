@@ -26,7 +26,7 @@ import (
 
 // allDemos lists every registered demo. Keep in sync with demoRegistry in
 // internal/cli/demo.go — TestDemoValidArgsMatchRegistry catches drift.
-var allDemos = []string{"kanban", "live-polls"}
+var allDemos = []string{"kanban", "live-polls", "movies"}
 
 // newDemoServer creates a fresh server with auth enabled and migrations applied.
 // Demos reference _ayb_users so migrations must run first.
@@ -106,6 +106,7 @@ func TestDemoSmoke_TablesExist(t *testing.T) {
 	expectedTables := map[string][]string{
 		"kanban":     {"boards", "columns", "cards"},
 		"live-polls": {"polls", "poll_options", "votes"},
+		"movies":     {"movies", "movies_notes", "movies_chat_history"},
 	}
 
 	for _, name := range allDemos {
@@ -142,6 +143,7 @@ func TestDemoSmoke_RLSEnabled(t *testing.T) {
 	expectedTables2 := map[string][]string{
 		"kanban":     {"boards", "columns", "cards"},
 		"live-polls": {"polls", "poll_options", "votes"},
+		"movies":     {"movies", "movies_notes"},
 	}
 
 	for _, name := range allDemos {
@@ -177,6 +179,7 @@ func TestDemoSmoke_RLSEnabled(t *testing.T) {
 func TestDemoSmoke_RPCFunctionsExist(t *testing.T) {
 	expectedFunctions := map[string][]string{
 		"live-polls": {"cast_vote"},
+		"movies":     {"search_movies"},
 	}
 
 	for _, name := range allDemos {
@@ -237,6 +240,8 @@ func TestDemoSmoke_BasicCRUD(t *testing.T) {
 				smokeTestKanban(t, ts.URL, token, userID)
 			case "live-polls":
 				smokeTestLivePolls(t, ts.URL, token, userID)
+			case "movies":
+				smokeTestMovies(t, ts.URL, token)
 			}
 		})
 	}
@@ -317,4 +322,38 @@ func smokeTestLivePolls(t *testing.T, baseURL, adminToken, userID string) {
 		adminToken)
 	testutil.StatusCode(t, http.StatusOK, resp.StatusCode)
 	testutil.Equal(t, float64(1), body["rows"].([]any)[0].([]any)[0].(float64))
+}
+
+func smokeTestMovies(t *testing.T, baseURL, adminToken string) {
+	t.Helper()
+
+	resp, _ := httpJSON(t, "POST", baseURL+"/api/admin/sql/",
+		map[string]string{"query": "INSERT INTO movies (id, slug, title, overview, release_year, genres, embedding) VALUES ('11111111-1111-1111-1111-111111111111', 'inception', 'Inception', 'A thief enters dreams to steal secrets and perform a final heist inside layered realities.', 2010, ARRAY['sci-fi','thriller'], '[0.91,0.12,0.18]'), ('22222222-2222-2222-2222-222222222222', 'arrival', 'Arrival', 'A linguist helps decode alien language after mysterious ships appear around the world.', 2016, ARRAY['sci-fi','drama'], '[0.31,0.88,0.22]'), ('33333333-3333-3333-3333-333333333333', 'moonlight', 'Moonlight', 'A young man navigates identity, family, and belonging across three defining chapters of life.', 2016, ARRAY['drama'], '[0.06,0.26,0.97]') ON CONFLICT (slug) DO NOTHING"},
+		adminToken)
+	testutil.StatusCode(t, http.StatusOK, resp.StatusCode)
+
+	resp, body := httpJSON(t, "POST", baseURL+"/api/admin/sql/",
+		map[string]string{"query": "SELECT COUNT(*) FROM movies"},
+		adminToken)
+	testutil.StatusCode(t, http.StatusOK, resp.StatusCode)
+	testutil.Equal(t, float64(3), body["rows"].([]any)[0].([]any)[0].(float64))
+
+	resp, body = httpJSON(t, "POST", baseURL+"/api/admin/sql/",
+		map[string]string{"query": "SELECT slug FROM search_movies('dreams heist', '[0.90,0.10,0.20]'::vector(3), 3)"},
+		adminToken)
+	testutil.StatusCode(t, http.StatusOK, resp.StatusCode)
+	rows := body["rows"].([]any)
+	testutil.True(t, len(rows) > 0, "expected at least one row from search_movies")
+	testutil.Equal(t, "inception", rows[0].([]any)[0].(string))
+
+	resp, _ = httpJSON(t, "POST", baseURL+"/api/admin/sql/",
+		map[string]string{"query": "INSERT INTO movies_notes (id, movie_slug, text, embedding) VALUES ('44444444-4444-4444-4444-444444444444', 'inception', 'dream stack', '[0.90,0.10,0.20]'::vector(3))"},
+		adminToken)
+	testutil.StatusCode(t, http.StatusOK, resp.StatusCode)
+
+	resp, body = httpJSON(t, "POST", baseURL+"/api/admin/sql/",
+		map[string]string{"query": "INSERT INTO movies_chat_history (id, session_id, role, content) VALUES ('55555555-5555-5555-5555-555555555555', '66666666-6666-6666-6666-666666666666', 'user', 'Tell me about limbo') RETURNING role"},
+		adminToken)
+	testutil.StatusCode(t, http.StatusOK, resp.StatusCode)
+	testutil.Equal(t, "user", body["rows"].([]any)[0].([]any)[0].(string))
 }

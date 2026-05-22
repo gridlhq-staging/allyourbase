@@ -36,6 +36,10 @@ Migrate and start from Supabase:
 
 var registerBillingUsageSyncHandler = jobs.RegisterBillingUsageSyncHandler
 var registerBillingUsageSyncSchedule = jobs.RegisterBillingUsageSyncSchedule
+var registerProviderTokenRefreshHandler = jobs.RegisterProviderTokenRefreshHandler
+var registerProviderTokenRefreshSchedule = jobs.RegisterProviderTokenRefreshSchedule
+var registerAnonymousUserCleanupHandler = jobs.RegisterAnonymousUserCleanupHandler
+var registerAnonymousUserCleanupSchedule = jobs.RegisterAnonymousUserCleanupSchedule
 
 type startForegroundInput struct {
 	flags      map[string]string

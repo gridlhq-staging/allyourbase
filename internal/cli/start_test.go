@@ -153,6 +153,109 @@ func TestWireBillingUsageSyncJobs_SkipsWhenNotStripe(t *testing.T) {
 	testutil.False(t, scheduleRegistered)
 }
 
+func TestWireAuthMaintenanceJobs_RegistersProviderRefreshAndAnonymousCleanup(t *testing.T) {
+	authSvc := auth.NewService(nil, "wire-auth-maintenance-jobs-test-secret-32chars", time.Hour, 24*time.Hour, 8, slog.Default())
+
+	var (
+		providerHandlerRegistered   bool
+		providerScheduleRegistered  bool
+		anonymousHandlerRegistered  bool
+		anonymousScheduleRegistered bool
+		gotJobSvc                   *jobs.Service
+		gotProviderAuthSvc          *auth.Service
+		gotAnonymousAuthSvc         *auth.Service
+		gotAnonymousLogger          *slog.Logger
+	)
+
+	origProviderHandler := registerProviderTokenRefreshHandler
+	origProviderSchedule := registerProviderTokenRefreshSchedule
+	origAnonymousHandler := registerAnonymousUserCleanupHandler
+	origAnonymousSchedule := registerAnonymousUserCleanupSchedule
+	t.Cleanup(func() {
+		registerProviderTokenRefreshHandler = origProviderHandler
+		registerProviderTokenRefreshSchedule = origProviderSchedule
+		registerAnonymousUserCleanupHandler = origAnonymousHandler
+		registerAnonymousUserCleanupSchedule = origAnonymousSchedule
+	})
+
+	registerProviderTokenRefreshHandler = func(svc *jobs.Service, svcAuth jobs.ProviderTokenRefreshService) {
+		providerHandlerRegistered = true
+		gotJobSvc = svc
+		gotProviderAuthSvc = svcAuth.(*auth.Service)
+	}
+	registerProviderTokenRefreshSchedule = func(_ context.Context, svc *jobs.Service) error {
+		providerScheduleRegistered = true
+		gotJobSvc = svc
+		return nil
+	}
+	registerAnonymousUserCleanupHandler = func(svc *jobs.Service, cleaner jobs.AnonymousUserCleaner, logger *slog.Logger) {
+		anonymousHandlerRegistered = true
+		gotJobSvc = svc
+		gotAnonymousAuthSvc = cleaner.(*auth.Service)
+		gotAnonymousLogger = logger
+	}
+	registerAnonymousUserCleanupSchedule = func(_ context.Context, svc *jobs.Service) error {
+		anonymousScheduleRegistered = true
+		gotJobSvc = svc
+		return nil
+	}
+
+	jobSvc := &jobs.Service{}
+	logger := testNoopLogger()
+	wireAuthMaintenanceJobs(context.Background(), jobSvc, authSvc, logger)
+
+	testutil.True(t, providerHandlerRegistered)
+	testutil.True(t, providerScheduleRegistered)
+	testutil.True(t, anonymousHandlerRegistered)
+	testutil.True(t, anonymousScheduleRegistered)
+	testutil.True(t, gotJobSvc == jobSvc)
+	testutil.True(t, gotProviderAuthSvc == authSvc)
+	testutil.True(t, gotAnonymousAuthSvc == authSvc)
+	testutil.True(t, gotAnonymousLogger == logger)
+}
+
+func TestWireAuthMaintenanceJobs_SkipsWhenAuthServiceMissing(t *testing.T) {
+	var (
+		providerHandlerRegistered   bool
+		providerScheduleRegistered  bool
+		anonymousHandlerRegistered  bool
+		anonymousScheduleRegistered bool
+	)
+
+	origProviderHandler := registerProviderTokenRefreshHandler
+	origProviderSchedule := registerProviderTokenRefreshSchedule
+	origAnonymousHandler := registerAnonymousUserCleanupHandler
+	origAnonymousSchedule := registerAnonymousUserCleanupSchedule
+	t.Cleanup(func() {
+		registerProviderTokenRefreshHandler = origProviderHandler
+		registerProviderTokenRefreshSchedule = origProviderSchedule
+		registerAnonymousUserCleanupHandler = origAnonymousHandler
+		registerAnonymousUserCleanupSchedule = origAnonymousSchedule
+	})
+
+	registerProviderTokenRefreshHandler = func(*jobs.Service, jobs.ProviderTokenRefreshService) {
+		providerHandlerRegistered = true
+	}
+	registerProviderTokenRefreshSchedule = func(context.Context, *jobs.Service) error {
+		providerScheduleRegistered = true
+		return nil
+	}
+	registerAnonymousUserCleanupHandler = func(*jobs.Service, jobs.AnonymousUserCleaner, *slog.Logger) {
+		anonymousHandlerRegistered = true
+	}
+	registerAnonymousUserCleanupSchedule = func(context.Context, *jobs.Service) error {
+		anonymousScheduleRegistered = true
+		return nil
+	}
+
+	wireAuthMaintenanceJobs(context.Background(), &jobs.Service{}, nil, testNoopLogger())
+
+	testutil.False(t, providerHandlerRegistered)
+	testutil.False(t, providerScheduleRegistered)
+	testutil.False(t, anonymousHandlerRegistered)
+	testutil.False(t, anonymousScheduleRegistered)
+}
+
 // --- portError ---
 
 func TestPortErrorAddressInUse(t *testing.T) {

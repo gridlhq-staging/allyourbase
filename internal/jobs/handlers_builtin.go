@@ -1,15 +1,19 @@
-// Package jobs contains built-in job handler factory functions.
 package jobs
 
 import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/allyourbase/ayb/internal/billing"
-	"github.com/allyourbase/ayb/internal/storage"
-	"github.com/jackc/pgx/v5/pgxpool"
+	"io/fs"
 	"log/slog"
 	"time"
+
+	"github.com/allyourbase/ayb/examples"
+	"github.com/allyourbase/ayb/internal/auth"
+	"github.com/allyourbase/ayb/internal/billing"
+	"github.com/allyourbase/ayb/internal/storage"
+	"github.com/allyourbase/ayb/internal/vector"
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 type providerTokenRefreshPayload struct {
@@ -28,6 +32,40 @@ type auditRetentionPayload struct {
 }
 type requestLogRetentionPayload struct {
 	RetentionDays int `json:"retention_days"`
+}
+
+func moviesReembedUpdateSQL() string {
+	return `
+				UPDATE movies
+				SET embedding = $2::vector,
+				    updated_at = NOW()
+				WHERE slug = $1
+				  AND embedding IS DISTINCT FROM $2::vector`
+}
+
+func hasMoviesDemoSchemaContract(ctx context.Context, pool *pgxpool.Pool) (bool, error) {
+	const contractQuery = `
+		SELECT EXISTS (
+			SELECT 1
+			FROM information_schema.columns
+			WHERE table_schema = 'public' AND table_name = 'movies'
+			GROUP BY table_schema, table_name
+			HAVING
+				bool_or(column_name = 'id' AND data_type = 'uuid') AND
+				bool_or(column_name = 'slug' AND data_type = 'text') AND
+				bool_or(column_name = 'title' AND data_type = 'text') AND
+				bool_or(column_name = 'overview' AND data_type = 'text') AND
+				bool_or(column_name = 'release_year' AND data_type = 'integer') AND
+				bool_or(column_name = 'genres' AND data_type = 'ARRAY' AND udt_name = '_text') AND
+				bool_or(column_name = 'embedding' AND data_type = 'USER-DEFINED' AND udt_name = 'vector') AND
+				bool_or(column_name = 'created_at' AND data_type = 'timestamp with time zone') AND
+				bool_or(column_name = 'updated_at' AND data_type = 'timestamp with time zone')
+		)`
+	var hasContract bool
+	if err := pool.QueryRow(ctx, contractQuery).Scan(&hasContract); err != nil {
+		return false, err
+	}
+	return hasContract, nil
 }
 
 func AIUsageAggregationJobHandler(aggregator AIUsageAggregator) JobHandler {
@@ -279,6 +317,75 @@ func RequestLogRetentionHandler(pool *pgxpool.Pool, defaultRetentionDays int, lo
 			logger.Info("request_log_retention completed",
 				"deleted", tag.RowsAffected(),
 				"retention_days", retentionDays)
+		}
+		return nil
+	}
+}
+
+// MoviesReembedHandler repairs movie embeddings from the committed demo artifact.
+func MoviesReembedHandler(pool *pgxpool.Pool, logger *slog.Logger) JobHandler {
+	return func(ctx context.Context, _ json.RawMessage) error {
+		if pool == nil {
+			return fmt.Errorf("movies_reembed: pool is nil")
+		}
+
+		hasContract, err := hasMoviesDemoSchemaContract(ctx, pool)
+		if err != nil {
+			return fmt.Errorf("movies_reembed: verify movies demo schema contract: %w", err)
+		}
+		if !hasContract {
+			if logger != nil {
+				logger.Info("movies_reembed skipped: movies table does not match demo schema contract")
+			}
+			return nil
+		}
+
+		seedBytes, err := fs.ReadFile(examples.FS, "movies/seed.sql")
+		if err != nil {
+			return fmt.Errorf("movies_reembed: read embedded seed.sql: %w", err)
+		}
+		artifactBytes, err := fs.ReadFile(examples.FS, "movies/embeddings.json")
+		if err != nil {
+			return fmt.Errorf("movies_reembed: read embedded embeddings.json: %w", err)
+		}
+		artifact, err := vector.LoadCommittedMoviesEmbeddingArtifact(seedBytes, artifactBytes)
+		if err != nil {
+			return fmt.Errorf("movies_reembed: load committed embedding artifact: %w", err)
+		}
+
+		repairedRows := int64(0)
+		for _, rec := range artifact.Records {
+			tag, err := pool.Exec(ctx, moviesReembedUpdateSQL(), rec.Slug, vector.FormatVectorLiteral(rec.Embedding))
+			if err != nil {
+				return fmt.Errorf("movies_reembed: update slug %q: %w", rec.Slug, err)
+			}
+			repairedRows += tag.RowsAffected()
+		}
+
+		if logger != nil {
+			logger.Info("movies_reembed completed",
+				"artifact_rows", len(artifact.Records),
+				"repaired_rows", repairedRows)
+		}
+		return nil
+	}
+}
+
+type AnonymousUserCleaner interface {
+	CleanupAnonymousUsers(ctx context.Context, ttl time.Duration) (int64, error)
+}
+
+func AnonymousUserCleanupHandler(cleaner AnonymousUserCleaner, logger *slog.Logger) JobHandler {
+	return func(ctx context.Context, _ json.RawMessage) error {
+		if cleaner == nil {
+			return fmt.Errorf("anonymous_user_cleanup: cleaner is nil")
+		}
+		deleted, err := cleaner.CleanupAnonymousUsers(ctx, auth.DefaultAnonymousTTL)
+		if err != nil {
+			return fmt.Errorf("anonymous_user_cleanup: %w", err)
+		}
+		if logger != nil {
+			logger.Info("anonymous_user_cleanup completed", "deleted", deleted)
 		}
 		return nil
 	}

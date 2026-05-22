@@ -1,5 +1,6 @@
 import type {
   AuthResponse,
+  MagicLinkConfirmResponse,
   RealtimeEvent,
   StorageObject,
   User,
@@ -14,11 +15,30 @@ export function normalizeAuthResponse(value: AuthResponse): AuthResponse {
   };
 }
 
+export function normalizeMagicLinkConfirmResponse(
+  value: unknown,
+): MagicLinkConfirmResponse {
+  const source = toRecord(value);
+  const mfaPending = readBoolean(source, ["mfaPending", "mfa_pending"]);
+  if (mfaPending) {
+    return {
+      mfaPending: true,
+      mfaToken: String(source.mfaToken ?? source.mfa_token ?? ""),
+    };
+  }
+  return normalizeAuthResponse(value as AuthResponse);
+}
+
 export function normalizeUser(value: User): User {
   const source = toRecord(value);
+  const email = readString(source, ["email"]);
+  const phone = readString(source, ["phone"]);
   return {
     id: String(source.id ?? ""),
-    email: String(source.email ?? ""),
+    email: email === "" ? undefined : email,
+    phone: phone === "" ? undefined : phone,
+    isAnonymous: readBoolean(source, ["isAnonymous", "is_anonymous"]),
+    linkedAt: readString(source, ["linkedAt", "linked_at"]),
     emailVerified: readBoolean(source, ["emailVerified", "email_verified"]),
     createdAt: readString(source, ["createdAt", "created_at"]),
     updatedAt: readString(source, ["updatedAt", "updated_at"]),

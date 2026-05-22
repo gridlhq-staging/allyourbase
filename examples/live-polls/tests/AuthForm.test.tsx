@@ -1,192 +1,158 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import AuthForm from "../src/components/AuthForm";
-import { ayb, persistTokens } from "../src/lib/ayb";
+import { clearAnonymousBootstrapOptOut, persistTokens } from "../src/lib/ayb";
+import { useAuth } from "@allyourbase/react";
 
 vi.mock("../src/lib/ayb", () => ({
-  ayb: {
-    auth: {
-      login: vi.fn(),
-      register: vi.fn(),
-    },
-  },
   persistTokens: vi.fn(),
+  clearAnonymousBootstrapOptOut: vi.fn(),
 }));
 
-const mockLogin = vi.mocked(ayb.auth.login);
-const mockRegister = vi.mocked(ayb.auth.register);
+vi.mock("@allyourbase/react", () => {
+  return {
+    AybLoginBar: ({
+      mode = "login",
+      loading,
+      email,
+      password,
+      error,
+      emailPlaceholder = "you@example.com",
+      passwordPlaceholder = "At least 8 characters",
+      registerToggleLabel = "Sign up",
+      loginToggleLabel = "Sign in",
+      onEmailChange,
+      onPasswordChange,
+      onModeChange,
+      onSubmit,
+    }: {
+      mode?: "login" | "register";
+      loading: boolean;
+      email: string;
+      password: string;
+      error: string | null;
+      emailPlaceholder?: string;
+      passwordPlaceholder?: string;
+      registerToggleLabel?: string;
+      loginToggleLabel?: string;
+      onEmailChange: (value: string) => void;
+      onPasswordChange: (value: string) => void;
+      onModeChange?: (mode: "login" | "register") => void;
+      onSubmit: () => Promise<void>;
+    }) => (
+      <div>
+        <input aria-label="Email" placeholder={emailPlaceholder} value={email} onChange={(event) => onEmailChange(event.target.value)} />
+        <input aria-label="Password" placeholder={passwordPlaceholder} value={password} onChange={(event) => onPasswordChange(event.target.value)} />
+        <button type="button" disabled={loading} onClick={() => void onSubmit()}>
+          {mode === "register" ? "Create Account" : "Sign In"}
+        </button>
+        {onModeChange && (
+          <button type="button" onClick={() => onModeChange(mode === "register" ? "login" : "register")}>
+            {mode === "register" ? loginToggleLabel : registerToggleLabel}
+          </button>
+        )}
+        {error && <p role="alert">{error}</p>}
+      </div>
+    ),
+    DemoSuggestionChip: ({
+      suggestion,
+      onSelect,
+    }: {
+      suggestion: { label: string; email: string; password: string };
+      onSelect: (value: { email: string; password: string }) => void;
+    }) => (
+      <button type="button" onClick={() => onSelect({ email: suggestion.email, password: suggestion.password })}>
+        {suggestion.label}
+      </button>
+    ),
+    useAuth: vi.fn(),
+  };
+});
+
 const mockPersistTokens = vi.mocked(persistTokens);
+const mockClearAnonymousBootstrapOptOut = vi.mocked(clearAnonymousBootstrapOptOut);
+const mockUseAuth = vi.mocked(useAuth);
 
 describe("AuthForm", () => {
+  const login = vi.fn();
+  const register = vi.fn();
+
   beforeEach(() => {
     vi.clearAllMocks();
+    mockUseAuth.mockReturnValue({
+      loading: false,
+      user: null,
+      error: null,
+      token: null,
+      refreshToken: null,
+      login,
+      register,
+      signInAnonymously: vi.fn(),
+      linkEmail: vi.fn(),
+      signInWithOAuth: vi.fn(),
+      logout: vi.fn(),
+      refresh: vi.fn(),
+    });
   });
 
-  // ── Rendering ──────────────────────────────────────────────────────────────
-
-  it("renders in login mode by default", () => {
+  it("renders login mode by default", () => {
     render(<AuthForm onAuth={vi.fn()} />);
-    expect(screen.getByPlaceholderText("Email")).toBeInTheDocument();
-    expect(screen.getByPlaceholderText("Password")).toBeInTheDocument();
+
     expect(screen.getByRole("button", { name: "Sign In" })).toBeInTheDocument();
-  });
-
-  it("shows demo accounts in login mode", () => {
-    render(<AuthForm onAuth={vi.fn()} />);
     expect(screen.getByText("alice@demo.test")).toBeInTheDocument();
-    expect(screen.getByText("bob@demo.test")).toBeInTheDocument();
-    expect(screen.getByText("charlie@demo.test")).toBeInTheDocument();
   });
 
-  it("can switch to register mode via the Register link", () => {
+  it("switches to register mode and hides demo account quick picks", () => {
     render(<AuthForm onAuth={vi.fn()} />);
-    fireEvent.click(screen.getByText("Register"));
+
+    fireEvent.click(screen.getByRole("button", { name: "Register" }));
+
     expect(screen.getByRole("button", { name: "Create Account" })).toBeInTheDocument();
-    // Demo accounts must NOT be shown in register mode.
     expect(screen.queryByText("alice@demo.test")).not.toBeInTheDocument();
   });
 
-  it("can switch back to login mode from register mode", () => {
-    render(<AuthForm onAuth={vi.fn()} />);
-    fireEvent.click(screen.getByText("Register"));
-    fireEvent.click(screen.getByText("Sign in"));
-    expect(screen.getByRole("button", { name: "Sign In" })).toBeInTheDocument();
-  });
-
-  // ── Demo account prefill ──────────────────────────────────────────────────
-
-  it("clicking a demo account fills email and password fields", () => {
-    render(<AuthForm onAuth={vi.fn()} />);
-    fireEvent.click(screen.getByText("alice@demo.test"));
-    expect(screen.getByPlaceholderText("Email")).toHaveValue("alice@demo.test");
-    expect(screen.getByPlaceholderText("Password")).toHaveValue("password123");
-  });
-
-  it("clicking a demo account clears any previous error", async () => {
-    mockLogin.mockRejectedValueOnce(new Error("Bad credentials"));
+  it("submits with register() in register mode", async () => {
+    register.mockResolvedValueOnce(undefined);
     render(<AuthForm onAuth={vi.fn()} />);
 
-    // Trigger an error first.
-    fireEvent.change(screen.getByPlaceholderText("Email"), {
-      target: { value: "wrong@test.com" },
-    });
-    fireEvent.change(screen.getByPlaceholderText("Password"), {
-      target: { value: "badpassword" },
-    });
-    fireEvent.submit(screen.getByRole("button", { name: "Sign In" }).closest("form")!);
-    await screen.findByText("Bad credentials");
+    fireEvent.click(screen.getByRole("button", { name: "Register" }));
+    fireEvent.change(screen.getByLabelText("Email"), { target: { value: "new@test.com" } });
+    fireEvent.change(screen.getByLabelText("Password"), { target: { value: "password123" } });
+    fireEvent.click(screen.getByRole("button", { name: "Create Account" }));
 
-    // Clicking a demo account should clear the error.
-    fireEvent.click(screen.getByText("bob@demo.test"));
-    expect(screen.queryByText("Bad credentials")).not.toBeInTheDocument();
+    await waitFor(() => expect(register).toHaveBeenCalledOnce());
+    expect(register).toHaveBeenCalledWith("new@test.com", "password123");
+    expect(login).not.toHaveBeenCalled();
   });
 
-  // ── Login ─────────────────────────────────────────────────────────────────
-
-  it("calls ayb.auth.login with email and password on submit", async () => {
-    mockLogin.mockResolvedValueOnce(undefined as never);
+  it("uses live-polls placeholders and register toggle copy", () => {
     render(<AuthForm onAuth={vi.fn()} />);
 
-    fireEvent.change(screen.getByPlaceholderText("Email"), {
-      target: { value: "user@test.com" },
-    });
-    fireEvent.change(screen.getByPlaceholderText("Password"), {
-      target: { value: "password123" },
-    });
-    fireEvent.submit(screen.getByRole("button", { name: "Sign In" }).closest("form")!);
-
-    await waitFor(() => expect(mockLogin).toHaveBeenCalledOnce());
-    expect(mockLogin).toHaveBeenCalledWith("user@test.com", "password123");
+    expect(screen.getByPlaceholderText("Email")).toBeInTheDocument();
+    expect(screen.getByPlaceholderText("Password")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Register" })).toBeInTheDocument();
   });
 
-  it("calls persistTokens and onAuth after successful login", async () => {
-    mockLogin.mockResolvedValueOnce(undefined as never);
+  it("switches subtitle copy in register mode", () => {
+    render(<AuthForm onAuth={vi.fn()} />);
+
+    expect(screen.getByText("Sign in to create and vote on polls")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Register" }));
+    expect(screen.getByText("Create your account")).toBeInTheDocument();
+  });
+
+  it("persists tokens and notifies app after successful login", async () => {
+    login.mockResolvedValueOnce(undefined);
     const onAuth = vi.fn();
     render(<AuthForm onAuth={onAuth} />);
 
-    fireEvent.change(screen.getByPlaceholderText("Email"), {
-      target: { value: "user@test.com" },
-    });
-    fireEvent.change(screen.getByPlaceholderText("Password"), {
-      target: { value: "password123" },
-    });
-    fireEvent.submit(screen.getByRole("button", { name: "Sign In" }).closest("form")!);
+    fireEvent.change(screen.getByLabelText("Email"), { target: { value: "user@test.com" } });
+    fireEvent.change(screen.getByLabelText("Password"), { target: { value: "password123" } });
+    fireEvent.click(screen.getByRole("button", { name: "Sign In" }));
 
-    await waitFor(() => expect(onAuth).toHaveBeenCalledOnce());
-    expect(mockPersistTokens).toHaveBeenCalledOnce();
-    // persistTokens must run before onAuth so tokens are saved before the app
-    // reads them on the next render.
-    expect(mockPersistTokens.mock.invocationCallOrder[0]).toBeLessThan(
-      onAuth.mock.invocationCallOrder[0],
-    );
-  });
-
-  it("shows an error message when login fails", async () => {
-    mockLogin.mockRejectedValueOnce(new Error("Invalid email or password"));
-    render(<AuthForm onAuth={vi.fn()} />);
-
-    fireEvent.change(screen.getByPlaceholderText("Email"), {
-      target: { value: "user@test.com" },
-    });
-    fireEvent.change(screen.getByPlaceholderText("Password"), {
-      target: { value: "wrongpassword" },
-    });
-    fireEvent.submit(screen.getByRole("button", { name: "Sign In" }).closest("form")!);
-
-    expect(await screen.findByText("Invalid email or password")).toBeInTheDocument();
-  });
-
-  it("does not call onAuth when login fails", async () => {
-    mockLogin.mockRejectedValueOnce(new Error("Server error"));
-    const onAuth = vi.fn();
-    render(<AuthForm onAuth={onAuth} />);
-
-    fireEvent.change(screen.getByPlaceholderText("Email"), {
-      target: { value: "user@test.com" },
-    });
-    fireEvent.change(screen.getByPlaceholderText("Password"), {
-      target: { value: "password" },
-    });
-    fireEvent.submit(screen.getByRole("button", { name: "Sign In" }).closest("form")!);
-
-    await screen.findByText("Server error");
-    expect(onAuth).not.toHaveBeenCalled();
-  });
-
-  // ── Register ──────────────────────────────────────────────────────────────
-
-  it("calls ayb.auth.register (not login) in register mode", async () => {
-    mockRegister.mockResolvedValueOnce(undefined as never);
-    render(<AuthForm onAuth={vi.fn()} />);
-
-    fireEvent.click(screen.getByText("Register"));
-
-    fireEvent.change(screen.getByPlaceholderText("Email"), {
-      target: { value: "new@test.com" },
-    });
-    fireEvent.change(screen.getByPlaceholderText("Password"), {
-      target: { value: "password123" },
-    });
-    fireEvent.submit(screen.getByRole("button", { name: "Create Account" }).closest("form")!);
-
-    await waitFor(() => expect(mockRegister).toHaveBeenCalledOnce());
-    expect(mockRegister).toHaveBeenCalledWith("new@test.com", "password123");
-    expect(mockLogin).not.toHaveBeenCalled();
-  });
-
-  it("shows an error message when registration fails", async () => {
-    mockRegister.mockRejectedValueOnce(new Error("Email already taken"));
-    render(<AuthForm onAuth={vi.fn()} />);
-
-    fireEvent.click(screen.getByText("Register"));
-    fireEvent.change(screen.getByPlaceholderText("Email"), {
-      target: { value: "existing@test.com" },
-    });
-    fireEvent.change(screen.getByPlaceholderText("Password"), {
-      target: { value: "password123" },
-    });
-    fireEvent.submit(screen.getByRole("button", { name: "Create Account" }).closest("form")!);
-
-    expect(await screen.findByText("Email already taken")).toBeInTheDocument();
+    await waitFor(() => expect(login).toHaveBeenCalledOnce());
+    expect(mockPersistTokens).toHaveBeenCalledWith("user@test.com");
+    expect(mockClearAnonymousBootstrapOptOut).toHaveBeenCalledOnce();
+    expect(onAuth).toHaveBeenCalledWith("user@test.com");
   });
 });

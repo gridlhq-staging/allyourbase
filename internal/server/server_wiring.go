@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"reflect"
 
+	"github.com/allyourbase/ayb/internal/ai"
 	"github.com/allyourbase/ayb/internal/api"
 	"github.com/allyourbase/ayb/internal/auth"
 	"github.com/allyourbase/ayb/internal/billing"
@@ -238,6 +239,13 @@ func normalizeNilInterface[T any](value T) T {
 // SetAILogStore wires the AI call log store for admin AI endpoints.
 func (s *Server) SetAILogStore(store aiLogStore) {
 	s.aiLogStore = store
+}
+
+// SetAIRegistry wires the AI provider registry so handlers that need direct
+// per-request provider resolution (e.g. movies search, notes embedding, and
+// BYOK-aware chat streaming) can look up providers by name.
+func (s *Server) SetAIRegistry(reg *ai.Registry) {
+	s.aiRegistry = reg
 }
 
 // SetPromptStore wires the AI prompt store for admin prompt endpoints.

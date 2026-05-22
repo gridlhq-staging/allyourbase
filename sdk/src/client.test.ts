@@ -77,6 +77,105 @@ describe("AYBClient", () => {
     expect(client.token).toBeNull();
   });
 });
+describe("auth persistence", () => {
+  it("restores session from injected persistence at construction", async () => {
+    const load = vi.fn().mockResolvedValue({ token: "restored-token", refreshToken: "restored-refresh" });
+    const client = new AYBClient("http://localhost:8090", {
+      authPersistence: { load },
+    });
+
+    await Promise.resolve();
+
+    expect(load).toHaveBeenCalledTimes(1);
+    expect(client.token).toBe("restored-token");
+    expect(client.refreshToken).toBe("restored-refresh");
+  });
+
+  it("exposes a restore promise for consumers that need startup auth sync", async () => {
+    const load = vi.fn().mockResolvedValue({ token: "restored-token", refreshToken: "restored-refresh" });
+    const client = new AYBClient("http://localhost:8090", {
+      authPersistence: { load },
+    });
+
+    await client.waitForSessionRestore();
+
+    expect(load).toHaveBeenCalledTimes(1);
+    expect(client.token).toBe("restored-token");
+    expect(client.refreshToken).toBe("restored-refresh");
+  });
+
+  it("persists tokens on setTokens and successful sign-in paths", async () => {
+    const save = vi.fn().mockResolvedValue(undefined);
+    const fetchFn = mockFetch(200, {
+      token: "signed-in-token",
+      refreshToken: "signed-in-refresh",
+      user: { id: "u-1", email: "demo@example.com" },
+    });
+    const client = new AYBClient("http://localhost:8090", {
+      fetch: fetchFn,
+      authPersistence: { save },
+    });
+
+    client.setTokens("manual-token", "manual-refresh");
+    await client.auth.login("demo@example.com", "pass");
+
+    expect(save).toHaveBeenCalledTimes(2);
+    expect(save).toHaveBeenNthCalledWith(1, {
+      token: "manual-token",
+      refreshToken: "manual-refresh",
+    });
+    expect(save).toHaveBeenNthCalledWith(2, {
+      token: "signed-in-token",
+      refreshToken: "signed-in-refresh",
+    });
+  });
+
+  it("clears persistence on clearTokens and sign-out paths", async () => {
+    const clear = vi.fn().mockResolvedValue(undefined);
+    const fetchFn = mockFetch(204, undefined);
+    const client = new AYBClient("http://localhost:8090", {
+      fetch: fetchFn,
+      authPersistence: { clear },
+    });
+
+    client.clearTokens();
+    client.setTokens("t", "r");
+    await client.auth.logout();
+
+    expect(clear).toHaveBeenCalledTimes(2);
+  });
+
+  it("treats persistence callback failures as non-fatal for token state and auth fanout", async () => {
+    const save = vi.fn().mockRejectedValue(new Error("save failed"));
+    const clear = vi.fn().mockRejectedValue(new Error("clear failed"));
+    const events: string[] = [];
+    const fetchFn = mockFetch(200, {
+      token: "signed-in-token",
+      refreshToken: "signed-in-refresh",
+      user: { id: "u-1", email: "demo@example.com" },
+    });
+
+    const client = new AYBClient("http://localhost:8090", {
+      fetch: fetchFn,
+      authPersistence: { save, clear },
+    });
+    client.onAuthStateChange((event) => events.push(event));
+
+    expect(() => client.setTokens("manual-token", "manual-refresh")).not.toThrow();
+    expect(client.token).toBe("manual-token");
+
+    await expect(client.auth.login("demo@example.com", "pass")).resolves.toMatchObject({
+      token: "signed-in-token",
+      refreshToken: "signed-in-refresh",
+    });
+    expect(events).toContain("SIGNED_IN");
+
+    expect(() => client.clearTokens()).not.toThrow();
+    expect(client.token).toBeNull();
+    expect(client.refreshToken).toBeNull();
+  });
+});
+
 
 describe("health", () => {
   it("returns health response on 200", async () => {
@@ -315,6 +414,116 @@ describe("auth", () => {
       expect(event).toBe("SIGNED_OUT");
     });
     await client.auth.deleteAccount();
+  });
+
+  it("signInAnonymously sends POST to /anonymous and stores tokens", async () => {
+    expect.assertions(5);
+    const fetchFn = mockFetch(201, {
+      token: "anon-token",
+      refreshToken: "anon-refresh",
+      user: { id: "anon-1", is_anonymous: true },
+    });
+    const client = new AYBClient("http://localhost:8090", { fetch: fetchFn });
+    client.onAuthStateChange((event) => {
+      expect(event).toBe("SIGNED_IN");
+    });
+
+    const result = await client.auth.signInAnonymously();
+    const call = (fetchFn as ReturnType<typeof vi.fn>).mock.calls[0];
+
+    expect(call[0]).toContain("/api/auth/anonymous");
+    expect(call[1].method).toBe("POST");
+    expect(client.token).toBe("anon-token");
+    expect(result.user.isAnonymous).toBe(true);
+  });
+
+  it("requestMagicLink sends POST with email body", async () => {
+    const fetchFn = mockFetch(200, { message: "if valid, a login link has been sent" });
+    const client = new AYBClient("http://localhost:8090", { fetch: fetchFn });
+
+    const result = await client.auth.requestMagicLink("demo@example.com");
+    const call = (fetchFn as ReturnType<typeof vi.fn>).mock.calls[0];
+
+    expect(call[0]).toContain("/api/auth/magic-link");
+    expect(call[1].method).toBe("POST");
+    expect(JSON.parse(call[1].body as string)).toEqual({ email: "demo@example.com" });
+    expect(result).toEqual({ message: "if valid, a login link has been sent" });
+  });
+
+  it("confirmMagicLink stores tokens and emits SIGNED_IN for full auth response", async () => {
+    expect.assertions(8);
+    const fetchFn = mockFetch(200, {
+      token: "magic-token",
+      refreshToken: "magic-refresh",
+      user: { id: "u-1", email: "magic@example.com", email_verified: true },
+    });
+    const client = new AYBClient("http://localhost:8090", { fetch: fetchFn });
+    client.onAuthStateChange((event) => {
+      expect(event).toBe("SIGNED_IN");
+    });
+
+    const result = await client.auth.confirmMagicLink("magic-confirm-token");
+    const call = (fetchFn as ReturnType<typeof vi.fn>).mock.calls[0];
+
+    expect(call[0]).toContain("/api/auth/magic-link/confirm");
+    expect(call[1].method).toBe("POST");
+    expect(JSON.parse(call[1].body as string)).toEqual({ token: "magic-confirm-token" });
+    expect(client.token).toBe("magic-token");
+    expect(client.refreshToken).toBe("magic-refresh");
+    expect("token" in result).toBe(true);
+    if ("token" in result) {
+      expect(result.user.emailVerified).toBe(true);
+    }
+  });
+
+  it("confirmMagicLink returns MFA pending response without token persistence", async () => {
+    const fetchFn = mockFetch(200, { mfa_pending: true, mfa_token: "pending-token" });
+    const client = new AYBClient("http://localhost:8090", { fetch: fetchFn });
+    const eventSpy = vi.fn();
+    client.onAuthStateChange(eventSpy);
+
+    const result = await client.auth.confirmMagicLink("pending-confirm-token");
+    const call = (fetchFn as ReturnType<typeof vi.fn>).mock.calls[0];
+
+    expect(call[0]).toContain("/api/auth/magic-link/confirm");
+    expect(call[1].method).toBe("POST");
+    expect(JSON.parse(call[1].body as string)).toEqual({ token: "pending-confirm-token" });
+    expect(result).toEqual({ mfaPending: true, mfaToken: "pending-token" });
+    expect(client.token).toBeNull();
+    expect(client.refreshToken).toBeNull();
+    expect(eventSpy).not.toHaveBeenCalled();
+  });
+
+  it("linkEmail requires auth header and stores tokens", async () => {
+    expect.assertions(7);
+    const fetchFn = mockFetch(200, {
+      token: "linked-token",
+      refreshToken: "linked-refresh",
+      user: {
+        id: "linked-user",
+        email: "linked@example.com",
+        is_anonymous: false,
+        linked_at: "2026-05-20T10:11:12Z",
+      },
+    });
+    const client = new AYBClient("http://localhost:8090", { fetch: fetchFn });
+    client.setTokens("anon-token", "anon-refresh");
+    client.onAuthStateChange((event) => {
+      expect(event).toBe("SIGNED_IN");
+    });
+
+    const result = await client.auth.linkEmail("linked@example.com", "S3cretPass!");
+    const call = (fetchFn as ReturnType<typeof vi.fn>).mock.calls[0];
+
+    expect(call[0]).toContain("/api/auth/link/email");
+    expect(call[1].method).toBe("POST");
+    expect(call[1].headers.Authorization).toBe("Bearer anon-token");
+    expect(JSON.parse(call[1].body as string)).toEqual({
+      email: "linked@example.com",
+      password: "S3cretPass!",
+    });
+    expect(client.token).toBe("linked-token");
+    expect(result.user.linkedAt).toBe("2026-05-20T10:11:12Z");
   });
 });
 

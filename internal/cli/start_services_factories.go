@@ -141,6 +141,24 @@ func wireBillingUsageSyncJobs(
 	}
 }
 
+// wireAuthMaintenanceJobs registers auth-related built-in job handlers and
+// schedules that require the auth service dependency during startup.
+func wireAuthMaintenanceJobs(ctx context.Context, jobSvc *jobs.Service, authSvc *auth.Service, logger *slog.Logger) {
+	if jobSvc == nil || authSvc == nil {
+		return
+	}
+
+	registerProviderTokenRefreshHandler(jobSvc, authSvc)
+	if err := registerProviderTokenRefreshSchedule(ctx, jobSvc); err != nil && logger != nil {
+		logger.Warn("failed to register provider token refresh schedule", "error", err)
+	}
+
+	registerAnonymousUserCleanupHandler(jobSvc, authSvc, logger)
+	if err := registerAnonymousUserCleanupSchedule(ctx, jobSvc); err != nil && logger != nil {
+		logger.Warn("failed to register anonymous user cleanup schedule", "error", err)
+	}
+}
+
 func resolveTOTPEncryptionKey(authCfg config.AuthConfig) ([]byte, error) {
 	if raw := strings.TrimSpace(authCfg.EncryptionKey); raw != "" {
 		return parseConfiguredTOTPEncryptionKey(raw)

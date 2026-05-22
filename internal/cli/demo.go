@@ -3,11 +3,13 @@ package cli
 
 import (
 	"fmt"
-	"github.com/allyourbase/ayb/internal/cli/ui"
-	"github.com/spf13/cobra"
 	"os"
 	"os/exec"
+	"sort"
 	"strings"
+
+	"github.com/allyourbase/ayb/internal/cli/ui"
+	"github.com/spf13/cobra"
 )
 
 type seedAccount struct {
@@ -23,11 +25,12 @@ var demoSeedUsers = []seedAccount{
 }
 
 type demoInfo struct {
-	Name        string
-	Title       string
-	Description string
-	Port        int
-	TrySteps    []string
+	Name           string
+	Title          string
+	Description    string
+	Port           int
+	TrySteps       []string
+	NeedsAdminAuth bool
 }
 
 var demoRegistry = map[string]demoInfo{
@@ -55,6 +58,19 @@ var demoRegistry = map[string]demoInfo{
 			"Open a second browser, sign in as another user, and vote — watch results update live",
 		},
 	},
+	"movies": {
+		Name:           "movies",
+		Title:          "Movies",
+		Description:    "Semantic movie search with notes, chat, and bring-your-own-key",
+		Port:           5177,
+		NeedsAdminAuth: true,
+		TrySteps: []string{
+			"Open http://localhost:5177",
+			"Sign in with a demo account (shown on the login page)",
+			"Search for a movie by theme or plot (e.g. 'time travel')",
+			"Select a result, add a note, then ask a question in the chat panel",
+		},
+	},
 }
 
 const demoDefaultServerPort = "8090"
@@ -67,6 +83,7 @@ var demoCmd = &cobra.Command{
 Available demos:
   kanban        Trello-lite Kanban board with drag-and-drop    (port 5173)
   live-polls    Slido-lite real-time polling app                (port 5175)
+  movies        Semantic movie search with chat and BYOK        (port 5177)
 
 The command handles everything:
   - Starts the AYB server if not already running
@@ -75,9 +92,10 @@ The command handles everything:
 
 Examples:
   ayb demo kanban
-  ayb demo live-polls`,
+  ayb demo live-polls
+  ayb demo movies`,
 	Args:      cobra.ExactArgs(1),
-	ValidArgs: []string{"kanban", "live-polls"},
+	ValidArgs: []string{"kanban", "live-polls", "movies"},
 	RunE:      runDemo,
 }
 
@@ -145,32 +163,68 @@ func runDemo(cmd *cobra.Command, args []string) error {
 	sp.Done()
 
 	// Step 4: Print banner
-	fmt.Fprintln(os.Stderr)
+	printDemoBanner(os.Stderr, demo, baseURL, useColor)
+
+	// Step 5: Resolve admin token for demos that need admin API access.
+	var adminToken string
+	if demo.NeedsAdminAuth {
+		sp.Start("Resolving admin credentials...")
+		adminToken, err = resolveDemoAdminToken(baseURL)
+		if err != nil {
+			sp.Fail()
+			return fmt.Errorf("resolving admin token: %w", err)
+		}
+		sp.Done()
+	}
+
+	// Step 6: Serve the pre-built demo app
+	return serveDemoApp(name, demo.Port, baseURL, adminToken)
+}
+
+func printDemoBanner(w *os.File, demo demoInfo, baseURL string, useColor bool) {
 	padLabel := func(label string, width int) string {
 		return bold(fmt.Sprintf("%-*s", width, label), useColor)
 	}
-	fmt.Fprintf(os.Stderr, "  %s %s\n", padLabel("Demo:", 10), demo.Description)
-	fmt.Fprintf(os.Stderr, "  %s %s\n", padLabel("App:", 10), cyan(fmt.Sprintf("http://localhost:%d", demo.Port), useColor))
-	fmt.Fprintf(os.Stderr, "  %s %s\n", padLabel("API:", 10), cyan(baseURL+"/api", useColor))
-	fmt.Fprintf(os.Stderr, "  %s %s\n", padLabel("Admin:", 10), cyan(baseURL+"/admin", useColor))
+	fmt.Fprintln(w)
+	fmt.Fprintf(w, "  %s %s\n", padLabel("Demo:", 10), demo.Description)
+	fmt.Fprintf(w, "  %s %s\n", padLabel("App:", 10), cyan(fmt.Sprintf("http://localhost:%d", demo.Port), useColor))
+	fmt.Fprintf(w, "  %s %s\n", padLabel("API:", 10), cyan(baseURL+"/api", useColor))
+	fmt.Fprintf(w, "  %s %s\n", padLabel("Admin:", 10), cyan(baseURL+"/admin", useColor))
 
-	fmt.Fprintln(os.Stderr)
-	fmt.Fprintf(os.Stderr, "  %s\n", bold("Accounts:", useColor))
+	fmt.Fprintln(w)
+	fmt.Fprintf(w, "  %s\n", bold("Accounts:", useColor))
 	for _, u := range demoSeedUsers {
-		fmt.Fprintf(os.Stderr, "    %s  %s %s\n",
+		fmt.Fprintf(w, "    %s  %s %s\n",
 			cyan(fmt.Sprintf("%-22s", u.Email), useColor),
 			dim("/", useColor),
 			green(u.Password, useColor))
 	}
 
-	fmt.Fprintln(os.Stderr)
-	fmt.Fprintf(os.Stderr, "  %s\n", dim("Try:", useColor))
+	fmt.Fprintln(w)
+	fmt.Fprintf(w, "  %s\n", dim("Try:", useColor))
 	for i, step := range demo.TrySteps {
-		fmt.Fprintf(os.Stderr, "  %s %s\n", dim(fmt.Sprintf("%d.", i+1), useColor), step)
+		fmt.Fprintf(w, "  %s %s\n", dim(fmt.Sprintf("%d.", i+1), useColor), step)
 	}
-	fmt.Fprintln(os.Stderr)
-	fmt.Fprintf(os.Stderr, "  %s\n\n", dim("Press Ctrl+C to stop.", useColor))
+	fmt.Fprintln(w)
+	fmt.Fprintf(w, "  %s\n\n", dim("Press Ctrl+C to stop.", useColor))
+}
 
-	// Step 5: Serve the pre-built demo app
-	return serveDemoApp(name, demo.Port, baseURL)
+// formatDemoHints returns styled lines for each registered demo, sorted by
+// name. Used by help.go and start_banner.go to derive demo listings from the
+// canonical demoRegistry instead of hardcoding per-demo strings.
+func formatDemoHints(useColor bool) []string {
+	names := make([]string, 0, len(demoRegistry))
+	for k := range demoRegistry {
+		names = append(names, k)
+	}
+	sort.Strings(names)
+
+	lines := make([]string, 0, len(names))
+	for _, name := range names {
+		demo := demoRegistry[name]
+		cmd := fmt.Sprintf("ayb demo %-11s", name)
+		comment := fmt.Sprintf("# %s  (port %d)", demo.Description, demo.Port)
+		lines = append(lines, fmt.Sprintf("  %s  %s", green(cmd, useColor), dim(comment, useColor)))
+	}
+	return lines
 }

@@ -7,19 +7,29 @@ import type { AYBClientLike, AuthStateListener } from "../src/types";
 function createAuthClient() {
   let listener: AuthStateListener | null = null;
   const unsub = vi.fn();
+  const waitForSessionRestore = vi.fn(async () => {});
+  const clearTokens = vi.fn(() => {
+    client.token = null;
+    client.refreshToken = null;
+  });
 
   const client: AYBClientLike = {
     token: "t1",
     refreshToken: "r1",
+    waitForSessionRestore,
+    clearTokens,
     onAuthStateChange: (cb) => {
       listener = cb;
       return unsub;
     },
     auth: {
-      login: vi.fn(async () => ({})),
-      register: vi.fn(async () => ({})),
+      login: vi.fn(async () => ({ token: "t2", refreshToken: "r2", user: { id: "u1", email: "u@example.com" } })),
+      register: vi.fn(async () => ({ token: "t2", refreshToken: "r2", user: { id: "u1", email: "u@example.com" } })),
+      signInAnonymously: vi.fn(async () => ({ token: "t3", refreshToken: "r3", user: { id: "guest", isAnonymous: true } })),
+      linkEmail: vi.fn(async () => ({ token: "t4", refreshToken: "r4", user: { id: "u2", email: "next@example.com" } })),
+      signInWithOAuth: vi.fn(async () => ({ token: "t5", refreshToken: "r5", user: { id: "u3", email: "oauth@example.com" } })),
       logout: vi.fn(async () => {}),
-      refresh: vi.fn(async () => ({})),
+      refresh: vi.fn(async () => ({ token: "t6", refreshToken: "r6", user: { id: "u4" } })),
       me: vi.fn(async () => ({ id: "u1", email: "u@example.com" })),
     },
     records: {
@@ -28,15 +38,19 @@ function createAuthClient() {
     realtime: { subscribe: vi.fn(() => () => {}) },
   };
 
-  return { client, emit: (event: Parameters<AuthStateListener>[0], session: Parameters<AuthStateListener>[1]) => listener?.(event, session), unsub };
-}
+    return {
+      client,
+      emit: (event: Parameters<AuthStateListener>[0], session: Parameters<AuthStateListener>[1]) => listener?.(event, session),
+      clearTokens,
+      unsub,
+      waitForSessionRestore,
+    };
+  }
 
 describe("useAuth", () => {
   it("loads current user, reacts to auth events, unsubscribes on unmount", async () => {
-    const { client, emit, unsub } = createAuthClient();
-    const wrapper = ({ children }: { children: React.ReactNode }) => (
-      <AYBProvider client={client}>{children}</AYBProvider>
-    );
+    const { client, emit, unsub, waitForSessionRestore } = createAuthClient();
+    const wrapper = ({ children }: { children: React.ReactNode }) => <AYBProvider client={client}>{children}</AYBProvider>;
 
     const { result, unmount } = renderHook(() => useAuth(), { wrapper });
 
@@ -44,6 +58,7 @@ describe("useAuth", () => {
       expect(result.current.loading).toBe(false);
       expect(result.current.user?.id).toBe("u1");
     });
+    expect(waitForSessionRestore).toHaveBeenCalledTimes(1);
 
     await act(async () => {
       emit("SIGNED_OUT", null);
@@ -55,5 +70,69 @@ describe("useAuth", () => {
 
     unmount();
     expect(unsub).toHaveBeenCalledTimes(1);
+  });
+
+  it("waits for session restore before loading current user", async () => {
+    let resolveRestore: (() => void) | null = null;
+    const { client } = createAuthClient();
+    client.waitForSessionRestore = vi.fn(
+      () =>
+        new Promise<void>((resolve) => {
+          resolveRestore = resolve;
+        }),
+    );
+    const wrapper = ({ children }: { children: React.ReactNode }) => <AYBProvider client={client}>{children}</AYBProvider>;
+    const { result } = renderHook(() => useAuth(), { wrapper });
+
+    expect(result.current.loading).toBe(true);
+    expect(client.auth.me).not.toHaveBeenCalled();
+    if (!resolveRestore) {
+      throw new Error("session restore resolver was not captured");
+    }
+
+    await act(async () => {
+      resolveRestore();
+      await Promise.resolve();
+    });
+
+    await waitFor(() => {
+      expect(client.auth.me).toHaveBeenCalledTimes(1);
+      expect(result.current.loading).toBe(false);
+    });
+  });
+
+  it("clears unauthorized restored sessions instead of keeping stale auth state", async () => {
+    const { client, clearTokens } = createAuthClient();
+    client.auth.me = vi.fn(async () => {
+      throw Object.assign(new Error("unauthorized"), { status: 401 });
+    });
+    const wrapper = ({ children }: { children: React.ReactNode }) => <AYBProvider client={client}>{children}</AYBProvider>;
+    const { result } = renderHook(() => useAuth(), { wrapper });
+
+    await waitFor(() => {
+      expect(result.current.loading).toBe(false);
+      expect(result.current.user).toBeNull();
+      expect(result.current.token).toBeNull();
+      expect(result.current.refreshToken).toBeNull();
+    });
+    expect(clearTokens).toHaveBeenCalledTimes(1);
+  });
+
+  it("delegates stage1 auth methods through client.auth", async () => {
+    const { client } = createAuthClient();
+    const wrapper = ({ children }: { children: React.ReactNode }) => <AYBProvider client={client}>{children}</AYBProvider>;
+    const { result } = renderHook(() => useAuth(), { wrapper });
+
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    await act(async () => {
+      await result.current.signInAnonymously();
+      await result.current.linkEmail("next@example.com", "password123");
+      await result.current.signInWithOAuth("google");
+    });
+
+    expect(client.auth.signInAnonymously).toHaveBeenCalledTimes(1);
+    expect(client.auth.linkEmail).toHaveBeenCalledWith("next@example.com", "password123");
+    expect(client.auth.signInWithOAuth).toHaveBeenCalledWith("google", undefined);
   });
 });

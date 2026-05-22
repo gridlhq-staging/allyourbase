@@ -114,30 +114,46 @@ help: ## Show this help
 
 # Demo source dependencies (src + build config, not tests)
 KANBAN_DEPS := $(shell find examples/kanban/src -type f) \
-	examples/kanban/index.html examples/kanban/package-lock.json \
+	examples/kanban/index.html examples/kanban/package.json examples/kanban/package-lock.json \
 	examples/kanban/vite.config.ts examples/kanban/tsconfig.json \
 	examples/kanban/tailwind.config.js examples/kanban/postcss.config.js
 POLLS_DEPS := $(shell find examples/live-polls/src -type f) \
-	examples/live-polls/index.html examples/live-polls/package-lock.json \
+	examples/live-polls/index.html examples/live-polls/package.json examples/live-polls/package-lock.json \
 	examples/live-polls/vite.config.ts examples/live-polls/tsconfig.json \
 	examples/live-polls/tailwind.config.js examples/live-polls/postcss.config.js
+MOVIES_DEPS := $(shell find examples/movies/src -type f) \
+	examples/movies/index.html examples/movies/package.json examples/movies/package-lock.json \
+	examples/movies/vite.config.ts examples/movies/tsconfig.json \
+	examples/movies/tailwind.config.js examples/movies/postcss.config.js
 UI_DEPS := $(shell find ui/src -type f) \
 	ui/index.html ui/package.json ui/pnpm-lock.yaml \
 	ui/vite.config.ts ui/tsconfig.json ui/postcss.config.js ui/tailwind.config.ts
 
-examples/kanban/dist/.stamp: $(KANBAN_DEPS)
+sdk/dist/.stamp: $(shell find sdk/src -type f) sdk/package.json sdk/package-lock.json sdk/tsconfig.json
+	cd sdk && npm ci && npm run build
+	@touch $@
+
+sdk_react/dist/.stamp: $(shell find sdk_react/src -type f) sdk_react/package.json sdk_react/pnpm-lock.yaml sdk_react/tsconfig.json sdk/dist/.stamp
+	cd sdk_react && pnpm install && pnpm run build
+	@touch $@
+
+examples/kanban/dist/.stamp: $(KANBAN_DEPS) sdk/dist/.stamp sdk_react/dist/.stamp
 	cd examples/kanban && npm ci && VITE_AYB_URL="" npx vite build
 	@touch $@
 
-examples/live-polls/dist/.stamp: $(POLLS_DEPS)
+examples/live-polls/dist/.stamp: $(POLLS_DEPS) sdk/dist/.stamp sdk_react/dist/.stamp
 	cd examples/live-polls && npm ci && VITE_AYB_URL="" npx vite build
+	@touch $@
+
+examples/movies/dist/.stamp: $(MOVIES_DEPS) sdk/dist/.stamp sdk_react/dist/.stamp
+	cd examples/movies && npm ci && VITE_AYB_URL="" npx vite build
 	@touch $@
 
 ui/dist/.stamp: $(UI_DEPS)
 	cd ui && pnpm install && pnpm build
 	@touch $@
 
-build: ui/dist/.stamp examples/kanban/dist/.stamp examples/live-polls/dist/.stamp ## Build the ayb binary (rebuilds UI + demos if sources changed)
+build: ui/dist/.stamp examples/kanban/dist/.stamp examples/live-polls/dist/.stamp examples/movies/dist/.stamp ## Build the ayb binary (rebuilds UI + demos if sources changed)
 	go build $(LDFLAGS) -o ayb ./cmd/ayb
 
 build-postgres: ## Build AYB-managed Postgres binaries for the current platform
@@ -271,8 +287,8 @@ load-realtime-ws-local: ## Start local AYB with run-with-ayb and run the realtim
 load-realtime-ws-1000: ## Run direct realtime websocket scenario at 1000 VUs/iterations
 	@K6_VUS=1000 K6_ITERATIONS=1000 $(MAKE) load-realtime-ws
 
-load-realtime-ws-1000-local: ## Start local AYB with pg_cron-free load config and run realtime websocket scenario at 1000 VUs/iterations
-	@bash -lc '$(LOAD_BOOTSTRAP_FUNCTIONS); load_export_env; load_export_auth_env; load_export_admin_password_env; export AYB_START_COMMAND="$${AYB_START_COMMAND:-$(LOAD_LOCAL_AYB_START_COMMAND)}"; bash scripts/run-with-ayb.sh "K6_VUS=1000 K6_ITERATIONS=1000 $(MAKE) load-realtime-ws"'
+load-realtime-ws-1000-local: ## DANGEROUS local realtime websocket load tier (1000 VUs/iterations); requires AYB_LOAD_UNSAFE=1
+	@bash -lc '$(call LOAD_REQUIRE_UNSAFE_LOCAL_TIER,load-realtime-ws-1000-local) $(LOAD_BOOTSTRAP_FUNCTIONS); load_export_env; load_export_auth_env; load_export_admin_password_env; export AYB_START_COMMAND="$${AYB_START_COMMAND:-$(LOAD_LOCAL_AYB_START_COMMAND)}"; bash scripts/run-with-ayb.sh "K6_VUS=1000 K6_ITERATIONS=1000 $(MAKE) load-realtime-ws"'
 
 load-realtime-ws-5000: ## Run direct realtime websocket scenario at 5000 VUs/iterations
 	@K6_VUS=5000 K6_ITERATIONS=5000 $(MAKE) load-realtime-ws
@@ -338,7 +354,7 @@ check-sizes: ## Run Go file-size guardrail
 	bash scripts/check-file-sizes.sh
 
 check-ui-lint: ## Lint admin UI TypeScript source
-	cd ui && npx eslint src/
+	cd ui && pnpm install --frozen-lockfile && npx eslint src/
 
 check-browser-tests-lint: ## Lint browser test specs
 	cd ui && npm run lint:browser-tests && npm run lint:browser-tests:mocked
@@ -363,9 +379,8 @@ ui: ## Build the admin dashboard SPA
 	cd ui && pnpm install && pnpm build
 
 demos: ## Build demo apps (force rebuild, pre-built for go:embed)
-	cd examples/kanban && npm ci && VITE_AYB_URL="" npx vite build
-	cd examples/live-polls && npm ci && VITE_AYB_URL="" npx vite build
-	@touch examples/kanban/dist/.stamp examples/live-polls/dist/.stamp
+	rm -f examples/kanban/dist/.stamp examples/live-polls/dist/.stamp examples/movies/dist/.stamp
+	$(MAKE) examples/kanban/dist/.stamp examples/live-polls/dist/.stamp examples/movies/dist/.stamp
 
 docker: ## Build Docker image locally
 	docker build -t allyourbase/ayb:latest -t allyourbase/ayb:$(VERSION) .
@@ -376,7 +391,7 @@ docker-runtime-smoke: ## Run the published-image Docker runtime smoke using /tmp
 clean: ## Remove build artifacts
 	rm -f ayb
 	rm -rf dist/
-	rm -f ui/dist/.stamp examples/kanban/dist/.stamp examples/live-polls/dist/.stamp
+	rm -f ui/dist/.stamp examples/kanban/dist/.stamp examples/live-polls/dist/.stamp examples/movies/dist/.stamp
 
 release: ## Build release binaries via goreleaser (dry run)
 	goreleaser release --snapshot --clean

@@ -79,6 +79,14 @@ func registerTools(s *mcp.Server, c *apiClient) {
 		return handleRunSQL(ctx, c, in)
 	})
 
+	// Movies tool
+	mcp.AddTool(s, &mcp.Tool{
+		Name:        "search_movies",
+		Description: "Search movies with semantic matching from the admin movies route",
+	}, func(ctx context.Context, req *mcp.CallToolRequest, in SearchMoviesInput) (*mcp.CallToolResult, SearchMoviesOutput, error) {
+		return handleSearchMovies(ctx, c, in)
+	})
+
 	// RPC tool
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "call_function",
@@ -306,6 +314,56 @@ func handleRunSQL(ctx context.Context, c *apiClient, in RunSQLInput) (*mcp.CallT
 	}
 	if v, ok := result["rowCount"].(float64); ok {
 		out.RowCount = int(v)
+	}
+	return nil, out, nil
+}
+
+func handleSearchMovies(ctx context.Context, c *apiClient, in SearchMoviesInput) (*mcp.CallToolResult, SearchMoviesOutput, error) {
+	body := map[string]any{"query": in.Query}
+	if in.Limit != nil {
+		body["limit"] = *in.Limit
+	}
+	result, _, err := c.doJSON(ctx, "POST", "/api/admin/movies/search", body, true)
+	if err != nil {
+		return nil, SearchMoviesOutput{}, err
+	}
+
+	out := SearchMoviesOutput{}
+	if rows, ok := result["rows"].([]any); ok {
+		out.Rows = make([]SearchMoviesRow, 0, len(rows))
+		for idx, row := range rows {
+			rowMap, ok := row.(map[string]any)
+			if !ok {
+				return nil, SearchMoviesOutput{}, fmt.Errorf("malformed movie row at index %d: expected object", idx)
+			}
+			rowOut := SearchMoviesRow{}
+			slug, ok := rowMap["slug"].(string)
+			if !ok {
+				return nil, SearchMoviesOutput{}, fmt.Errorf("malformed movie row at index %d: slug must be string", idx)
+			}
+			title, ok := rowMap["title"].(string)
+			if !ok {
+				return nil, SearchMoviesOutput{}, fmt.Errorf("malformed movie row at index %d: title must be string", idx)
+			}
+			overview, ok := rowMap["overview"].(string)
+			if !ok {
+				return nil, SearchMoviesOutput{}, fmt.Errorf("malformed movie row at index %d: overview must be string", idx)
+			}
+			releaseYear, ok := rowMap["release_year"].(float64)
+			if !ok {
+				return nil, SearchMoviesOutput{}, fmt.Errorf("malformed movie row at index %d: release_year must be number", idx)
+			}
+			similarity, ok := rowMap["similarity"].(float64)
+			if !ok {
+				return nil, SearchMoviesOutput{}, fmt.Errorf("malformed movie row at index %d: similarity must be number", idx)
+			}
+			rowOut.Slug = slug
+			rowOut.Title = title
+			rowOut.Overview = overview
+			rowOut.ReleaseYear = int(releaseYear)
+			rowOut.Similarity = similarity
+			out.Rows = append(out.Rows, rowOut)
+		}
 	}
 	return nil, out, nil
 }

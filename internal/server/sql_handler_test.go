@@ -46,6 +46,30 @@ func TestHandleAdminSQLInvalidJSON(t *testing.T) {
 	testutil.Contains(t, w.Body.String(), "invalid JSON body")
 }
 
+func TestHandleAdminSQLMissingBody(t *testing.T) {
+	t.Parallel()
+	handler := handleAdminSQL(nil, nil)
+	req := httptest.NewRequest(http.MethodPost, "/api/admin/sql", nil)
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+
+	testutil.Equal(t, http.StatusBadRequest, w.Code)
+	testutil.Contains(t, w.Body.String(), "invalid JSON body")
+}
+
+func TestHandleAdminSQLMalformedQueryType(t *testing.T) {
+	t.Parallel()
+	handler := handleAdminSQL(nil, nil)
+	req := httptest.NewRequest(http.MethodPost, "/api/admin/sql", strings.NewReader(`{"query":123}`))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+
+	testutil.Equal(t, http.StatusBadRequest, w.Code)
+	testutil.Contains(t, w.Body.String(), "invalid JSON body")
+}
+
 func TestHandleAdminSQLWhitespaceOnlyQuery(t *testing.T) {
 	t.Parallel()
 	handler := handleAdminSQL(nil, nil)

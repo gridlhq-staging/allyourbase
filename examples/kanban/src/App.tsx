@@ -1,39 +1,69 @@
 import { useEffect, useState } from "react";
-import { isLoggedIn, clearPersistedTokens, getPersistedEmail, ayb } from "./lib/ayb";
+import { useAuth, useAybAnonymousBootstrap } from "@allyourbase/react";
+import {
+  clearAnonymousBootstrapOptOut,
+  clearPersistedTokens,
+  disableAnonymousBootstrap,
+  getPersistedEmail,
+  isAnonymousBootstrapEnabled,
+} from "./lib/ayb";
 import type { Board } from "./types";
 import AuthForm from "./components/AuthForm";
 import BoardList from "./components/BoardList";
 import BoardView from "./components/BoardView";
 
 export default function App() {
-  const [authed, setAuthed] = useState(isLoggedIn());
+  const { user, token, loading, logout } = useAuth();
+  const [anonymousBootstrapEnabled, setAnonymousBootstrapEnabled] = useState(isAnonymousBootstrapEnabled);
+  const { bootstrapping } = useAybAnonymousBootstrap({ enabled: anonymousBootstrapEnabled });
   const [email, setEmail] = useState<string | null>(getPersistedEmail());
   const [selectedBoard, setSelectedBoard] = useState<Board | null>(null);
+  const [logoutPending, setLogoutPending] = useState(false);
+  const [logoutError, setLogoutError] = useState<string | null>(null);
 
-  // Fetch email from server on reload if not cached locally.
   useEffect(() => {
-    if (authed && !email) {
-      ayb.auth.me().then((u) => setEmail(u.email)).catch(() => {});
+    if (user?.email) {
+      setEmail(user.email);
+      return;
     }
-  }, [authed, email]);
+    if (!token) {
+      setEmail(getPersistedEmail());
+    }
+  }, [user, token]);
 
-  function handleLogout() {
-    ayb.clearTokens();
-    clearPersistedTokens();
-    setAuthed(false);
-    setEmail(null);
-    setSelectedBoard(null);
+  async function handleLogout() {
+    const bootstrapEnabledBeforeLogout = anonymousBootstrapEnabled;
+    setLogoutPending(true);
+    setLogoutError(null);
+    setAnonymousBootstrapEnabled(false);
+    disableAnonymousBootstrap();
+    try {
+      await logout();
+      clearPersistedTokens();
+      setEmail(null);
+      setSelectedBoard(null);
+    } catch {
+      if (bootstrapEnabledBeforeLogout) {
+        setAnonymousBootstrapEnabled(true);
+        clearAnonymousBootstrapOptOut();
+      }
+      setLogoutError("Sign out failed. Please try again.");
+    } finally {
+      setLogoutPending(false);
+    }
   }
 
-  if (!authed) {
-    return (
-      <AuthForm
-        onAuth={(e) => {
-          setEmail(e);
-          setAuthed(true);
-        }}
-      />
-    );
+  function handleAuth(emailValue: string) {
+    setAnonymousBootstrapEnabled(true);
+    setEmail(emailValue);
+  }
+
+  if (bootstrapping || loading) {
+    return <div className="min-h-screen flex items-center justify-center text-gray-500">Loading...</div>;
+  }
+
+  if (!token || !user || user.isAnonymous) {
+    return <AuthForm onAuth={handleAuth} />;
   }
 
   if (selectedBoard) {
@@ -55,16 +85,22 @@ export default function App() {
           </span>
         </div>
         <div className="flex items-center gap-3">
+          {logoutError && (
+            <span role="alert" className="text-sm text-red-600">
+              {logoutError}
+            </span>
+          )}
           {email && (
             <span data-testid="user-email" className="text-sm text-gray-500">
               {email}
             </span>
           )}
           <button
-            onClick={handleLogout}
+            onClick={() => void handleLogout()}
+            disabled={logoutPending}
             className="text-sm text-gray-500 hover:text-gray-700 transition-colors"
           >
-            Sign out
+            {logoutPending ? "Signing out..." : "Sign out"}
           </button>
         </div>
       </header>

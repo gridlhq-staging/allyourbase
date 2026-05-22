@@ -168,6 +168,15 @@ func (s *Service) RegisterDefaultSchedulesWithAuditRetention(ctx context.Context
 			Enabled:     true,
 			MaxAttempts: 3,
 		},
+		{
+			Name:        moviesReembedScheduleName,
+			JobType:     moviesReembedJobType,
+			Payload:     json.RawMessage(`{}`),
+			CronExpr:    moviesReembedCronExpr,
+			Timezone:    "UTC",
+			Enabled:     true,
+			MaxAttempts: 3,
+		},
 	}
 
 	for i := range defaults {

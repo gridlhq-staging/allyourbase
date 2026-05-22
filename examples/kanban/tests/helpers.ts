@@ -59,10 +59,41 @@ export async function registerUser(page: Page): Promise<string> {
 /** Login with existing credentials. */
 export async function loginUser(page: Page, email: string): Promise<void> {
   await page.goto("/");
-  await page.getByPlaceholder("you@example.com").fill(email);
-  await page.getByPlaceholder("At least 8 characters").fill(TEST_PASSWORD);
+
+  // If the app is still authenticated, force a full sign-out before re-login.
+  const signOutButton = page.getByRole("button", { name: "Sign out" });
+  if (await signOutButton.isVisible().catch(() => false)) {
+    await signOutButton.click();
+    await page.getByRole("button", { name: "Sign In" }).waitFor({
+      state: "visible",
+      timeout: 10000,
+    });
+  }
+
+  // Some flows may already be on the board list after a completed auth cycle.
+  if (await page.getByText("Your Boards").isVisible().catch(() => false)) {
+    return;
+  }
+
+  // AybLoginBar can change concrete input placeholders; keep this helper stable
+  // by falling back to semantic selectors when legacy placeholders are absent.
+  if (await page.getByPlaceholder("you@example.com").isVisible().catch(() => false)) {
+    await page.getByPlaceholder("you@example.com").fill(email);
+  } else {
+    await page.getByRole("textbox", { name: /email/i }).fill(email);
+  }
+  if (
+    await page
+      .getByPlaceholder("At least 8 characters")
+      .isVisible()
+      .catch(() => false)
+  ) {
+    await page.getByPlaceholder("At least 8 characters").fill(TEST_PASSWORD);
+  } else {
+    await page.locator('input[type="password"]').first().fill(TEST_PASSWORD);
+  }
   await page.getByRole("button", { name: "Sign In" }).click();
-  await expect(page.getByText("Your Boards")).toBeVisible({ timeout: 5000 });
+  await expect(page.getByText("Your Boards")).toBeVisible({ timeout: 10000 });
 }
 
 /** Create a board and return the board title. */

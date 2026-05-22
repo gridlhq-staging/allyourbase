@@ -1,5 +1,6 @@
 import { useState } from "react";
-import { ayb, persistTokens } from "../lib/ayb";
+import { AybLoginBar, DemoSuggestionChip, useAuth } from "@allyourbase/react";
+import { clearAnonymousBootstrapOptOut, persistTokens } from "../lib/ayb";
 
 interface Props {
   onAuth: (email: string) => void;
@@ -53,35 +54,31 @@ function CopyButton({ value }: { value: string }) {
 }
 
 export default function AuthForm({ onAuth }: Props) {
-  const [isLogin, setIsLogin] = useState(true);
+  const { login, register, loading } = useAuth();
+  const [mode, setMode] = useState<"login" | "register">("login");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
-  const [loading, setLoading] = useState(false);
 
-  async function handleSubmit(e: React.FormEvent) {
-    e.preventDefault();
+  async function handleSubmit() {
     setError("");
-    setLoading(true);
     try {
-      if (isLogin) {
-        await ayb.auth.login(email, password);
+      if (mode === "register") {
+        await register(email, password);
       } else {
-        await ayb.auth.register(email, password);
+        await login(email, password);
       }
       persistTokens(email);
+      clearAnonymousBootstrapOptOut();
       onAuth(email);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Authentication failed");
-    } finally {
-      setLoading(false);
     }
   }
 
   function fillAccount(acct: { email: string; password: string }) {
     setEmail(acct.email);
     setPassword(acct.password);
-    setIsLogin(true);
     setError("");
   }
 
@@ -95,100 +92,61 @@ export default function AuthForm({ onAuth }: Props) {
           </p>
         </div>
 
-        <form onSubmit={handleSubmit} className="space-y-4">
-          <div>
-            <label htmlFor="auth-email" className="block text-sm font-medium text-gray-700 mb-1">
-              Email
-            </label>
-            <input
-              id="auth-email"
-              type="email"
-              required
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-              placeholder="you@example.com"
-            />
-          </div>
+        <AybLoginBar
+          methods={{ password: true, oauth: false, anonymous: false, canUpgradeAnonymous: false }}
+          loading={loading}
+          mode={mode}
+          email={email}
+          password={password}
+          error={error || null}
+          demoSuggestions={[]}
+          onEmailChange={setEmail}
+          onPasswordChange={setPassword}
+          onModeChange={(nextMode) => {
+            setMode(nextMode);
+            setError("");
+          }}
+          onSubmit={handleSubmit}
+          onOAuth={async () => {}}
+          onAnonymous={async () => {}}
+        />
 
-          <div>
-            <label htmlFor="auth-password" className="block text-sm font-medium text-gray-700 mb-1">
-              Password
-            </label>
-            <input
-              id="auth-password"
-              type="password"
-              required
-              minLength={8}
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-              placeholder="At least 8 characters"
-            />
-          </div>
-
-          {error && (
-            <p role="alert" className="text-sm text-red-600 bg-red-50 rounded-lg px-3 py-2">
-              {error}
+        {mode === "login" && (
+          <div className="mt-5 border-t border-gray-200 pt-4">
+            <p className="text-[11px] uppercase tracking-wider text-gray-400 font-semibold mb-2">
+              Demo accounts
             </p>
-          )}
-
-          <button
-            type="submit"
-            disabled={loading}
-            className="w-full bg-blue-600 text-white py-2 px-4 rounded-lg font-medium hover:bg-blue-700 disabled:opacity-50 transition-colors"
-          >
-            {loading ? "..." : isLogin ? "Sign In" : "Create Account"}
-          </button>
-        </form>
-
-        <p className="text-center text-sm text-gray-500 mt-4">
-          {isLogin ? "Don't have an account?" : "Already have an account?"}{" "}
-          <button
-            onClick={() => {
-              setIsLogin(!isLogin);
-              setError("");
-            }}
-            className="text-blue-600 hover:underline font-medium"
-          >
-            {isLogin ? "Sign up" : "Sign in"}
-          </button>
-        </p>
-
-        {/* Demo accounts */}
-        <div className="mt-5 border-t border-gray-200 pt-4">
-          <p className="text-[11px] uppercase tracking-wider text-gray-400 font-semibold mb-2">
-            Demo accounts
-          </p>
-          <div className="flex flex-col gap-1">
-            {demoAccounts.map((acct) => (
-              <button
-                key={acct.email}
-                type="button"
-                onClick={() => fillAccount(acct)}
-                className="w-full text-left px-2.5 py-2 rounded-lg bg-gray-50 hover:bg-gray-100 border border-transparent hover:border-gray-200 transition-colors group flex items-center gap-2"
-              >
-                <div className="flex-1 min-w-0">
-                  <span className="text-xs font-mono text-gray-700 block truncate">{acct.email}</span>
-                  <span className="text-[11px] font-mono text-gray-400">{acct.password}</span>
+            <div className="flex flex-col gap-1">
+              {demoAccounts.map((acct) => (
+                <div key={acct.email} className="w-full text-left px-2.5 py-2 rounded-lg bg-gray-50 hover:bg-gray-100 border border-transparent hover:border-gray-200 transition-colors group flex items-center gap-2">
+                  <div className="flex-1 min-w-0">
+                    <DemoSuggestionChip
+                      suggestion={{ label: acct.email, email: acct.email, password: acct.password }}
+                      onSelect={fillAccount}
+                    />
+                    <span className="text-[11px] font-mono text-gray-400">{acct.password}</span>
+                  </div>
+                  <CopyButton value={`${acct.email}\t${acct.password}`} />
                 </div>
-                <CopyButton value={`${acct.email}\t${acct.password}`} />
-              </button>
-            ))}
+              ))}
+            </div>
+            <p className="text-[10px] text-gray-400 mt-2 text-center">
+              Click to fill, then sign in
+            </p>
           </div>
-          <p className="text-[10px] text-gray-400 mt-2 text-center">
-            Click to fill, then sign in
-          </p>
-        </div>
+        )}
 
-        {/* Try it out tips */}
         <div className="mt-4 bg-blue-50 border border-blue-100 rounded-lg px-4 py-3">
           <p className="text-xs font-semibold text-blue-900 mb-1.5">Try it out</p>
           <ul className="text-[11px] text-blue-800 space-y-1 list-disc list-inside">
-            <li>Sign in with a demo account above</li>
+            {mode === "register" ? (
+              <li>Create an account, then build your first board</li>
+            ) : (
+              <li>Sign in with a demo account above</li>
+            )}
             <li>Create a board and add some cards</li>
             <li>Open a second browser and sign in as a different user</li>
-            <li>Edit cards in one window — watch them update instantly in the other</li>
+            <li>Edit cards in one window - watch them update instantly in the other</li>
           </ul>
         </div>
       </div>

@@ -3,8 +3,11 @@ package mcp
 import (
 	"context"
 	"encoding/json"
+	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/allyourbase/ayb/internal/testutil"
@@ -104,11 +107,73 @@ func fakeAYB(t *testing.T) *httptest.Server {
 				json.NewEncoder(w).Encode(map[string]any{"code": 401, "message": "unauthorized"})
 				return
 			}
+			body, err := io.ReadAll(r.Body)
+			if err != nil {
+				w.WriteHeader(http.StatusBadRequest)
+				json.NewEncoder(w).Encode(map[string]any{"error": fmt.Sprintf("reading sql body: %v", err)})
+				return
+			}
+			var payload struct {
+				Query string `json:"query"`
+			}
+			if err := json.Unmarshal(body, &payload); err != nil {
+				w.WriteHeader(http.StatusBadRequest)
+				json.NewEncoder(w).Encode(map[string]any{"error": fmt.Sprintf("sql body is not canonical JSON object: %v body=%q", err, string(body))})
+				return
+			}
+			if strings.TrimSpace(payload.Query) == "" {
+				w.WriteHeader(http.StatusBadRequest)
+				json.NewEncoder(w).Encode(map[string]any{"error": fmt.Sprintf("sql body missing query string: %#v", payload)})
+				return
+			}
 			json.NewEncoder(w).Encode(map[string]any{
 				"columns":    []any{"count"},
 				"rows":       []any{[]any{42}},
 				"rowCount":   1,
 				"durationMs": 1.5,
+			})
+
+		case r.URL.Path == "/api/admin/movies/search" && r.Method == "POST":
+			if r.Header.Get("Authorization") != "Bearer test-admin-token" {
+				w.WriteHeader(http.StatusUnauthorized)
+				json.NewEncoder(w).Encode(map[string]any{"code": 401, "message": "unauthorized"})
+				return
+			}
+			body, err := io.ReadAll(r.Body)
+			if err != nil {
+				w.WriteHeader(http.StatusBadRequest)
+				json.NewEncoder(w).Encode(map[string]any{"error": fmt.Sprintf("reading movies search body: %v", err)})
+				return
+			}
+			var payload struct {
+				Query string `json:"query"`
+				Limit *int   `json:"limit,omitempty"`
+			}
+			if err := json.Unmarshal(body, &payload); err != nil {
+				w.WriteHeader(http.StatusBadRequest)
+				json.NewEncoder(w).Encode(map[string]any{"error": fmt.Sprintf("movies search body is not canonical JSON object: %v body=%q", err, string(body))})
+				return
+			}
+			if strings.TrimSpace(payload.Query) == "" {
+				w.WriteHeader(http.StatusBadRequest)
+				json.NewEncoder(w).Encode(map[string]any{"error": fmt.Sprintf("movies search body missing query string: %#v", payload)})
+				return
+			}
+			if payload.Limit != nil && (*payload.Limit < 1 || *payload.Limit > 50) {
+				w.WriteHeader(http.StatusBadRequest)
+				json.NewEncoder(w).Encode(map[string]any{"error": fmt.Sprintf("movies search limit out of bounds: %#v", payload)})
+				return
+			}
+			json.NewEncoder(w).Encode(map[string]any{
+				"rows": []any{
+					map[string]any{
+						"slug":         "the-matrix",
+						"title":        "The Matrix",
+						"overview":     "A hacker discovers reality is a simulation.",
+						"release_year": 1999,
+						"similarity":   0.987,
+					},
+				},
 			})
 
 		case r.URL.Path == "/api/rpc/get_post_count" && r.Method == "POST":
@@ -281,6 +346,129 @@ func TestRunSQL(t *testing.T) {
 	})
 }
 
+func TestSearchMovies(t *testing.T) {
+	t.Parallel()
+	ts := fakeAYB(t)
+	t.Cleanup(ts.Close)
+
+	t.Run("with admin token returns canonical movie rows", func(t *testing.T) {
+		t.Parallel()
+		c := newClient(Config{BaseURL: ts.URL, AdminToken: "test-admin-token"})
+		_, out, err := handleSearchMovies(context.Background(), c, SearchMoviesInput{
+			Query: "simulation reality",
+			Limit: intPtr(5),
+		})
+		testutil.NoError(t, err)
+		testutil.Equal(t, 1, len(out.Rows))
+		row := out.Rows[0]
+		testutil.Equal(t, "the-matrix", row.Slug)
+		testutil.Equal(t, "The Matrix", row.Title)
+		testutil.Equal(t, "A hacker discovers reality is a simulation.", row.Overview)
+		testutil.Equal(t, 1999, row.ReleaseYear)
+		testutil.Equal(t, 0.987, row.Similarity)
+	})
+
+	t.Run("without admin token", func(t *testing.T) {
+		t.Parallel()
+		c := newClient(Config{BaseURL: ts.URL, AdminToken: ""})
+		_, _, err := handleSearchMovies(context.Background(), c, SearchMoviesInput{
+			Query: "simulation",
+			Limit: intPtr(5),
+		})
+		testutil.ErrorContains(t, err, "401")
+	})
+
+	t.Run("malformed upstream rows fail closed", func(t *testing.T) {
+		t.Parallel()
+		badServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			if r.URL.Path != "/api/admin/movies/search" || r.Method != "POST" {
+				w.WriteHeader(http.StatusNotFound)
+				json.NewEncoder(w).Encode(map[string]any{"code": 404, "message": "not found"})
+				return
+			}
+			json.NewEncoder(w).Encode(map[string]any{
+				"rows": []any{
+					map[string]any{
+						"slug":         "the-matrix",
+						"title":        "The Matrix",
+						"release_year": 1999,
+						"similarity":   0.987,
+					},
+				},
+			})
+		}))
+		t.Cleanup(badServer.Close)
+
+		c := newClient(Config{BaseURL: badServer.URL, AdminToken: "test-admin-token"})
+		_, _, err := handleSearchMovies(context.Background(), c, SearchMoviesInput{
+			Query: "simulation",
+			Limit: intPtr(5),
+		})
+		testutil.ErrorContains(t, err, "malformed movie row")
+	})
+}
+
+func TestSearchMoviesRequestContractMatchesServerOwner(t *testing.T) {
+	t.Parallel()
+	ts := fakeAYB(t)
+	t.Cleanup(ts.Close)
+
+	c := newClient(Config{BaseURL: ts.URL, AdminToken: "test-admin-token"})
+	t.Run("query only request body is accepted", func(t *testing.T) {
+		t.Parallel()
+		out, status, err := c.doJSON(context.Background(), "POST", "/api/admin/movies/search", map[string]any{
+			"query": "neo",
+		}, true)
+		testutil.NoError(t, err)
+		testutil.Equal(t, http.StatusOK, status)
+		rows, ok := out["rows"].([]any)
+		testutil.True(t, ok)
+		testutil.Equal(t, 1, len(rows))
+	})
+
+	t.Run("query and bounded limit request body is accepted", func(t *testing.T) {
+		t.Parallel()
+		out, status, err := c.doJSON(context.Background(), "POST", "/api/admin/movies/search", map[string]any{
+			"query": "neo",
+			"limit": 10,
+		}, true)
+		testutil.NoError(t, err)
+		testutil.Equal(t, http.StatusOK, status)
+		rows, ok := out["rows"].([]any)
+		testutil.True(t, ok)
+		testutil.Equal(t, 1, len(rows))
+	})
+}
+
+func TestFakeAYBAdminSQLContractMatchesServerOwner(t *testing.T) {
+	t.Parallel()
+	ts := fakeAYB(t)
+	t.Cleanup(ts.Close)
+
+	t.Run("auth required before body validation", func(t *testing.T) {
+		t.Parallel()
+		c := newClient(Config{BaseURL: ts.URL})
+		_, _, err := c.doJSON(context.Background(), "POST", "/api/admin/sql", "not-json", true)
+		testutil.ErrorContains(t, err, "401")
+	})
+
+	t.Run("extra json keys are accepted when query exists", func(t *testing.T) {
+		t.Parallel()
+		c := newClient(Config{BaseURL: ts.URL, AdminToken: "test-admin-token"})
+		body := map[string]any{
+			"query":   "SELECT 1",
+			"ignored": "extra-key",
+		}
+		result, status, err := c.doJSON(context.Background(), "POST", "/api/admin/sql", body, true)
+		testutil.NoError(t, err)
+		testutil.Equal(t, http.StatusOK, status)
+		rowCount, ok := result["rowCount"].(float64)
+		testutil.True(t, ok)
+		testutil.Equal(t, float64(1), rowCount)
+	})
+}
+
 func TestCallFunction(t *testing.T) {
 	t.Parallel()
 	ts := fakeAYB(t)
@@ -422,7 +610,7 @@ func TestServerHasToolsRegistered(t *testing.T) {
 
 	tools, err := session.ListTools(ctx, nil)
 	testutil.NoError(t, err)
-	testutil.Equal(t, 13, len(tools.Tools))
+	testutil.Equal(t, 14, len(tools.Tools))
 
 	// Verify specific tool names exist
 	toolNames := make(map[string]bool)
@@ -442,6 +630,7 @@ func TestServerHasToolsRegistered(t *testing.T) {
 	testutil.True(t, toolNames["list_functions"])
 	testutil.True(t, toolNames["spatial_query"])
 	testutil.True(t, toolNames["spatial_info"])
+	testutil.True(t, toolNames["search_movies"])
 }
 
 func TestServerHasResourcesRegistered(t *testing.T) {
@@ -619,4 +808,8 @@ func TestAPIClientEmptyResponse(t *testing.T) {
 	_, status, err := c.doJSON(context.Background(), "GET", "/test", nil, false)
 	testutil.NoError(t, err)
 	testutil.Equal(t, 204, status)
+}
+
+func intPtr(v int) *int {
+	return &v
 }

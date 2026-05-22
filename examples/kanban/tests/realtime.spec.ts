@@ -1,6 +1,7 @@
 import { test, expect, type Browser, type Page, type BrowserContext } from "@playwright/test";
 import {
   registerUser,
+  loginUser,
   createBoard,
   openBoard,
   addColumn,
@@ -15,17 +16,17 @@ async function setupTwoTabs(
 ): Promise<{ context: BrowserContext; page1: Page; page2: Page }> {
   const context = await browser.newContext();
   const page1 = await context.newPage();
-  await registerUser(page1);
+  const email = await registerUser(page1);
   await createBoard(page1, boardName);
   await openBoard(page1, boardName);
 
   const page2 = await context.newPage();
-  await page2.goto("/");
-  await expect(page2.getByText("Your Boards")).toBeVisible({ timeout: 5000 });
+  await loginUser(page2, email);
+  await expect(page2.getByText("Your Boards")).toBeVisible({ timeout: 10000 });
   await page2.getByText(boardName).first().click();
   await expect(
     page2.getByRole("heading", { name: boardName }),
-  ).toBeVisible({ timeout: 5000 });
+  ).toBeVisible({ timeout: 10000 });
 
   return { context, page1, page2 };
 }

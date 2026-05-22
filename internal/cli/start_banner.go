@@ -262,10 +262,11 @@ func printBannerBodyTo(w io.Writer, cfg *config.Config, embeddedPG bool, useColo
 	fmt.Fprintf(w, "%s\n", green("ayb schema", useColor))
 	fmt.Fprintln(w)
 
-	// Demo hints — show new users how to run the bundled demo apps.
+	// Demo hints — derived from demoRegistry.
 	fmt.Fprintf(w, "  %s\n", dim("Demos:", useColor))
-	fmt.Fprintf(w, "%s  %s\n", green("ayb demo kanban    ", useColor), dim("# Trello-lite kanban board  (port 5173)", useColor))
-	fmt.Fprintf(w, "%s  %s\n", green("ayb demo live-polls", useColor), dim("# real-time polling app     (port 5175)", useColor))
+	for _, line := range formatDemoHints(useColor) {
+		fmt.Fprintln(w, line)
+	}
 	fmt.Fprintln(w)
 }
 

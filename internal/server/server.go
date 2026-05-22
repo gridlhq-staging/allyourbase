@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/allyourbase/ayb/internal/ai"
 	"github.com/allyourbase/ayb/internal/api"
 	"github.com/allyourbase/ayb/internal/auth"
 	"github.com/allyourbase/ayb/internal/billing"
@@ -115,9 +116,12 @@ type Server struct {
 	statusChecker          *status.Checker
 	requestLogger          *RequestLogger
 	tracerProvider         *sdktrace.TracerProvider
-	aiLogStore             aiLogStore        // nil when AI not wired
-	promptStore            promptStore       // nil when AI not wired
-	assistantSvc           assistantService  // nil when dashboard AI assistant not wired
+	aiLogStore             aiLogStore       // nil when AI not wired
+	aiRegistry             *ai.Registry     // nil when AI not wired; used by movies demo handlers for direct provider resolution
+	promptStore            promptStore      // nil when AI not wired
+	assistantSvc           assistantService // nil when dashboard AI assistant not wired
+	moviesBYOKMu           sync.RWMutex
+	moviesBYOK             map[string]string // provider name → vault secret name; demo-scope only, non-durable across restarts
 	extService             extensionAdmin    // nil when extensions not wired
 	fdwService             fdwAdmin          // nil when fdw management not wired
 	backupService          backupAdmin       // nil when backup not wired

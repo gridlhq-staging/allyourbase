@@ -21,33 +21,16 @@ import (
 
 // serveDemoApp starts a Go HTTP server that serves pre-built static assets
 // from the embedded FS and reverse-proxies /api requests to the AYB server.
+// When adminToken is non-empty, the proxy injects an Authorization header for
+// /api/admin/ requests (needed by demos with admin-gated routes like movies).
 // Blocks until SIGINT/SIGTERM is received.
-func serveDemoApp(name string, port int, aybServerURL string) error {
+func serveDemoApp(name string, port int, aybServerURL string, adminToken string) error {
 	distFS, err := examples.DemoDist(name)
 	if err != nil {
 		return fmt.Errorf("loading demo assets: %w", err)
 	}
 
-	target, err := url.Parse(aybServerURL)
-	if err != nil {
-		return fmt.Errorf("parsing server URL: %w", err)
-	}
-
-	mux := http.NewServeMux()
-
-	// Reverse-proxy /api to the AYB server.
-	// FlushInterval: -1 enables continuous flushing, required for SSE (Server-Sent Events).
-	proxy := &httputil.ReverseProxy{
-		Rewrite: func(r *httputil.ProxyRequest) {
-			r.SetURL(target)
-			r.SetXForwarded()
-		},
-		FlushInterval: -1,
-	}
-	mux.Handle("/api/", proxy)
-
-	// Serve pre-built static files with SPA fallback.
-	mux.HandleFunc("/", demoFileHandler(distFS))
+	mux := buildDemoMux(distFS, aybServerURL, adminToken)
 
 	srv := &http.Server{
 		Addr:    fmt.Sprintf(":%d", port),
@@ -69,6 +52,34 @@ func serveDemoApp(name string, port int, aybServerURL string) error {
 		return fmt.Errorf("demo server: %w", err)
 	}
 	return nil
+}
+
+// buildDemoMux creates the HTTP mux that reverse-proxies /api/ to the AYB
+// server and serves static demo assets for everything else. Extracted from
+// serveDemoApp so unit tests can exercise routing without binding a port.
+func buildDemoMux(distFS fs.FS, aybServerURL string, adminToken string) *http.ServeMux {
+	target, _ := url.Parse(aybServerURL)
+
+	mux := http.NewServeMux()
+
+	// Reverse-proxy /api to the AYB server.
+	// FlushInterval: -1 enables continuous flushing, required for SSE (Server-Sent Events).
+	proxy := &httputil.ReverseProxy{
+		Rewrite: func(r *httputil.ProxyRequest) {
+			r.SetURL(target)
+			r.SetXForwarded()
+			if adminToken != "" && strings.HasPrefix(r.In.URL.Path, "/api/admin/") {
+				r.Out.Header.Set("Authorization", "Bearer "+adminToken)
+			}
+		},
+		FlushInterval: -1,
+	}
+	mux.Handle("/api/", proxy)
+
+	// Serve pre-built static files with SPA fallback.
+	mux.HandleFunc("/", demoFileHandler(distFS))
+
+	return mux
 }
 
 // demoFileHandler returns an http.HandlerFunc that serves files from the given

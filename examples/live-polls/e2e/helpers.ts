@@ -95,7 +95,8 @@ export async function attemptDirectVoteOnClosedPoll(
   pollQuestion: string,
 ): Promise<number> {
   return page.evaluate(async (question: string) => {
-    const token = localStorage.getItem("ayb_token");
+    const token =
+      sessionStorage.getItem("ayb_token") ?? localStorage.getItem("ayb_token");
     if (!token) return 0;
 
     const meRes = await fetch("/api/auth/me", {
@@ -103,21 +104,37 @@ export async function attemptDirectVoteOnClosedPoll(
     });
     const me = (await meRes.json()) as { id: string };
 
-    const pollsRes = await fetch(
-      "/api/collections/polls?perPage=500&sort=-created_at",
-      { headers: { Authorization: `Bearer ${token}` } },
-    );
-    const polls = ((await pollsRes.json()).items ?? []) as Array<{
-      id: string;
-      is_closed: boolean;
-      question: string;
-    }>;
-    const closed = polls.find((p) => p.question === question);
+    const PAGE_SIZE = 500;
+    const MAX_RETRIES = 20;
+    const RETRY_DELAY_MS = 200;
+    let closed:
+      | {
+          id: string;
+          is_closed: boolean;
+          question: string;
+        }
+      | undefined;
+    for (let attempt = 0; attempt < MAX_RETRIES && !closed; attempt++) {
+      for (let pg = 1; ; pg++) {
+        const pollsRes = await fetch(
+          `/api/collections/polls?perPage=${PAGE_SIZE}&page=${pg}&sort=-created_at`,
+          { headers: { Authorization: `Bearer ${token}` } },
+        );
+        const body = (await pollsRes.json()) as {
+          items?: Array<{ id: string; is_closed: boolean; question: string }>;
+        };
+        const items = body.items ?? [];
+        closed = items.find((p) => p.question === question);
+        if (closed || items.length < PAGE_SIZE) break;
+      }
+      if (!closed) {
+        await new Promise((resolve) => setTimeout(resolve, RETRY_DELAY_MS));
+      }
+    }
     if (!closed || !closed.is_closed) return 0;
 
     // Paginate through ALL poll_options — a shared CI DB accumulates options
     // across test runs and a single 500-row page misses recent entries.
-    const PAGE_SIZE = 500;
     const allOpts: Array<{ id: string; poll_id: string }> = [];
     for (let pg = 1; ; pg++) {
       const optsRes = await fetch(
@@ -169,19 +186,37 @@ export async function attemptDirectClosePoll(
   pollQuestion: string,
 ): Promise<number> {
   return page.evaluate(async (question: string) => {
-    const token = localStorage.getItem("ayb_token");
+    const token =
+      sessionStorage.getItem("ayb_token") ?? localStorage.getItem("ayb_token");
     if (!token) return 0;
 
-    const pollsRes = await fetch(
-      "/api/collections/polls?perPage=500&sort=-created_at",
-      { headers: { Authorization: `Bearer ${token}` } },
-    );
-    const polls = ((await pollsRes.json()).items ?? []) as Array<{
-      id: string;
-      is_closed: boolean;
-      question: string;
-    }>;
-    const target = polls.find((p) => p.question === question);
+    const PAGE_SIZE = 500;
+    const MAX_RETRIES = 20;
+    const RETRY_DELAY_MS = 200;
+    let target:
+      | {
+          id: string;
+          is_closed: boolean;
+          question: string;
+        }
+      | undefined;
+    for (let attempt = 0; attempt < MAX_RETRIES && !target; attempt++) {
+      for (let pg = 1; ; pg++) {
+        const pollsRes = await fetch(
+          `/api/collections/polls?perPage=${PAGE_SIZE}&page=${pg}&sort=-created_at`,
+          { headers: { Authorization: `Bearer ${token}` } },
+        );
+        const body = (await pollsRes.json()) as {
+          items?: Array<{ id: string; is_closed: boolean; question: string }>;
+        };
+        const items = body.items ?? [];
+        target = items.find((p) => p.question === question);
+        if (target || items.length < PAGE_SIZE) break;
+      }
+      if (!target) {
+        await new Promise((resolve) => setTimeout(resolve, RETRY_DELAY_MS));
+      }
+    }
     if (!target || target.is_closed) return 0;
 
     // Attempt to close the poll (set is_closed=true) as a non-owner.
@@ -218,20 +253,38 @@ export async function attemptDirectInsertPollForOtherUser(
   existingOwnerPollQuestion: string,
 ): Promise<number> {
   return page.evaluate(async (question: string) => {
-    const token = localStorage.getItem("ayb_token");
+    const token =
+      sessionStorage.getItem("ayb_token") ?? localStorage.getItem("ayb_token");
     if (!token) return 0;
 
     // Find the target poll (owned by another user) to extract their user_id.
-    const pollsRes = await fetch(
-      "/api/collections/polls?perPage=500&sort=-created_at",
-      { headers: { Authorization: `Bearer ${token}` } },
-    );
-    const polls = ((await pollsRes.json()).items ?? []) as Array<{
-      id: string;
-      user_id: string;
-      question: string;
-    }>;
-    const ownerPoll = polls.find((p) => p.question === question);
+    const PAGE_SIZE = 500;
+    const MAX_RETRIES = 20;
+    const RETRY_DELAY_MS = 200;
+    let ownerPoll:
+      | {
+          id: string;
+          user_id: string;
+          question: string;
+        }
+      | undefined;
+    for (let attempt = 0; attempt < MAX_RETRIES && !ownerPoll; attempt++) {
+      for (let pg = 1; ; pg++) {
+        const pollsRes = await fetch(
+          `/api/collections/polls?perPage=${PAGE_SIZE}&page=${pg}&sort=-created_at`,
+          { headers: { Authorization: `Bearer ${token}` } },
+        );
+        const body = (await pollsRes.json()) as {
+          items?: Array<{ id: string; user_id: string; question: string }>;
+        };
+        const items = body.items ?? [];
+        ownerPoll = items.find((p) => p.question === question);
+        if (ownerPoll || items.length < PAGE_SIZE) break;
+      }
+      if (!ownerPoll) {
+        await new Promise((resolve) => setTimeout(resolve, RETRY_DELAY_MS));
+      }
+    }
     if (!ownerPoll) return 0;
 
     // Attempt to INSERT a new poll using the other user's user_id, bypassing

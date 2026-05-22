@@ -51,7 +51,7 @@ func TestResolveProviderFallsBackToDefaults(t *testing.T) {
 	}
 
 	// Empty args → uses config defaults.
-	p, model, err := ResolveProvider(reg, "", "", cfg)
+	p, model, err := ResolveProvider(reg, "", "", "", cfg)
 	if err != nil {
 		t.Fatalf("ResolveProvider: %v", err)
 	}
@@ -69,7 +69,7 @@ func TestResolveProviderExplicitOverride(t *testing.T) {
 
 	cfg := config.AIConfig{DefaultProvider: "openai", DefaultModel: "gpt-4o"}
 
-	_, model, err := ResolveProvider(reg, "anthropic", "claude-sonnet-4-20250514", cfg)
+	_, model, err := ResolveProvider(reg, "anthropic", "claude-sonnet-4-20250514", "", cfg)
 	if err != nil {
 		t.Fatalf("ResolveProvider: %v", err)
 	}
@@ -93,6 +93,112 @@ func TestNewProviderFromConfigVaultPrecedence(t *testing.T) {
 	if oai.apiKey != "vault-key" {
 		t.Errorf("apiKey = %q; want %q", oai.apiKey, "vault-key")
 	}
+}
+
+func TestNewProviderFromConfigKeyPrecedence(t *testing.T) {
+	t.Setenv("OPENAI_API_KEY", "env-key")
+
+	t.Run("config beats vault and env", func(t *testing.T) {
+		p, err := NewProviderFromConfig("openai", config.ProviderConfig{APIKey: "config-key"}, map[string]string{
+			"AI_OPENAI_API_KEY": "vault-key",
+		})
+		if err != nil {
+			t.Fatalf("NewProviderFromConfig: %v", err)
+		}
+		oai, ok := p.(*OpenAIProvider)
+		if !ok {
+			t.Fatal("expected *OpenAIProvider")
+		}
+		if oai.apiKey != "config-key" {
+			t.Fatalf("apiKey = %q; want %q", oai.apiKey, "config-key")
+		}
+	})
+
+	t.Run("vault beats env", func(t *testing.T) {
+		p, err := NewProviderFromConfig("openai", config.ProviderConfig{}, map[string]string{
+			"AI_OPENAI_API_KEY": "vault-key",
+		})
+		if err != nil {
+			t.Fatalf("NewProviderFromConfig: %v", err)
+		}
+		oai, ok := p.(*OpenAIProvider)
+		if !ok {
+			t.Fatal("expected *OpenAIProvider")
+		}
+		if oai.apiKey != "vault-key" {
+			t.Fatalf("apiKey = %q; want %q", oai.apiKey, "vault-key")
+		}
+	})
+
+	t.Run("env used when config and vault are empty", func(t *testing.T) {
+		p, err := NewProviderFromConfig("openai", config.ProviderConfig{}, nil)
+		if err != nil {
+			t.Fatalf("NewProviderFromConfig: %v", err)
+		}
+		oai, ok := p.(*OpenAIProvider)
+		if !ok {
+			t.Fatal("expected *OpenAIProvider")
+		}
+		if oai.apiKey != "env-key" {
+			t.Fatalf("apiKey = %q; want %q", oai.apiKey, "env-key")
+		}
+	})
+}
+
+// TestResolveProviderBYOKKeyPrecedence extends TestNewProviderFromConfigKeyPrecedence
+// to the new request-scoped BYOK key argument added in Stage 3:
+//   - non-empty BYOK key constructs a fresh provider whose apiKey matches the BYOK key,
+//   - empty BYOK key falls through to the registered singleton (existing behavior),
+//   - BYOK requested for an unknown provider returns an error.
+func TestResolveProviderBYOKKeyPrecedence(t *testing.T) {
+	t.Setenv("OPENAI_API_KEY", "env-key")
+
+	cfg := config.AIConfig{
+		DefaultProvider: "openai",
+		DefaultModel:    "gpt-4o",
+		Providers: map[string]config.ProviderConfig{
+			"openai": {APIKey: "config-key", DefaultModel: "gpt-4o-mini"},
+		},
+	}
+
+	// Pre-register a sentinel singleton so we can detect when BYOK bypasses it.
+	reg := NewRegistry()
+	registered := &mockProvider{resp: GenerateTextResponse{Text: "singleton"}}
+	reg.Register("openai", registered)
+
+	t.Run("byok key beats config", func(t *testing.T) {
+		p, _, err := ResolveProvider(reg, "openai", "", "byok-key-value", cfg)
+		if err != nil {
+			t.Fatalf("ResolveProvider: %v", err)
+		}
+		if p == Provider(registered) {
+			t.Fatal("BYOK should construct a fresh provider, not return the singleton")
+		}
+		oai, ok := p.(*OpenAIProvider)
+		if !ok {
+			t.Fatalf("expected *OpenAIProvider; got %T", p)
+		}
+		if oai.apiKey != "byok-key-value" {
+			t.Errorf("apiKey = %q; want %q", oai.apiKey, "byok-key-value")
+		}
+	})
+
+	t.Run("empty byok falls back to singleton", func(t *testing.T) {
+		p, _, err := ResolveProvider(reg, "openai", "", "", cfg)
+		if err != nil {
+			t.Fatalf("ResolveProvider: %v", err)
+		}
+		if p != Provider(registered) {
+			t.Fatalf("expected registered singleton; got %T", p)
+		}
+	})
+
+	t.Run("byok with unknown provider errors", func(t *testing.T) {
+		_, _, err := ResolveProvider(reg, "made-up", "", "any-key", cfg)
+		if err == nil {
+			t.Fatal("expected error for BYOK with unknown provider")
+		}
+	})
 }
 
 func TestNewProviderFromConfigMissingKeyErrors(t *testing.T) {
