@@ -439,6 +439,14 @@ jobs:
       # config validation when auth is enabled).
       AYB_AUTH_ENABLED: "true"
       AYB_AUTH_JWT_SECRET: ${{ format('ci-sdk-integration-jwt-secret-{0}-{1}', github.run_id, github.run_attempt) }}
+      # The integration suite issues many rapid register/login calls (one identity per
+      # test). Without this override the default 10/min sensitive-auth limiter trips
+      # to 429 (was previously masked by the old AYB_AUTH_RATE_LIMIT_AUTH=10000/min
+      # default in scripts/run-with-ayb.sh, removed by MAY21-AUTH-LIMITER which made
+      # 10/min the universal default so WS-1000 / HTTP-1000 load tests now correctly
+      # surface auth-bootstrap saturation). Integration tests are functional, not
+      # load — they need a permissive limit to function.
+      AYB_AUTH_RATE_LIMIT_AUTH: "10000/min"
 
     steps:
       - uses: actions/checkout@v6
