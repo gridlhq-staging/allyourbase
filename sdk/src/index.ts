@@ -1,5 +1,5 @@
 export { AYBClient } from "./client";
-export { AYBError } from "./errors";
+export { AYBError, AYBGraphQLError } from "./errors";
 export type {
   AdminAPIKey,
   AdminAPIKeyListResponse,
@@ -20,6 +20,8 @@ export type {
   HealthResponse,
   ListParams,
   ListResponse,
+  GraphQLErrorItem,
+  GraphQLResponse,
   MagicLinkConfirmResponse,
   MagicLinkRequestResponse,
   MFAPendingAuthResponse,

@@ -55,6 +55,11 @@ CREATE TABLE IF NOT EXISTS movies_chat_history (
 
 CREATE INDEX IF NOT EXISTS idx_movies_chat_history_session_id ON movies_chat_history(session_id);
 
+-- Chat transcripts are written and read through the server-owned streaming
+-- endpoint, not through the generated public collections API. Enable RLS with
+-- no public policies so direct client reads/writes stay denied by default.
+ALTER TABLE movies_chat_history ENABLE ROW LEVEL SECURITY;
+
 DROP FUNCTION IF EXISTS search_movies(TEXT, VECTOR(3), INTEGER);
 CREATE OR REPLACE FUNCTION search_movies(p_query TEXT, p_embedding VECTOR(3), p_limit INTEGER DEFAULT 10)
 RETURNS TABLE (

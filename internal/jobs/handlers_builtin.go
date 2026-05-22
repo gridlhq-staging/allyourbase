@@ -68,6 +68,40 @@ func hasMoviesDemoSchemaContract(ctx context.Context, pool *pgxpool.Pool) (bool,
 	return hasContract, nil
 }
 
+// hasMoviesDemoCorpusIdentity verifies that the live `movies` rows still match
+// the committed demo corpus identities exactly. The reembed job is demo-owned;
+// if a user created or repurposed a same-shaped `public.movies` table, the job
+// must skip rather than silently rewriting that table's embeddings.
+func hasMoviesDemoCorpusIdentity(ctx context.Context, pool *pgxpool.Pool, artifact vector.MoviesEmbeddingArtifact) (bool, error) {
+	rows, err := pool.Query(ctx, `SELECT id::text, slug, title FROM movies ORDER BY slug`)
+	if err != nil {
+		return false, err
+	}
+	defer rows.Close()
+
+	idx := 0
+	for rows.Next() {
+		if idx >= len(artifact.Records) {
+			return false, nil
+		}
+
+		var id, slug, title string
+		if err := rows.Scan(&id, &slug, &title); err != nil {
+			return false, err
+		}
+
+		rec := artifact.Records[idx]
+		if id != rec.ID || slug != rec.Slug || title != rec.Title {
+			return false, nil
+		}
+		idx++
+	}
+	if err := rows.Err(); err != nil {
+		return false, err
+	}
+	return idx == len(artifact.Records), nil
+}
+
 func AIUsageAggregationJobHandler(aggregator AIUsageAggregator) JobHandler {
 	return func(ctx context.Context, payload json.RawMessage) error {
 		targetDay := time.Now().UTC().AddDate(0, 0, -1)
@@ -351,6 +385,16 @@ func MoviesReembedHandler(pool *pgxpool.Pool, logger *slog.Logger) JobHandler {
 		artifact, err := vector.LoadCommittedMoviesEmbeddingArtifact(seedBytes, artifactBytes)
 		if err != nil {
 			return fmt.Errorf("movies_reembed: load committed embedding artifact: %w", err)
+		}
+		hasCorpusIdentity, err := hasMoviesDemoCorpusIdentity(ctx, pool, artifact)
+		if err != nil {
+			return fmt.Errorf("movies_reembed: verify movies demo corpus identity: %w", err)
+		}
+		if !hasCorpusIdentity {
+			if logger != nil {
+				logger.Info("movies_reembed skipped: movies rows do not match committed demo corpus")
+			}
+			return nil
 		}
 
 		repairedRows := int64(0)

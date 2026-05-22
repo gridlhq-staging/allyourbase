@@ -110,6 +110,7 @@ export default function BoardList({ onSelectBoard }: Props) {
           {boards.map((board) => (
             <button
               key={board.id}
+              data-testid={`board-${board.id}`}
               onClick={() => onSelectBoard(board)}
               aria-label={`Open board ${board.title}`}
               className="flex items-center justify-between bg-white p-4 rounded-xl shadow-sm hover:shadow-md transition-shadow text-left group"

@@ -32,6 +32,9 @@ vi.mock("../src/hooks/useRealtime", () => ({
 
 vi.mock("../src/lib/ayb", () => ({
   ayb: {
+    graphql: {
+      query: vi.fn().mockResolvedValue({ polls: [] }),
+    },
     records: {
       list: vi.fn().mockResolvedValue({ items: [], page: 1, perPage: 100, totalItems: 0, totalPages: 0 }),
     },
@@ -40,6 +43,9 @@ vi.mock("../src/lib/ayb", () => ({
   isAnonymousBootstrapEnabled: vi.fn(() => true),
   disableAnonymousBootstrap: vi.fn(),
   clearAnonymousBootstrapOptOut: vi.fn(),
+  hasLivePollsBootstrapSeeded: vi.fn(() => false),
+  markLivePollsBootstrapSeeded: vi.fn(),
+  clearLivePollsBootstrapSeeded: vi.fn(),
 }));
 
 vi.mock("@allyourbase/react", () => ({
@@ -54,6 +60,7 @@ const mockIsAnonymousBootstrapEnabled = vi.mocked(isAnonymousBootstrapEnabled);
 const mockDisableAnonymousBootstrap = vi.mocked(disableAnonymousBootstrap);
 const mockClearAnonymousBootstrapOptOut = vi.mocked(clearAnonymousBootstrapOptOut);
 const mockListRecords = vi.mocked(ayb.records.list);
+const mockGraphQLQuery = vi.mocked(ayb.graphql.query);
 
 describe("App auth lifecycle", () => {
   const logout = vi.fn();
@@ -94,7 +101,7 @@ describe("App auth lifecycle", () => {
     await waitFor(() => expect(logout).toHaveBeenCalledOnce());
     expect(mockClearPersistedTokens).not.toHaveBeenCalled();
     expect(mockClearAnonymousBootstrapOptOut).toHaveBeenCalledOnce();
-    expect(await screen.findByRole("alert")).toHaveTextContent("Sign out failed");
+    expect(await screen.findByText("Sign out failed. Please try again.")).toBeInTheDocument();
   });
 
   it("disables anonymous bootstrap after explicit logout", async () => {
@@ -164,6 +171,29 @@ describe("App auth lifecycle", () => {
     });
   });
 
+  it("lands anonymous users on the main app without exposing poll creation", () => {
+    mockUseAuth.mockReturnValue({
+      loading: false,
+      user: { id: "anon-1", isAnonymous: true },
+      error: null,
+      token: "anon-token",
+      refreshToken: "anon-refresh",
+      login: vi.fn(),
+      register: vi.fn(),
+      signInAnonymously: vi.fn(),
+      linkEmail: vi.fn(),
+      signInWithOAuth: vi.fn(),
+      logout,
+      refresh: vi.fn(),
+    });
+
+    render(<App />);
+
+    expect(screen.queryByRole("button", { name: "Auth Form" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /New Poll/ })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Sign out" })).toBeInTheDocument();
+  });
+
   it("does not treat a token without a resolved user as authenticated", () => {
     mockUseAuth.mockReturnValue({
       loading: false,
@@ -184,6 +214,7 @@ describe("App auth lifecycle", () => {
 
     expect(screen.getByRole("button", { name: "Auth Form" })).toBeInTheDocument();
     expect(mockListRecords).not.toHaveBeenCalled();
+    expect(mockGraphQLQuery).not.toHaveBeenCalled();
   });
 
   it("surfaces an auth-boundary error when initial poll load fails", async () => {
@@ -191,5 +222,31 @@ describe("App auth lifecycle", () => {
     render(<App />);
 
     expect(await screen.findByRole("alert")).toHaveTextContent("Could not load polls. Please refresh.");
+  });
+
+  it("loads bootstrap polls via one graphql polls+poll_options query and keeps vote loading on records.list", async () => {
+    mockGraphQLQuery.mockResolvedValueOnce({
+      polls: [
+        {
+          id: "poll-1",
+          user_id: "user-1",
+          question: "Q1",
+          is_closed: false,
+          created_at: "2026-01-01T00:00:00Z",
+          poll_options: [],
+        },
+      ],
+    });
+    mockListRecords.mockResolvedValueOnce({ items: [], page: 1, perPage: 500, totalItems: 0, totalPages: 0 });
+
+    render(<App />);
+
+    await waitFor(() => expect(mockGraphQLQuery).toHaveBeenCalledOnce());
+    expect(mockListRecords).toHaveBeenCalledWith("votes", expect.objectContaining({ page: 1, perPage: 500 }));
+    const [document] = mockGraphQLQuery.mock.calls[0] ?? [];
+    expect(document).toContain("polls");
+    expect(document).toContain("poll_options");
+    expect(document).toContain("limit");
+    expect(document).toContain("orderBy");
   });
 });

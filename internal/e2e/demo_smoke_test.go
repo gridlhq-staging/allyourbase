@@ -143,7 +143,7 @@ func TestDemoSmoke_RLSEnabled(t *testing.T) {
 	expectedTables2 := map[string][]string{
 		"kanban":     {"boards", "columns", "cards"},
 		"live-polls": {"polls", "poll_options", "votes"},
-		"movies":     {"movies", "movies_notes"},
+		"movies":     {"movies", "movies_notes", "movies_chat_history"},
 	}
 
 	for _, name := range allDemos {
@@ -327,8 +327,11 @@ func smokeTestLivePolls(t *testing.T, baseURL, adminToken, userID string) {
 func smokeTestMovies(t *testing.T, baseURL, adminToken string) {
 	t.Helper()
 
+	seedSQL, err := fs.ReadFile(examples.FS, "movies/seed.sql")
+	testutil.NoError(t, err)
+
 	resp, _ := httpJSON(t, "POST", baseURL+"/api/admin/sql/",
-		map[string]string{"query": "INSERT INTO movies (id, slug, title, overview, release_year, genres, embedding) VALUES ('11111111-1111-1111-1111-111111111111', 'inception', 'Inception', 'A thief enters dreams to steal secrets and perform a final heist inside layered realities.', 2010, ARRAY['sci-fi','thriller'], '[0.91,0.12,0.18]'), ('22222222-2222-2222-2222-222222222222', 'arrival', 'Arrival', 'A linguist helps decode alien language after mysterious ships appear around the world.', 2016, ARRAY['sci-fi','drama'], '[0.31,0.88,0.22]'), ('33333333-3333-3333-3333-333333333333', 'moonlight', 'Moonlight', 'A young man navigates identity, family, and belonging across three defining chapters of life.', 2016, ARRAY['drama'], '[0.06,0.26,0.97]') ON CONFLICT (slug) DO NOTHING"},
+		map[string]string{"query": string(seedSQL)},
 		adminToken)
 	testutil.StatusCode(t, http.StatusOK, resp.StatusCode)
 

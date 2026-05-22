@@ -7,6 +7,18 @@ export interface ListResponse<T = Record<string, unknown>> {
   totalPages: number;
 }
 
+/** Single GraphQL error payload item from the GraphQL `errors` envelope. */
+export interface GraphQLErrorItem {
+  message: string;
+  [key: string]: unknown;
+}
+
+/** GraphQL JSON response envelope. */
+export interface GraphQLResponse<TData> {
+  data?: TData;
+  errors?: GraphQLErrorItem[];
+}
+
 /** Parameters for listing records. */
 export interface ListParams {
   page?: number;

@@ -6,7 +6,9 @@ const EMAIL_KEY = "ayb_email";
 const ANONYMOUS_BOOTSTRAP_OPTOUT_KEY = "ayb_anonymous_bootstrap_optout";
 
 export const ayb = new AYBClient(
-  import.meta.env.VITE_AYB_URL ?? "http://localhost:8090",
+  // Default to same-origin API to avoid cross-origin/CORS drift between
+  // localhost and 127.0.0.1 in browser-driven tests and local dev.
+  import.meta.env.VITE_AYB_URL ?? window.location.origin,
   {
     authPersistence: {
       load: () => {
@@ -59,4 +61,9 @@ export function getPersistedEmail(): string | null {
 
 export function isLoggedIn(): boolean {
   return ayb.token !== null;
+}
+
+export function quoteRecordFilterLiteral(value: string): string {
+  // Match the server filter tokenizer's backslash escaping for string literals.
+  return `'${value.replace(/\\/g, "\\\\").replace(/'/g, "\\'")}'`;
 }

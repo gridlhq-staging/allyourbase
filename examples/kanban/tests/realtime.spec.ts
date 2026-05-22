@@ -22,16 +22,184 @@ async function setupTwoTabs(
 
   const page2 = await context.newPage();
   await loginUser(page2, email);
-  await expect(page2.getByText("Your Boards")).toBeVisible({ timeout: 10000 });
+  await expect(page2.getByText("Your Boards")).toBeVisible({ timeout: 5000 });
   await page2.getByText(boardName).first().click();
   await expect(
     page2.getByRole("heading", { name: boardName }),
-  ).toBeVisible({ timeout: 10000 });
+  ).toBeVisible({ timeout: 5000 });
 
   return { context, page1, page2 };
 }
 
-test.describe("Realtime SSE", () => {
+test.describe("Realtime WS", () => {
+  test("board data requests escape filter literals before sending them to the API", async ({ browser }) => {
+    const context = await browser.newContext();
+    const page = await context.newPage();
+    const boardId = String.raw`board-\demo's`;
+    const boardTitle = uniqueName("EscapedBoard");
+    let capturedColumnsFilter: string | null = null;
+
+    await page.addInitScript(() => {
+      sessionStorage.setItem("ayb_token", "test-token");
+      sessionStorage.setItem("ayb_refresh_token", "test-refresh");
+      localStorage.setItem("ayb_email", "security-test@example.com");
+      localStorage.setItem("ayb_anonymous_bootstrap_optout", "1");
+    });
+    await page.route("**/api/auth/me", async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          id: "user-security-test",
+          email: "security-test@example.com",
+        }),
+      });
+    });
+    await page.route("**/api/collections/boards**", async (route, request) => {
+      if (request.method() !== "GET") {
+        await route.continue();
+        return;
+      }
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          items: [
+            {
+              id: boardId,
+              title: boardTitle,
+              created_at: new Date().toISOString(),
+              user_id: "test-user",
+            },
+          ],
+          page: 1,
+          perPage: 20,
+          totalItems: 1,
+          totalPages: 1,
+        }),
+      });
+    });
+    await page.route("**/api/collections/columns**", async (route, request) => {
+      capturedColumnsFilter = new URL(request.url()).searchParams.get("filter");
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          items: [],
+          page: 1,
+          perPage: 100,
+          totalItems: 0,
+          totalPages: 0,
+        }),
+      });
+    });
+
+    await page.goto("/");
+    await expect(page.getByText("Your Boards")).toBeVisible({ timeout: 10000 });
+    await expect(page.getByText(boardTitle).first()).toBeVisible({ timeout: 10000 });
+    await page.getByText(boardTitle).first().click();
+
+    await expect
+      .poll(() => capturedColumnsFilter, { timeout: 10000 })
+      .toBe(`board_id='board-\\\\demo\\'s'`);
+
+    await context.close();
+  });
+
+  test("board realtime transport connects via websocket", async ({ browser }) => {
+    const boardName = uniqueName("WSTransport");
+    const context = await browser.newContext();
+    const page = await context.newPage();
+    const wsUrls: string[] = [];
+    page.on("websocket", (ws) => {
+      wsUrls.push(ws.url());
+    });
+
+    await registerUser(page);
+    await createBoard(page, boardName);
+    await openBoard(page, boardName);
+    await addColumn(page, "Todo");
+
+    await expect
+      .poll(() => wsUrls.some((url) => url.includes("/realtime/ws")), { timeout: 10000 })
+      .toBeTruthy();
+
+    await context.close();
+  });
+
+  test("leaving and reopening a board keeps one remote update per action", async ({ browser }) => {
+    const boardName = uniqueName("ReopenSync");
+    const context = await browser.newContext();
+    const actorPage = await context.newPage();
+    const email = await registerUser(actorPage);
+    await createBoard(actorPage, boardName);
+    await openBoard(actorPage, boardName);
+    await addColumn(actorPage, "Todo");
+
+    const watcherPage = await context.newPage();
+    await loginUser(watcherPage, email);
+    await expect(watcherPage.getByText("Your Boards")).toBeVisible({ timeout: 5000 });
+    await watcherPage.getByText(boardName).first().click();
+    await expect(
+      watcherPage.getByRole("heading", { name: boardName }),
+    ).toBeVisible({ timeout: 5000 });
+
+    // Leave and reopen board to exercise hook teardown/setup lifecycle.
+    await watcherPage.getByRole("button", { name: "Back to boards" }).click();
+    await expect(watcherPage.getByText("Your Boards")).toBeVisible({ timeout: 5000 });
+    await watcherPage.getByText(boardName).first().click();
+    await expect(
+      watcherPage.getByRole("heading", { name: boardName }),
+    ).toBeVisible({ timeout: 5000 });
+
+    await addCard(actorPage, "Todo", "Action Card");
+    await expect(watcherPage.getByText("Action Card")).toHaveCount(1, { timeout: 10000 });
+
+    await actorPage.getByText("Action Card").click();
+    await expect(actorPage.getByText("Edit Card")).toBeVisible();
+    const modal = actorPage.getByRole("dialog");
+    await modal.getByLabel("Title").clear();
+    await modal.getByLabel("Title").fill("Action Card Renamed");
+    await actorPage.getByRole("button", { name: "Save" }).click();
+
+    await expect(watcherPage.getByText("Action Card Renamed")).toHaveCount(1, {
+      timeout: 10000,
+    });
+
+    await context.close();
+  });
+
+  test("local column create preserves remote columns that arrive while the request is in flight", async ({ browser }) => {
+    const { context, page1, page2 } = await setupTwoTabs(browser, uniqueName("ColumnRace"));
+    let releaseLocalCreate = () => {
+      throw new Error("expected page1 local create request to be blocked");
+    };
+    let blockedFirstCreate = false;
+
+    await page1.route("**/api/collections/columns", async (route, request) => {
+      if (!blockedFirstCreate && request.method() === "POST") {
+        blockedFirstCreate = true;
+        await new Promise<void>((resolve) => {
+          releaseLocalCreate = resolve;
+        });
+      }
+      await route.continue();
+    });
+
+    await page1.getByPlaceholder("+ Add column...").fill("Local Column");
+    await page1.getByRole("button", { name: "Add Column" }).click();
+    await addColumn(page2, "Remote Column");
+    await expect(page1.getByText("Remote Column")).toBeVisible({ timeout: 10000 });
+    await expect.poll(() => blockedFirstCreate).toBe(true);
+    releaseLocalCreate();
+
+    await expect(page1.getByText("Local Column")).toBeVisible({ timeout: 10000 });
+    await expect(page1.getByText("Remote Column")).toHaveCount(1);
+    await expect(page1.getByText("Local Column")).toHaveCount(1);
+
+    await context.close();
+  });
+
   test("card created in one tab appears in another", async ({ browser }) => {
     const { context, page1, page2 } = await setupTwoTabs(browser, uniqueName("RT Board"));
     await addColumn(page1, "Column A");

@@ -16,6 +16,7 @@ export function uniqueEmail(): string {
 }
 
 export const TEST_PASSWORD = "testpassword123";
+const ANONYMOUS_BOOTSTRAP_OPTOUT_KEY = "ayb_anonymous_bootstrap_optout";
 
 /** Demo account credentials. */
 export const DEMO_ACCOUNTS = [
@@ -24,12 +25,63 @@ export const DEMO_ACCOUNTS = [
   { email: "charlie@demo.test", password: "password123" },
 ];
 
+/** Ensure the login/register form is visible, signing out anonymous bootstrap when needed. */
+export async function ensureAuthFormVisible(page: Page): Promise<void> {
+  // Tests that explicitly exercise login/register should opt out of anonymous
+  // bootstrap before navigation to avoid consuming anonymous rate-limit quota.
+  await page.addInitScript((optOutKey) => {
+    localStorage.setItem(optOutKey, "1");
+  }, ANONYMOUS_BOOTSTRAP_OPTOUT_KEY);
+  await page.goto("/");
+
+  const signInButton = page.getByRole("button", { name: "Sign In" });
+  const signOutButton = page.getByText("Sign out");
+
+  await expect
+    .poll(async () => {
+      if (await signInButton.isVisible()) {
+        return "signin";
+      }
+      if (await signOutButton.isVisible()) {
+        return "signout";
+      }
+      return "unknown";
+    }, { timeout: 15000 })
+    .not.toBe("unknown");
+
+  if (await signOutButton.isVisible()) {
+    await signOutButton.click();
+  }
+
+  await expect(signInButton).toBeVisible({ timeout: 10000 });
+}
+
+/** Wait for anonymous-first entry to land in the board shell, retrying across short auth rate-limit windows. */
+export async function waitForAnonymousBoardShell(page: Page): Promise<void> {
+  await page.goto("/");
+  const deadline = Date.now() + 45000;
+
+  while (Date.now() < deadline) {
+    if (await page.getByText("Your Boards").isVisible().catch(() => false)) {
+      await expect(page.getByText("Your Boards")).toBeVisible({ timeout: 1000 });
+      return;
+    }
+    if (await page.getByRole("button", { name: "Sign In" }).isVisible().catch(() => false)) {
+      await page.reload();
+    } else {
+      await page.waitForTimeout(1000);
+    }
+  }
+
+  await expect(page.getByText("Your Boards")).toBeVisible({ timeout: 1000 });
+}
+
 /** Login with a demo account by clicking it to fill credentials, then signing in. */
 export async function loginWithDemoAccount(
   page: Page,
   email: string = DEMO_ACCOUNTS[0].email,
 ): Promise<void> {
-  await page.goto("/");
+  await ensureAuthFormVisible(page);
   const acct = DEMO_ACCOUNTS.find((a) => a.email === email)!;
   await page.getByText(acct.email).click();
   await page.getByRole("button", { name: "Sign In" }).click();
@@ -39,7 +91,7 @@ export async function loginWithDemoAccount(
 /** Register a new user and return the email. */
 export async function registerUser(page: Page): Promise<string> {
   const email = uniqueEmail();
-  await page.goto("/");
+  await ensureAuthFormVisible(page);
 
   // Switch to register mode
   await page.getByRole("button", { name: "Sign up" }).click();
@@ -58,40 +110,9 @@ export async function registerUser(page: Page): Promise<string> {
 
 /** Login with existing credentials. */
 export async function loginUser(page: Page, email: string): Promise<void> {
-  await page.goto("/");
-
-  // If the app is still authenticated, force a full sign-out before re-login.
-  const signOutButton = page.getByRole("button", { name: "Sign out" });
-  if (await signOutButton.isVisible().catch(() => false)) {
-    await signOutButton.click();
-    await page.getByRole("button", { name: "Sign In" }).waitFor({
-      state: "visible",
-      timeout: 10000,
-    });
-  }
-
-  // Some flows may already be on the board list after a completed auth cycle.
-  if (await page.getByText("Your Boards").isVisible().catch(() => false)) {
-    return;
-  }
-
-  // AybLoginBar can change concrete input placeholders; keep this helper stable
-  // by falling back to semantic selectors when legacy placeholders are absent.
-  if (await page.getByPlaceholder("you@example.com").isVisible().catch(() => false)) {
-    await page.getByPlaceholder("you@example.com").fill(email);
-  } else {
-    await page.getByRole("textbox", { name: /email/i }).fill(email);
-  }
-  if (
-    await page
-      .getByPlaceholder("At least 8 characters")
-      .isVisible()
-      .catch(() => false)
-  ) {
-    await page.getByPlaceholder("At least 8 characters").fill(TEST_PASSWORD);
-  } else {
-    await page.locator('input[type="password"]').first().fill(TEST_PASSWORD);
-  }
+  await ensureAuthFormVisible(page);
+  await page.getByPlaceholder("you@example.com").fill(email);
+  await page.getByPlaceholder("At least 8 characters").fill(TEST_PASSWORD);
   await page.getByRole("button", { name: "Sign In" }).click();
   await expect(page.getByText("Your Boards")).toBeVisible({ timeout: 10000 });
 }
@@ -125,6 +146,68 @@ export async function addColumn(
   await page.getByPlaceholder("+ Add column...").fill(title);
   await page.getByRole("button", { name: "Add Column" }).click();
   await expect(page.getByText(title)).toBeVisible();
+}
+
+/**
+ * Count boards owned by the currently-authenticated user.
+ *
+ * `boards_select USING (true)` (schema.sql) makes every board globally
+ * visible, so the demo's board list — and any DOM-level count — includes
+ * other test workers' boards. Idempotency assertions must key on user-owned
+ * boards, so this queries the API directly with a `user_id` filter and
+ * re-checks ownership client-side. Lives in helpers.ts because spec files are
+ * lint-banned from raw API calls; helpers are exempt.
+ */
+export async function ownedBoardCount(page: Page): Promise<number> {
+  return page.evaluate(async () => {
+    const quoteFilterLiteral = (value: string) =>
+      `'${value.replace(/\\/g, "\\\\").replace(/'/g, "\\'")}'`;
+    const token = sessionStorage.getItem("ayb_token");
+    if (!token) throw new Error("ownedBoardCount: no auth token in sessionStorage");
+    const headers = { Authorization: `Bearer ${token}` };
+
+    const meRes = await fetch("/api/auth/me", { headers });
+    if (!meRes.ok) throw new Error(`ownedBoardCount: /api/auth/me failed (${meRes.status})`);
+    const me = (await meRes.json()) as { id: string };
+
+    const filter = encodeURIComponent(`user_id=${quoteFilterLiteral(me.id)}`);
+    const boardsRes = await fetch(
+      `/api/collections/boards?filter=${filter}&perPage=100`,
+      { headers },
+    );
+    if (!boardsRes.ok) {
+      throw new Error(`ownedBoardCount: boards list failed (${boardsRes.status})`);
+    }
+    const data = (await boardsRes.json()) as { items: { user_id: string }[] };
+    return data.items.filter((b) => b.user_id === me.id).length;
+  });
+}
+
+/** Get the board ID of the first board owned by the current user. */
+export async function ownedBoardId(page: Page): Promise<string | null> {
+  return page.evaluate(async () => {
+    const quoteFilterLiteral = (value: string) =>
+      `'${value.replace(/\\/g, "\\\\").replace(/'/g, "\\'")}'`;
+    const token = sessionStorage.getItem("ayb_token");
+    if (!token) throw new Error("ownedBoardId: no auth token in sessionStorage");
+    const headers = { Authorization: `Bearer ${token}` };
+
+    const meRes = await fetch("/api/auth/me", { headers });
+    if (!meRes.ok) throw new Error(`ownedBoardId: /api/auth/me failed (${meRes.status})`);
+    const me = (await meRes.json()) as { id: string };
+
+    const filter = encodeURIComponent(`user_id=${quoteFilterLiteral(me.id)}`);
+    const boardsRes = await fetch(
+      `/api/collections/boards?filter=${filter}&perPage=100`,
+      { headers },
+    );
+    if (!boardsRes.ok) {
+      throw new Error(`ownedBoardId: boards list failed (${boardsRes.status})`);
+    }
+    const data = (await boardsRes.json()) as { items: { id: string; user_id: string }[] };
+    const owned = data.items.find((b) => b.user_id === me.id);
+    return owned ? owned.id : null;
+  });
 }
 
 /** Add a card to a column. */

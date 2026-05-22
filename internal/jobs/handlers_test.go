@@ -554,6 +554,41 @@ func TestMoviesReembedHandlerSkipsWhenMoviesTableIsNotDemoSchema(t *testing.T) {
 	testutil.Equal(t, 1, count)
 }
 
+func TestMoviesReembedHandlerSkipsExactSchemaWhenRowsAreNotDemoCorpus(t *testing.T) {
+	setupHandlerDB(t)
+	ctx := context.Background()
+	pool := sharedPG.Pool
+
+	schemaSQL, err := fs.ReadFile(examples.FS, "movies/schema.sql")
+	testutil.NoError(t, err)
+	_, err = pool.Exec(ctx, string(schemaSQL))
+	testutil.NoError(t, err)
+
+	_, err = pool.Exec(ctx, `
+		INSERT INTO movies (id, slug, title, overview, release_year, genres, embedding)
+		VALUES (
+			'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
+			'inception',
+			'Custom Inception',
+			'User-owned corpus entry that should not be rewritten by the demo job.',
+			2025,
+			ARRAY['custom'],
+			'[9,9,9]'
+		)`)
+	testutil.NoError(t, err)
+
+	handler := jobs.MoviesReembedHandler(pool, testutil.DiscardLogger())
+	err = handler(ctx, nil)
+	testutil.NoError(t, err)
+
+	var id, title, embedding string
+	err = pool.QueryRow(ctx, `SELECT id::text, title, embedding::text FROM movies WHERE slug='inception'`).Scan(&id, &title, &embedding)
+	testutil.NoError(t, err)
+	testutil.Equal(t, "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa", id)
+	testutil.Equal(t, "Custom Inception", title)
+	testutil.Equal(t, "[9,9,9]", embedding)
+}
+
 func TestHandlersRunThroughService(t *testing.T) {
 	setupHandlerDB(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)

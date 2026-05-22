@@ -3,6 +3,7 @@ import { AuthClient } from "./auth";
 import { RecordsClient } from "./records";
 import { StorageClient } from "./storage";
 import { RealtimeClient } from "./realtime";
+import { GraphQLClient } from "./graphql";
 import { encodePathSegment } from "./helpers";
 import type {
   AuthPersistence,
@@ -37,6 +38,7 @@ export class AYBClient {
   readonly records: RecordsClient;
   readonly storage: StorageClient;
   readonly realtime: RealtimeClient;
+  readonly graphql: GraphQLClient;
 
   constructor(baseURL: string, options?: ClientOptions) {
     this.baseURL = baseURL.replace(/\/+$/, "");
@@ -47,6 +49,7 @@ export class AYBClient {
     this.records = new RecordsClient(this);
     this.storage = new StorageClient(this);
     this.realtime = new RealtimeClient(this);
+    this.graphql = new GraphQLClient(this);
 
     this.restoreSessionPromise = this.restorePersistedSession();
   }

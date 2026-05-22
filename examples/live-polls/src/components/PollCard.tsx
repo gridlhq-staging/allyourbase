@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { ayb } from "../lib/ayb";
+import { castVoteRecord } from "../lib/recordsWriteContracts";
 import type { Poll, PollOption, Vote } from "../types";
 
 interface Props {
@@ -48,16 +49,12 @@ export default function PollCard({ poll, options, votes, currentUserId, onClose,
     try {
       // Use the records API (not the cast_vote RPC) so the server publishes an
       // SSE event that other connected users receive in realtime.
-      let vote: Vote;
-      if (myVote) {
-        vote = await ayb.records.update<Vote>("votes", myVote.id, { option_id: optionId });
-      } else {
-        vote = await ayb.records.create<Vote>("votes", {
-          poll_id: poll.id,
-          option_id: optionId,
-          user_id: currentUserId,
-        });
-      }
+      const vote = await castVoteRecord({
+        pollId: poll.id,
+        optionId,
+        userId: currentUserId,
+        existingVoteId: myVote?.id,
+      });
       onVote?.(vote);
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "Vote failed");

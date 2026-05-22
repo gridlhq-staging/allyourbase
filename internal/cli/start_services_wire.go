@@ -234,6 +234,7 @@ func wireAIServices(args wireServicesArgs, phase *wireServicesPhaseState, edgePo
 
 			wireAIEdgeCallbacks(edgePool, aiReg, args.cfg.AI, aiPromptCache, aiPromptStore)
 			wireAIEmbedding(phase.srv, aiReg, args.cfg.AI, args.logger)
+			phase.srv.SetAIRegistry(aiReg)
 			args.logger.Info("AI subsystem enabled", "providers", len(args.cfg.AI.Providers))
 		}
 	}

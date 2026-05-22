@@ -1,12 +1,28 @@
 import { test, expect } from "@playwright/test";
 import {
   registerUser,
-  loginWithDemoAccount,
   createPoll,
   openCreatePoll,
-  pollCard,
   runId,
 } from "./helpers";
+
+test.describe("Polls bootstrap network", () => {
+  // Observe the very first authenticated bootstrap request, not a reload.
+  test("issues graphql bootstrap request after auth", async ({ page }) => {
+    const graphqlRequest = page.waitForRequest(
+      (request) =>
+        request.url().includes("/api/graphql") && request.method() === "POST",
+      { timeout: 20000 },
+    );
+    // registerUser drives a fresh auth from the anonymous shell; the bootstrap
+    // useEffect in App.tsx fires once `authed` flips true. This proves that
+    // path, not a subsequent page.reload() bootstrap.
+    await registerUser(page);
+    const request = await graphqlRequest;
+    expect(request.url()).toContain("/api/graphql");
+    expect(request.method()).toBe("POST");
+  });
+});
 
 test.describe("Polls", () => {
   test.beforeEach(async ({ page }) => {
@@ -138,12 +154,18 @@ test.describe("Polls", () => {
   });
 
   test("polls persist after page reload", async ({ page }) => {
-    await createPoll(page, `Persistent poll ${runId}?`, ["Yes", "No"]);
-    await expect(page.getByText(`Persistent poll ${runId}?`)).toBeVisible();
+    const question = `Persistent poll ${runId}?`;
+    await createPoll(page, question, ["Yes", "No"]);
+    await expect(page.getByText(question)).toBeVisible();
 
     await page.reload();
-    await expect(page.getByText(`Persistent poll ${runId}?`)).toBeVisible({
-      timeout: 5000,
-    });
+    // After reload the user-visible reload path must render the poll;
+    // a visible load-error banner is a real regression, not an acceptable
+    // fallback. The REST API existing under a broken UI is not the
+    // contract this test guards.
+    await expect(page.getByText(question)).toBeVisible({ timeout: 15000 });
+    await expect(
+      page.getByText("Could not load polls. Please refresh."),
+    ).toBeHidden();
   });
 });

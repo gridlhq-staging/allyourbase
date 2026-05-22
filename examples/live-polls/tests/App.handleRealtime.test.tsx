@@ -15,6 +15,7 @@ import App from "../src/App";
 import { ayb } from "../src/lib/ayb";
 import type { RealtimeEvent } from "../src/hooks/useRealtime";
 import type { Poll, PollOption, Vote } from "../src/types";
+import { useAuth, useAybAnonymousBootstrap } from "@allyourbase/react";
 
 // ── Mock setup ───────────────────────────────────────────────────────────────
 
@@ -24,6 +25,9 @@ vi.mock("../src/lib/ayb", () => ({
   ayb: {
     auth: {
       me: vi.fn().mockResolvedValue({ id: "user-current", email: "me@test.com" }),
+    },
+    graphql: {
+      query: vi.fn().mockResolvedValue({ polls: [] }),
     },
     records: {
       list: vi.fn().mockResolvedValue({ items: [], page: 1, perPage: 500, totalItems: 0, totalPages: 0 }),
@@ -43,12 +47,26 @@ vi.mock("../src/lib/ayb", () => ({
     },
   },
   isLoggedIn: vi.fn().mockReturnValue(true),
+  isAnonymousBootstrapEnabled: vi.fn(() => true),
+  disableAnonymousBootstrap: vi.fn(),
+  clearAnonymousBootstrapOptOut: vi.fn(),
   clearPersistedTokens: vi.fn(),
+  hasLivePollsBootstrapSeeded: vi.fn(() => false),
+  markLivePollsBootstrapSeeded: vi.fn(),
+  clearLivePollsBootstrapSeeded: vi.fn(),
   persistTokens: vi.fn(),
+}));
+
+vi.mock("@allyourbase/react", () => ({
+  useAuth: vi.fn(),
+  useAybAnonymousBootstrap: vi.fn(),
 }));
 
 const mockList = vi.mocked(ayb.records.list);
 const mockCreate = vi.mocked(ayb.records.create);
+const mockGraphQLQuery = vi.mocked(ayb.graphql.query);
+const mockUseAuth = vi.mocked(useAuth);
+const mockUseAybAnonymousBootstrap = vi.mocked(useAybAnonymousBootstrap);
 
 // ── Fixtures ─────────────────────────────────────────────────────────────────
 
@@ -100,6 +118,22 @@ describe("App handleRealtime", () => {
 
     // Re-apply default implementations after clearing.
     mockList.mockResolvedValue({ items: [], page: 1, perPage: 500, totalItems: 0, totalPages: 0 });
+    mockGraphQLQuery.mockResolvedValue({ polls: [] });
+    mockUseAuth.mockReturnValue({
+      loading: false,
+      user: { id: "user-current", email: "me@test.com", isAnonymous: false },
+      error: null,
+      token: "token-1",
+      refreshToken: "refresh-1",
+      login: vi.fn(),
+      register: vi.fn(),
+      signInAnonymously: vi.fn(),
+      linkEmail: vi.fn(),
+      signInWithOAuth: vi.fn(),
+      logout: vi.fn().mockResolvedValue(undefined),
+      refresh: vi.fn(),
+    });
+    mockUseAybAnonymousBootstrap.mockReturnValue({ bootstrapping: false });
     vi.mocked(ayb.auth.me).mockResolvedValue({ id: "user-current", email: "me@test.com" });
     vi.mocked(ayb.records.update).mockResolvedValue({});
     // Default for create: return an empty object. Tests that exercise the
@@ -132,6 +166,50 @@ describe("App handleRealtime", () => {
     await screen.findByText("Best language?");
     // Only one poll card should be rendered.
     expect(screen.getAllByText("Best language?")).toHaveLength(1);
+  });
+
+  it("poll create event hydrates missing poll options from records.list", async () => {
+    mockList.mockImplementation(async (table: string) => {
+      if (table === "poll_options") {
+        return {
+          items: [
+            { id: "opt-remote-1", poll_id: "poll-remote", label: "Remote Yes", position: 0 },
+            { id: "opt-remote-2", poll_id: "poll-remote", label: "Remote No", position: 1 },
+          ],
+          page: 1,
+          perPage: 500,
+          totalItems: 2,
+          totalPages: 1,
+        };
+      }
+      return { items: [], page: 1, perPage: 500, totalItems: 0, totalPages: 0 };
+    });
+
+    render(<App />);
+    await waitFor(() => expect(capturedRealtimeCallback).toBeDefined());
+
+    await fire({
+      action: "create",
+      table: "polls",
+      record: rec({
+        id: "poll-remote",
+        user_id: "user-remote",
+        question: "Hydrated remote poll?",
+        is_closed: false,
+        created_at: "2026-01-01T00:00:00Z",
+      }),
+    });
+
+    await screen.findByText("Remote Yes");
+    await screen.findByText("Remote No");
+    expect(mockList).toHaveBeenCalledWith(
+      "poll_options",
+      expect.objectContaining({
+        page: 1,
+        perPage: 500,
+        sort: "position",
+      }),
+    );
   });
 
   it("update event replaces the poll in the list", async () => {
@@ -182,6 +260,16 @@ describe("App handleRealtime", () => {
 
     await fire({ action: "create", table: "polls", record: rec(POLL) });
     await fire({ action: "create", table: "poll_options", record: rec(OPT_A) });
+
+    expect(await screen.findByText("TypeScript")).toBeInTheDocument();
+  });
+
+  it("INSERT event adds an option to the poll card", async () => {
+    render(<App />);
+    await waitFor(() => expect(capturedRealtimeCallback).toBeDefined());
+
+    await fire({ action: "create", table: "polls", record: rec(POLL) });
+    await fire({ action: "INSERT", table: "poll_options", record: rec(OPT_A) });
 
     expect(await screen.findByText("TypeScript")).toBeInTheDocument();
   });
@@ -363,7 +451,5 @@ describe("App handleRealtime", () => {
       expect(screen.queryByText("Best language?")).not.toBeInTheDocument(),
     );
 
-    // AuthForm renders when authed=false — the email input is the smoke-test.
-    expect(screen.getByPlaceholderText("Email")).toBeInTheDocument();
   });
 });

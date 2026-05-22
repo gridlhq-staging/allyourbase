@@ -17,12 +17,55 @@ export const DEMO_ACCOUNTS = [
   { email: "charlie@demo.test", password: "password123" },
 ];
 
+const ANONYMOUS_BOOTSTRAP_OPTOUT_KEY = "ayb_anonymous_bootstrap_optout";
+const ensuredDemoAccounts = new Set<string>();
+
+async function ensureDemoAccountExists(
+  page: Page,
+  acct: { email: string; password: string },
+): Promise<void> {
+  if (ensuredDemoAccounts.has(acct.email)) {
+    return;
+  }
+  const register = await page.request.post("/api/auth/register", {
+    data: { email: acct.email, password: acct.password },
+  });
+  if (register.status() === 201 || register.status() === 409) {
+    ensuredDemoAccounts.add(acct.email);
+    return;
+  }
+  throw new Error(
+    `failed to provision demo account ${acct.email}: ${register.status()} ${await register.text()}`,
+  );
+}
+
+/**
+ * Ensure the explicit auth form is visible even when the app lands on the
+ * anonymous shell by default.
+ */
+export async function openExplicitAuth(page: Page): Promise<void> {
+  await page.addInitScript((optOutKey) => {
+    localStorage.setItem(optOutKey, "1");
+  }, ANONYMOUS_BOOTSTRAP_OPTOUT_KEY);
+  await page.goto("/");
+  const authFormReady = page.getByRole("button", { name: "Sign In" });
+  const anonymousShellReady = page.getByRole("button", { name: "Sign out" });
+  await Promise.race([
+    authFormReady.waitFor({ state: "visible", timeout: 15000 }),
+    anonymousShellReady.waitFor({ state: "visible", timeout: 15000 }),
+  ]);
+  if (await authFormReady.isVisible()) {
+    return;
+  }
+  await anonymousShellReady.click();
+  await expect(authFormReady).toBeVisible();
+  await expect(page.getByPlaceholder("Email")).toBeVisible();
+}
+
 /** Register a new user via the UI and return the email. */
 export async function registerUser(page: Page): Promise<string> {
   const email = uniqueEmail();
-  await page.goto("/");
-
-  // Switch to register mode.
+  await openExplicitAuth(page);
   await page.getByRole("button", { name: "Register" }).click();
 
   // Fill form.
@@ -30,8 +73,10 @@ export async function registerUser(page: Page): Promise<string> {
   await page.getByPlaceholder("Password").fill(TEST_PASSWORD);
   await page.getByRole("button", { name: "Create Account" }).click();
 
-  // Wait for login to complete ("Sign out" only appears in the authenticated UI).
-  await expect(page.getByText("Sign out")).toBeVisible({ timeout: 15000 });
+  await expect(page.getByRole("button", { name: "Sign In" })).toBeHidden({
+    timeout: 15000,
+  });
+  await expect(page.getByRole("button", { name: "Sign out" })).toBeVisible();
 
   return email;
 }
@@ -41,18 +86,20 @@ export async function loginWithDemoAccount(
   page: Page,
   email: string = DEMO_ACCOUNTS[0].email,
 ): Promise<void> {
-  await page.goto("/");
+  const acct = DEMO_ACCOUNTS.find((a) => a.email === email)!;
+  await ensureDemoAccountExists(page, acct);
+  await openExplicitAuth(page);
 
   // Click the demo account button to fill credentials.
-  const acct = DEMO_ACCOUNTS.find((a) => a.email === email)!;
   await page.getByText(acct.email).click();
 
   // Submit the form.
   await page.getByRole("button", { name: "Sign In" }).click();
 
-  // Wait for login to complete ("Sign out" only appears in the authenticated UI,
-  // not on the auth form which also shows the "Live Polls" heading).
-  await expect(page.getByText("Sign out")).toBeVisible({ timeout: 10000 });
+  await expect(page.getByRole("button", { name: "Sign In" })).toBeHidden({
+    timeout: 10000,
+  });
+  await expect(page.getByRole("button", { name: "Sign out" })).toBeVisible();
 }
 
 /** Login with existing credentials. */
@@ -61,11 +108,14 @@ export async function loginUser(
   email: string,
   password: string = TEST_PASSWORD,
 ): Promise<void> {
-  await page.goto("/");
+  await openExplicitAuth(page);
   await page.getByPlaceholder("Email").fill(email);
   await page.getByPlaceholder("Password").fill(password);
   await page.getByRole("button", { name: "Sign In" }).click();
-  await expect(page.getByText("Sign out")).toBeVisible({ timeout: 10000 });
+  await expect(page.getByRole("button", { name: "Sign In" })).toBeHidden({
+    timeout: 10000,
+  });
+  await expect(page.getByRole("button", { name: "Sign out" })).toBeVisible();
 }
 
 /** Open the create poll form. */
@@ -95,8 +145,7 @@ export async function attemptDirectVoteOnClosedPoll(
   pollQuestion: string,
 ): Promise<number> {
   return page.evaluate(async (question: string) => {
-    const token =
-      sessionStorage.getItem("ayb_token") ?? localStorage.getItem("ayb_token");
+    const token = sessionStorage.getItem("ayb_token");
     if (!token) return 0;
 
     const meRes = await fetch("/api/auth/me", {
@@ -104,37 +153,21 @@ export async function attemptDirectVoteOnClosedPoll(
     });
     const me = (await meRes.json()) as { id: string };
 
-    const PAGE_SIZE = 500;
-    const MAX_RETRIES = 20;
-    const RETRY_DELAY_MS = 200;
-    let closed:
-      | {
-          id: string;
-          is_closed: boolean;
-          question: string;
-        }
-      | undefined;
-    for (let attempt = 0; attempt < MAX_RETRIES && !closed; attempt++) {
-      for (let pg = 1; ; pg++) {
-        const pollsRes = await fetch(
-          `/api/collections/polls?perPage=${PAGE_SIZE}&page=${pg}&sort=-created_at`,
-          { headers: { Authorization: `Bearer ${token}` } },
-        );
-        const body = (await pollsRes.json()) as {
-          items?: Array<{ id: string; is_closed: boolean; question: string }>;
-        };
-        const items = body.items ?? [];
-        closed = items.find((p) => p.question === question);
-        if (closed || items.length < PAGE_SIZE) break;
-      }
-      if (!closed) {
-        await new Promise((resolve) => setTimeout(resolve, RETRY_DELAY_MS));
-      }
-    }
+    const pollsRes = await fetch(
+      "/api/collections/polls?perPage=500&sort=-created_at",
+      { headers: { Authorization: `Bearer ${token}` } },
+    );
+    const polls = ((await pollsRes.json()).items ?? []) as Array<{
+      id: string;
+      is_closed: boolean;
+      question: string;
+    }>;
+    const closed = polls.find((p) => p.question === question);
     if (!closed || !closed.is_closed) return 0;
 
     // Paginate through ALL poll_options — a shared CI DB accumulates options
     // across test runs and a single 500-row page misses recent entries.
+    const PAGE_SIZE = 500;
     const allOpts: Array<{ id: string; poll_id: string }> = [];
     for (let pg = 1; ; pg++) {
       const optsRes = await fetch(
@@ -186,37 +219,19 @@ export async function attemptDirectClosePoll(
   pollQuestion: string,
 ): Promise<number> {
   return page.evaluate(async (question: string) => {
-    const token =
-      sessionStorage.getItem("ayb_token") ?? localStorage.getItem("ayb_token");
+    const token = sessionStorage.getItem("ayb_token");
     if (!token) return 0;
 
-    const PAGE_SIZE = 500;
-    const MAX_RETRIES = 20;
-    const RETRY_DELAY_MS = 200;
-    let target:
-      | {
-          id: string;
-          is_closed: boolean;
-          question: string;
-        }
-      | undefined;
-    for (let attempt = 0; attempt < MAX_RETRIES && !target; attempt++) {
-      for (let pg = 1; ; pg++) {
-        const pollsRes = await fetch(
-          `/api/collections/polls?perPage=${PAGE_SIZE}&page=${pg}&sort=-created_at`,
-          { headers: { Authorization: `Bearer ${token}` } },
-        );
-        const body = (await pollsRes.json()) as {
-          items?: Array<{ id: string; is_closed: boolean; question: string }>;
-        };
-        const items = body.items ?? [];
-        target = items.find((p) => p.question === question);
-        if (target || items.length < PAGE_SIZE) break;
-      }
-      if (!target) {
-        await new Promise((resolve) => setTimeout(resolve, RETRY_DELAY_MS));
-      }
-    }
+    const pollsRes = await fetch(
+      "/api/collections/polls?perPage=500&sort=-created_at",
+      { headers: { Authorization: `Bearer ${token}` } },
+    );
+    const polls = ((await pollsRes.json()).items ?? []) as Array<{
+      id: string;
+      is_closed: boolean;
+      question: string;
+    }>;
+    const target = polls.find((p) => p.question === question);
     if (!target || target.is_closed) return 0;
 
     // Attempt to close the poll (set is_closed=true) as a non-owner.
@@ -253,38 +268,20 @@ export async function attemptDirectInsertPollForOtherUser(
   existingOwnerPollQuestion: string,
 ): Promise<number> {
   return page.evaluate(async (question: string) => {
-    const token =
-      sessionStorage.getItem("ayb_token") ?? localStorage.getItem("ayb_token");
+    const token = sessionStorage.getItem("ayb_token");
     if (!token) return 0;
 
     // Find the target poll (owned by another user) to extract their user_id.
-    const PAGE_SIZE = 500;
-    const MAX_RETRIES = 20;
-    const RETRY_DELAY_MS = 200;
-    let ownerPoll:
-      | {
-          id: string;
-          user_id: string;
-          question: string;
-        }
-      | undefined;
-    for (let attempt = 0; attempt < MAX_RETRIES && !ownerPoll; attempt++) {
-      for (let pg = 1; ; pg++) {
-        const pollsRes = await fetch(
-          `/api/collections/polls?perPage=${PAGE_SIZE}&page=${pg}&sort=-created_at`,
-          { headers: { Authorization: `Bearer ${token}` } },
-        );
-        const body = (await pollsRes.json()) as {
-          items?: Array<{ id: string; user_id: string; question: string }>;
-        };
-        const items = body.items ?? [];
-        ownerPoll = items.find((p) => p.question === question);
-        if (ownerPoll || items.length < PAGE_SIZE) break;
-      }
-      if (!ownerPoll) {
-        await new Promise((resolve) => setTimeout(resolve, RETRY_DELAY_MS));
-      }
-    }
+    const pollsRes = await fetch(
+      "/api/collections/polls?perPage=500&sort=-created_at",
+      { headers: { Authorization: `Bearer ${token}` } },
+    );
+    const polls = ((await pollsRes.json()).items ?? []) as Array<{
+      id: string;
+      user_id: string;
+      question: string;
+    }>;
+    const ownerPoll = polls.find((p) => p.question === question);
     if (!ownerPoll) return 0;
 
     // Attempt to INSERT a new poll using the other user's user_id, bypassing

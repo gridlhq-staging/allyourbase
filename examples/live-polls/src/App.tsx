@@ -6,12 +6,41 @@ import PollCard from "./components/PollCard";
 import { useRealtime, type RealtimeEvent } from "./hooks/useRealtime";
 import {
   ayb,
+  clearLivePollsBootstrapSeeded,
   clearAnonymousBootstrapOptOut,
   clearPersistedTokens,
   disableAnonymousBootstrap,
+  hasLivePollsBootstrapSeeded,
   isAnonymousBootstrapEnabled,
+  markLivePollsBootstrapSeeded,
 } from "./lib/ayb";
+import { castVoteRecord, createPollWithOptions } from "./lib/recordsWriteContracts";
 import type { Poll, PollOption, Vote } from "./types";
+
+type PollWithOptions = Poll & { poll_options?: PollOption[] };
+type SeededBootstrapData = {
+  poll: PollWithOptions;
+  vote: Vote;
+};
+
+function normalizeRealtimeAction(
+  action: RealtimeEvent["action"],
+): "create" | "update" | "delete" | null {
+  const normalized = action.toLowerCase();
+  if (normalized === "create" || normalized === "insert") {
+    return "create";
+  }
+  if (normalized === "update") {
+    return "update";
+  }
+  if (normalized === "delete") {
+    return "delete";
+  }
+  return null;
+}
+
+const SEEDED_POLL_QUESTION = "How do you like this live polls demo?";
+const SEEDED_OPTION_LABELS = ["Looks great", "Needs tweaks"] as const;
 
 async function fetchAll<T>(table: string, opts: Record<string, unknown> = {}): Promise<T[]> {
   const pageSize = 500;
@@ -26,11 +55,83 @@ async function fetchAll<T>(table: string, opts: Record<string, unknown> = {}): P
   return items;
 }
 
+async function loadBootstrapPolls(): Promise<PollWithOptions[]> {
+  try {
+    const pollData = await ayb.graphql.query<{ polls: PollWithOptions[] }>(`
+      query LivePollsBootstrap {
+        polls(limit: 100, orderBy: [{ created_at: desc }]) {
+          id
+          user_id
+          question
+          is_closed
+          created_at
+          poll_options {
+            id
+            poll_id
+            label
+            position
+          }
+        }
+      }
+    `);
+    return pollData.polls;
+  } catch {
+    // Stage 5 still verifies GraphQL request bootstrap at the E2E layer, but
+    // the runtime should not drop user-visible polls when GraphQL is missing.
+    const fallback = await ayb.records.list<PollWithOptions>("polls", {
+      page: 1,
+      perPage: 100,
+      sort: "-created_at",
+      expand: "poll_options",
+    });
+    return fallback.items;
+  }
+}
+
+function buildOptionMap(polls: PollWithOptions[]): Map<string, PollOption[]> {
+  const optionMap = new Map<string, PollOption[]>();
+  for (const poll of polls) {
+    const sortedOptions = [...(poll.poll_options ?? [])].sort((a, b) => a.position - b.position);
+    optionMap.set(poll.id, sortedOptions);
+  }
+  return optionMap;
+}
+
+function buildVoteMap(votes: Vote[]): Map<string, Vote[]> {
+  const voteMap = new Map<string, Vote[]>();
+  for (const vote of votes) {
+    const pollVotes = voteMap.get(vote.poll_id) ?? [];
+    pollVotes.push(vote);
+    voteMap.set(vote.poll_id, pollVotes);
+  }
+  return voteMap;
+}
+
+async function seedBootstrapPoll(userId: string): Promise<SeededBootstrapData> {
+  const { poll, options: pollOptions } = await createPollWithOptions({
+    question: SEEDED_POLL_QUESTION,
+    userId,
+    optionLabels: [...SEEDED_OPTION_LABELS],
+  });
+
+  const vote = await castVoteRecord({
+    pollId: poll.id,
+    optionId: pollOptions[0].id,
+    userId,
+  });
+
+  return {
+    poll: { ...poll, poll_options: pollOptions },
+    vote,
+  };
+}
+
 export default function App() {
   const { user, token, loading, logout } = useAuth();
   const [anonymousBootstrapEnabled, setAnonymousBootstrapEnabled] = useState(isAnonymousBootstrapEnabled);
   const { bootstrapping } = useAybAnonymousBootstrap({ enabled: anonymousBootstrapEnabled });
-  const authed = Boolean(token) && Boolean(user) && !user.isAnonymous;
+  const authed = Boolean(token) && user != null;
+  const canCreatePolls = authed && user != null && !user.isAnonymous;
   const [userId, setUserId] = useState<string | null>(null);
   const [userEmail, setUserEmail] = useState<string | null>(null);
   const [polls, setPolls] = useState<Poll[]>([]);
@@ -40,6 +141,32 @@ export default function App() {
   const [logoutPending, setLogoutPending] = useState(false);
   const [logoutError, setLogoutError] = useState<string | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
+
+  const hydratePollOptions = useCallback(async (pollId: string) => {
+    try {
+      const allOptions = await fetchAll<PollOption>("poll_options", {
+        sort: "position",
+      });
+      const hydrated = allOptions
+        .filter((option) => option.poll_id === pollId)
+        .sort((a, b) => a.position - b.position);
+      if (hydrated.length === 0) {
+        return;
+      }
+      setOptionsMap((prev) => {
+        const existing = prev.get(pollId) ?? [];
+        if (existing.length >= hydrated.length) {
+          return prev;
+        }
+        const next = new Map(prev);
+        next.set(pollId, hydrated);
+        return next;
+      });
+    } catch {
+      // Best effort: realtime poll rows should still render even if option
+      // hydration fails in the background.
+    }
+  }, []);
 
   useEffect(() => {
     if (!authed || !user) {
@@ -58,19 +185,29 @@ export default function App() {
     }
     async function load() {
       try {
-        const [pollRes, allOpts, allVotes] = await Promise.all([
-          ayb.records.list<Poll>("polls", { sort: "-created_at", perPage: 100 }),
-          fetchAll<PollOption>("poll_options"),
+        const [polls, allVotes] = await Promise.all([
+          loadBootstrapPolls(),
           fetchAll<Vote>("votes"),
         ]);
-        setPolls(pollRes.items);
+        let bootstrapPolls = polls;
+        let bootstrapVotes = allVotes;
 
-        const optionMap = new Map<string, PollOption[]>();
-        for (const option of allOpts) {
-          const pollOptions = optionMap.get(option.poll_id) ?? [];
-          pollOptions.push(option);
-          optionMap.set(option.poll_id, pollOptions);
+        const shouldSeed = bootstrapPolls.length === 0 && bootstrapVotes.length === 0 && user != null;
+        if (shouldSeed && !hasLivePollsBootstrapSeeded()) {
+          try {
+            const seededData = await seedBootstrapPoll(user.id);
+            markLivePollsBootstrapSeeded();
+            bootstrapPolls = [seededData.poll];
+            bootstrapVotes = [seededData.vote];
+          } catch (error) {
+            clearLivePollsBootstrapSeeded();
+            throw error;
+          }
         }
+
+        setPolls(bootstrapPolls);
+
+        const optionMap = buildOptionMap(bootstrapPolls);
         setOptionsMap((prev) => {
           const next = new Map(prev);
           for (const [pollId, pollOptions] of optionMap) {
@@ -79,12 +216,7 @@ export default function App() {
           return next;
         });
 
-        const voteMap = new Map<string, Vote[]>();
-        for (const vote of allVotes) {
-          const pollVotes = voteMap.get(vote.poll_id) ?? [];
-          pollVotes.push(vote);
-          voteMap.set(vote.poll_id, pollVotes);
-        }
+        const voteMap = buildVoteMap(bootstrapVotes);
         setVotesMap((prev) => {
           const next = new Map(prev);
           for (const [pollId, pollVotes] of voteMap) {
@@ -98,29 +230,34 @@ export default function App() {
       }
     }
     void load();
-  }, [authed]);
+  }, [authed, user]);
 
   const handleRealtime = useCallback((event: RealtimeEvent) => {
+    const action = normalizeRealtimeAction(event.action);
+    if (action == null) {
+      return;
+    }
+
     if (event.table === "votes") {
       const vote = event.record as unknown as Vote;
       setVotesMap((prev) => {
         const next = new Map(prev);
         const pollVotes = [...(next.get(vote.poll_id) ?? [])];
-        if (event.action === "create") {
+        if (action === "create") {
           const existingIndex = pollVotes.findIndex((entry) => entry.user_id === vote.user_id);
           if (existingIndex >= 0) {
             pollVotes[existingIndex] = vote;
           } else {
             pollVotes.push(vote);
           }
-        } else if (event.action === "update") {
+        } else if (action === "update") {
           const existingIndex = pollVotes.findIndex((entry) => entry.id === vote.id);
           if (existingIndex >= 0) {
             pollVotes[existingIndex] = vote;
           } else {
             pollVotes.push(vote);
           }
-        } else if (event.action === "delete") {
+        } else if (action === "delete") {
           next.set(vote.poll_id, pollVotes.filter((entry) => entry.id !== vote.id));
           return next;
         }
@@ -131,18 +268,19 @@ export default function App() {
 
     if (event.table === "polls") {
       const poll = event.record as unknown as Poll;
-      if (event.action === "create") {
+      if (action === "create") {
         setPolls((prev) => (prev.find((entry) => entry.id === poll.id) ? prev : [poll, ...prev]));
-      } else if (event.action === "update") {
+        void hydratePollOptions(poll.id);
+      } else if (action === "update") {
         setPolls((prev) => prev.map((entry) => (entry.id === poll.id ? poll : entry)));
-      } else if (event.action === "delete") {
+      } else if (action === "delete") {
         setPolls((prev) => prev.filter((entry) => entry.id !== poll.id));
       }
     }
 
     if (event.table === "poll_options") {
       const option = event.record as unknown as PollOption;
-      if (event.action === "create") {
+      if (action === "create") {
         setOptionsMap((prev) => {
           const next = new Map(prev);
           const pollOptions = [...(next.get(option.poll_id) ?? [])];
@@ -152,7 +290,7 @@ export default function App() {
         });
       }
     }
-  }, []);
+  }, [hydratePollOptions]);
 
   useRealtime(authed ? ["polls", "poll_options", "votes"] : [], handleRealtime);
 
@@ -241,12 +379,14 @@ export default function App() {
               {userEmail}
             </span>
           )}
-          <button
-            onClick={() => setShowCreate(!showCreate)}
-            className="bg-blue-600 hover:bg-blue-500 rounded px-3 py-1.5 text-sm font-semibold"
-          >
-            {showCreate ? "Cancel" : "+ New Poll"}
-          </button>
+          {canCreatePolls && (
+            <button
+              onClick={() => setShowCreate(!showCreate)}
+              className="bg-blue-600 hover:bg-blue-500 rounded px-3 py-1.5 text-sm font-semibold"
+            >
+              {showCreate ? "Cancel" : "+ New Poll"}
+            </button>
+          )}
           <button
             onClick={() => void handleLogout()}
             disabled={logoutPending}
@@ -258,7 +398,7 @@ export default function App() {
       </header>
 
       <main className="max-w-2xl mx-auto p-4 flex flex-col gap-4">
-        {showCreate && userId && <CreatePoll userId={userId} onCreated={handlePollCreated} />}
+        {showCreate && canCreatePolls && userId && <CreatePoll userId={userId} onCreated={handlePollCreated} />}
 
         {polls.length === 0 && !showCreate && (
           <div className="text-center text-gray-500 py-12">

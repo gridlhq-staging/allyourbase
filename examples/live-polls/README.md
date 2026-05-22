@@ -13,11 +13,20 @@ Open http://localhost:5175, register an account, and start creating polls!
 ### Manual Setup
 
 ```bash
+printf '\n[graphql]\nenabled = true\n' >> ayb.toml
 ayb start
 ayb sql < schema.sql
 npm install
 npm run dev
 ```
+
+Verify GraphQL is mounted before running the frontend or E2E tests:
+
+```bash
+curl -s -o /dev/null -w %{http_code} http://localhost:8090/api/graphql
+```
+
+The status must be non-`404`.
 
 ## Features
 
@@ -44,6 +53,8 @@ npm run dev
 npm test            # 26 unit/component tests (vitest)
 npm run test:watch  # watch mode
 ```
+
+Playwright assumes GraphQL is enabled before the frontend starts (see Manual Setup above).
 
 ## Architecture
 

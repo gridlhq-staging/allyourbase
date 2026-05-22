@@ -1125,3 +1125,335 @@ describe("realtime", () => {
     expect(typeof unsub).toBe("function");
   });
 });
+
+// --- MockWebSocket for WS realtime tests ---
+
+type WSMessageHandler = ((e: { data: string }) => void) | null;
+
+class MockWebSocket {
+  static instances: MockWebSocket[] = [];
+
+  url: string;
+  onopen: (() => void) | null = null;
+  onmessage: WSMessageHandler = null;
+  onclose: (() => void) | null = null;
+  onerror: ((e: unknown) => void) | null = null;
+  readyState = 0; // CONNECTING
+  sent: string[] = [];
+  closed = false;
+
+  static readonly CONNECTING = 0;
+  static readonly OPEN = 1;
+  static readonly CLOSING = 2;
+  static readonly CLOSED = 3;
+
+  constructor(url: string) {
+    this.url = url;
+    MockWebSocket.instances.push(this);
+  }
+
+  send(data: string) {
+    this.sent.push(data);
+  }
+
+  close() {
+    this.closed = true;
+    this.readyState = MockWebSocket.CLOSED;
+    if (this.onclose) this.onclose();
+  }
+
+  _open() {
+    this.readyState = MockWebSocket.OPEN;
+    if (this.onopen) this.onopen();
+  }
+
+  _receive(data: string) {
+    if (this.onmessage) this.onmessage({ data });
+  }
+
+  _receiveJSON(obj: unknown) {
+    this._receive(JSON.stringify(obj));
+  }
+
+  _sentJSON(): unknown[] {
+    return this.sent.map((s) => JSON.parse(s));
+  }
+}
+
+const OriginalWebSocket = globalThis.WebSocket;
+
+describe("realtime WS", () => {
+  beforeEach(() => {
+    MockWebSocket.instances = [];
+    globalThis.WebSocket = MockWebSocket as unknown as typeof WebSocket;
+  });
+
+  afterEach(() => {
+    globalThis.WebSocket = OriginalWebSocket;
+  });
+
+  function lastWS(): MockWebSocket {
+    return MockWebSocket.instances[MockWebSocket.instances.length - 1];
+  }
+
+  // --- Connection and URL derivation ---
+
+  it("subscribeWS derives ws:// URL from http:// baseURL", async () => {
+    const client = new AYBClient("http://localhost:8090");
+    client.realtime.subscribeWS(["posts"], () => {});
+    expect(MockWebSocket.instances).toHaveLength(1);
+    expect(lastWS().url).toBe("ws://localhost:8090/api/realtime/ws");
+  });
+
+  it("subscribeWS derives wss:// URL from https:// baseURL", async () => {
+    const client = new AYBClient("https://example.com");
+    client.realtime.subscribeWS(["posts"], () => {});
+    expect(lastWS().url).toBe("wss://example.com/api/realtime/ws");
+  });
+
+  // --- Auth + Subscribe handshake ---
+
+  it("waits for connected then sends auth when token is set", async () => {
+    const client = new AYBClient("http://localhost:8090");
+    client.setTokens("test-jwt", "refresh");
+    const promise = client.realtime.subscribeWS(["posts"], () => {});
+    const ws = lastWS();
+
+    ws._open();
+    // Server sends connected
+    ws._receiveJSON({ type: "connected", client_id: "ws-1" });
+    await vi.waitFor(() => {
+      expect(ws._sentJSON().length).toBeGreaterThanOrEqual(1);
+    });
+
+    const authMsg = ws._sentJSON()[0] as Record<string, unknown>;
+    expect(authMsg.type).toBe("auth");
+    expect(authMsg.token).toBe("test-jwt");
+    expect(authMsg.ref).toBeDefined();
+
+    // Server replies ok to auth
+    ws._receiveJSON({ type: "reply", ref: authMsg.ref, status: "ok" });
+    await vi.waitFor(() => {
+      expect(ws._sentJSON().length).toBeGreaterThanOrEqual(2);
+    });
+
+    const subMsg = ws._sentJSON()[1] as Record<string, unknown>;
+    expect(subMsg.type).toBe("subscribe");
+    expect(subMsg.tables).toEqual(["posts"]);
+    expect(subMsg.ref).toBeDefined();
+
+    // Server replies ok to subscribe
+    ws._receiveJSON({ type: "reply", ref: subMsg.ref, status: "ok" });
+    const unsub = await promise;
+    expect(typeof unsub).toBe("function");
+  });
+
+  it("sends subscribe without auth when no token is set", async () => {
+    const client = new AYBClient("http://localhost:8090");
+    const promise = client.realtime.subscribeWS(["tasks"], () => {});
+    const ws = lastWS();
+
+    ws._open();
+    ws._receiveJSON({ type: "connected", client_id: "ws-2" });
+    await vi.waitFor(() => {
+      expect(ws._sentJSON().length).toBeGreaterThanOrEqual(1);
+    });
+
+    // First message should be subscribe (no auth)
+    const subMsg = ws._sentJSON()[0] as Record<string, unknown>;
+    expect(subMsg.type).toBe("subscribe");
+    expect(subMsg.tables).toEqual(["tasks"]);
+
+    ws._receiveJSON({ type: "reply", ref: subMsg.ref, status: "ok" });
+    await promise;
+  });
+
+  it("starts handshake from onopen without waiting for connected frame", async () => {
+    const client = new AYBClient("http://localhost:8090");
+    const promise = client.realtime.subscribeWS(["tasks"], () => {});
+    const ws = lastWS();
+
+    ws._open();
+    await vi.waitFor(() => {
+      expect(ws._sentJSON().length).toBeGreaterThanOrEqual(1);
+    });
+
+    const subMsg = ws._sentJSON()[0] as Record<string, unknown>;
+    expect(subMsg.type).toBe("subscribe");
+    expect(subMsg.tables).toEqual(["tasks"]);
+
+    ws._receiveJSON({ type: "reply", ref: subMsg.ref, status: "ok" });
+    await promise;
+  });
+
+  it("rejects when the socket closes before subscribe ack arrives", async () => {
+    const client = new AYBClient("http://localhost:8090");
+    const promise = client.realtime.subscribeWS(["tasks"], () => {});
+    const ws = lastWS();
+
+    ws._open();
+    await vi.waitFor(() => {
+      expect(ws._sentJSON().length).toBeGreaterThanOrEqual(1);
+    });
+
+    ws.close();
+
+    await expect(promise).rejects.toThrow("WebSocket closed before subscription was ready");
+  });
+
+  it("does not send subscribe before auth reply arrives", async () => {
+    const client = new AYBClient("http://localhost:8090");
+    client.setTokens("tok", "ref");
+    client.realtime.subscribeWS(["t"], () => {});
+    const ws = lastWS();
+
+    ws._open();
+    ws._receiveJSON({ type: "connected", client_id: "ws-3" });
+    await vi.waitFor(() => {
+      expect(ws._sentJSON().length).toBeGreaterThanOrEqual(1);
+    });
+
+    // Only auth sent so far — subscribe must not be sent yet
+    expect(ws._sentJSON()).toHaveLength(1);
+    expect((ws._sentJSON()[0] as Record<string, unknown>).type).toBe("auth");
+  });
+
+  // --- Event delivery ---
+
+  it("forwards normalized event messages to callback", async () => {
+    const client = new AYBClient("http://localhost:8090");
+    const events: unknown[] = [];
+    const promise = client.realtime.subscribeWS(["posts"], (e) => events.push(e));
+    const ws = lastWS();
+
+    ws._open();
+    ws._receiveJSON({ type: "connected", client_id: "ws-4" });
+    await vi.waitFor(() => expect(ws._sentJSON().length).toBeGreaterThanOrEqual(1));
+    const subMsg = ws._sentJSON()[0] as Record<string, unknown>;
+    ws._receiveJSON({ type: "reply", ref: subMsg.ref, status: "ok" });
+    await promise;
+
+    ws._receiveJSON({
+      type: "event",
+      action: "INSERT",
+      table: "posts",
+      record: { id: 1, title: "hello" },
+    });
+
+    expect(events).toHaveLength(1);
+    expect(events[0]).toEqual({
+      action: "INSERT",
+      table: "posts",
+      record: { id: 1, title: "hello" },
+    });
+  });
+
+  it("does not invoke callback for non-event frames", async () => {
+    const client = new AYBClient("http://localhost:8090");
+    const callback = vi.fn();
+    const promise = client.realtime.subscribeWS(["posts"], callback);
+    const ws = lastWS();
+
+    ws._open();
+    ws._receiveJSON({ type: "connected", client_id: "ws-5" });
+    await vi.waitFor(() => expect(ws._sentJSON().length).toBeGreaterThanOrEqual(1));
+    const subMsg = ws._sentJSON()[0] as Record<string, unknown>;
+    ws._receiveJSON({ type: "reply", ref: subMsg.ref, status: "ok" });
+    await promise;
+
+    // Non-event frames
+    ws._receiveJSON({ type: "reply", ref: "x", status: "ok" });
+    ws._receiveJSON({ type: "system", message: "hello" });
+    ws._receive("not json at all");
+
+    expect(callback).not.toHaveBeenCalled();
+  });
+
+  it("delivers event frames that arrive before subscribe ack", async () => {
+    const client = new AYBClient("http://localhost:8090");
+    const callback = vi.fn();
+    const promise = client.realtime.subscribeWS(["posts"], callback);
+    const ws = lastWS();
+
+    ws._open();
+    ws._receiveJSON({ type: "connected", client_id: "ws-5b" });
+    await vi.waitFor(() => expect(ws._sentJSON().length).toBeGreaterThanOrEqual(1));
+    const subMsg = ws._sentJSON()[0] as Record<string, unknown>;
+
+    ws._receiveJSON({ type: "event", action: "INSERT", table: "posts", record: { id: 7 } });
+    ws._receiveJSON({ type: "reply", ref: subMsg.ref, status: "ok" });
+    await promise;
+
+    expect(callback).toHaveBeenCalledTimes(1);
+    expect(callback).toHaveBeenCalledWith({
+      action: "INSERT",
+      table: "posts",
+      record: { id: 7 },
+    });
+  });
+
+  it("delivers WS realtime frames that omit type and carry action/table/record", async () => {
+    const client = new AYBClient("http://localhost:8090");
+    const callback = vi.fn();
+    const promise = client.realtime.subscribeWS(["posts"], callback);
+    const ws = lastWS();
+
+    ws._open();
+    ws._receiveJSON({ type: "connected", client_id: "ws-5c" });
+    await vi.waitFor(() => expect(ws._sentJSON().length).toBeGreaterThanOrEqual(1));
+    const subMsg = ws._sentJSON()[0] as Record<string, unknown>;
+    ws._receiveJSON({ type: "reply", ref: subMsg.ref, status: "ok" });
+    await promise;
+
+    ws._receiveJSON({ action: "create", table: "posts", record: { id: 9 } });
+
+    expect(callback).toHaveBeenCalledTimes(1);
+    expect(callback).toHaveBeenCalledWith({
+      action: "create",
+      table: "posts",
+      record: { id: 9 },
+    });
+  });
+
+  // --- Unsubscribe ---
+
+  it("unsubscribe sends unsubscribe frame and closes socket", async () => {
+    const client = new AYBClient("http://localhost:8090");
+    const promise = client.realtime.subscribeWS(["posts", "users"], () => {});
+    const ws = lastWS();
+
+    ws._open();
+    ws._receiveJSON({ type: "connected", client_id: "ws-6" });
+    await vi.waitFor(() => expect(ws._sentJSON().length).toBeGreaterThanOrEqual(1));
+    const subMsg = ws._sentJSON()[0] as Record<string, unknown>;
+    ws._receiveJSON({ type: "reply", ref: subMsg.ref, status: "ok" });
+    const unsub = await promise;
+
+    const sentBefore = ws.sent.length;
+    unsub();
+
+    const unsubMsg = ws._sentJSON()[sentBefore] as Record<string, unknown>;
+    expect(unsubMsg.type).toBe("unsubscribe");
+    expect(unsubMsg.tables).toEqual(["posts", "users"]);
+    expect(ws.closed).toBe(true);
+  });
+
+  it("no callbacks after unsubscribe", async () => {
+    const client = new AYBClient("http://localhost:8090");
+    const callback = vi.fn();
+    const promise = client.realtime.subscribeWS(["posts"], callback);
+    const ws = lastWS();
+
+    ws._open();
+    ws._receiveJSON({ type: "connected", client_id: "ws-7" });
+    await vi.waitFor(() => expect(ws._sentJSON().length).toBeGreaterThanOrEqual(1));
+    const subMsg = ws._sentJSON()[0] as Record<string, unknown>;
+    ws._receiveJSON({ type: "reply", ref: subMsg.ref, status: "ok" });
+    const unsub = await promise;
+
+    unsub();
+    ws._receiveJSON({ type: "event", action: "create", table: "posts", record: { id: 1 } });
+
+    expect(callback).not.toHaveBeenCalled();
+  });
+});

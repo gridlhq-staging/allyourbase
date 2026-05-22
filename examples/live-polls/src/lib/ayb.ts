@@ -4,6 +4,7 @@ const url = import.meta.env.VITE_AYB_URL ?? "http://localhost:8090";
 const TOKEN_KEY = "ayb_token";
 const REFRESH_TOKEN_KEY = "ayb_refresh_token";
 const ANONYMOUS_BOOTSTRAP_OPTOUT_KEY = "ayb_anonymous_bootstrap_optout";
+export const LIVE_POLLS_BOOTSTRAP_SEEDED_KEY = "ayb_live_polls_bootstrap_seeded";
 export const ayb = new AYBClient(url, {
   authPersistence: {
     load: () => {
@@ -42,6 +43,18 @@ export function disableAnonymousBootstrap() {
 
 export function clearAnonymousBootstrapOptOut() {
   localStorage.removeItem(ANONYMOUS_BOOTSTRAP_OPTOUT_KEY);
+}
+
+export function hasLivePollsBootstrapSeeded(): boolean {
+  return sessionStorage.getItem(LIVE_POLLS_BOOTSTRAP_SEEDED_KEY) === "1";
+}
+
+export function markLivePollsBootstrapSeeded() {
+  sessionStorage.setItem(LIVE_POLLS_BOOTSTRAP_SEEDED_KEY, "1");
+}
+
+export function clearLivePollsBootstrapSeeded() {
+  sessionStorage.removeItem(LIVE_POLLS_BOOTSTRAP_SEEDED_KEY);
 }
 
 export function clearPersistedTokens() {

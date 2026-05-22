@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { DragDropContext, type DropResult } from "@hello-pangea/dnd";
-import { ayb } from "../lib/ayb";
+import { ayb, quoteRecordFilterLiteral } from "../lib/ayb";
 import { useRealtime } from "../hooks/useRealtime";
 import type { Board, Card, Column } from "../types";
 import KanbanColumn from "./KanbanColumn";
@@ -26,14 +26,14 @@ export default function BoardView({ board, onBack }: Props) {
   async function loadBoard() {
     try {
       const colRes = await ayb.records.list<Column>("columns", {
-        filter: `board_id='${board.id}'`,
+        filter: `board_id=${quoteRecordFilterLiteral(board.id)}`,
         sort: "position",
         perPage: 100,
       });
       setColumns(colRes.items);
 
       if (colRes.items.length > 0) {
-        const colIds = colRes.items.map((c) => `'${c.id}'`).join(",");
+        const colIds = colRes.items.map((c) => quoteRecordFilterLiteral(c.id)).join(",");
         const cardRes = await ayb.records.list<Card>("cards", {
           filter: `column_id IN (${colIds})`,
           sort: "position",
@@ -48,23 +48,24 @@ export default function BoardView({ board, onBack }: Props) {
     }
   }
 
-  // Realtime: update local state when SSE events arrive.
+  // Realtime: update local state when WS events arrive.
   // Filter events to only process those belonging to the current board.
   const handleRealtime = useCallback(
     (event: { action: string; table: string; record: Record<string, unknown> }) => {
+      const normalizedAction = event.action.toLowerCase();
       if (event.table === "cards") {
         const card = event.record as unknown as Card;
         setCards((prev) => {
-          if (event.action === "create") {
+          if (normalizedAction === "create" || normalizedAction === "insert") {
             if (prev.find((c) => c.id === card.id)) return prev;
             return [...prev, card];
           }
-          if (event.action === "update") {
+          if (normalizedAction === "update") {
             // Only update cards already tracked (belonging to this board).
             if (!prev.find((c) => c.id === card.id)) return prev;
             return prev.map((c) => (c.id === card.id ? card : c));
           }
-          if (event.action === "delete") {
+          if (normalizedAction === "delete") {
             return prev.filter((c) => c.id !== card.id);
           }
           return prev;
@@ -72,7 +73,7 @@ export default function BoardView({ board, onBack }: Props) {
       }
       if (event.table === "columns") {
         const col = event.record as unknown as Column;
-        if (event.action === "delete") {
+        if (normalizedAction === "delete") {
           // Delete events only contain PK fields (no board_id), so just
           // remove the column and any cards still attached to it if it's
           // currently tracked in this board view.
@@ -83,11 +84,11 @@ export default function BoardView({ board, onBack }: Props) {
         // Ignore columns from other boards.
         if (col.board_id !== board.id) return;
         setColumns((prev) => {
-          if (event.action === "create") {
+          if (normalizedAction === "create" || normalizedAction === "insert") {
             if (prev.find((c) => c.id === col.id)) return prev;
             return [...prev, col].sort((a, b) => a.position - b.position);
           }
-          if (event.action === "update") {
+          if (normalizedAction === "update") {
             return prev
               .map((c) => (c.id === col.id ? col : c))
               .sort((a, b) => a.position - b.position);
@@ -111,7 +112,10 @@ export default function BoardView({ board, onBack }: Props) {
         title: newColTitle.trim(),
         position: columns.length,
       });
-      setColumns([...columns, col]);
+      setColumns((prev) => {
+        if (prev.find((existing) => existing.id === col.id)) return prev;
+        return [...prev, col].sort((a, b) => a.position - b.position);
+      });
       setNewColTitle("");
     } catch (err) {
       console.error("Failed to create column:", err);
@@ -121,20 +125,23 @@ export default function BoardView({ board, onBack }: Props) {
   }
 
   function handleDeleteColumn(columnId: string) {
-    setColumns(columns.filter((c) => c.id !== columnId));
-    setCards(cards.filter((c) => c.column_id !== columnId));
+    setColumns((prev) => prev.filter((c) => c.id !== columnId));
+    setCards((prev) => prev.filter((c) => c.column_id !== columnId));
   }
 
   function handleCardCreated(card: Card) {
-    setCards([...cards, card]);
+    setCards((prev) => {
+      if (prev.find((existing) => existing.id === card.id)) return prev;
+      return [...prev, card];
+    });
   }
 
   function handleCardUpdate(updated: Card) {
-    setCards(cards.map((c) => (c.id === updated.id ? updated : c)));
+    setCards((prev) => prev.map((c) => (c.id === updated.id ? updated : c)));
   }
 
   function handleCardDelete(cardId: string) {
-    setCards(cards.filter((c) => c.id !== cardId));
+    setCards((prev) => prev.filter((c) => c.id !== cardId));
   }
 
   async function handleDragEnd(result: DropResult) {

@@ -1,3 +1,5 @@
+import type { GraphQLErrorItem } from "./types";
+
 /** Error thrown when the AYB API returns a non-2xx response. */
 export class AYBError extends Error {
   constructor(
@@ -12,5 +14,17 @@ export class AYBError extends Error {
   ) {
     super(message);
     this.name = "AYBError";
+  }
+}
+
+/** Error thrown when a GraphQL response returns an errors array. */
+export class AYBGraphQLError extends Error {
+  constructor(
+    message: string,
+    /** GraphQL error list returned by the API response. */
+    public readonly errors: GraphQLErrorItem[],
+  ) {
+    super(message);
+    this.name = "AYBGraphQLError";
   }
 }

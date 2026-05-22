@@ -32,6 +32,23 @@ function createClient(token: string | null): AYBClientLike {
 }
 
 describe("useAybAnonymousBootstrap", () => {
+  it("uses explicit bootstrap overrides without triggering extra auth-me loads", async () => {
+    const client = createClient("existing-token");
+    const overrideSignIn = vi.fn(async () => {});
+    const wrapper = ({ children }: { children: React.ReactNode }) => <AYBProvider client={client}>{children}</AYBProvider>;
+
+    const { result } = renderHook(
+      () => useAybAnonymousBootstrap({ enabled: true, token: "", signInAnonymously: overrideSignIn }),
+      { wrapper },
+    );
+
+    await waitFor(() => {
+      expect(result.current.bootstrapping).toBe(false);
+      expect(overrideSignIn).toHaveBeenCalledTimes(1);
+    });
+    expect(client.auth.me).not.toHaveBeenCalled();
+  });
+
   it("boots anonymous auth once when client token is empty", async () => {
     const client = createClient(null);
     const wrapper = ({ children }: { children: React.ReactNode }) => <AYBProvider client={client}>{children}</AYBProvider>;

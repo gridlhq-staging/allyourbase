@@ -6,21 +6,29 @@ import {
   registerUser,
   loginUser,
   loginWithDemoAccount,
+  openExplicitAuth,
 } from "./helpers";
 
 test.describe("Authentication", () => {
-  test("shows login form by default", async ({ page }) => {
+  test("shows anonymous main shell by default", async ({ page }) => {
+    await page.addInitScript(() => {
+      localStorage.removeItem("ayb_anonymous_bootstrap_optout");
+      sessionStorage.clear();
+    });
     await page.goto("/");
     await expect(
       page.getByRole("heading", { name: "Live Polls" }),
     ).toBeVisible();
-    await expect(page.getByRole("button", { name: "Sign In" })).toBeVisible();
-    await expect(page.getByPlaceholder("Email")).toBeVisible();
-    await expect(page.getByPlaceholder("Password")).toBeVisible();
+    await expect(page.getByText("Sign out")).toBeVisible();
+    await expect(page.getByPlaceholder("Email")).toBeHidden();
+    await expect(page.getByPlaceholder("Password")).toBeHidden();
+    await expect(
+      page.getByRole("button", { name: "+ New Poll" }),
+    ).toBeHidden();
   });
 
   test("shows demo accounts on login page", async ({ page }) => {
-    await page.goto("/");
+    await openExplicitAuth(page);
     await expect(page.getByText("Demo accounts")).toBeVisible();
     for (const acct of DEMO_ACCOUNTS) {
       await expect(page.getByText(acct.email)).toBeVisible();
@@ -28,7 +36,7 @@ test.describe("Authentication", () => {
   });
 
   test("can toggle between login and register", async ({ page }) => {
-    await page.goto("/");
+    await openExplicitAuth(page);
     await expect(page.getByRole("button", { name: "Sign In" })).toBeVisible();
 
     await page.getByRole("button", { name: "Register" }).click();
@@ -45,7 +53,7 @@ test.describe("Authentication", () => {
     await expect(
       page.getByRole("heading", { name: "Live Polls" }),
     ).toBeVisible();
-    await expect(page.getByText("Sign out")).toBeVisible();
+    await expect(page.getByRole("button", { name: "Sign out" })).toBeVisible();
     // Logged-in user's email should be visible in the header.
     await expect(page.getByTestId("user-email")).toHaveText(email);
   });
@@ -55,11 +63,11 @@ test.describe("Authentication", () => {
     await expect(
       page.getByRole("heading", { name: "Live Polls" }),
     ).toBeVisible();
-    await expect(page.getByText("Sign out")).toBeVisible();
+    await expect(page.getByRole("button", { name: "Sign out" })).toBeVisible();
   });
 
   test("clicking demo account fills credentials", async ({ page }) => {
-    await page.goto("/");
+    await openExplicitAuth(page);
     const acct = DEMO_ACCOUNTS[0];
     await page.getByText(acct.email).click();
 
@@ -73,8 +81,11 @@ test.describe("Authentication", () => {
     const email = await registerUser(page);
 
     // Logout.
-    await page.getByText("Sign out").click();
+    await page.getByRole("button", { name: "Sign out" }).click();
     await expect(page.getByRole("button", { name: "Sign In" })).toBeVisible();
+    await expect(
+      page.getByRole("button", { name: "+ New Poll" }),
+    ).toBeHidden();
 
     // Login.
     await loginUser(page, email);
@@ -84,7 +95,7 @@ test.describe("Authentication", () => {
   });
 
   test("shows error for invalid credentials", async ({ page }) => {
-    await page.goto("/");
+    await openExplicitAuth(page);
     await page.getByPlaceholder("Email").fill("wrong@example.com");
     await page.getByPlaceholder("Password").fill("wrongpassword");
     await page.getByRole("button", { name: "Sign In" }).click();
@@ -97,8 +108,11 @@ test.describe("Authentication", () => {
 
   test("can logout", async ({ page }) => {
     await loginWithDemoAccount(page);
-    await page.getByText("Sign out").click();
+    await page.getByRole("button", { name: "Sign out" }).click();
     await expect(page.getByRole("button", { name: "Sign In" })).toBeVisible();
+    await expect(
+      page.getByRole("button", { name: "+ New Poll" }),
+    ).toBeHidden();
   });
 
   test("persists auth across page reload", async ({ page }) => {
@@ -106,7 +120,9 @@ test.describe("Authentication", () => {
     await page.reload();
     // Should still be on the main UI (not the login form).
     // Check for "Sign out" (unique to main UI — heading "Live Polls" appears on both auth form and main UI).
-    await expect(page.getByText("Sign out")).toBeVisible({ timeout: 10000 });
+    await expect(page.getByRole("button", { name: "Sign out" })).toBeVisible({
+      timeout: 10000,
+    });
   });
 
   test("shows error when registering with duplicate email", async ({
@@ -115,7 +131,7 @@ test.describe("Authentication", () => {
     const email = await registerUser(page);
 
     // Logout.
-    await page.getByText("Sign out").click();
+    await page.getByRole("button", { name: "Sign out" }).click();
     await expect(page.getByRole("button", { name: "Sign In" })).toBeVisible();
 
     // Try to register again with same email.
@@ -134,24 +150,30 @@ test.describe("Authentication", () => {
     const email = await registerUser(page);
 
     // Logout.
-    await page.getByText("Sign out").click();
+    await page.getByRole("button", { name: "Sign out" }).click();
     await expect(page.getByRole("button", { name: "Sign In" })).toBeVisible();
+    await expect(
+      page.getByRole("button", { name: "+ New Poll" }),
+    ).toBeHidden();
 
     // Login again.
     await loginUser(page, email);
-    await expect(page.getByText("Sign out")).toBeVisible();
+    await expect(page.getByRole("button", { name: "Sign out" })).toBeVisible();
 
     // Logout again.
-    await page.getByText("Sign out").click();
+    await page.getByRole("button", { name: "Sign out" }).click();
     await expect(page.getByRole("button", { name: "Sign In" })).toBeVisible();
+    await expect(
+      page.getByRole("button", { name: "+ New Poll" }),
+    ).toBeHidden();
 
     // Login one more time.
     await loginUser(page, email);
-    await expect(page.getByText("Sign out")).toBeVisible();
+    await expect(page.getByRole("button", { name: "Sign out" })).toBeVisible();
   });
 
   test("login page subtitle matches mode", async ({ page }) => {
-    await page.goto("/");
+    await openExplicitAuth(page);
     await expect(
       page.getByText("Sign in to create and vote on polls"),
     ).toBeVisible();

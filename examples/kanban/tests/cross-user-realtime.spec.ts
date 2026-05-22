@@ -62,7 +62,7 @@ test.describe("Cross-user realtime collaboration", () => {
 
   // Given both users are viewing the same board
   // When User A adds a card
-  // Then User B sees the card appear via SSE (no refresh)
+  // Then User B sees the card appear via realtime transport (no refresh)
   test("card added by user A appears for user B in realtime", async ({ browser }) => {
     const boardName = `Card RT ${runId}`;
     const { ctxA, ctxB, pageA, pageB } = await setupCrossUserBoard(browser, boardName);
@@ -74,7 +74,7 @@ test.describe("Cross-user realtime collaboration", () => {
     // Act: User A adds a card.
     await addCard(pageA, "Todo", "New Task");
 
-    // Assert: User B sees the card via SSE.
+    // Assert: User B sees the card via realtime transport.
     await expect(pageB.getByText("New Task")).toBeVisible({ timeout: 10000 });
 
     await ctxA.close();
@@ -83,7 +83,7 @@ test.describe("Cross-user realtime collaboration", () => {
 
   // Given both users are viewing the same board
   // When User A adds a column
-  // Then User B sees the column appear via SSE (no refresh)
+  // Then User B sees the column appear via realtime transport (no refresh)
   test("column added by user A appears for user B in realtime", async ({ browser }) => {
     const boardName = `Col RT ${runId}`;
     const { ctxA, ctxB, pageA, pageB } = await setupCrossUserBoard(browser, boardName);
@@ -91,7 +91,7 @@ test.describe("Cross-user realtime collaboration", () => {
     // Act: User A adds a column.
     await addColumn(pageA, "In Progress");
 
-    // Assert: User B sees the column via SSE.
+    // Assert: User B sees the column via realtime transport.
     await expect(pageB.getByText("In Progress")).toBeVisible({ timeout: 10000 });
 
     await ctxA.close();

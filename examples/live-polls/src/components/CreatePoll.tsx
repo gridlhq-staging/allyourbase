@@ -1,5 +1,5 @@
 import { FormEvent, useState } from "react";
-import { ayb } from "../lib/ayb";
+import { createPollWithOptions } from "../lib/recordsWriteContracts";
 import type { Poll, PollOption } from "../types";
 
 interface Props {
@@ -41,20 +41,11 @@ export default function CreatePoll({ userId, onCreated }: Props) {
 
     setLoading(true);
     try {
-      const poll = await ayb.records.create<Poll>("polls", {
-        question: question.trim(),
-        user_id: userId,
+      const { poll, options: createdOptions } = await createPollWithOptions({
+        question,
+        userId,
+        optionLabels: trimmedOptions,
       });
-
-      const createdOptions = await Promise.all(
-        trimmedOptions.map((label, i) =>
-          ayb.records.create<PollOption>("poll_options", {
-            poll_id: poll.id,
-            label,
-            position: i,
-          }),
-        ),
-      );
 
       setQuestion("");
       setOptions(["", ""]);

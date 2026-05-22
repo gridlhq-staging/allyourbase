@@ -1,12 +1,23 @@
-import { useEffect, useState } from "react";
-import { useAuth } from "./useAuth";
+import { useCallback, useEffect, useState } from "react";
+import { useAYBClient } from "./provider";
 
 interface UseAybAnonymousBootstrapOptions {
   enabled: boolean;
+  token?: string | null;
+  signInAnonymously?: () => Promise<void>;
 }
 
-export function useAybAnonymousBootstrap({ enabled }: UseAybAnonymousBootstrapOptions) {
-  const { token, signInAnonymously } = useAuth();
+export function useAybAnonymousBootstrap({
+  enabled,
+  token: tokenOverride,
+  signInAnonymously: signInAnonymouslyOverride,
+}: UseAybAnonymousBootstrapOptions) {
+  const client = useAYBClient();
+  const token = tokenOverride ?? client.token;
+  const signInAnonymouslyFromClient = useCallback(async () => {
+    await client.auth.signInAnonymously();
+  }, [client]);
+  const signInAnonymously = signInAnonymouslyOverride ?? signInAnonymouslyFromClient;
   const [bootstrapping, setBootstrapping] = useState(false);
 
   useEffect(() => {

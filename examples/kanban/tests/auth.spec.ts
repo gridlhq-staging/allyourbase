@@ -1,19 +1,23 @@
 import { test, expect } from "@playwright/test";
-import { uniqueEmail, TEST_PASSWORD, registerUser, loginUser } from "./helpers";
+import {
+  uniqueEmail,
+  TEST_PASSWORD,
+  registerUser,
+  loginUser,
+  ensureAuthFormVisible,
+  waitForAnonymousBoardShell,
+} from "./helpers";
 
 test.describe("Authentication", () => {
-  test("shows login form by default", async ({ page }) => {
-    await page.goto("/");
-    await expect(page.getByRole("heading", { name: "Kanban Board" })).toBeVisible();
-    await expect(page.getByRole("button", { name: "Sign In" })).toBeVisible();
-    await expect(page.getByPlaceholder("you@example.com")).toBeVisible();
-    await expect(
-      page.getByPlaceholder("At least 8 characters"),
-    ).toBeVisible();
+  test("lands anonymous users in the board shell by default", async ({ page }) => {
+    await waitForAnonymousBoardShell(page);
+    await expect(page.getByText("Sign out")).toBeVisible();
+    await expect(page.getByRole("button", { name: "Sign In" })).toBeHidden();
+    await expect(page.getByPlaceholder("you@example.com")).toBeHidden();
   });
 
   test("can toggle between login and register", async ({ page }) => {
-    await page.goto("/");
+    await ensureAuthFormVisible(page);
     await expect(page.getByRole("button", { name: "Sign In" })).toBeVisible();
 
     await page.getByRole("button", { name: "Sign up" }).click();
@@ -50,7 +54,7 @@ test.describe("Authentication", () => {
   });
 
   test("shows error for invalid credentials", async ({ page }) => {
-    await page.goto("/");
+    await ensureAuthFormVisible(page);
     await page.getByPlaceholder("you@example.com").fill("wrong@example.com");
     await page.getByPlaceholder("At least 8 characters").fill("wrongpassword");
     await page.getByRole("button", { name: "Sign In" }).click();
@@ -59,10 +63,16 @@ test.describe("Authentication", () => {
     await expect(page.getByRole("alert")).toBeVisible({ timeout: 5000 });
   });
 
-  test("can logout", async ({ page }) => {
-    await registerUser(page);
+  test("logout keeps anonymous bootstrap opted out for same-session refresh", async ({ page }) => {
+    await waitForAnonymousBoardShell(page);
     await page.getByText("Sign out").click();
     await expect(page.getByRole("button", { name: "Sign In" })).toBeVisible();
+    await expect(page.getByText("Your Boards")).toBeHidden();
+
+    await page.reload();
+    await expect(page.getByRole("button", { name: "Sign In" })).toBeVisible();
+    await expect(page.getByText("Your Boards")).toBeHidden();
+    await expect(page.getByText("Sign out")).toBeHidden();
   });
 
   test("persists auth across page reload", async ({ page }) => {
@@ -73,7 +83,7 @@ test.describe("Authentication", () => {
   });
 
   test("clears error message when toggling between login and register", async ({ page }) => {
-    await page.goto("/");
+    await ensureAuthFormVisible(page);
 
     // Trigger an error by submitting bad credentials
     await page.getByPlaceholder("you@example.com").fill("wrong@example.com");
