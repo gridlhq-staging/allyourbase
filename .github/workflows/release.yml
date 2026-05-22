@@ -22,10 +22,7 @@ jobs:
         run: npm install --legacy-peer-deps && npm run build
 
       - name: Build demo apps
-        run: |
-          cd examples/kanban && npm ci && VITE_AYB_URL="" npx vite build
-          cd ../../examples/live-polls && npm ci && VITE_AYB_URL="" npx vite build
-          cd ../../examples/movies && npm ci && VITE_AYB_URL="" npx vite build
+        run: make demos
 
       - uses: actions/setup-go@v6
         with:

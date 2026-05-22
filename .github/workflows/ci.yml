@@ -72,10 +72,7 @@ jobs:
           if-no-files-found: warn
 
       - name: Build demo apps
-        run: |
-          cd examples/kanban && npm ci && VITE_AYB_URL="" npx vite build
-          cd ../../examples/live-polls && npm ci && VITE_AYB_URL="" npx vite build
-          cd ../../examples/movies && npm ci && VITE_AYB_URL="" npx vite build
+        run: make demos
 
       - uses: actions/setup-go@v6
         with:
@@ -301,10 +298,7 @@ jobs:
         run: pnpm install --frozen-lockfile && pnpm build
 
       - name: Build demo apps
-        run: |
-          cd examples/kanban && npm ci && VITE_AYB_URL="" npx vite build
-          cd ../../examples/live-polls && npm ci && VITE_AYB_URL="" npx vite build
-          cd ../../examples/movies && npm ci && VITE_AYB_URL="" npx vite build
+        run: make demos
 
       - uses: actions/setup-go@v6
         with:
@@ -358,10 +352,7 @@ jobs:
         run: pnpm install --frozen-lockfile && pnpm build
 
       - name: Build demo apps
-        run: |
-          cd examples/kanban && npm ci && VITE_AYB_URL="" npx vite build
-          cd ../../examples/live-polls && npm ci && VITE_AYB_URL="" npx vite build
-          cd ../../examples/movies && npm ci && VITE_AYB_URL="" npx vite build
+        run: make demos
 
       - uses: actions/setup-go@v6
         with:
@@ -403,10 +394,7 @@ jobs:
         run: pnpm install --frozen-lockfile && pnpm build
 
       - name: Build demo apps
-        run: |
-          cd examples/kanban && npm ci && VITE_AYB_URL="" npx vite build
-          cd ../../examples/live-polls && npm ci && VITE_AYB_URL="" npx vite build
-          cd ../../examples/movies && npm ci && VITE_AYB_URL="" npx vite build
+        run: make demos
 
       - uses: actions/setup-go@v6
         with:
@@ -469,10 +457,7 @@ jobs:
         run: pnpm install --frozen-lockfile && pnpm build
 
       - name: Build demo apps
-        run: |
-          cd examples/kanban && npm ci && VITE_AYB_URL="" npx vite build
-          cd ../../examples/live-polls && npm ci && VITE_AYB_URL="" npx vite build
-          cd ../../examples/movies && npm ci && VITE_AYB_URL="" npx vite build
+        run: make demos
 
       - uses: actions/setup-go@v6
         with:
