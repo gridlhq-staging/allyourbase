@@ -1,4 +1,4 @@
-<!-- audited 2026-03-20 -->
+<!-- audited 2026-05-23 -->
 
 # React SDK
 
@@ -7,8 +7,11 @@ The `@allyourbase/react` package provides React primitives on top of `@allyourba
 - `AYBProvider`
 - `useAYBClient`
 - `useAuth`
+- `useAybAnonymousBootstrap`
 - `useQuery`
 - `useRealtime`
+- `AybLoginBar`
+- `DemoSuggestionChip`
 
 ## Install
 
@@ -47,6 +50,11 @@ export function LoginPanel() {
     refreshToken,
     login,
     register,
+    signInAnonymously,
+    requestMagicLink,
+    confirmMagicLink,
+    linkEmail,
+    signInWithOAuth,
     logout,
     refresh,
   } = useAuth();
@@ -66,6 +74,156 @@ export function LoginPanel() {
     </div>
   );
 }
+```
+
+The destructured shape matches the `UseAuthResult` type re-exported from
+`@allyourbase/react`.
+
+### Anonymous-first sign-in
+
+`signInAnonymously` issues a guest session without an email or password. Pair
+it with [`useAybAnonymousBootstrap`](#useaybanonymousbootstrap) to auto-create
+a guest session on first mount, or call it from a button handler:
+
+```tsx
+import { useAuth } from "@allyourbase/react";
+
+export function GuestButton() {
+  const { signInAnonymously, loading } = useAuth();
+  return (
+    <button disabled={loading} onClick={() => signInAnonymously()}>
+      Continue as Guest
+    </button>
+  );
+}
+```
+
+Once signed in anonymously, call `linkEmail(email, password)` to convert the
+guest account to a permanent email/password account, or `requestMagicLink` /
+`confirmMagicLink` for passwordless flows. See
+[Link email + password](/guide/authentication#link-email-password) and
+[Magic link](/guide/authentication#magic-link) for endpoint details.
+
+## `useAybAnonymousBootstrap`
+
+`useAybAnonymousBootstrap({ enabled, token?, signInAnonymously? })` calls
+`auth.signInAnonymously()` once on mount when `enabled` is true and there is
+no active session token. It returns `{ bootstrapping }`, which is true while
+the initial guest sign-in is in flight.
+
+```tsx
+import { useAybAnonymousBootstrap } from "@allyourbase/react";
+
+export function AppShell({ children }: { children: React.ReactNode }) {
+  const anonymousBootstrapEnabled = true;
+  const { bootstrapping } = useAybAnonymousBootstrap({
+    enabled: anonymousBootstrapEnabled,
+  });
+
+  if (bootstrapping) return <p>Creating guest session...</p>;
+  return <>{children}</>;
+}
+```
+
+`token` and `signInAnonymously` are optional overrides used in tests; in
+production both default to the provider client. The reference wiring in
+`examples/live-polls/src/App.tsx` gates the hook behind an
+`anonymousBootstrapEnabled` flag so users who explicitly sign out can opt out.
+
+## `AybLoginBar`
+
+`AybLoginBar` is a controlled login UI that renders email/password inputs,
+OAuth buttons, a guest-sign-in button, and an optional magic-link button based
+on the `methods` prop. All state and handlers are owned by the caller.
+
+Required props:
+
+- `methods: AybAuthMethods` — `{ password, oauth, anonymous, canUpgradeAnonymous, magicLink? }`
+- `loading: boolean`
+- `email: string`, `password: string`, `error: string | null`
+- `demoSuggestions: DemoSuggestion[]`
+- `onEmailChange`, `onPasswordChange`
+- `onSubmit`, `onOAuth`, `onAnonymous`
+
+Optional handlers:
+
+- `onModeChange(mode)` — render the login/register toggle
+- `onOAuthProvider(provider)` — render per-provider buttons (used with `oauthProviders`)
+- `onRequestMagicLink(email)` — render the "Email me a magic link" button (requires `methods.magicLink`)
+- `onUpgradeAnonymous()` — render the upgrade button (requires `methods.canUpgradeAnonymous`)
+
+```tsx
+import { useState } from "react";
+import { AybLoginBar, useAuth } from "@allyourbase/react";
+
+const OAUTH_PROVIDERS: ("github" | "google")[] = ["github", "google"];
+
+export function LoginForm() {
+  const { login, register, signInAnonymously, signInWithOAuth, requestMagicLink, loading } = useAuth();
+  const [mode, setMode] = useState<"login" | "register">("login");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [error, setError] = useState<string | null>(null);
+
+  return (
+    <AybLoginBar
+      methods={{ password: true, oauth: true, anonymous: true, canUpgradeAnonymous: false, magicLink: true }}
+      loading={loading}
+      mode={mode}
+      email={email}
+      password={password}
+      error={error}
+      demoSuggestions={[]}
+      oauthProviders={OAUTH_PROVIDERS}
+      onEmailChange={setEmail}
+      onPasswordChange={setPassword}
+      onModeChange={(next) => { setMode(next); setError(null); }}
+      onSubmit={async () => {
+        try {
+          mode === "register" ? await register(email, password) : await login(email, password);
+        } catch (err) {
+          setError(err instanceof Error ? err.message : "Sign-in failed");
+        }
+      }}
+      onOAuth={async () => {}}
+      onAnonymous={async () => {
+        try { await signInAnonymously(); } catch (err) {
+          setError(err instanceof Error ? err.message : "Guest sign-in failed");
+        }
+      }}
+      onOAuthProvider={async (provider) => {
+        try { await signInWithOAuth(provider); } catch (err) {
+          setError(err instanceof Error ? err.message : "OAuth sign-in failed");
+        }
+      }}
+      onRequestMagicLink={async (value) => {
+        try { await requestMagicLink(value); } catch (err) {
+          setError(err instanceof Error ? err.message : "Magic link request failed");
+        }
+      }}
+    />
+  );
+}
+```
+
+Cross-links: [Magic link](/guide/authentication#magic-link),
+[Link email + password](/guide/authentication#link-email-password).
+
+### `DemoSuggestionChip`
+
+`DemoSuggestionChip` is the standalone version of the chips `AybLoginBar`
+renders internally when you pass `demoSuggestions`. Render it directly when you
+want chips outside the login bar layout. Props: `{ suggestion: DemoSuggestion,
+onSelect(suggestion) }`. `DemoSuggestion` is `{ label: string; email: string;
+password: string }`.
+
+```tsx
+import { DemoSuggestionChip } from "@allyourbase/react";
+
+<DemoSuggestionChip
+  suggestion={{ label: "alice@demo.test", email: "alice@demo.test", password: "password123" }}
+  onSelect={(s) => { /* prefill your inputs */ }}
+/>
 ```
 
 ## `useQuery`

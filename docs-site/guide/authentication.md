@@ -1,7 +1,7 @@
 # Authentication
 <!-- audited 2026-03-20 -->
 
-AYB provides built-in email/password authentication with JWT sessions, OAuth support, email verification, password reset, magic links, SMS OTP auth, SMS MFA, anonymous auth with account linking, TOTP MFA with backup codes, email MFA, and authentication assurance levels (AAL).
+AYB provides built-in email/password authentication with JWT sessions, [magic link passwordless auth](#magic-link), OAuth support, email verification, password reset, SMS OTP auth, SMS MFA, anonymous auth with account linking, TOTP MFA with backup codes, email MFA, and authentication assurance levels (AAL).
 
 ## Enable auth
 
@@ -90,6 +90,10 @@ User sessions can be inspected and revoked:
 
 ## SMS OTP auth
 
+### SMS
+
+Canonical anchor for auth error links that reference `#sms`.
+
 Enable SMS auth in config:
 
 ```toml
@@ -137,9 +141,91 @@ curl -X POST http://localhost:8090/api/auth/mfa/sms/enroll \
   -d '{"phone": "+14155552671"}'
 ```
 
+## Magic link
+
+Magic link auth lets users sign in without a password by receiving a one-time login link by email.
+
+Requires a configured email backend (SMTP or provider).
+
+Enable it in auth config:
+
+```toml
+[auth]
+magic_link_enabled = true
+magic_link_duration = 600
+```
+
+Or via environment variables:
+
+```bash
+AYB_AUTH_MAGIC_LINK_ENABLED=true
+AYB_AUTH_MAGIC_LINK_DURATION=600
+```
+
+- `POST /api/auth/magic-link` starts the flow by sending a link to the submitted email.
+- `POST /api/auth/magic-link/confirm` confirms the token from that link and returns auth tokens.
+
+Request a magic link:
+
+```bash
+curl -X POST http://localhost:8090/api/auth/magic-link \
+  -H "Content-Type: application/json" \
+  -d '{"email": "user@example.com"}'
+```
+
+**Response** (200 OK):
+
+```json
+{
+  "message": "if valid, a login link has been sent"
+}
+```
+
+`POST /api/auth/magic-link` always returns `200` to reduce account-enumeration risk.
+
+Confirm a magic link:
+
+```bash
+curl -X POST http://localhost:8090/api/auth/magic-link/confirm \
+  -H "Content-Type: application/json" \
+  -d '{"token": "magic-link-token-from-email"}'
+```
+
+**Response** (200 OK, authenticated):
+
+```json
+{
+  "token": "eyJhbG...",
+  "refreshToken": "eyJhbG...",
+  "user": {
+    "id": "uuid",
+    "email": "user@example.com",
+    "emailVerified": true,
+    "createdAt": "2026-02-07T..."
+  }
+}
+```
+
+**Response** (200 OK, MFA enrolled):
+
+```json
+{
+  "mfa_pending": true,
+  "mfa_token": "eyJhbG..."
+}
+```
+
+For SDK callers, use `requestMagicLink` and `confirmMagicLink`; Stage 4 documents those wrappers in detail.
+
 ## Anonymous auth
 
+### Anonymous
+
+Canonical anchor for auth error links that reference `#anonymous`.
+
 Anonymous auth lets users start using your app without signing up. They get a real user ID and session, and can later link their account to an email/password or OAuth identity.
+
+The common progression is: start with an anonymous session, then upgrade to a credentialed account when the user is ready. You can upgrade with a magic link (`POST /api/auth/magic-link`) or by linking email/password credentials. After that first upgrade, you can add OAuth identity linking for provider-based sign-in.
 
 ### Enable
 
@@ -207,6 +293,10 @@ Same behavior as email linking: preserves user ID, returns new tokens, returns 4
   cleanup automatically.
 
 ## TOTP MFA (Authenticator App)
+
+### TOTP
+
+Canonical anchor for auth error links that reference `#totp`.
 
 TOTP (Time-based One-Time Password) provides NIST-compliant multi-factor authentication using authenticator apps like Google Authenticator, Authy, or 1Password.
 
@@ -575,6 +665,27 @@ enabled = true
 client_id = "your-github-client-id"
 client_secret = "your-github-client-secret"
 ```
+
+#### GitHub setup
+
+1. In GitHub, go to **Settings** → **Developer settings** → **OAuth Apps** and create a new OAuth App.
+2. Set **Authorization callback URL** to `http://localhost:8090/api/auth/oauth/github/callback`.
+3. Copy the app's client ID and client secret into `[auth.oauth.github]`:
+   - `client_id` = GitHub OAuth App Client ID
+   - `client_secret` = GitHub OAuth App Client Secret
+
+#### Google setup
+
+1. In Google Cloud Console, configure an OAuth consent screen for your project.
+2. Create OAuth 2.0 client credentials for a web application.
+3. Add `http://localhost:8090/api/auth/oauth/google/callback` to **Authorized redirect URIs**.
+4. Copy the generated client ID and client secret into `[auth.oauth.google]`:
+   - `client_id` = Google OAuth Client ID
+   - `client_secret` = Google OAuth Client Secret
+
+#### Scopes and user info
+
+AYB requests provider scopes from its built-in OAuth provider configuration (for example, Google requests `openid email profile`, and GitHub requests `user:email`). After token exchange, AYB maps provider user info into its normalized auth user shape used by the login/linking flow.
 
 ### Flow
 

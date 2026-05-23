@@ -64,6 +64,7 @@ export default defineConfig({
           { text: "Kotlin SDK", link: "/guide/kotlin-sdk" },
           { text: "Go SDK", link: "/guide/go-sdk" },
           { text: "Patterns", link: "/guide/patterns" },
+          { text: "Demos", link: "/guide/demos" },
           { text: "Quickstart: Todo App", link: "/guide/quickstart" },
           { text: "Tutorial: Kanban Board", link: "/guide/tutorial-kanban" },
         ],

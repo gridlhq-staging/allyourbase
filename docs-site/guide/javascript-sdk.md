@@ -1,4 +1,4 @@
-<!-- audited 2026-03-20 -->
+<!-- audited 2026-05-23 -->
 
 # JavaScript SDK
 
@@ -128,6 +128,53 @@ await ayb.auth.resendVerification();
 await ayb.auth.deleteAccount();
 ```
 
+### Anonymous sign-in
+
+Create a guest session without an email or password. The returned user has
+`isAnonymous === true` (see the `User` shape in `sdk/src/types.ts`).
+
+```ts
+const { token, user } = await ayb.auth.signInAnonymously();
+// user.isAnonymous === true
+```
+
+See [Anonymous auth](/guide/authentication#anonymous-auth) for endpoint details
+and server-side enable flags.
+
+### Magic link
+
+Passwordless sign-in via email. `requestMagicLink` returns a
+`MagicLinkRequestResponse` (status message only); `confirmMagicLink` returns a
+`MagicLinkConfirmResponse`, which is the union
+`AuthResponse | MFAPendingAuthResponse`. The SDK stores tokens automatically on
+the `AuthResponse` branch; on the `MFAPendingAuthResponse` branch you receive
+an `mfaToken` to complete a second factor.
+
+```ts
+await ayb.auth.requestMagicLink("user@example.com");
+
+const result = await ayb.auth.confirmMagicLink(tokenFromEmail);
+if ("token" in result) {
+  // AuthResponse: tokens are now set on the client
+} else {
+  // MFAPendingAuthResponse: complete MFA using result.mfaToken
+}
+```
+
+See [Magic link](/guide/authentication#magic-link) for endpoint details.
+
+### Link anonymous to email
+
+Convert the currently signed-in anonymous account to an email/password account.
+Issues new tokens for the same user id.
+
+```ts
+await ayb.auth.linkEmail("user@example.com", "pass");
+```
+
+See [Link email + password](/guide/authentication#link-email-password) for
+endpoint details and validation rules.
+
 ### OAuth
 
 Sign in with an OAuth provider via popup (default) or redirect flow:
@@ -154,7 +201,7 @@ if (result) {
 }
 ```
 
-Anonymous auth, account-linking, and MFA flows are not currently exposed as
+MFA enrollment, challenge, and verification flows are not yet exposed as
 first-class methods on `ayb.auth`. See [Authentication](/guide/authentication)
 for the REST endpoint-level flows and payloads.
 
@@ -275,6 +322,8 @@ import type {
   BatchResult,
   // Auth
   AuthResponse,
+  MagicLinkRequestResponse,
+  MagicLinkConfirmResponse,
   User,
   AuthStateEvent,
   AuthStateListener,

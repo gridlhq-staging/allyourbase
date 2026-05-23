@@ -207,8 +207,59 @@ Hybrid responses include fused fields:
 - `_vector_distance`
 - `_hybrid_score`
 
+## BYOK chat (movies demo)
+
+The movies demo exposes a Bring-Your-Own-Key (BYOK) chat flow that pairs vector search with streaming AI completions. Provider API keys live in AYB's vault and are referenced by name when registering a BYOK binding, so the raw key never travels in the request body. For the full demo overview, see [Demos](/guide/demos#movies).
+
+Accepted providers: `openai`, `anthropic`, `ollama`. The vault secret named in the BYOK binding must already exist before the binding can be set — `POST /api/admin/movies/byok` validates the secret against the vault before installing the mapping.
+
+### Set a BYOK binding
+
+```bash
+curl -X POST http://localhost:8090/api/admin/movies/byok \
+  -H "Authorization: Bearer $AYB_ADMIN_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "provider": "openai",
+    "secret_name": "openai_api_key"
+  }'
+```
+
+### Clear a BYOK binding
+
+`DELETE /api/admin/movies/byok/{provider}` removes the binding for the given provider.
+
+```bash
+curl -X DELETE http://localhost:8090/api/admin/movies/byok/openai \
+  -H "Authorization: Bearer $AYB_ADMIN_TOKEN"
+```
+
+Clearing is idempotent — clearing an unbound provider returns `204` just like clearing a bound one.
+
+### Stream chat
+
+`POST /api/admin/movies/chat/stream` resolves the provider (BYOK-aware), then streams the completion as Server-Sent Events. The wire format is a single `start` event, zero or more `chunk` events, then either a `done` event on completion or an `error` event on stream failure.
+
+```bash
+curl -N -X POST http://localhost:8090/api/admin/movies/chat/stream \
+  -H "Authorization: Bearer $AYB_ADMIN_TOKEN" \
+  -H "Content-Type: application/json" \
+  -H "Accept: text/event-stream" \
+  -d '{
+    "messages": [
+      {"role": "user", "content": "Recommend a movie like Inception."}
+    ],
+    "provider": "openai",
+    "model": "gpt-4o-mini",
+    "session_id": ""
+  }'
+```
+
+`session_id` is optional — when empty or not a valid UUID, AYB mints a fresh session id and returns it on the `start` event so the client can append further turns to the same conversation.
+
 ## Related guides
 
 - [REST API](/guide/api-reference)
 - [Admin Dashboard](/guide/admin-dashboard)
 - [Comparison](/guide/comparison)
+- [Demos](/guide/demos)

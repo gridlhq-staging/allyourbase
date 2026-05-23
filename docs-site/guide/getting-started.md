@@ -233,6 +233,7 @@ AYB runs on Windows via WSL2. Install WSL (`wsl --install`) then follow the Linu
 - [JavaScript SDK](/guide/javascript-sdk) — Build your frontend with the TypeScript SDK
 - [Flutter SDK](/guide/flutter-sdk) — Build mobile/web apps with the Dart SDK
 - [PostGIS](/guide/postgis) — Add geospatial support with GeoJSON columns
+- [Demos](/guide/demos) — See live examples: kanban, Live Polls, and movies with vector search
 - [Deployment](/guide/deployment) — Deploy to production with Docker or bare metal
 - [REST API Reference](/guide/api-reference) — Full endpoint documentation
 - [Quickstart: Todo App](/guide/quickstart) — Build a full CRUD app in 5 minutes
