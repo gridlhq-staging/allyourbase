@@ -1,6 +1,31 @@
 import Foundation
 
 enum ContractFixtures {
+    private static let fixtureRoot = URL(fileURLWithPath: #filePath)
+        .deletingLastPathComponent()
+        .deletingLastPathComponent()
+        .deletingLastPathComponent()
+        .deletingLastPathComponent()
+        .deletingLastPathComponent()
+        .appendingPathComponent("tests/contract/fixtures")
+
+    private static func loadFixture(at relativePath: String) -> [String: Any] {
+        let url = fixtureRoot.appendingPathComponent(relativePath)
+        guard let data = try? Data(contentsOf: url),
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            fatalError("Failed to load fixture: \(relativePath)")
+        }
+        return json
+    }
+
+    private static func loadParityResponse(_ name: String) -> [String: Any] {
+        let fixture = loadFixture(at: "sdk_parity/\(name)")
+        guard let response = fixture["response"] as? [String: Any] else {
+            fatalError("Missing response object in parity fixture: \(name)")
+        }
+        return response
+    }
+
     nonisolated(unsafe) static let authResponse: [String: Any] = [
         "token": "jwt_stage3",
         "refreshToken": "refresh_stage3",
@@ -12,6 +37,12 @@ enum ContractFixtures {
             "updated_at": NSNull(),
         ],
     ]
+
+    nonisolated(unsafe) static let anonymousAuthResponse: [String: Any] = loadParityResponse("anonymous.json")
+    nonisolated(unsafe) static let magicLinkRequestResponse: [String: Any] = loadFixture(at: "sdk_contract/magic_link_request_response.json")
+    nonisolated(unsafe) static let magicLinkConfirmResponse: [String: Any] = loadFixture(at: "sdk_contract/magic_link_confirm_success_response.json")
+    nonisolated(unsafe) static let magicLinkConfirmPendingMFAResponse: [String: Any] = loadFixture(at: "sdk_contract/magic_link_confirm_pending_mfa_response.json")
+    nonisolated(unsafe) static let linkEmailResponse: [String: Any] = loadParityResponse("link_email.json")
 
     nonisolated(unsafe) static let recordPayload: [String: Any] = [
         "id": "rec_1",

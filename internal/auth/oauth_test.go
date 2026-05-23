@@ -634,9 +634,10 @@ func TestHandleOAuthCallbackProviderTokenPersistenceFailurePublishesViaSSE(t *te
 	pub := newFakeOAuthPublisher()
 	pub.clients["sse-token-store-failure"] = true
 	h.SetOAuthPublisher(pub)
-	h.oauthStateStore.RegisterExternalState("sse-token-store-failure")
+	state, err := h.oauthStateStore.GenerateWithReturnToAndSSEClient("", "sse-token-store-failure")
+	testutil.NoError(t, err)
 
-	req := httptest.NewRequest(http.MethodGet, "/oauth/google/callback?code=test-code&state=sse-token-store-failure", nil)
+	req := httptest.NewRequest(http.MethodGet, "/oauth/google/callback?code=test-code&state="+url.QueryEscape(state), nil)
 	req.Host = "localhost:8090"
 	w := httptest.NewRecorder()
 	h.Routes().ServeHTTP(w, req)
@@ -726,8 +727,16 @@ func TestHandleOAuthRedirectWithSSEState(t *testing.T) {
 	testutil.Equal(t, http.StatusTemporaryRedirect, w.Code)
 	loc := w.Header().Get("Location")
 	testutil.Contains(t, loc, "accounts.google.com")
-	// The state should be the SSE client ID, not a newly generated one.
-	testutil.Contains(t, loc, "state=sse-client-42")
+	redirectURL, err := url.Parse(loc)
+	testutil.NoError(t, err)
+	state := redirectURL.Query().Get("state")
+	testutil.True(t, state != "", "redirect should include a generated state")
+	testutil.True(t, state != "sse-client-42", "provider-facing state must not expose the SSE client ID")
+
+	entry, ok := h.oauthStateStore.ValidateAndConsumeEntry(state)
+	testutil.True(t, ok, "generated state should validate")
+	testutil.Equal(t, "sse-client-42", entry.sseClient)
+	testutil.Equal(t, "", entry.returnTo)
 }
 
 func TestHandleOAuthRedirectIgnoresUnknownState(t *testing.T) {
@@ -773,11 +782,11 @@ func TestOAuthCallbackPublishesErrorViaSSEOnExchangeFailure(t *testing.T) {
 	pub.clients["sse-client-99"] = true
 	h.SetOAuthPublisher(pub)
 
-	// Register the SSE clientId as valid state.
-	h.oauthStateStore.RegisterExternalState("sse-client-99")
+	state, err := h.oauthStateStore.GenerateWithReturnToAndSSEClient("", "sse-client-99")
+	testutil.NoError(t, err)
 
 	router := h.Routes()
-	req := httptest.NewRequest(http.MethodGet, "/oauth/google/callback?code=bad&state=sse-client-99", nil)
+	req := httptest.NewRequest(http.MethodGet, "/oauth/google/callback?code=bad&state="+url.QueryEscape(state), nil)
 	req.Host = "localhost:8090"
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
@@ -838,10 +847,12 @@ func TestOAuthProviderErrorPublishesViaSSEWhenPopup(t *testing.T) {
 	pub := newFakeOAuthPublisher()
 	pub.clients["sse-popup"] = true
 	h.SetOAuthPublisher(pub)
+	state, err := h.oauthStateStore.GenerateWithReturnToAndSSEClient("", "sse-popup")
+	testutil.NoError(t, err)
 
 	router := h.Routes()
 	req := httptest.NewRequest(http.MethodGet,
-		"/oauth/google/callback?error=access_denied&error_description=user+denied&state=sse-popup", nil)
+		"/oauth/google/callback?error=access_denied&error_description=user+denied&state="+url.QueryEscape(state), nil)
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 
@@ -852,6 +863,26 @@ func TestOAuthProviderErrorPublishesViaSSEWhenPopup(t *testing.T) {
 	// Should publish error via SSE.
 	testutil.SliceLen(t, pub.published, 1)
 	testutil.Contains(t, pub.published[0].Error, "denied or failed")
+}
+
+func TestOAuthProviderErrorRejectsBareSSEClientIDState(t *testing.T) {
+	t.Parallel()
+	svc := newTestService()
+	h := NewHandler(svc, testutil.DiscardLogger())
+	h.SetOAuthProvider("google", OAuthClientConfig{ClientID: "id", ClientSecret: "secret"})
+
+	pub := newFakeOAuthPublisher()
+	pub.clients["sse-popup"] = true
+	h.SetOAuthPublisher(pub)
+
+	req := httptest.NewRequest(http.MethodGet,
+		"/oauth/google/callback?error=access_denied&error_description=user+denied&state=sse-popup", nil)
+	w := httptest.NewRecorder()
+	h.Routes().ServeHTTP(w, req)
+
+	testutil.Equal(t, http.StatusBadRequest, w.Code)
+	testutil.Contains(t, w.Body.String(), "denied or failed")
+	testutil.SliceLen(t, pub.published, 0)
 }
 
 func TestOAuthCallbackPublishesSuccessViaSSEInsteadOfJSON(t *testing.T) {
@@ -891,9 +922,10 @@ func TestOAuthCallbackPublishesSuccessViaSSEInsteadOfJSON(t *testing.T) {
 	pub := newFakeOAuthPublisher()
 	pub.clients["sse-success"] = true
 	h.SetOAuthPublisher(pub)
-	h.oauthStateStore.RegisterExternalState("sse-success")
+	state, err := h.oauthStateStore.GenerateWithReturnToAndSSEClient("", "sse-success")
+	testutil.NoError(t, err)
 
-	req := httptest.NewRequest(http.MethodGet, "/oauth/google/callback?code=test-code&state=sse-success", nil)
+	req := httptest.NewRequest(http.MethodGet, "/oauth/google/callback?code=test-code&state="+url.QueryEscape(state), nil)
 	req.Host = "localhost:8090"
 	w := httptest.NewRecorder()
 	h.Routes().ServeHTTP(w, req)

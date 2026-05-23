@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import json
+from pathlib import Path
+
 import httpx
 import pytest
 
@@ -9,11 +12,31 @@ from allyourbase.types import (
     AuthResponse,
     BatchResult,
     ListResponse,
+    MagicLinkConfirmResponse,
+    MagicLinkRequestResponse,
     RealtimeEvent,
     StorageListResponse,
     StorageObject,
     User,
 )
+
+_CONTRACT_FIXTURE_DIR = (
+    Path(__file__).resolve().parents[2] / "tests" / "contract" / "fixtures" / "sdk_contract"
+)
+_PARITY_FIXTURE_DIR = (
+    Path(__file__).resolve().parents[2] / "tests" / "contract" / "fixtures" / "sdk_parity"
+)
+_MAGIC_LINK_REQUEST_RESPONSE_FIXTURE = json.loads(
+    (_CONTRACT_FIXTURE_DIR / "magic_link_request_response.json").read_text()
+)
+_MAGIC_LINK_CONFIRM_SUCCESS_FIXTURE = json.loads(
+    (_CONTRACT_FIXTURE_DIR / "magic_link_confirm_success_response.json").read_text()
+)
+_MAGIC_LINK_CONFIRM_PENDING_MFA_FIXTURE = json.loads(
+    (_CONTRACT_FIXTURE_DIR / "magic_link_confirm_pending_mfa_response.json").read_text()
+)
+_ANONYMOUS_FIXTURE = json.loads((_PARITY_FIXTURE_DIR / "anonymous.json").read_text())
+_LINK_EMAIL_FIXTURE = json.loads((_PARITY_FIXTURE_DIR / "link_email.json").read_text())
 
 
 def test_auth_response_matches_server_shape() -> None:
@@ -40,6 +63,38 @@ def test_user_minimal_fields() -> None:
     user = User.model_validate({"id": "usr_2", "email": "bob@example.com"})
     assert user.id == "usr_2"
     assert user.email == "bob@example.com"
+
+
+def test_magic_link_request_response_matches_canonical_shape() -> None:
+    response = MagicLinkRequestResponse.model_validate(_MAGIC_LINK_REQUEST_RESPONSE_FIXTURE)
+    assert response.message == "If an account exists, a magic link has been sent."
+
+
+def test_magic_link_confirm_response_parses_success_and_pending_mfa_payloads() -> None:
+    success_response = MagicLinkConfirmResponse.model_validate(_MAGIC_LINK_CONFIRM_SUCCESS_FIXTURE)
+    pending_response = MagicLinkConfirmResponse.model_validate(_MAGIC_LINK_CONFIRM_PENDING_MFA_FIXTURE)
+
+    assert success_response.is_pending_mfa is False
+    assert success_response.user is not None
+    assert success_response.user.email == "magic@allyourbase.io"
+    assert success_response.user.email_verified is True
+    assert success_response.user.created_at == "2026-05-01T12:00:00Z"
+    assert success_response.user.updated_at is None
+
+    assert pending_response.is_pending_mfa is True
+    assert pending_response.mfa_pending is True
+    assert pending_response.mfa_token == "mfa_pending_token_stage1"
+
+
+def test_user_model_accepts_snake_case_and_camelcase_auth_fields() -> None:
+    anonymous_user = User.model_validate(_ANONYMOUS_FIXTURE["response"]["user"])
+    linked_user = User.model_validate(_LINK_EMAIL_FIXTURE["response"]["user"])
+
+    assert anonymous_user.is_anonymous is True
+    assert anonymous_user.created_at is not None
+    assert anonymous_user.updated_at is not None
+    assert linked_user.linked_at is not None
+    assert linked_user.email_verified is None
 
 
 async def test_ayberror_parses_server_error_response_doc_url() -> None:

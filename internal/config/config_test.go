@@ -2381,6 +2381,33 @@ func TestSetValueAuthSMSAllowedCountries(t *testing.T) {
 	testutil.Equal(t, "US,CA,GB", got)
 }
 
+func TestSetValueAuthOAuthReturnToAllowlist(t *testing.T) {
+	dir := t.TempDir()
+	tomlPath := filepath.Join(dir, "ayb.toml")
+
+	testutil.True(t, IsValidKey("auth.oauth_return_to_allowlist"))
+	testutil.NoError(t, SetValue(tomlPath, "auth.oauth_return_to_allowlist", " App.Example.com , LOGIN.EXAMPLE.ORG ,,"))
+
+	cfg, err := Load(tomlPath, nil)
+	testutil.NoError(t, err)
+	testutil.SliceLen(t, cfg.Auth.OAuthReturnToAllowlist, 2)
+	testutil.Equal(t, "app.example.com", cfg.Auth.OAuthReturnToAllowlist[0])
+	testutil.Equal(t, "login.example.org", cfg.Auth.OAuthReturnToAllowlist[1])
+
+	got, err := GetValue(cfg, "auth.oauth_return_to_allowlist")
+	testutil.NoError(t, err)
+	testutil.Equal(t, "app.example.com,login.example.org", got)
+}
+
+func TestSetValueAuthOAuthReturnToAllowlistRejectsURLLikeEntry(t *testing.T) {
+	dir := t.TempDir()
+	tomlPath := filepath.Join(dir, "ayb.toml")
+
+	err := SetValue(tomlPath, "auth.oauth_return_to_allowlist", "app.example.com,https://evil.example.com/path")
+	testutil.ErrorContains(t, err, "AYB_AUTH_OAUTH_RETURN_TO_ALLOWLIST")
+	testutil.ErrorContains(t, err, "https://evil.example.com/path")
+}
+
 func TestSetValueTelemetrySampleRateRejectsNaNAndInf(t *testing.T) {
 	dir := t.TempDir()
 	tomlPath := filepath.Join(dir, "ayb.toml")

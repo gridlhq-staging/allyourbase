@@ -1,4 +1,6 @@
 import React from "react";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { AYBProvider, AybLoginBar, DemoSuggestionChip, useAuth, useAybAnonymousBootstrap, useQuery } from "../src";
@@ -6,6 +8,29 @@ import type { AYBClientLike } from "../src/types";
 import { AYBClient } from "../../sdk/src/client";
 import type { AuthResponse, ListResponse } from "../../sdk/src/types";
 import { mockFetchSequence } from "../../sdk/src/test_utils/mockFetchSequence";
+
+const magicLinkRequestFixture = JSON.parse(
+  readFileSync(
+    resolve(__dirname, "../../tests/contract/fixtures/sdk_contract/magic_link_request_response.json"),
+    "utf8",
+  ),
+) as {
+  message: string;
+};
+
+const magicLinkConfirmSuccessFixture = JSON.parse(
+  readFileSync(
+    resolve(__dirname, "../../tests/contract/fixtures/sdk_contract/magic_link_confirm_success_response.json"),
+    "utf8",
+  ),
+) as {
+  token: string;
+  refreshToken: string;
+  user: {
+    id: string;
+    email: string;
+  };
+};
 
 class FakeEventSource {
   private listeners = new Map<string, ((event: MessageEvent) => void)[]>();
@@ -84,6 +109,38 @@ describe("react contract parity", () => {
       expect(result.current.user?.id).toBe("usr_1");
       expect(result.current.user?.email).toBe("dev@allyourbase.io");
     });
+  });
+
+  it("useAuth request/confirm magic-link methods consume canonical fixture shapes parsed by core SDK", async () => {
+    const fetchFn = mockFetchSequence([
+      { status: 200, body: magicLinkRequestFixture },
+      { status: 200, body: magicLinkConfirmSuccessFixture },
+      {
+        status: 200,
+        body: {
+          id: magicLinkConfirmSuccessFixture.user.id,
+          email: magicLinkConfirmSuccessFixture.user.email,
+        },
+      },
+    ]);
+    const core = new AYBClient("https://api.example.com", { fetch: fetchFn });
+    const wrapper = ({ children }: { children: React.ReactNode }) => (
+      <AYBProvider client={core as unknown as AYBClientLike}>{children}</AYBProvider>
+    );
+    const { result } = renderHook(() => useAuth(), { wrapper });
+
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    await act(async () => {
+      await result.current.requestMagicLink("magic@allyourbase.io");
+    });
+    await act(async () => {
+      await result.current.confirmMagicLink("magic-token");
+    });
+
+    expect(result.current.token).toBe(magicLinkConfirmSuccessFixture.token);
+    expect(result.current.refreshToken).toBe(magicLinkConfirmSuccessFixture.refreshToken);
+    expect(result.current.user?.email).toBe(magicLinkConfirmSuccessFixture.user.email);
   });
 
   it("useQuery consumes canonical list fixture shape parsed by core SDK", async () => {

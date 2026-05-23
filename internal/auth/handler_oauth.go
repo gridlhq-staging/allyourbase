@@ -34,21 +34,18 @@ func (h *Handler) handleOAuthRedirect(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// If state is provided and corresponds to an active SSE client, use it
-	// directly (popup flow). Otherwise, generate a new state token.
-	state := r.URL.Query().Get("state")
-	if state != "" && h.oauthPublisher != nil && h.oauthPublisher.HasClient(state) {
-		// Register the SSE clientId as a valid CSRF state in the state store
-		// so the callback can validate it the same way.
-		h.oauthStateStore.RegisterExternalState(state)
-	} else {
-		var err error
-		state, err = h.oauthStateStore.GenerateWithReturnTo(returnTo)
-		if err != nil {
-			h.logger.Error("OAuth state generation error", "error", err)
-			httputil.WriteError(w, http.StatusInternalServerError, "internal error")
-			return
-		}
+	// Popup flows may identify an active SSE client so callback completion can
+	// be published back to that browser tab, but the provider-facing OAuth state
+	// must still be a fresh server-generated nonce rather than the raw client ID.
+	popupClientID := ""
+	if state := r.URL.Query().Get("state"); state != "" && h.oauthPublisher != nil && h.oauthPublisher.HasClient(state) {
+		popupClientID = state
+	}
+	state, err := h.oauthStateStore.GenerateWithReturnToAndSSEClient(returnTo, popupClientID)
+	if err != nil {
+		h.logger.Error("OAuth state generation error", "error", err)
+		httputil.WriteError(w, http.StatusInternalServerError, "internal error")
+		return
 	}
 
 	callbackURL := oauthCallbackURL(r, provider)
@@ -198,6 +195,7 @@ type oauthCallbackRequest struct {
 	client      OAuthClientConfig
 	state       string
 	returnTo    string
+	sseClientID string
 	code        string
 	isSSEClient bool
 }
@@ -242,29 +240,35 @@ func (h *Handler) normalizeOAuthCallbackRequest(w http.ResponseWriter, r *http.R
 		return nil, false
 	}
 
+	req.state = oauthCallbackParam(r, "state")
 	errMsg := oauthCallbackParam(r, "error")
 	if errMsg != "" {
 		desc := oauthCallbackParam(r, "error_description")
 		h.logger.Warn("OAuth provider error", "provider", req.provider, "error", errMsg, "description", desc)
-		state := oauthCallbackParam(r, "state")
-		if h.oauthPublisher != nil && h.oauthPublisher.HasClient(state) {
-			h.oauthPublisher.PublishOAuth(state, &OAuthEvent{Error: "OAuth authentication was denied or failed"})
-			h.writeOAuthCompletePage(w)
-			return nil, false
+		if stateEntry, ok := h.oauthStateStore.ValidateAndConsumeEntry(req.state); ok {
+			req.returnTo = stateEntry.returnTo
+			req.sseClientID = stateEntry.sseClient
+			req.isSSEClient = req.sseClientID != "" && h.oauthPublisher != nil && h.oauthPublisher.HasClient(req.sseClientID)
+			if req.isSSEClient {
+				h.oauthPublisher.PublishOAuth(req.sseClientID, &OAuthEvent{Error: "OAuth authentication was denied or failed"})
+				h.writeOAuthCompletePage(w)
+				return nil, false
+			}
 		}
 		httputil.WriteErrorWithDocURL(w, http.StatusBadRequest, "OAuth authentication was denied or failed",
 			"https://allyourbase.io/guide/authentication#oauth")
 		return nil, false
 	}
 
-	req.state = oauthCallbackParam(r, "state")
-	req.isSSEClient = h.oauthPublisher != nil && h.oauthPublisher.HasClient(req.state)
-	req.returnTo, ok = h.oauthStateStore.ValidateAndConsumeReturnTo(req.state)
+	stateEntry, ok := h.oauthStateStore.ValidateAndConsumeEntry(req.state)
 	if !ok {
 		httputil.WriteErrorWithDocURL(w, http.StatusBadRequest, "invalid or expired OAuth state",
 			"https://allyourbase.io/guide/authentication#oauth")
 		return nil, false
 	}
+	req.returnTo = stateEntry.returnTo
+	req.sseClientID = stateEntry.sseClient
+	req.isSSEClient = req.sseClientID != "" && h.oauthPublisher != nil && h.oauthPublisher.HasClient(req.sseClientID)
 
 	req.code = oauthCallbackParam(r, "code")
 	if req.code == "" {
@@ -291,7 +295,7 @@ func (h *Handler) exchangeAndEnrichOAuthCallbackUser(w http.ResponseWriter, r *h
 	if err != nil {
 		h.logger.Error("OAuth code exchange error", "provider", callbackReq.provider, "error", err)
 		if callbackReq.isSSEClient {
-			h.oauthPublisher.PublishOAuth(callbackReq.state, &OAuthEvent{
+			h.oauthPublisher.PublishOAuth(callbackReq.sseClientID, &OAuthEvent{
 				Error: "failed to authenticate with provider",
 			})
 			h.writeOAuthCompletePage(w)
@@ -323,7 +327,7 @@ func (h *Handler) loginAndPersistOAuthCallback(w http.ResponseWriter, r *http.Re
 	if err != nil {
 		h.logger.Error("OAuth login error", "provider", callbackReq.provider, "error", err)
 		if callbackReq.isSSEClient {
-			h.oauthPublisher.PublishOAuth(callbackReq.state, &OAuthEvent{Error: "internal error"})
+			h.oauthPublisher.PublishOAuth(callbackReq.sseClientID, &OAuthEvent{Error: "internal error"})
 			h.writeOAuthCompletePage(w)
 			return nil, "", "", false
 		}
@@ -345,7 +349,7 @@ func (h *Handler) loginAndPersistOAuthCallback(w http.ResponseWriter, r *http.Re
 		); err != nil {
 			h.logger.Error("failed to persist provider tokens", "provider", callbackReq.provider, "user_id", user.ID, "error", err)
 			if callbackReq.isSSEClient {
-				h.oauthPublisher.PublishOAuth(callbackReq.state, &OAuthEvent{Error: "internal error"})
+				h.oauthPublisher.PublishOAuth(callbackReq.sseClientID, &OAuthEvent{Error: "internal error"})
 				h.writeOAuthCompletePage(w)
 				return nil, "", "", false
 			}
@@ -372,7 +376,7 @@ func (h *Handler) dispatchOAuthCallbackResponse(w http.ResponseWriter, r *http.R
 			evt.Token = ""
 			evt.User = nil
 		}
-		h.oauthPublisher.PublishOAuth(callbackReq.state, evt)
+		h.oauthPublisher.PublishOAuth(callbackReq.sseClientID, evt)
 		h.writeOAuthCompletePage(w)
 		return
 	}

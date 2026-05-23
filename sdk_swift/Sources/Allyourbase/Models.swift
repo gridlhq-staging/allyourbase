@@ -203,9 +203,46 @@ public struct AuthResponse {
     }
 }
 
+public struct MagicLinkRequestResponse {
+    public let message: String
+
+    public init(message: String) {
+        self.message = message
+    }
+
+    public init(from json: [String: Any]) throws {
+        self.message = try AYBJSON.requiredString(json, ["message"], "MagicLinkRequestResponse.message")
+    }
+
+    public static func decode(_ json: Any) throws -> MagicLinkRequestResponse {
+        return try MagicLinkRequestResponse(from: try AYBJSON.expectDictionary(json, "MagicLinkRequestResponse"))
+    }
+}
+
+public enum MagicLinkConfirmResponse {
+    case authenticated(AuthResponse)
+    case pendingMFA(mfaToken: String)
+
+    public static func decode(_ json: Any) throws -> MagicLinkConfirmResponse {
+        let dictionary = try AYBJSON.expectDictionary(json, "MagicLinkConfirmResponse")
+        let mfaPending = AYBJSON.optionalBool(dictionary, ["mfa_pending", "mfaPending"]) ?? false
+        if mfaPending {
+            let mfaToken = try AYBJSON.requiredString(
+                dictionary,
+                ["mfa_token", "mfaToken"],
+                "MagicLinkConfirmResponse.mfaToken"
+            )
+            return .pendingMFA(mfaToken: mfaToken)
+        }
+        return .authenticated(try AuthResponse(from: dictionary))
+    }
+}
+
 public struct User {
     public let id: String
     public let email: String
+    public let isAnonymous: Bool?
+    public let linkedAt: String?
     public let emailVerified: Bool?
     public let createdAt: String?
     public let updatedAt: String?
@@ -213,12 +250,16 @@ public struct User {
     public init(
         id: String,
         email: String,
+        isAnonymous: Bool? = nil,
+        linkedAt: String? = nil,
         emailVerified: Bool? = nil,
         createdAt: String? = nil,
         updatedAt: String? = nil
     ) {
         self.id = id
         self.email = email
+        self.isAnonymous = isAnonymous
+        self.linkedAt = linkedAt
         self.emailVerified = emailVerified
         self.createdAt = createdAt
         self.updatedAt = updatedAt
@@ -227,7 +268,9 @@ public struct User {
     public init(from json: [String: Any]) throws {
         self.id = try AYBJSON.requiredString(json, ["id", "userId", "user_id"], "User.id")
         self.email = try AYBJSON.requiredString(json, ["email", "emailAddress", "email_address"], "User.email")
-        self.emailVerified = AYBJSON.optionalBool(json, ["emailVerified", "email_verified"]) 
+        self.isAnonymous = AYBJSON.optionalBool(json, ["isAnonymous", "is_anonymous"])
+        self.linkedAt = AYBJSON.optionalString(json, ["linkedAt", "linked_at"])
+        self.emailVerified = AYBJSON.optionalBool(json, ["emailVerified", "email_verified"])
         self.createdAt = AYBJSON.optionalString(json, ["createdAt", "created_at", "created"])
         self.updatedAt = AYBJSON.optionalString(json, ["updatedAt", "updated_at", "updated"])
     }

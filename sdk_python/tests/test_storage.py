@@ -7,7 +7,6 @@ import pytest
 from allyourbase.client import AYBClient
 from allyourbase.types import StorageListResponse, StorageObject
 
-
 _STORAGE_OBJECT = {
     "id": "obj_1",
     "bucket": "avatars",

@@ -111,6 +111,21 @@ export function useAuth(): UseAuthResult {
     await client.auth.signInAnonymously();
   }, [client]);
 
+  const requestMagicLink = useCallback(
+    async (email: string) => {
+      await client.auth.requestMagicLink(email);
+    },
+    [client],
+  );
+
+  const confirmMagicLink = useCallback(
+    async (token: string) => {
+      await client.auth.confirmMagicLink(token);
+      await loadMe();
+    },
+    [client, loadMe],
+  );
+
   const linkEmail = useCallback(
     async (email: string, password: string) => {
       await client.auth.linkEmail(email, password);
@@ -147,6 +162,8 @@ export function useAuth(): UseAuthResult {
     login,
     register,
     signInAnonymously,
+    requestMagicLink,
+    confirmMagicLink,
     linkEmail,
     signInWithOAuth,
     logout,

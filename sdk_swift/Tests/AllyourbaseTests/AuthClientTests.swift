@@ -33,6 +33,135 @@ struct AuthClientTests {
         #expect(request.method.rawValue == "POST")
     }
 
+    @Test func signInAnonymouslyStoresTokensAndEmitsSignedIn() async throws {
+        let transport = MockTransport()
+        transport.enqueue(StubResponse(status: 201, json: ContractFixtures.anonymousAuthResponse))
+        let client = AYBClient(Stage3TestBootstrap.baseURL, transport: transport)
+
+        var emitted: [AuthStateEvent] = []
+        _ = client.onAuthStateChange { event, _ in emitted.append(event) }
+
+        let response = try await client.auth.signInAnonymously()
+
+        #expect(response.user.isAnonymous == true)
+        #expect(client.token == response.token)
+        #expect(client.refreshToken == response.refreshToken)
+        #expect(emitted == [.signedIn])
+        let request = try #require(transport.requests.last)
+        #expect(request.url.absoluteString == "https://api.example.com/api/auth/anonymous")
+        #expect(request.method.rawValue == "POST")
+    }
+
+    @Test func requestMagicLinkPostsEmailWithoutMutatingTokens() async throws {
+        let transport = MockTransport()
+        transport.enqueue(StubResponse(status: 200, json: ContractFixtures.magicLinkRequestResponse))
+        let client = AYBClient(Stage3TestBootstrap.baseURL, transport: transport)
+
+        let response = try await client.auth.requestMagicLink(email: "fixture@example.com")
+
+        #expect(response.message == "If an account exists, a magic link has been sent.")
+        #expect(client.token == nil)
+        #expect(client.refreshToken == nil)
+        let request = try #require(transport.requests.last)
+        #expect(request.url.absoluteString == "https://api.example.com/api/auth/magic-link")
+        let body = try #require(request.body)
+        let payload = try #require(JSONSerialization.jsonObject(with: body) as? [String: String])
+        #expect(payload["email"] == "fixture@example.com")
+    }
+
+    @Test func confirmMagicLinkStoresTokensForAuthenticatedResponse() async throws {
+        let transport = MockTransport()
+        transport.enqueue(StubResponse(status: 200, json: ContractFixtures.magicLinkConfirmResponse))
+        let client = AYBClient(Stage3TestBootstrap.baseURL, transport: transport)
+        var emitted: [AuthStateEvent] = []
+        _ = client.onAuthStateChange { event, _ in emitted.append(event) }
+
+        let response = try await client.auth.confirmMagicLink(token: "sdk-parity-magic-token")
+
+        switch response {
+        case .authenticated(let auth):
+            #expect(auth.user.email == "magic@allyourbase.io")
+            #expect(client.token == "jwt_magic_link")
+            #expect(client.refreshToken == "refresh_magic_link")
+            #expect(emitted == [.signedIn])
+        case .pendingMFA:
+            Issue.record("expected authenticated magic-link response")
+        }
+    }
+
+    @Test func confirmMagicLinkReturnsPendingMFAWithoutMutatingTokens() async throws {
+        let transport = MockTransport()
+        transport.enqueue(StubResponse(status: 200, json: ContractFixtures.magicLinkConfirmPendingMFAResponse))
+        let tokenStore = InMemoryTokenStore(accessToken: "jwt_existing", refreshToken: "refresh_existing")
+        let client = AYBClient(
+            Stage3TestBootstrap.baseURL,
+            transport: transport,
+            tokenStore: tokenStore
+        )
+        var emitted: [AuthStateEvent] = []
+        _ = client.onAuthStateChange { event, _ in emitted.append(event) }
+
+        let response = try await client.auth.confirmMagicLink(token: "pending-mfa-token")
+
+        switch response {
+        case .pendingMFA(let mfaToken):
+            #expect(mfaToken == "mfa_pending_token_stage1")
+            #expect(client.token == "jwt_existing")
+            #expect(client.refreshToken == "refresh_existing")
+            #expect(!emitted.contains(.signedIn))
+        case .authenticated:
+            Issue.record("expected pending MFA response")
+        }
+    }
+
+    @Test func confirmMagicLinkPropagatesNon2xxAYBError() async throws {
+        let transport = MockTransport()
+        transport.enqueue(StubResponse(status: 401, json: [
+            "code": "auth/invalid-magic-link",
+            "message": "invalid magic link token",
+        ]))
+        let client = AYBClient(Stage3TestBootstrap.baseURL, transport: transport)
+
+        do {
+            _ = try await client.auth.confirmMagicLink(token: "bad-token")
+            Issue.record("expected confirmMagicLink to fail")
+        } catch let error as AYBError {
+            #expect(error.status == 401)
+            #expect(error.code == "auth/invalid-magic-link")
+            #expect(error.message == "invalid magic link token")
+        }
+    }
+
+    @Test func linkEmailUsesAuthenticatedRequestAndReturnsLinkedUser() async throws {
+        let transport = MockTransport()
+        transport.enqueue(StubResponse(status: 200, json: ContractFixtures.linkEmailResponse))
+        let client = AYBClient(
+            Stage3TestBootstrap.baseURL,
+            transport: transport,
+            tokenStore: InMemoryTokenStore(accessToken: "anon_token", refreshToken: "anon_refresh")
+        )
+
+        let response = try await client.auth.linkEmail(email: "upgraded@example.com", password: "LinkedPass123!")
+        let fixtureUser = try #require(ContractFixtures.linkEmailResponse["user"] as? [String: Any])
+        let fixtureLinkedAt = try #require(fixtureUser["linked_at"] as? String)
+        let fixtureToken = try #require(ContractFixtures.linkEmailResponse["token"] as? String)
+        let fixtureRefreshToken = try #require(ContractFixtures.linkEmailResponse["refreshToken"] as? String)
+
+        #expect(response.user.email == "upgraded@example.com")
+        #expect(response.user.isAnonymous == nil)
+        #expect(response.user.linkedAt == fixtureLinkedAt)
+        #expect(response.token == fixtureToken)
+        #expect(response.refreshToken == fixtureRefreshToken)
+        #expect(client.token == response.token)
+        #expect(client.refreshToken == response.refreshToken)
+        let request = try #require(transport.requests.last)
+        #expect(lowercasedLookup(request.headers, "Authorization") == "Bearer anon_token")
+        let body = try #require(request.body)
+        let payload = try #require(JSONSerialization.jsonObject(with: body) as? [String: String])
+        #expect(payload["email"] == "upgraded@example.com")
+        #expect(payload["password"] == "LinkedPass123!")
+    }
+
     @Test func meUsesAuthTokenWhenAvailable() async throws {
         let transport = MockTransport()
         transport.enqueue(StubResponse(status: 200, json: [

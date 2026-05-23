@@ -1,5 +1,8 @@
 // Contract tests: verify Dart SDK types parse the exact JSON shapes
 // returned by the AYB Go server. Fixtures match Go struct JSON tags.
+import 'dart:convert';
+import 'dart:io';
+
 import 'package:test/test.dart';
 
 import 'package:allyourbase/src/client.dart';
@@ -7,6 +10,27 @@ import 'package:allyourbase/src/errors.dart';
 import 'package:allyourbase/src/types.dart';
 
 import 'support/deterministic_http_client.dart';
+
+final _magicLinkRequestResponseFixture = (jsonDecode(
+  File('../tests/contract/fixtures/sdk_contract/magic_link_request_response.json').readAsStringSync(),
+) as Map<Object?, Object?>)
+    .cast<String, Object?>();
+final _magicLinkConfirmSuccessFixture = (jsonDecode(
+  File('../tests/contract/fixtures/sdk_contract/magic_link_confirm_success_response.json').readAsStringSync(),
+) as Map<Object?, Object?>)
+    .cast<String, Object?>();
+final _magicLinkConfirmPendingMfaFixture = (jsonDecode(
+  File('../tests/contract/fixtures/sdk_contract/magic_link_confirm_pending_mfa_response.json').readAsStringSync(),
+) as Map<Object?, Object?>)
+    .cast<String, Object?>();
+final _anonymousFixture = (jsonDecode(
+  File('../tests/contract/fixtures/sdk_parity/anonymous.json').readAsStringSync(),
+) as Map<Object?, Object?>)
+    .cast<String, Object?>();
+final _linkEmailFixture = (jsonDecode(
+  File('../tests/contract/fixtures/sdk_parity/link_email.json').readAsStringSync(),
+) as Map<Object?, Object?>)
+    .cast<String, Object?>();
 
 void main() {
   group('Contract: auth responses', () {
@@ -46,6 +70,51 @@ void main() {
       final user = User.fromJson(json);
       expect(user.id, 'usr_2');
       expect(user.email, 'bob@example.com');
+    });
+  });
+
+  group('Contract: magic link responses', () {
+    test('MagicLinkRequestResponse parses canonical message payload', () {
+      final response = MagicLinkRequestResponse.fromJson(_magicLinkRequestResponseFixture);
+
+      expect(response.message, 'If an account exists, a magic link has been sent.');
+    });
+
+    test('MagicLinkConfirmResponse.fromJson parses canonical success payload', () {
+      final response = MagicLinkConfirmResponse.fromJson(_magicLinkConfirmSuccessFixture);
+
+      expect(response.isPendingMFA, isFalse);
+      expect(response.mfaToken, isNull);
+      expect(response.auth, isNotNull);
+      expect(response.auth!.user.email, 'magic@allyourbase.io');
+      expect(response.auth!.user.emailVerified, isTrue);
+      expect(response.auth!.user.createdAt, '2026-05-01T12:00:00Z');
+      expect(response.auth!.user.updatedAt, isNull);
+    });
+
+    test('MagicLinkConfirmResponse.fromJson parses canonical pending MFA payload', () {
+      final response = MagicLinkConfirmResponse.fromJson(_magicLinkConfirmPendingMfaFixture);
+
+      expect(response.isPendingMFA, isTrue);
+      expect(response.mfaToken, 'mfa_pending_token_stage1');
+      expect(response.auth, isNull);
+    });
+  });
+
+  group('Contract: user field normalization', () {
+    test('User.fromJson accepts snake_case from anonymous/link-email fixtures', () {
+      final anonymous = User.fromJson(
+        (_anonymousFixture['response'] as Map<String, Object?>)['user']! as Map<String, Object?>,
+      );
+      final linked = User.fromJson(
+        (_linkEmailFixture['response'] as Map<String, Object?>)['user']! as Map<String, Object?>,
+      );
+
+      expect(anonymous.isAnonymous, isTrue);
+      expect(anonymous.createdAt, isNotNull);
+      expect(anonymous.updatedAt, isNotNull);
+      expect(linked.linkedAt, isNotNull);
+      expect(linked.emailVerified, isNull);
     });
   });
 

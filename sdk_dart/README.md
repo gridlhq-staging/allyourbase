@@ -4,7 +4,7 @@ Pure Dart SDK for the Allyourbase API.
 
 The package mirrors `@allyourbase/js` and supports:
 
-- Auth (register, login, refresh, logout, OAuth redirect flow, password reset, email verification)
+- Auth (register, login, anonymous sign-in, magic links, email linking, refresh, logout, OAuth redirect flow, password reset, email verification)
 - Records CRUD + batch
 - Realtime SSE subscriptions with reconnect
 - Storage upload/list/delete/signed URLs
@@ -68,6 +68,10 @@ final client = AYBClient(
 ```dart
 await client.auth.register('new@example.com', 'strong-password');
 await client.auth.login('user@example.com', 'password');
+await client.auth.signInAnonymously();
+await client.auth.requestMagicLink('user@example.com');
+await client.auth.confirmMagicLink('token-from-email');
+await client.auth.linkEmail('upgraded@example.com', 'StrongPass123!');
 
 final me = await client.auth.me();
 print(me.email);

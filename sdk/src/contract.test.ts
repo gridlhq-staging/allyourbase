@@ -1,4 +1,6 @@
 import { describe, it, expect } from "vitest";
+import { readFileSync, readdirSync } from "node:fs";
+import { resolve } from "node:path";
 import { AYBClient } from "./client";
 import { AYBError } from "./errors";
 import { AYBClient as PublicAYBClient } from "./index";
@@ -6,7 +8,21 @@ import type { AuthResponse as PublicAuthResponse, ListResponse as PublicListResp
 import { mockFetchSequence } from "./test_utils/mockFetchSequence";
 import type { AuthResponse, ListResponse, StorageObject, User } from "./types";
 
+function loadContractFixture(name: string): unknown {
+  const fixturePath = resolve(__dirname, "../../tests/contract/fixtures/sdk_contract", name);
+  return JSON.parse(readFileSync(fixturePath, "utf8")) as unknown;
+}
+
 describe("SDK contract fixtures", () => {
+  it("keeps magic-link fixtures canonical to sdk_contract tree", () => {
+    const sdkParityFixtureDir = resolve(__dirname, "../../tests/contract/fixtures/sdk_parity");
+    const duplicateMagicLinkFixtures = readdirSync(sdkParityFixtureDir).filter((fileName) =>
+      fileName.startsWith("magic_link_"),
+    );
+
+    expect(duplicateMagicLinkFixtures).toEqual([]);
+  });
+
   it("public barrel re-exports core client and canonical types", () => {
     const publicClient = new PublicAYBClient("https://api.example.com");
     expect(publicClient).toBeInstanceOf(AYBClient);
@@ -171,5 +187,57 @@ describe("SDK contract fixtures", () => {
     expect(listed.items[0].updatedAt).toBeUndefined();
     expect(listed.items[1].userId).toBeUndefined();
     expect(listed.items[1].updatedAt).toBeUndefined();
+  });
+
+  it("magic-link request fixture matches canonical response wire shape", async () => {
+    const fetchFn = mockFetchSequence([
+      {
+        status: 200,
+        body: loadContractFixture("magic_link_request_response.json"),
+      },
+    ]);
+
+    const client = new AYBClient("https://api.example.com", { fetch: fetchFn });
+    const response = await client.auth.requestMagicLink("dev@allyourbase.io");
+
+    expect(response).toEqual({ message: "If an account exists, a magic link has been sent." });
+  });
+
+  it("magic-link confirm success fixture normalizes auth response aliases", async () => {
+    const fetchFn = mockFetchSequence([
+      {
+        status: 200,
+        body: loadContractFixture("magic_link_confirm_success_response.json"),
+      },
+    ]);
+
+    const client = new AYBClient("https://api.example.com", { fetch: fetchFn });
+    const response = await client.auth.confirmMagicLink("magic-link-token");
+
+    expect("token" in response).toBe(true);
+    if ("token" in response) {
+      expect(response.token).toBe("jwt_magic_link");
+      expect(response.refreshToken).toBe("refresh_magic_link");
+      expect(response.user.emailVerified).toBe(true);
+      expect(response.user.createdAt).toBe("2026-05-01T12:00:00Z");
+      expect(response.user.updatedAt).toBeUndefined();
+    }
+  });
+
+  it("magic-link confirm pending-mfa fixture normalizes MFA challenge shape", async () => {
+    const fetchFn = mockFetchSequence([
+      {
+        status: 200,
+        body: loadContractFixture("magic_link_confirm_pending_mfa_response.json"),
+      },
+    ]);
+
+    const client = new AYBClient("https://api.example.com", { fetch: fetchFn });
+    const response = await client.auth.confirmMagicLink("magic-link-token");
+
+    expect(response).toEqual({
+      mfaPending: true,
+      mfaToken: "mfa_pending_token_stage1",
+    });
   });
 });

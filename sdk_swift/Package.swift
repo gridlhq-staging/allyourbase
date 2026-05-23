@@ -2,6 +2,7 @@
 import PackageDescription
 
 let developerFrameworksPath = "/Library/Developer/CommandLineTools/Library/Developer/Frameworks"
+let developerRuntimeLibrariesPath = "/Library/Developer/CommandLineTools/Library/Developer/usr/lib"
 let testingPluginPath = "/Library/Developer/CommandLineTools/usr/lib/swift/host/plugins/testing"
 
 let package = Package(
@@ -36,6 +37,8 @@ let package = Package(
                     "-framework", "Testing",
                     "-Xlinker", "-rpath",
                     "-Xlinker", developerFrameworksPath,
+                    "-Xlinker", "-rpath",
+                    "-Xlinker", developerRuntimeLibrariesPath,
                 ]),
             ]
         ),

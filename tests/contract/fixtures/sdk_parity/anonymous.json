@@ -1,0 +1,14 @@
+{
+  "request": {},
+  "response": {
+    "refreshToken": "L_hX8lkW0UGEi9oN9gt8UrVtEPgH6rKnl1F6n7O6zjo",
+    "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJjMmFlYmJjYS1lNmFlLTQ4OGUtOWQ1Zi0wMmJmNjQ3NTJkNWQiLCJleHAiOjE3Nzk0OTE1MjQsImlhdCI6MTc3OTQ5MDYyNCwianRpIjoiZDVhODFhZmQ2ODJmNzAxNDdhYzdkZTI5Y2UwNjAxNzgiLCJlbWFpbCI6IiIsInNpZCI6ImY0M2E1YzE3LTU3ZGYtNDRkZi1iZmJhLTFhMGFhMjVlOWIzNyIsImlzX2Fub255bW91cyI6dHJ1ZSwiYWFsIjoiYWFsMSJ9.dPVDxPQDH_uop__l8iUYq2Zj9k-TJcZJ2blollC1kLw",
+    "user": {
+      "createdAt": "2026-05-22T18:57:04.330142-04:00",
+      "email": "",
+      "id": "c2aebbca-e6ae-488e-9d5f-02bf64752d5d",
+      "is_anonymous": true,
+      "updatedAt": "2026-05-22T18:57:04.330142-04:00"
+    }
+  }
+}

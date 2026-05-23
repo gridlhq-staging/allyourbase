@@ -84,10 +84,59 @@ class AuthResponse {
   }
 }
 
+class MagicLinkRequestResponse {
+  const MagicLinkRequestResponse({
+    required this.message,
+  });
+
+  final String message;
+
+  factory MagicLinkRequestResponse.fromJson(JsonMap json) {
+    return MagicLinkRequestResponse(
+      message: _requireString(json, 'message'),
+    );
+  }
+}
+
+class MagicLinkConfirmResponse {
+  const MagicLinkConfirmResponse._({
+    this.auth,
+    this.mfaToken,
+  });
+
+  final AuthResponse? auth;
+  final String? mfaToken;
+
+  bool get isPendingMFA => auth == null && mfaToken != null;
+
+  factory MagicLinkConfirmResponse.authenticated(AuthResponse auth) {
+    return MagicLinkConfirmResponse._(auth: auth);
+  }
+
+  factory MagicLinkConfirmResponse.pending(String mfaToken) {
+    return MagicLinkConfirmResponse._(mfaToken: mfaToken);
+  }
+
+  factory MagicLinkConfirmResponse.fromJson(JsonMap json) {
+    final mfaPending =
+        _optionalBool(json, 'mfaPending') ?? _optionalBool(json, 'mfa_pending') ?? false;
+    if (mfaPending) {
+      return MagicLinkConfirmResponse.pending(
+        _optionalString(json, 'mfaToken') ?? _requireString(json, 'mfa_token'),
+      );
+    }
+    return MagicLinkConfirmResponse.authenticated(
+      AuthResponse.fromJson(json),
+    );
+  }
+}
+
 class User {
   const User({
     required this.id,
     required this.email,
+    this.isAnonymous,
+    this.linkedAt,
     this.emailVerified,
     this.createdAt,
     this.updatedAt,
@@ -95,6 +144,8 @@ class User {
 
   final String id;
   final String email;
+  final bool? isAnonymous;
+  final String? linkedAt;
   final bool? emailVerified;
   final String? createdAt;
   final String? updatedAt;
@@ -103,6 +154,8 @@ class User {
     return User(
       id: _requireString(json, 'id'),
       email: _requireString(json, 'email'),
+      isAnonymous: _optionalBool(json, 'isAnonymous') ?? _optionalBool(json, 'is_anonymous'),
+      linkedAt: _optionalString(json, 'linkedAt') ?? _optionalString(json, 'linked_at'),
       emailVerified: _optionalBool(json, 'emailVerified') ?? _optionalBool(json, 'email_verified'),
       createdAt: _optionalString(json, 'createdAt') ?? _optionalString(json, 'created_at'),
       updatedAt: _optionalString(json, 'updatedAt') ?? _optionalString(json, 'updated_at'),
@@ -110,13 +163,16 @@ class User {
   }
 
   JsonMap toJson() {
-    return {
+    final json = <String, Object?>{
       'id': id,
       'email': email,
-      'emailVerified': emailVerified,
-      'createdAt': createdAt,
-      'updatedAt': updatedAt,
     };
+    if (isAnonymous != null) json['isAnonymous'] = isAnonymous;
+    if (linkedAt != null) json['linkedAt'] = linkedAt;
+    if (emailVerified != null) json['emailVerified'] = emailVerified;
+    if (createdAt != null) json['createdAt'] = createdAt;
+    if (updatedAt != null) json['updatedAt'] = updatedAt;
+    return json;
   }
 }
 

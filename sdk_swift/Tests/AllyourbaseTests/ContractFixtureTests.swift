@@ -15,6 +15,40 @@ struct ContractFixtureTests {
         #expect(response.user.updatedAt == nil)
     }
 
+    @Test func magicLinkFixturesDecodeThroughModelOwners() throws {
+        let request = try MagicLinkRequestResponse.decode(ContractFixtures.magicLinkRequestResponse)
+        #expect(request.message == "If an account exists, a magic link has been sent.")
+
+        let confirm = try MagicLinkConfirmResponse.decode(ContractFixtures.magicLinkConfirmResponse)
+        switch confirm {
+        case .authenticated(let auth):
+            #expect(auth.user.email == "magic@allyourbase.io")
+            #expect(auth.user.emailVerified == true)
+            #expect(auth.user.createdAt == "2026-05-01T12:00:00Z")
+            #expect(auth.user.updatedAt == nil)
+        case .pendingMFA:
+            Issue.record("expected authenticated fixture")
+        }
+    }
+
+    @Test func pendingMFAMagicLinkFixtureDecodesThroughModelOwner() throws {
+        let response = try MagicLinkConfirmResponse.decode(ContractFixtures.magicLinkConfirmPendingMFAResponse)
+        switch response {
+        case .pendingMFA(let mfaToken):
+            #expect(mfaToken == "mfa_pending_token_stage1")
+        case .authenticated:
+            Issue.record("expected pending MFA fixture")
+        }
+    }
+
+    @Test func linkEmailFixtureNormalizesUserAliasFields() throws {
+        let response = try AuthResponse.decode(ContractFixtures.linkEmailResponse)
+        #expect(response.user.linkedAt != nil)
+        #expect(response.user.emailVerified == nil)
+        #expect(response.user.createdAt != nil)
+        #expect(response.user.updatedAt != nil)
+    }
+
     @Test func listFixtureMetadataAndItemsPreserveOrder() throws {
         let response = try ListResponse.decode(ContractFixtures.listResponse) { item in
             item

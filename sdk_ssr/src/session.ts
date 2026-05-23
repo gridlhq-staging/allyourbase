@@ -1,12 +1,15 @@
-/**
- * @module Loads and validates server-side sessions from cookies, handling token refresh and maintaining session state.
- */
 import { clearSessionCookies, getSessionTokens, serializeCookie } from "./cookies";
 import type { CookieOptions, SessionLoadResult, SSRClientLike } from "./types";
 
 function isAuthError(err: unknown): boolean {
   const status = (err as { status?: number })?.status;
   return status === 401 || status === 403;
+}
+
+function isPendingMfaResponse(
+  response: Awaited<ReturnType<SSRClientLike["auth"]["confirmMagicLink"]>>,
+): response is { mfaPending?: boolean; mfaToken?: string; mfa_pending?: boolean; mfa_token?: string } {
+  return !("token" in response);
 }
 
 /**
@@ -76,4 +79,46 @@ export async function loadServerUser(input: {
 }): Promise<Record<string, unknown> | null> {
   const result = await loadServerSession(input);
   return result.session?.user ?? null;
+}
+
+export async function confirmMagicLinkServer(input: {
+  token: string;
+  client: SSRClientLike;
+  cookieOptions?: CookieOptions;
+}): Promise<SessionLoadResult> {
+  const { token, client, cookieOptions } = input;
+  const response = await client.auth.confirmMagicLink(token);
+
+  if (isPendingMfaResponse(response)) {
+    client.clearTokens();
+    return {
+      session: null,
+      setCookieHeaders: clearSessionCookies(cookieOptions),
+      mfaPending: Boolean(response.mfaPending ?? response.mfa_pending),
+      mfaToken: response.mfaToken ?? response.mfa_token,
+    };
+  }
+
+  if (!response.token || !response.refreshToken) {
+    client.clearTokens();
+    return {
+      session: null,
+      setCookieHeaders: clearSessionCookies(cookieOptions),
+    };
+  }
+
+  client.setTokens(response.token, response.refreshToken);
+  const setCookieHeaders = [
+    serializeCookie(cookieOptions?.accessTokenName ?? "ayb_token", response.token, cookieOptions),
+    serializeCookie(cookieOptions?.refreshTokenName ?? "ayb_refresh_token", response.refreshToken, cookieOptions),
+  ];
+
+  return {
+    session: {
+      token: response.token,
+      refreshToken: response.refreshToken,
+      user: response.user ?? {},
+    },
+    setCookieHeaders,
+  };
 }

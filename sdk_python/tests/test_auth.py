@@ -1,10 +1,34 @@
 from __future__ import annotations
 
+import json
+from pathlib import Path
+
 import pytest
 
 from allyourbase.client import AYBClient
 from allyourbase.errors import AYBError
-from allyourbase.types import AuthResponse, User
+from allyourbase.types import (
+    AuthResponse,
+    MagicLinkConfirmResponse,
+    MagicLinkRequestResponse,
+    User,
+)
+
+_FIXTURE_DIR = Path(__file__).resolve().parents[2] / "tests" / "contract" / "fixtures" / "sdk_parity"
+_CONTRACT_FIXTURE_DIR = (
+    Path(__file__).resolve().parents[2] / "tests" / "contract" / "fixtures" / "sdk_contract"
+)
+_ANONYMOUS_FIXTURE = json.loads((_FIXTURE_DIR / "anonymous.json").read_text())
+_MAGIC_LINK_REQUEST_RESPONSE_FIXTURE = json.loads(
+    (_CONTRACT_FIXTURE_DIR / "magic_link_request_response.json").read_text()
+)
+_MAGIC_LINK_CONFIRM_SUCCESS_FIXTURE = json.loads(
+    (_CONTRACT_FIXTURE_DIR / "magic_link_confirm_success_response.json").read_text()
+)
+_MAGIC_LINK_CONFIRM_PENDING_MFA_FIXTURE = json.loads(
+    (_CONTRACT_FIXTURE_DIR / "magic_link_confirm_pending_mfa_response.json").read_text()
+)
+_LINK_EMAIL_FIXTURE = json.loads((_FIXTURE_DIR / "link_email.json").read_text())
 
 
 def _auth_payload(token: str = "tok", refresh: str = "ref") -> dict[str, object]:
@@ -57,6 +81,117 @@ async def test_login_sends_request_stores_tokens_emits_event(httpx_mock: pytest.
     assert req is not None
     assert req.method == "POST"
     assert str(req.url) == "https://api.example.com/api/auth/login"
+    assert events == ["SIGNED_IN"]
+
+
+async def test_sign_in_anonymously_stores_tokens_and_emits_event(httpx_mock: pytest.fixture) -> None:
+    httpx_mock.add_response(json=_ANONYMOUS_FIXTURE["response"], status_code=201)
+    client = AYBClient("https://api.example.com")
+
+    events: list[str] = []
+    client.on_auth_state_change(lambda e, _: events.append(e))
+
+    result = await client.auth.sign_in_anonymously()
+
+    assert isinstance(result, AuthResponse)
+    assert result.user.is_anonymous is True
+    assert client.token == result.token
+    assert client.refresh_token == result.refresh_token
+    req = httpx_mock.get_request()
+    assert req is not None
+    assert req.method == "POST"
+    assert str(req.url) == "https://api.example.com/api/auth/anonymous"
+    assert req.content == b"{}"
+    assert events == ["SIGNED_IN"]
+
+
+async def test_request_magic_link_uses_shared_contract_fixture(httpx_mock: pytest.fixture) -> None:
+    httpx_mock.add_response(json=_MAGIC_LINK_REQUEST_RESPONSE_FIXTURE)
+    client = AYBClient("https://api.example.com")
+
+    result = await client.auth.request_magic_link("fixture@example.com")
+
+    assert isinstance(result, MagicLinkRequestResponse)
+    assert result.message == _MAGIC_LINK_REQUEST_RESPONSE_FIXTURE["message"]
+    req = httpx_mock.get_request()
+    assert req is not None
+    assert req.method == "POST"
+    assert str(req.url) == "https://api.example.com/api/auth/magic-link"
+    assert req.content == b'{"email":"fixture@example.com"}'
+    assert client.token is None
+    assert client.refresh_token is None
+
+
+async def test_confirm_magic_link_stores_tokens_for_authenticated_response(
+    httpx_mock: pytest.fixture,
+) -> None:
+    httpx_mock.add_response(json=_MAGIC_LINK_CONFIRM_SUCCESS_FIXTURE)
+    client = AYBClient("https://api.example.com")
+
+    events: list[str] = []
+    client.on_auth_state_change(lambda e, _: events.append(e))
+
+    result = await client.auth.confirm_magic_link("sdk-parity-magic-token")
+
+    assert isinstance(result, MagicLinkConfirmResponse)
+    assert result.is_pending_mfa is False
+    assert result.user is not None
+    assert result.user.email == "magic@allyourbase.io"
+    assert result.user.email_verified is True
+    assert result.user.created_at == "2026-05-01T12:00:00Z"
+    assert result.user.updated_at is None
+    assert client.token == result.token
+    assert client.refresh_token == result.refresh_token
+    req = httpx_mock.get_request()
+    assert req is not None
+    assert req.method == "POST"
+    assert str(req.url) == "https://api.example.com/api/auth/magic-link/confirm"
+    assert req.content == b'{"token":"sdk-parity-magic-token"}'
+    assert events == ["SIGNED_IN"]
+
+
+async def test_confirm_magic_link_returns_pending_mfa_without_mutating_tokens(
+    httpx_mock: pytest.fixture,
+) -> None:
+    httpx_mock.add_response(json=_MAGIC_LINK_CONFIRM_PENDING_MFA_FIXTURE)
+    client = AYBClient("https://api.example.com")
+    client.set_tokens("existing_token", "existing_refresh")
+    events: list[str] = []
+    client.on_auth_state_change(lambda e, _: events.append(e))
+
+    result = await client.auth.confirm_magic_link("pending-token")
+
+    assert result.is_pending_mfa is True
+    assert result.mfa_token == "mfa_pending_token_stage1"
+    assert client.token == "existing_token"
+    assert client.refresh_token == "existing_refresh"
+    assert events == []
+
+
+async def test_link_email_uses_shared_contract_fixture_and_auth_header(
+    httpx_mock: pytest.fixture,
+) -> None:
+    httpx_mock.add_response(json=_LINK_EMAIL_FIXTURE["response"])
+    client = AYBClient("https://api.example.com")
+    client.set_tokens("anon_token", "anon_refresh")
+
+    events: list[str] = []
+    client.on_auth_state_change(lambda e, _: events.append(e))
+
+    result = await client.auth.link_email("upgraded@example.com", "LinkedPass123!")
+
+    assert isinstance(result, AuthResponse)
+    assert result.user.email == "upgraded@example.com"
+    assert result.user.is_anonymous is None
+    assert result.user.linked_at is not None
+    assert client.token == result.token
+    assert client.refresh_token == result.refresh_token
+    req = httpx_mock.get_request()
+    assert req is not None
+    assert req.method == "POST"
+    assert str(req.url) == "https://api.example.com/api/auth/link/email"
+    assert req.headers["authorization"] == "Bearer anon_token"
+    assert req.content == b'{"email":"upgraded@example.com","password":"LinkedPass123!"}'
     assert events == ["SIGNED_IN"]
 
 

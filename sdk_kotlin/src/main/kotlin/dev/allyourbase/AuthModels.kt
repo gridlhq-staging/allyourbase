@@ -11,6 +11,10 @@ data class User(
     val id: String,
     @JsonNames("emailAddress", "email_address")
     val email: String,
+    @JsonNames("is_anonymous")
+    val isAnonymous: Boolean? = null,
+    @JsonNames("linked_at")
+    val linkedAt: String? = null,
     @JsonNames("email_verified")
     val emailVerified: Boolean? = null,
     @JsonNames("created_at", "created")
@@ -25,3 +29,14 @@ data class AuthResponse(
     val refreshToken: String,
     val user: User,
 )
+
+@Serializable
+data class MagicLinkRequestResponse(
+    val message: String,
+)
+
+sealed interface MagicLinkConfirmResponse {
+    data class Authenticated(val auth: AuthResponse) : MagicLinkConfirmResponse
+
+    data class PendingMfa(val mfaToken: String) : MagicLinkConfirmResponse
+}

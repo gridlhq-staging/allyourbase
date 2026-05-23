@@ -4,7 +4,7 @@ export {
   parseCookieHeader,
   serializeCookie,
 } from "./cookies";
-export { loadServerSession, loadServerUser } from "./session";
+export { confirmMagicLinkServer, loadServerSession, loadServerUser } from "./session";
 export {
   applyNextSetCookies,
   nextCookieHeader,

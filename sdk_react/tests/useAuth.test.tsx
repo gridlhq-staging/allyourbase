@@ -1,8 +1,32 @@
 import React from "react";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { AYBProvider, useAuth } from "../src";
 import type { AYBClientLike, AuthStateListener } from "../src/types";
+
+const magicLinkRequestFixture = JSON.parse(
+  readFileSync(
+    resolve(__dirname, "../../tests/contract/fixtures/sdk_contract/magic_link_request_response.json"),
+    "utf8",
+  ),
+) as {
+  message: string;
+};
+
+const magicLinkConfirmSuccessFixture = JSON.parse(
+  readFileSync(
+    resolve(__dirname, "../../tests/contract/fixtures/sdk_contract/magic_link_confirm_success_response.json"),
+    "utf8",
+  ),
+) as {
+  token: string;
+  refreshToken: string;
+  user: {
+    email?: string;
+  };
+};
 
 function createAuthClient() {
   let listener: AuthStateListener | null = null;
@@ -26,6 +50,8 @@ function createAuthClient() {
       login: vi.fn(async () => ({ token: "t2", refreshToken: "r2", user: { id: "u1", email: "u@example.com" } })),
       register: vi.fn(async () => ({ token: "t2", refreshToken: "r2", user: { id: "u1", email: "u@example.com" } })),
       signInAnonymously: vi.fn(async () => ({ token: "t3", refreshToken: "r3", user: { id: "guest", isAnonymous: true } })),
+        requestMagicLink: vi.fn(async () => magicLinkRequestFixture),
+        confirmMagicLink: vi.fn(async () => magicLinkConfirmSuccessFixture),
       linkEmail: vi.fn(async () => ({ token: "t4", refreshToken: "r4", user: { id: "u2", email: "next@example.com" } })),
       signInWithOAuth: vi.fn(async () => ({ token: "t5", refreshToken: "r5", user: { id: "u3", email: "oauth@example.com" } })),
       logout: vi.fn(async () => {}),
@@ -116,6 +142,36 @@ describe("useAuth", () => {
       expect(result.current.refreshToken).toBeNull();
     });
     expect(clearTokens).toHaveBeenCalledTimes(1);
+  });
+
+  it("delegates requestMagicLink without forcing a user reload", async () => {
+    const { client } = createAuthClient();
+    const wrapper = ({ children }: { children: React.ReactNode }) => <AYBProvider client={client}>{children}</AYBProvider>;
+    const { result } = renderHook(() => useAuth(), { wrapper });
+
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    await act(async () => {
+      await result.current.requestMagicLink("fixture@example.com");
+    });
+
+    expect(client.auth.requestMagicLink).toHaveBeenCalledWith("fixture@example.com");
+    expect(client.auth.me).toHaveBeenCalledTimes(1);
+  });
+
+  it("delegates confirmMagicLink and reloads the current user", async () => {
+    const { client } = createAuthClient();
+    const wrapper = ({ children }: { children: React.ReactNode }) => <AYBProvider client={client}>{children}</AYBProvider>;
+    const { result } = renderHook(() => useAuth(), { wrapper });
+
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    await act(async () => {
+      await result.current.confirmMagicLink("magic-link-token");
+    });
+
+    expect(client.auth.confirmMagicLink).toHaveBeenCalledWith("magic-link-token");
+    expect(client.auth.me).toHaveBeenCalledTimes(2);
   });
 
   it("delegates stage1 auth methods through client.auth", async () => {

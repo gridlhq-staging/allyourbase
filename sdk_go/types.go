@@ -1,4 +1,3 @@
-// Package allyourbase Core data types for SDK operations including authentication, list responses, batch operations, and storage objects.
 package allyourbase
 
 import "encoding/json"
@@ -6,6 +5,8 @@ import "encoding/json"
 type User struct {
 	ID            string  `json:"id"`
 	Email         string  `json:"email"`
+	IsAnonymous   *bool   `json:"isAnonymous,omitempty"`
+	LinkedAt      *string `json:"linkedAt,omitempty"`
 	EmailVerified *bool   `json:"emailVerified,omitempty"`
 	CreatedAt     string  `json:"createdAt,omitempty"`
 	UpdatedAt     *string `json:"updatedAt,omitempty"`
@@ -16,6 +17,10 @@ func (u *User) UnmarshalJSON(data []byte) error {
 	type userWire struct {
 		ID                 string  `json:"id"`
 		Email              string  `json:"email"`
+		IsAnonymous        *bool   `json:"isAnonymous"`
+		IsAnonymousSnake   *bool   `json:"is_anonymous"`
+		LinkedAt           *string `json:"linkedAt"`
+		LinkedAtSnake      *string `json:"linked_at"`
 		EmailVerified      *bool   `json:"emailVerified"`
 		EmailVerifiedSnake *bool   `json:"email_verified"`
 		CreatedAt          string  `json:"createdAt"`
@@ -31,6 +36,18 @@ func (u *User) UnmarshalJSON(data []byte) error {
 
 	u.ID = wire.ID
 	u.Email = wire.Email
+
+	if wire.IsAnonymous != nil {
+		u.IsAnonymous = wire.IsAnonymous
+	} else {
+		u.IsAnonymous = wire.IsAnonymousSnake
+	}
+
+	if wire.LinkedAt != nil {
+		u.LinkedAt = wire.LinkedAt
+	} else {
+		u.LinkedAt = wire.LinkedAtSnake
+	}
 
 	if wire.EmailVerified != nil {
 		u.EmailVerified = wire.EmailVerified
@@ -57,6 +74,50 @@ type AuthResponse struct {
 	Token        string `json:"token"`
 	RefreshToken string `json:"refreshToken"`
 	User         User   `json:"user"`
+}
+
+type MagicLinkRequestResponse struct {
+	Message string `json:"message"`
+}
+
+type MagicLinkConfirmResponse struct {
+	Auth       *AuthResponse `json:"-"`
+	MFAToken   string        `json:"-"`
+	MFAPending bool          `json:"-"`
+}
+
+func (r *MagicLinkConfirmResponse) UnmarshalJSON(data []byte) error {
+	type confirmWire struct {
+		MFAPending      bool            `json:"mfa_pending"`
+		MFAPendingCamel bool            `json:"mfaPending"`
+		MFAToken        string          `json:"mfa_token"`
+		MFATokenCamel   string          `json:"mfaToken"`
+		Token           string          `json:"token"`
+		RefreshToken    string          `json:"refreshToken"`
+		User            json.RawMessage `json:"user"`
+	}
+
+	var wire confirmWire
+	if err := json.Unmarshal(data, &wire); err != nil {
+		return err
+	}
+
+	r.MFAPending = wire.MFAPending || wire.MFAPendingCamel
+	if wire.MFAToken != "" {
+		r.MFAToken = wire.MFAToken
+	} else {
+		r.MFAToken = wire.MFATokenCamel
+	}
+	if r.MFAPending {
+		return nil
+	}
+
+	var auth AuthResponse
+	if err := json.Unmarshal(data, &auth); err != nil {
+		return err
+	}
+	r.Auth = &auth
+	return nil
 }
 
 type ListResponse struct {

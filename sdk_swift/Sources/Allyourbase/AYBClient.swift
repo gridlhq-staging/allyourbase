@@ -234,6 +234,57 @@ public final class AuthClient {
         try await authenticate(path: "/api/auth/login", email: email, password: password)
     }
 
+    public func signInAnonymously() async throws -> AuthResponse {
+        let response: AuthResponse = try await client.request(
+            "/api/auth/anonymous",
+            method: .post,
+            body: [:],
+            decode: AuthResponse.decode
+        )
+        client.setTokens(response.token, refreshToken: response.refreshToken)
+        client.emitAuthState(.signedIn)
+        return response
+    }
+
+    public func requestMagicLink(email: String) async throws -> MagicLinkRequestResponse {
+        return try await client.request(
+            "/api/auth/magic-link",
+            method: .post,
+            body: ["email": email],
+            decode: MagicLinkRequestResponse.decode
+        )
+    }
+
+    public func confirmMagicLink(token: String) async throws -> MagicLinkConfirmResponse {
+        let response: MagicLinkConfirmResponse = try await client.request(
+            "/api/auth/magic-link/confirm",
+            method: .post,
+            body: ["token": token],
+            decode: { json in
+                let dict = try AYBJSON.expectDictionary(json, "auth.confirmMagicLink")
+                let mfaPending = AYBJSON.optionalBool(dict, ["mfa_pending", "mfaPending"]) ?? false
+                if mfaPending {
+                    let mfaToken = try AYBJSON.requiredString(
+                        dict,
+                        ["mfa_token", "mfaToken"],
+                        "auth.confirmMagicLink.mfaToken"
+                    )
+                    return .pendingMFA(mfaToken: mfaToken)
+                }
+                return .authenticated(try AuthResponse(from: dict))
+            }
+        )
+        if case let .authenticated(auth) = response {
+            client.setTokens(auth.token, refreshToken: auth.refreshToken)
+            client.emitAuthState(.signedIn)
+        }
+        return response
+    }
+
+    public func linkEmail(email: String, password: String) async throws -> AuthResponse {
+        try await authenticate(path: "/api/auth/link/email", email: email, password: password)
+    }
+
     private func authenticate(path: String, email: String, password: String) async throws -> AuthResponse {
         let response: AuthResponse = try await client.request(
             path,

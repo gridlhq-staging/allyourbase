@@ -1,6 +1,3 @@
-"""
-Stub summary for /Users/stuart/parallel_development/allyourbase_dev/MAR18_WS_C_phase5_features_and_phase6/allyourbase_dev/sdk_python/src/allyourbase/storage.py.
-"""
 
 from __future__ import annotations
 
@@ -95,5 +92,10 @@ class StorageClient:
         )
         if resp is None:
             raise RuntimeError("Expected response body for signed URL")
-        result: Dict[str, Any] = resp.json()
-        return result["url"]
+        result: Any = resp.json()
+        if not isinstance(result, dict):
+            raise RuntimeError("Expected object payload for signed URL")
+        url = result.get("url")
+        if not isinstance(url, str):
+            raise RuntimeError("Expected signed URL string in response")
+        return url

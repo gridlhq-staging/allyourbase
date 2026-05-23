@@ -230,7 +230,9 @@ func withConfigKeyMetadata(registry map[string]configKeyMetadata) map[string]con
 	assignCoercer(registry, []string{"telemetry.sample_rate"}, coerceFloatValue)
 	assignCoercer(registry, []string{"edge_functions.max_request_body_bytes"}, coerceInt64Value)
 	assignCoercer(registry, csvCoercionKeys, coerceCSVValue)
+	assignCoercer(registry, []string{"auth.oauth_return_to_allowlist"}, coerceOAuthReturnToAllowlistValue)
 	assignSetValueValidator(registry, "telemetry.sample_rate", validateTelemetrySampleRateValue)
+	assignSetValueValidator(registry, "auth.oauth_return_to_allowlist", validateOAuthReturnToAllowlistValue)
 	return registry
 }
 

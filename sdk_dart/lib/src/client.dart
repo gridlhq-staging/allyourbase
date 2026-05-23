@@ -255,6 +255,57 @@ class AuthClient {
     return response;
   }
 
+  /// Create an anonymous session.
+  Future<AuthResponse> signInAnonymously() async {
+    final response = await client.request<AuthResponse>(
+      '/api/auth/anonymous',
+      method: 'POST',
+      body: const <String, Object?>{},
+      decode: (value) => AuthResponse.fromJson(value as JsonMap),
+    );
+    client.setTokensInternal(response.token, response.refreshToken);
+    client.emitAuthEvent(AuthStateEvent.signedIn);
+    return response;
+  }
+
+  /// Request a passwordless magic link email.
+  Future<MagicLinkRequestResponse> requestMagicLink(String email) {
+    return client.request<MagicLinkRequestResponse>(
+      '/api/auth/magic-link',
+      method: 'POST',
+      body: {'email': email},
+      decode: (value) => MagicLinkRequestResponse.fromJson(value as JsonMap),
+    );
+  }
+
+  /// Confirm a passwordless magic link token.
+  Future<MagicLinkConfirmResponse> confirmMagicLink(String token) async {
+    final response = await client.request<MagicLinkConfirmResponse>(
+      '/api/auth/magic-link/confirm',
+      method: 'POST',
+      body: {'token': token},
+      decode: (value) => MagicLinkConfirmResponse.fromJson(value as JsonMap),
+    );
+    if (!response.isPendingMFA && response.auth != null) {
+      client.setTokensInternal(response.auth!.token, response.auth!.refreshToken);
+      client.emitAuthEvent(AuthStateEvent.signedIn);
+    }
+    return response;
+  }
+
+  /// Upgrade an anonymous user to email/password credentials.
+  Future<AuthResponse> linkEmail(String email, String password) async {
+    final response = await client.request<AuthResponse>(
+      '/api/auth/link/email',
+      method: 'POST',
+      body: {'email': email, 'password': password},
+      decode: (value) => AuthResponse.fromJson(value as JsonMap),
+    );
+    client.setTokensInternal(response.token, response.refreshToken);
+    client.emitAuthEvent(AuthStateEvent.signedIn);
+    return response;
+  }
+
   /// Get the current authenticated user.
   Future<User> me() {
     return client.request<User>(

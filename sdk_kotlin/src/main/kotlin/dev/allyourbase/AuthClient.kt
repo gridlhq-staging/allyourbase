@@ -2,7 +2,11 @@ package dev.allyourbase
 
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 import kotlinx.serialization.serializer
 
@@ -16,6 +20,43 @@ class AuthClient internal constructor(
 
     suspend fun login(email: String, password: String): AuthResponse =
         authenticate(path = "/api/auth/login", email = email, password = password)
+
+    suspend fun signInAnonymously(): AuthResponse {
+        val response: AuthResponse = client.request(
+            path = "/api/auth/anonymous",
+            method = HttpMethod.POST,
+            body = buildJsonObject {},
+            decode = { payload -> decodePayload(payload) },
+        )
+        client.setTokens(response.token, response.refreshToken)
+        client.emitAuthState(AuthStateEvent.SIGNED_IN)
+        return response
+    }
+
+    suspend fun requestMagicLink(email: String): MagicLinkRequestResponse =
+        client.request(
+            path = "/api/auth/magic-link",
+            method = HttpMethod.POST,
+            body = buildJsonObject { put("email", email) },
+            decode = { payload -> decodePayload(payload) },
+        )
+
+    suspend fun confirmMagicLink(token: String): MagicLinkConfirmResponse {
+        val response: MagicLinkConfirmResponse = client.request(
+            path = "/api/auth/magic-link/confirm",
+            method = HttpMethod.POST,
+            body = buildJsonObject { put("token", token) },
+            decode = { payload -> decodeMagicLinkConfirmPayload(payload) },
+        )
+        if (response is MagicLinkConfirmResponse.Authenticated) {
+            client.setTokens(response.auth.token, response.auth.refreshToken)
+            client.emitAuthState(AuthStateEvent.SIGNED_IN)
+        }
+        return response
+    }
+
+    suspend fun linkEmail(email: String, password: String): AuthResponse =
+        authenticate(path = "/api/auth/link/email", email = email, password = password)
 
     suspend fun me(): User =
         client.request(
@@ -81,5 +122,20 @@ class AuthClient internal constructor(
             throw AYBException(status = 500, message = "Empty response payload")
         }
         return json.decodeFromJsonElement(serializer<T>(), payload)
+    }
+
+    private fun decodeMagicLinkConfirmPayload(payload: JsonElement?): MagicLinkConfirmResponse {
+        val objectPayload = payload as? JsonObject
+            ?: throw AYBException(status = 500, message = "Empty response payload")
+        val mfaPending = objectPayload["mfa_pending"]?.jsonPrimitive?.booleanOrNull
+            ?: objectPayload["mfaPending"]?.jsonPrimitive?.booleanOrNull
+            ?: false
+        if (mfaPending) {
+            val mfaToken = objectPayload["mfa_token"]?.jsonPrimitive?.contentOrNull
+                ?: objectPayload["mfaToken"]?.jsonPrimitive?.contentOrNull
+                ?: throw AYBException(status = 500, message = "Missing MFA token")
+            return MagicLinkConfirmResponse.PendingMfa(mfaToken)
+        }
+        return MagicLinkConfirmResponse.Authenticated(json.decodeFromJsonElement(serializer<AuthResponse>(), objectPayload))
     }
 }

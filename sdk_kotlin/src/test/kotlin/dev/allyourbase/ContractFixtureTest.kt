@@ -1,7 +1,9 @@
 package dev.allyourbase
 
 import kotlinx.serialization.json.Json
+import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.jsonPrimitive
+import org.junit.jupiter.api.Assertions.assertNotNull
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Test
@@ -11,26 +13,48 @@ class ContractFixtureTest {
 
     @Test
     fun `auth response and user fixtures decode`() {
-        val payload = """
-            {
-              "token": "jwt_stage3",
-              "refreshToken": "refresh_stage3",
-              "user": {
-                "id": "usr_1",
-                "email": "dev@allyourbase.io",
-                "email_verified": true,
-                "created_at": "2026-01-01T00:00:00Z",
-                "updated_at": null
-              }
-            }
-        """.trimIndent()
+        val response = json.decodeFromJsonElement(AuthResponse.serializer(), ContractFixtures.linkEmailResponse)
+        assertNotNull(response.token)
+        assertNotNull(response.refreshToken)
+        assertEquals("upgraded@example.com", response.user.email)
+        assertNull(response.user.emailVerified)
+        assertNotNull(response.user.linkedAt)
+        assertNotNull(response.user.createdAt)
+        assertNotNull(response.user.updatedAt)
 
-        val response = json.decodeFromString<AuthResponse>(payload)
-        assertEquals("jwt_stage3", response.token)
-        assertEquals("refresh_stage3", response.refreshToken)
-        assertEquals("usr_1", response.user.id)
-        assertEquals(true, response.user.emailVerified)
-        assertNull(response.user.updatedAt)
+        val anonymous = json.decodeFromJsonElement(AuthResponse.serializer(), ContractFixtures.anonymousResponse)
+        assertEquals(true, anonymous.user.isAnonymous)
+    }
+
+    @Test
+    fun `magic link fixtures decode with canonical aliases`() = runTest {
+        val request = json.decodeFromJsonElement(MagicLinkRequestResponse.serializer(), ContractFixtures.magicLinkRequestResponse)
+        assertEquals("If an account exists, a magic link has been sent.", request.message)
+
+        val successTransport = MockHttpTransport()
+        successTransport.enqueue(StubResponse(status = 200, json = ContractFixtures.magicLinkConfirmSuccessResponse))
+        val successClient = AYBClient("https://api.example.com", transport = successTransport)
+        val success = successClient.auth.confirmMagicLink("fixture-token-success")
+        when (success) {
+            is MagicLinkConfirmResponse.Authenticated -> {
+                assertEquals("jwt_magic_link", success.auth.token)
+                assertEquals("refresh_magic_link", success.auth.refreshToken)
+                assertEquals("magic@allyourbase.io", success.auth.user.email)
+                assertEquals(true, success.auth.user.emailVerified)
+                assertEquals("2026-05-01T12:00:00Z", success.auth.user.createdAt)
+                assertNull(success.auth.user.updatedAt)
+            }
+            is MagicLinkConfirmResponse.PendingMfa -> throw AssertionError("expected authenticated fixture response")
+        }
+
+        val pendingTransport = MockHttpTransport()
+        pendingTransport.enqueue(StubResponse(status = 200, json = ContractFixtures.magicLinkConfirmPendingMfaResponse))
+        val pendingClient = AYBClient("https://api.example.com", transport = pendingTransport)
+        val pending = pendingClient.auth.confirmMagicLink("fixture-token-pending")
+        when (pending) {
+            is MagicLinkConfirmResponse.PendingMfa -> assertEquals("mfa_pending_token_stage1", pending.mfaToken)
+            is MagicLinkConfirmResponse.Authenticated -> throw AssertionError("expected pending mfa fixture response")
+        }
     }
 
     @Test

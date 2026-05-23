@@ -216,6 +216,7 @@ class RealtimeClient:
             elif field_name == "data":
                 if _data_lines[0] is None:
                     _data_lines[0] = []
+                assert _data_lines[0] is not None
                 _data_lines[0].append(value)
 
         async def _schedule_reconnect() -> None:

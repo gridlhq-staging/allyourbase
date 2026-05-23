@@ -239,6 +239,7 @@ type OAuthStateStore struct {
 type oauthStateEntry struct {
 	expiresAt time.Time
 	returnTo  string
+	sseClient string
 }
 
 // NewOAuthStateStore creates a state store with the given TTL.
@@ -258,6 +259,10 @@ func generateOAuthStateToken() (string, error) {
 }
 
 func (s *OAuthStateStore) upsertStateLocked(token, returnTo string, now time.Time) {
+	s.upsertStateWithSSEClientLocked(token, returnTo, "", now)
+}
+
+func (s *OAuthStateStore) upsertStateWithSSEClientLocked(token, returnTo, sseClient string, now time.Time) {
 	// Prune expired entries opportunistically.
 	for k, entry := range s.states {
 		if now.After(entry.expiresAt) {
@@ -267,6 +272,7 @@ func (s *OAuthStateStore) upsertStateLocked(token, returnTo string, now time.Tim
 	s.states[token] = oauthStateEntry{
 		expiresAt: now.Add(s.ttl),
 		returnTo:  returnTo,
+		sseClient: sseClient,
 	}
 }
 
@@ -293,6 +299,15 @@ func (s *OAuthStateStore) Generate() (string, error) {
 // callback; callers should pass an empty string when no per-request redirect
 // override is requested so AYB falls back to AYB_AUTH_OAUTH_REDIRECT_URL.
 func (s *OAuthStateStore) GenerateWithReturnTo(returnTo string) (string, error) {
+	return s.GenerateWithReturnToAndSSEClient(returnTo, "")
+}
+
+// GenerateWithReturnToAndSSEClient creates a new cryptographic state token and
+// stores it with an already-validated returnTo target plus an optional SSE
+// client ID for popup flows. The SSE client ID never leaves AYB as the
+// provider-facing OAuth state value; the callback resolves it only after the
+// one-time server-generated state token is validated and consumed.
+func (s *OAuthStateStore) GenerateWithReturnToAndSSEClient(returnTo, sseClient string) (string, error) {
 	token, err := generateOAuthStateToken()
 	if err != nil {
 		return "", err
@@ -301,18 +316,19 @@ func (s *OAuthStateStore) GenerateWithReturnTo(returnTo string) (string, error) 
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	now := time.Now()
-	s.upsertStateLocked(token, returnTo, now)
+	s.upsertStateWithSSEClientLocked(token, returnTo, sseClient, now)
 	return token, nil
 }
 
-// RegisterExternalState registers an externally-generated state (e.g. an SSE
-// clientId) as a valid CSRF token with the store's TTL. This allows the OAuth
-// callback to validate SSE client IDs the same way it validates self-generated
-// state tokens.
+// RegisterExternalState registers an externally-generated state (for legacy or
+// test popup flows) as a valid one-time state that is bound to the same SSE
+// client ID at callback time. Production OAuth starts should prefer
+// GenerateWithReturnToAndSSEClient so the provider only ever sees a
+// server-generated nonce.
 func (s *OAuthStateStore) RegisterExternalState(state string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.upsertStateLocked(state, "", time.Now())
+	s.upsertStateWithSSEClientLocked(state, "", state, time.Now())
 }
 
 // Validate checks and consumes a state token (one-time use).
@@ -327,13 +343,23 @@ func (s *OAuthStateStore) Validate(token string) bool {
 // per-request redirect was stored and callback dispatch should use the
 // configured AYB_AUTH_OAUTH_REDIRECT_URL fallback.
 func (s *OAuthStateStore) ValidateAndConsumeReturnTo(token string) (string, bool) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	entry, ok := s.consumeStateLocked(token, time.Now())
+	entry, ok := s.ValidateAndConsumeEntry(token)
 	if !ok {
 		return "", false
 	}
 	return entry.returnTo, true
+}
+
+// ValidateAndConsumeEntry validates and consumes a state token, returning the
+// stored callback metadata for the successful one-time state.
+func (s *OAuthStateStore) ValidateAndConsumeEntry(token string) (oauthStateEntry, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	entry, ok := s.consumeStateLocked(token, time.Now())
+	if !ok {
+		return oauthStateEntry{}, false
+	}
+	return entry, true
 }
 
 func (pc OAuthProviderConfig) tokenAuthMethod() OAuthTokenAuthMethod {

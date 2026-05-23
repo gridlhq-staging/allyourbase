@@ -1,6 +1,3 @@
-/**
- * @module Type definitions for the React SDK including authentication state management, client interface, and query/auth result types.
- */
 export type AuthStateEvent = "SIGNED_IN" | "SIGNED_OUT" | "TOKEN_REFRESHED";
 export type OAuthProvider = "google" | "github";
 
@@ -39,6 +36,8 @@ export interface AYBClientLike {
     login(email: string, password: string): Promise<unknown>;
     register(email: string, password: string): Promise<unknown>;
     signInAnonymously(): Promise<unknown>;
+    requestMagicLink(email: string): Promise<unknown>;
+    confirmMagicLink(token: string): Promise<unknown>;
     linkEmail(email: string, password: string): Promise<unknown>;
     signInWithOAuth(provider: OAuthProvider, options?: OAuthOptions): Promise<unknown>;
     logout(): Promise<void>;
@@ -80,6 +79,8 @@ export interface UseAuthResult {
   login: (email: string, password: string) => Promise<void>;
   register: (email: string, password: string) => Promise<void>;
   signInAnonymously: () => Promise<void>;
+  requestMagicLink: (email: string) => Promise<void>;
+  confirmMagicLink: (token: string) => Promise<void>;
   linkEmail: (email: string, password: string) => Promise<void>;
   signInWithOAuth: (provider: OAuthProvider, options?: OAuthOptions) => Promise<void>;
   logout: () => Promise<void>;

@@ -1,10 +1,14 @@
-"""Auth client for AYB."""
 
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from allyourbase.types import AuthResponse, User
+from allyourbase.types import (
+    AuthResponse,
+    MagicLinkConfirmResponse,
+    MagicLinkRequestResponse,
+    User,
+)
 
 if TYPE_CHECKING:
     from allyourbase.client import AYBClient
@@ -37,6 +41,60 @@ class AuthClient:
         )
         if resp is None:
             raise RuntimeError("Expected response body for login")
+        auth = AuthResponse.model_validate(resp.json())
+        self._client.set_tokens(auth.token, auth.refresh_token)
+        self._client._emit_auth_event("SIGNED_IN")
+        return auth
+
+    async def sign_in_anonymously(self) -> AuthResponse:
+        resp = await self._client._request(
+            "/api/auth/anonymous",
+            method="POST",
+            json={},
+        )
+        if resp is None:
+            raise RuntimeError("Expected response body for sign_in_anonymously")
+        auth = AuthResponse.model_validate(resp.json())
+        self._client.set_tokens(auth.token, auth.refresh_token)
+        self._client._emit_auth_event("SIGNED_IN")
+        return auth
+
+    async def request_magic_link(self, email: str) -> MagicLinkRequestResponse:
+        resp = await self._client._request(
+            "/api/auth/magic-link",
+            method="POST",
+            json={"email": email},
+        )
+        if resp is None:
+            raise RuntimeError("Expected response body for request_magic_link")
+        return MagicLinkRequestResponse.model_validate(resp.json())
+
+    async def confirm_magic_link(self, token: str) -> MagicLinkConfirmResponse:
+        resp = await self._client._request(
+            "/api/auth/magic-link/confirm",
+            method="POST",
+            json={"token": token},
+        )
+        if resp is None:
+            raise RuntimeError("Expected response body for confirm_magic_link")
+        payload = resp.json()
+        if payload.get("mfa_pending") or payload.get("mfaPending"):
+            return MagicLinkConfirmResponse.pending(
+                mfa_token=payload.get("mfa_token") or payload.get("mfaToken") or ""
+            )
+        auth = AuthResponse.model_validate(payload)
+        self._client.set_tokens(auth.token, auth.refresh_token)
+        self._client._emit_auth_event("SIGNED_IN")
+        return MagicLinkConfirmResponse.from_auth(auth)
+
+    async def link_email(self, email: str, password: str) -> AuthResponse:
+        resp = await self._client._request(
+            "/api/auth/link/email",
+            method="POST",
+            json={"email": email, "password": password},
+        )
+        if resp is None:
+            raise RuntimeError("Expected response body for link_email")
         auth = AuthResponse.model_validate(resp.json())
         self._client.set_tokens(auth.token, auth.refresh_token)
         self._client._emit_auth_event("SIGNED_IN")

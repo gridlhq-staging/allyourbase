@@ -1,0 +1,17 @@
+{
+  "request": {
+    "email": "upgraded@example.com",
+    "password": "LinkedPass123!"
+  },
+  "response": {
+    "refreshToken": "jg4cgjZ2iakdDqFdlaoCeEmvZ1l1C93bQHBP06_w_u4",
+    "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJjMmFlYmJjYS1lNmFlLTQ4OGUtOWQ1Zi0wMmJmNjQ3NTJkNWQiLCJleHAiOjE3Nzk0OTE1MjQsImlhdCI6MTc3OTQ5MDYyNCwianRpIjoiYzkwMGJkOTViNmE1MzliMTQzYTFiYzYzNzgwMmRmNTYiLCJlbWFpbCI6InVwZ3JhZGVkQGV4YW1wbGUuY29tIiwic2lkIjoiNmQzMDc3ZjktZGJkYy00ZTYxLTkxYWItNzVmMTA0MjdhM2FlIiwidGVuYW50SWQiOiI5YjRiMDM5Mi01MDljLTRkYTktYmJhNC0wMDc3YTQ5NzNmMjkiLCJhYWwiOiJhYWwxIn0.ZcP-m15fP6pzhcGdJfE8VuY1WtoST1YJf1-pawhSEfQ",
+    "user": {
+      "createdAt": "2026-05-22T18:57:04.330142-04:00",
+      "email": "upgraded@example.com",
+      "id": "c2aebbca-e6ae-488e-9d5f-02bf64752d5d",
+      "linked_at": "2026-05-22T18:57:04.594459-04:00",
+      "updatedAt": "2026-05-22T18:57:04.594459-04:00"
+    }
+  }
+}

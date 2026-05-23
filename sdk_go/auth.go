@@ -18,6 +18,50 @@ func (a *AuthClient) Login(ctx context.Context, email, password string) (*AuthRe
 	return a.authWithCredentials(ctx, "/api/auth/login", email, password)
 }
 
+func (a *AuthClient) SignInAnonymously(ctx context.Context) (*AuthResponse, error) {
+	body, err := a.client.doJSON(ctx, http.MethodPost, "/api/auth/anonymous", nil, map[string]any{})
+	if err != nil {
+		return nil, err
+	}
+	var out AuthResponse
+	if err := json.Unmarshal(body, &out); err != nil {
+		return nil, err
+	}
+	a.client.SetTokens(out.Token, out.RefreshToken)
+	return &out, nil
+}
+
+func (a *AuthClient) RequestMagicLink(ctx context.Context, email string) (*MagicLinkRequestResponse, error) {
+	body, err := a.client.doJSON(ctx, http.MethodPost, "/api/auth/magic-link", nil, map[string]string{"email": email})
+	if err != nil {
+		return nil, err
+	}
+	var out MagicLinkRequestResponse
+	if err := json.Unmarshal(body, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+func (a *AuthClient) ConfirmMagicLink(ctx context.Context, token string) (*MagicLinkConfirmResponse, error) {
+	body, err := a.client.doJSON(ctx, http.MethodPost, "/api/auth/magic-link/confirm", nil, map[string]string{"token": token})
+	if err != nil {
+		return nil, err
+	}
+	var out MagicLinkConfirmResponse
+	if err := json.Unmarshal(body, &out); err != nil {
+		return nil, err
+	}
+	if out.Auth != nil {
+		a.client.SetTokens(out.Auth.Token, out.Auth.RefreshToken)
+	}
+	return &out, nil
+}
+
+func (a *AuthClient) LinkEmail(ctx context.Context, email, password string) (*AuthResponse, error) {
+	return a.authWithCredentials(ctx, "/api/auth/link/email", email, password)
+}
+
 func (a *AuthClient) authWithCredentials(ctx context.Context, path, email, password string) (*AuthResponse, error) {
 	body, err := a.client.doJSON(ctx, http.MethodPost, path, nil, map[string]string{"email": email, "password": password})
 	if err != nil {

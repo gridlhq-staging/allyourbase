@@ -58,33 +58,9 @@ func applyAuthCoreEnv(cfg *Config) error {
 		cfg.Auth.OAuthRedirectURL = v
 	}
 	if v := os.Getenv("AYB_AUTH_OAUTH_RETURN_TO_ALLOWLIST"); v != "" {
-		rawHosts := parseCSV(v)
-		normalizedHosts := make([]string, 0, len(rawHosts))
-		for _, rawHost := range rawHosts {
-			host := strings.ToLower(strings.TrimSpace(rawHost))
-			if host == "" {
-				continue
-			}
-			if strings.ContainsAny(host, " \t\r\n") ||
-				strings.Contains(host, "://") ||
-				strings.ContainsAny(host, "/?#:") ||
-				strings.HasPrefix(host, ".") ||
-				strings.HasSuffix(host, ".") ||
-				strings.Contains(host, "..") {
-				return fmt.Errorf("invalid value for AYB_AUTH_OAUTH_RETURN_TO_ALLOWLIST entry %q: must be a bare hostname", rawHost)
-			}
-			labels := strings.Split(host, ".")
-			for _, label := range labels {
-				if label == "" || strings.HasPrefix(label, "-") || strings.HasSuffix(label, "-") {
-					return fmt.Errorf("invalid value for AYB_AUTH_OAUTH_RETURN_TO_ALLOWLIST entry %q: must be a bare hostname", rawHost)
-				}
-				for _, r := range label {
-					if (r < 'a' || r > 'z') && (r < '0' || r > '9') && r != '-' {
-						return fmt.Errorf("invalid value for AYB_AUTH_OAUTH_RETURN_TO_ALLOWLIST entry %q: must be a bare hostname", rawHost)
-					}
-				}
-			}
-			normalizedHosts = append(normalizedHosts, host)
+		normalizedHosts, err := normalizeOAuthReturnToAllowlistHosts(parseCSV(v))
+		if err != nil {
+			return err
 		}
 		cfg.Auth.OAuthReturnToAllowlist = normalizedHosts
 	}
@@ -107,6 +83,50 @@ func applyAuthCoreEnv(cfg *Config) error {
 		cfg.Auth.EncryptionKey = v
 	}
 	return nil
+}
+
+func normalizeOAuthReturnToAllowlistHosts(rawHosts []string) ([]string, error) {
+	normalizedHosts := make([]string, 0, len(rawHosts))
+	for _, rawHost := range rawHosts {
+		host := strings.ToLower(strings.TrimSpace(rawHost))
+		if host == "" {
+			continue
+		}
+		if strings.ContainsAny(host, " \t\r\n") ||
+			strings.Contains(host, "://") ||
+			strings.ContainsAny(host, "/?#:") ||
+			strings.HasPrefix(host, ".") ||
+			strings.HasSuffix(host, ".") ||
+			strings.Contains(host, "..") {
+			return nil, fmt.Errorf("invalid value for AYB_AUTH_OAUTH_RETURN_TO_ALLOWLIST entry %q: must be a bare hostname", rawHost)
+		}
+		labels := strings.Split(host, ".")
+		for _, label := range labels {
+			if label == "" || strings.HasPrefix(label, "-") || strings.HasSuffix(label, "-") {
+				return nil, fmt.Errorf("invalid value for AYB_AUTH_OAUTH_RETURN_TO_ALLOWLIST entry %q: must be a bare hostname", rawHost)
+			}
+			for _, r := range label {
+				if (r < 'a' || r > 'z') && (r < '0' || r > '9') && r != '-' {
+					return nil, fmt.Errorf("invalid value for AYB_AUTH_OAUTH_RETURN_TO_ALLOWLIST entry %q: must be a bare hostname", rawHost)
+				}
+			}
+		}
+		normalizedHosts = append(normalizedHosts, host)
+	}
+	return normalizedHosts, nil
+}
+
+func validateOAuthReturnToAllowlistValue(value string) error {
+	_, err := normalizeOAuthReturnToAllowlistHosts(parseCSV(value))
+	return err
+}
+
+func coerceOAuthReturnToAllowlistValue(value string) any {
+	normalizedHosts, err := normalizeOAuthReturnToAllowlistHosts(parseCSV(value))
+	if err != nil {
+		return parseCSV(value)
+	}
+	return normalizedHosts
 }
 
 // applyAuthOAuthProviderModeEnv applies OAuth provider-mode environment overrides.

@@ -1,0 +1,19 @@
+{
+  "name": "ayb-cross-demo-e2e",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test:e2e": "playwright test",
+    "test:e2e:flake-gate": "bash -lc 'set -e; for i in 1 2 3; do playwright test cross_demo.spec.ts > /tmp/cross_demo_flake_gate_run${i}.log 2>&1; done'",
+    "lint:e2e": "eslint .",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.58.2",
+    "@types/node": "^22.18.0",
+    "eslint": "^9.39.2",
+    "eslint-plugin-playwright": "^2.7.0",
+    "typescript": "~5.5.0",
+    "typescript-eslint": "^8.56.0"
+  }
+}

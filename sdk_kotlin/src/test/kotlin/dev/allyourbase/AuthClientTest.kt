@@ -8,6 +8,8 @@ import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 import kotlinx.serialization.json.putJsonObject
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertFalse
+import org.junit.jupiter.api.Assertions.assertNotNull
 import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
@@ -61,6 +63,141 @@ class AuthClientTest {
 
         assertEquals("usr_1", me.id)
         assertEquals("Bearer jwt_1", lowercasedLookup(transport.requests.first().headers, "authorization"))
+    }
+
+    @Test
+    fun `sign in anonymously stores tokens and emits signed in`() = runTest {
+        val transport = MockHttpTransport()
+        transport.enqueue(StubResponse(status = 201, json = ContractFixtures.anonymousResponse))
+        val client = AYBClient("https://api.example.com", transport = transport)
+
+        val events = mutableListOf<AuthStateEvent>()
+        client.onAuthStateChange { event, _ -> events.add(event) }
+
+        val response = client.auth.signInAnonymously()
+
+        assertTrue(response.user.isAnonymous == true)
+        assertEquals(response.token, client.token)
+        assertEquals(response.refreshToken, client.refreshToken)
+        assertTrue(events.contains(AuthStateEvent.SIGNED_IN))
+
+        val request = transport.requests.single()
+        assertEquals(HttpMethod.POST, request.method)
+        assertEquals("/api/auth/anonymous", java.net.URI(request.url).path)
+        val body = json.parseToJsonElement(request.body!!.decodeToString()) as JsonObject
+        assertTrue(body.isEmpty())
+    }
+
+    @Test
+    fun `request magic link posts email without mutating tokens`() = runTest {
+        val transport = MockHttpTransport()
+        transport.enqueue(StubResponse(status = 200, json = ContractFixtures.magicLinkRequestResponse))
+        val client = AYBClient("https://api.example.com", transport = transport)
+
+        val response = client.auth.requestMagicLink("fixture@example.com")
+
+        assertEquals("If an account exists, a magic link has been sent.", response.message)
+        assertNull(client.token)
+        assertNull(client.refreshToken)
+
+        val request = transport.requests.single()
+        assertEquals("/api/auth/magic-link", java.net.URI(request.url).path)
+        val body = json.parseToJsonElement(request.body!!.decodeToString()) as JsonObject
+        assertEquals("fixture@example.com", body["email"]!!.jsonPrimitive.content)
+    }
+
+    @Test
+    fun `confirm magic link stores tokens for authenticated response`() = runTest {
+        val transport = MockHttpTransport()
+        transport.enqueue(StubResponse(status = 200, json = ContractFixtures.magicLinkConfirmSuccessResponse))
+        val client = AYBClient("https://api.example.com", transport = transport)
+        val events = mutableListOf<AuthStateEvent>()
+        client.onAuthStateChange { event, _ -> events.add(event) }
+
+        val response = client.auth.confirmMagicLink("sdk-parity-magic-token")
+
+        when (response) {
+            is MagicLinkConfirmResponse.Authenticated -> {
+                assertEquals("magic@allyourbase.io", response.auth.user.email)
+                assertEquals("jwt_magic_link", client.token)
+                assertEquals("refresh_magic_link", client.refreshToken)
+                assertEquals(listOf(AuthStateEvent.SIGNED_IN), events)
+            }
+            is MagicLinkConfirmResponse.PendingMfa -> throw AssertionError("expected authenticated magic-link response")
+        }
+
+        val request = transport.requests.single()
+        assertEquals("/api/auth/magic-link/confirm", java.net.URI(request.url).path)
+        val body = json.parseToJsonElement(request.body!!.decodeToString()) as JsonObject
+        assertEquals("sdk-parity-magic-token", body["token"]!!.jsonPrimitive.content)
+    }
+
+    @Test
+    fun `confirm magic link pending mfa preserves existing tokens and emits no signed in`() = runTest {
+        val transport = MockHttpTransport()
+        transport.enqueue(StubResponse(status = 200, json = ContractFixtures.magicLinkConfirmPendingMfaResponse))
+        val client = AYBClient("https://api.example.com", transport = transport)
+        client.setTokens("jwt_existing", "refresh_existing")
+        val events = mutableListOf<AuthStateEvent>()
+        client.onAuthStateChange { event, _ -> events.add(event) }
+
+        val response = client.auth.confirmMagicLink("pending-token")
+
+        when (response) {
+            is MagicLinkConfirmResponse.PendingMfa -> {
+                assertEquals("mfa_pending_token_stage1", response.mfaToken)
+                assertEquals("jwt_existing", client.token)
+                assertEquals("refresh_existing", client.refreshToken)
+                assertFalse(events.contains(AuthStateEvent.SIGNED_IN))
+            }
+            is MagicLinkConfirmResponse.Authenticated -> throw AssertionError("expected pending mfa response")
+        }
+    }
+
+    @Test
+    fun `confirm magic link non 2xx propagates AYBException from response`() = runTest {
+        val transport = MockHttpTransport()
+        transport.enqueue(
+            StubResponse(
+                status = 401,
+                json = buildJsonObject {
+                    put("code", "auth/invalid-magic-link")
+                    put("message", "invalid magic link token")
+                },
+            ),
+        )
+        val client = AYBClient("https://api.example.com", transport = transport)
+
+        runCatching { client.auth.confirmMagicLink("bad-token") }
+            .onSuccess { throw AssertionError("expected confirmMagicLink failure") }
+            .onFailure { error ->
+                val ayb = error as AYBException
+                assertEquals(401, ayb.status)
+                assertEquals("auth/invalid-magic-link", ayb.code)
+                assertEquals("invalid magic link token", ayb.message)
+            }
+    }
+
+    @Test
+    fun `link email uses authenticated request and returns linked user`() = runTest {
+        val transport = MockHttpTransport()
+        transport.enqueue(StubResponse(status = 200, json = ContractFixtures.linkEmailResponse))
+        val client = AYBClient("https://api.example.com", transport = transport)
+        client.setTokens("anon_token", "anon_refresh")
+
+        val response = client.auth.linkEmail("upgraded@example.com", "LinkedPass123!")
+
+        assertEquals("upgraded@example.com", response.user.email)
+        assertFalse(response.user.isAnonymous ?: false)
+        assertNotNull(response.user.linkedAt)
+        assertEquals(response.token, client.token)
+        assertEquals(response.refreshToken, client.refreshToken)
+
+        val request = transport.requests.single()
+        assertEquals("Bearer anon_token", lowercasedLookup(request.headers, "authorization"))
+        val body = json.parseToJsonElement(request.body!!.decodeToString()) as JsonObject
+        assertEquals("upgraded@example.com", body["email"]!!.jsonPrimitive.content)
+        assertEquals("LinkedPass123!", body["password"]!!.jsonPrimitive.content)
     }
 
     @Test
@@ -161,4 +298,5 @@ class AuthClientTest {
             put("created_at", "2026-01-01T00:00:00Z")
         }
     }
+
 }
