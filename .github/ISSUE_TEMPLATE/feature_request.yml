@@ -1,0 +1,26 @@
+name: Feature request
+description: Propose a product enhancement for Allyourbase.
+body:
+  - type: textarea
+    id: user_need
+    attributes:
+      label: User need or problem
+      description: What user problem are you trying to solve?
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposed_change
+    attributes:
+      label: Proposed change
+      description: What change do you want to see?
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: What alternatives have you evaluated?
+    validations:
+      required: false

@@ -1,0 +1,57 @@
+name: Bug report
+description: Report a reproducible defect in Allyourbase.
+body:
+  - type: input
+    id: ayb_version
+    attributes:
+      label: AYB version
+      description: Which version or commit are you running?
+      placeholder: v0.0.0 or commit SHA
+    validations:
+      required: true
+
+  - type: input
+    id: environment
+    attributes:
+      label: Environment
+      description: OS, architecture, runtime, and relevant setup details.
+      placeholder: macOS 14 arm64, local managed Postgres
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Reproduction steps
+      description: Exact steps or commands needed to reproduce the bug.
+      placeholder: |
+        1. Run ...
+        2. Run ...
+        3. Observe ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected_behavior
+    attributes:
+      label: Expected behavior
+      description: What should have happened?
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual_behavior
+    attributes:
+      label: Actual behavior
+      description: What happened instead?
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs and traces
+      description: Relevant logs, stack traces, or command output.
+      render: shell
+    validations:
+      required: false
