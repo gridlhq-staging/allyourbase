@@ -11,7 +11,7 @@ hero:
       link: /guide/getting-started
     - theme: alt
       text: View on GitHub
-      link: https://github.com/gridlhq-staging/allyourbase
+      link: https://github.com/griddlehq/allyourbase
 
 features:
   - icon: "\u26A1"
@@ -21,7 +21,7 @@ features:
     linkText: API docs
   - icon: "\uD83D\uDD12"
     title: Built-in Auth & RLS
-    details: Email/password, JWT sessions, OAuth (Google, GitHub). Row-Level Security lets you write access rules in SQL.
+    details: Email/password, JWT sessions, OAuth (Google, GitHub, Microsoft, Apple, and more built-in providers). Row-Level Security lets you write access rules in SQL.
     link: /guide/authentication
     linkText: Auth docs
   - icon: "\uD83D\uDCE1"
@@ -56,34 +56,26 @@ features:
 **curl (macOS / Linux)**
 
 ```bash
-curl -fsSL https://allyourbase.io/install.sh | sh
+curl -fsSLo /tmp/ayb-install.sh https://install.allyourbase.io/install.sh
+sh /tmp/ayb-install.sh
 ```
 
 </div>
 <div class="install-option">
 
-**Homebrew**
+**GitHub Releases**
 
-```bash
-brew install gridlhq/tap/ayb
-```
+[Latest binaries on GitHub](https://github.com/griddlehq/allyourbase/releases)
 
 </div>
 <div class="install-option">
 
-**Docker**
+**From source**
 
 ```bash
-docker run -p 8090:8090 ghcr.io/gridlhq-staging/allyourbase
-```
-
-</div>
-<div class="install-option">
-
-**Go**
-
-```bash
-go install github.com/allyourbase/ayb/cmd/ayb@latest
+git clone https://github.com/griddlehq/allyourbase.git
+cd allyourbase
+make build
 ```
 
 </div>
@@ -198,6 +190,6 @@ AYB keeps the single-binary simplicity. For development, `ayb start` runs its ow
 
 ## License
 
-Allyourbase is open source under the [MIT License](https://github.com/gridlhq-staging/allyourbase/blob/main/LICENSE).
+Allyourbase is open source under the [MIT License](https://github.com/griddlehq/allyourbase/blob/main/LICENSE).
 
 </div>

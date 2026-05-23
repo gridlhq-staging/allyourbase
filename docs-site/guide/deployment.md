@@ -1,23 +1,80 @@
 # Deployment
+<!-- audited 2026-03-20 -->
 
-AYB is a single binary with no runtime dependencies. Deploy it however you deploy Go binaries.
+AYB runs as a single `ayb` binary. In containers, the Dockerfile builds an image with:
+
+- `ENTRYPOINT ["/usr/local/bin/docker-entrypoint.sh"]`
+- `CMD ["start", "--foreground"]`
+
+The image also sets `AYB_SERVER_HOST=0.0.0.0`, so `-p 8090:8090` works without adding a custom bind host override.
+
+Public container-image pulls are not available right now because the current GitHub Container Registry package is still private. The commands below use a locally built image from the public repository checkout instead.
 
 ## Docker
 
-### Quick start
+### Build the image locally
 
 ```bash
-docker run -p 8090:8090 ghcr.io/gridlhq-staging/allyourbase
+git clone https://github.com/griddlehq/allyourbase.git
+cd allyourbase
+DOCKER_BUILDKIT=1 docker build -t ayb-local .
 ```
 
-This starts AYB with managed PostgreSQL — no external database needed.
+### Quick start (managed PostgreSQL)
+
+```bash
+docker run --rm -p 8090:8090 \
+  -e AYB_ADMIN_PASSWORD="change-me-to-a-strong-random-password" \
+  ayb-local
+```
+
+This starts `ayb start` in managed PostgreSQL mode (`AYB_DATABASE_URL` unset).
+
+By default, the image keeps public auth and storage disabled. That quick-start
+shape is fine for local admin-only exploration, but internet-facing validation
+should enable auth explicitly and mount data directories for persistence.
+
+### Auth-enabled + persistent local storage
+
+```bash
+mkdir -p ./ayb-pgdata ./ayb-storage
+
+docker run --rm -p 8090:8090 \
+  -e AYB_ADMIN_PASSWORD="change-me-to-a-strong-random-password" \
+  -e AYB_AUTH_ENABLED=true \
+  -e AYB_AUTH_JWT_SECRET="replace-with-a-long-random-secret" \
+  -e AYB_STORAGE_ENABLED=true \
+  -e AYB_DATABASE_EMBEDDED_DATA_DIR=/ayb_pgdata \
+  -e AYB_STORAGE_LOCAL_PATH=/ayb_storage \
+  -v "$PWD/ayb-pgdata:/ayb_pgdata" \
+  -v "$PWD/ayb-storage:/ayb_storage" \
+  ayb-local
+```
+
+This is the recommended shape for Docker smoke validation because it exercises:
+
+- managed PostgreSQL on a bind-mounted data directory
+- auth-enabled public API routes
+- storage persistence across container restarts
 
 ### With external PostgreSQL
 
 ```bash
-docker run -p 8090:8090 \
+docker run --rm -p 8090:8090 \
   -e AYB_DATABASE_URL="postgresql://user:pass@host:5432/mydb" \
-  ghcr.io/gridlhq-staging/allyourbase
+  -e AYB_ADMIN_PASSWORD="change-me-to-a-strong-random-password" \
+  ayb-local
+```
+
+### Dynamic port platforms
+
+For platforms that inject a runtime port, set `AYB_SERVER_PORT` and expose/map the same container port.
+
+```bash
+docker run --rm -p 8080:8080 \
+  -e AYB_SERVER_PORT=8080 \
+  -e AYB_ADMIN_PASSWORD="change-me" \
+  ayb-local
 ```
 
 ### Docker Compose
@@ -25,19 +82,21 @@ docker run -p 8090:8090 \
 ```yaml
 services:
   ayb:
-    image: ghcr.io/gridlhq-staging/allyourbase
+    image: ayb-local
     ports:
       - "8090:8090"
     environment:
-      AYB_DATABASE_URL: "postgresql://ayb:ayb@postgres:5432/ayb?sslmode=disable"
       AYB_AUTH_ENABLED: "true"
-      AYB_AUTH_JWT_SECRET: "change-me-to-a-secure-random-string-at-least-32-chars"
+      AYB_AUTH_JWT_SECRET: "${AYB_AUTH_JWT_SECRET}"
       AYB_STORAGE_ENABLED: "true"
+      AYB_DATABASE_URL: "${AYB_DATABASE_URL}"
+      AYB_ADMIN_PASSWORD: "${AYB_ADMIN_PASSWORD}"
+      AYB_STORAGE_LOCAL_PATH: "/ayb_storage"
     depends_on:
       postgres:
         condition: service_healthy
     volumes:
-      - ayb_storage:/app/ayb_storage
+      - ayb_storage:/ayb_storage
 
   postgres:
     image: postgres:16-alpine
@@ -58,17 +117,20 @@ volumes:
   ayb_storage:
 ```
 
-```bash
-docker compose up -d
-```
+Populate `AYB_DATABASE_URL`, `AYB_ADMIN_PASSWORD`, and `AYB_AUTH_JWT_SECRET`
+from an uncommitted `.env` file or your platform secret manager instead of
+hardcoding secrets in `compose.yaml`.
 
 ## Bare metal / VPS
 
-### Download and install
+### Install
 
 ```bash
-curl -fsSL https://allyourbase.io/install.sh | sh
+curl -fsSLo /tmp/ayb-install.sh https://install.allyourbase.io/install.sh
+sh /tmp/ayb-install.sh
 ```
+
+The installer places the binary at `~/.ayb/bin/ayb` by default.
 
 ### systemd service
 
@@ -77,94 +139,67 @@ Create `/etc/systemd/system/ayb.service`:
 ```ini
 [Unit]
 Description=Allyourbase
-After=network.target postgresql.service
-Wants=postgresql.service
+After=network.target
 
 [Service]
 Type=simple
 User=ayb
 Group=ayb
-WorkingDirectory=/opt/ayb
-ExecStart=/usr/local/bin/ayb start
+WorkingDirectory=/home/ayb
+ExecStart=/home/ayb/.ayb/bin/ayb start
 Restart=always
 RestartSec=5
-Environment=AYB_DATABASE_URL=postgresql://ayb:password@localhost:5432/ayb
+EnvironmentFile=/etc/ayb/ayb.env
 
 [Install]
 WantedBy=multi-user.target
 ```
+
+Create `/etc/ayb/ayb.env` with the runtime secrets and restrict it to root:
+
+```bash
+sudo install -d -m 0750 /etc/ayb
+sudo sh -c 'cat > /etc/ayb/ayb.env <<\"EOF\"
+AYB_DATABASE_URL=postgresql://ayb:password@localhost:5432/ayb
+AYB_ADMIN_PASSWORD=replace-with-a-secure-random-password
+EOF'
+sudo chmod 600 /etc/ayb/ayb.env
+```
+
+Then enable and start:
 
 ```bash
 sudo systemctl enable ayb
 sudo systemctl start ayb
 ```
 
-## Fly.io
+## Required and recommended runtime variables
 
-```bash
-fly launch --image ghcr.io/gridlhq-staging/allyourbase
-fly secrets set AYB_DATABASE_URL="postgresql://..."
-fly secrets set AYB_AUTH_JWT_SECRET="..."
-```
+- Required for external PostgreSQL: `AYB_DATABASE_URL`
+- Strongly recommended: `AYB_ADMIN_PASSWORD`
+- Required for public auth flows: `AYB_AUTH_ENABLED=true` and `AYB_AUTH_JWT_SECRET`
+- Required for storage API flows: `AYB_STORAGE_ENABLED=true`
+- Often required on managed platforms: `AYB_SERVER_PORT`
 
-Create `fly.toml`:
+## PostGIS
 
-```toml
-[env]
-  AYB_AUTH_ENABLED = "true"
-  AYB_STORAGE_ENABLED = "true"
+AYB can run with PostGIS in either mode:
 
-[[services]]
-  internal_port = 8090
-  protocol = "tcp"
+- External PostgreSQL: use a PostGIS-enabled server/image and run `CREATE EXTENSION postgis;`
+- Managed PostgreSQL: enable PostGIS in config via `[managed_pg] postgis = true` (or include `"postgis"` in `managed_pg.extensions`)
 
-  [[services.ports]]
-    port = 443
-    handlers = ["tls", "http"]
-```
-
-## Railway
-
-1. Create a new project on Railway
-2. Add a PostgreSQL database
-3. Deploy from the Docker image `ghcr.io/gridlhq-staging/allyourbase`
-4. Set environment variables:
-   - `AYB_DATABASE_URL` = Railway's `DATABASE_URL`
-   - `AYB_AUTH_JWT_SECRET` = a random 32+ character string
-   - `AYB_SERVER_PORT` = `$PORT` (Railway's dynamic port)
-
-## Embedded vs external PostgreSQL
-
-| | Embedded | External |
-|---|---|---|
-| Setup | Zero config | Provide `database.url` |
-| Best for | Development, prototyping, single-server | Production, scaling |
-| Data location | `~/.ayb/data` (configurable) | Your PostgreSQL server |
-| Backups | Manual | Your existing PG backup strategy |
-| Performance | Good for moderate workloads | Full PostgreSQL performance |
-
-For production, use an external PostgreSQL instance with proper backups, replication, and monitoring.
-
-## Configuration in production
-
-Key settings for production:
-
-```bash
-# Required
-AYB_DATABASE_URL="postgresql://..."
-AYB_AUTH_JWT_SECRET="..."          # min 32 chars, keep secret
-
-# Recommended
-AYB_ADMIN_PASSWORD="..."          # protect the admin dashboard
-AYB_CORS_ORIGINS="https://yourapp.com"
-AYB_LOG_LEVEL="info"
-AYB_EMAIL_BACKEND="smtp"          # or "webhook"
-```
+Managed PostgreSQL extension availability depends on the PostgreSQL build behind that runtime. If you need an extension outside the managed build's default set, use an external PostgreSQL service with that extension already installed.
 
 ## Health check
 
 ```bash
-curl http://localhost:8090/health
+curl http://127.0.0.1:8090/health
 ```
 
-Returns `200 OK` when the server is running and the database is connected. Use this for load balancer health checks and container orchestration.
+`/health` behavior:
+
+- `200` with `{"status":"ok","database":"ok"}` when DB is reachable
+- `200` with `{"status":"ok","database":"not configured"}` when no DB pool is configured
+- `503` with `{"status":"degraded","database":"unreachable"}` when DB checks fail
+
+Use this endpoint for container and load-balancer probes.

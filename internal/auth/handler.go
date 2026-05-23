@@ -53,6 +53,7 @@ type Handler struct {
 	oauthHTTPClient          *http.Client
 	oauthStateStore          *OAuthStateStore
 	oauthRedirectURL         string
+	oauthReturnToAllowlist   []string
 	oauthPublisher           OAuthPublisher                                                                                 // nil when realtime hub not available
 	oauthLoginFn             func(ctx context.Context, provider string, info *OAuthUserInfo) (*User, string, string, error) // test-only override
 	magicLinkEnabled         bool

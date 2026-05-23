@@ -232,36 +232,76 @@ type OAuthUserInfo struct {
 // OAuthStateStore manages CSRF state tokens with TTL-based expiry.
 type OAuthStateStore struct {
 	mu     sync.Mutex
-	states map[string]time.Time
+	states map[string]oauthStateEntry
 	ttl    time.Duration
+}
+
+type oauthStateEntry struct {
+	expiresAt time.Time
+	returnTo  string
 }
 
 // NewOAuthStateStore creates a state store with the given TTL.
 func NewOAuthStateStore(ttl time.Duration) *OAuthStateStore {
 	return &OAuthStateStore{
-		states: make(map[string]time.Time),
+		states: make(map[string]oauthStateEntry),
 		ttl:    ttl,
 	}
 }
 
-// Generate creates a new cryptographic state token and stores it.
-func (s *OAuthStateStore) Generate() (string, error) {
+func generateOAuthStateToken() (string, error) {
 	b := make([]byte, 32)
 	if _, err := rand.Read(b); err != nil {
 		return "", fmt.Errorf("generating state: %w", err)
 	}
-	token := base64.RawURLEncoding.EncodeToString(b)
+	return base64.RawURLEncoding.EncodeToString(b), nil
+}
 
-	s.mu.Lock()
-	defer s.mu.Unlock()
+func (s *OAuthStateStore) upsertStateLocked(token, returnTo string, now time.Time) {
 	// Prune expired entries opportunistically.
-	now := time.Now()
-	for k, exp := range s.states {
-		if now.After(exp) {
+	for k, entry := range s.states {
+		if now.After(entry.expiresAt) {
 			delete(s.states, k)
 		}
 	}
-	s.states[token] = now.Add(s.ttl)
+	s.states[token] = oauthStateEntry{
+		expiresAt: now.Add(s.ttl),
+		returnTo:  returnTo,
+	}
+}
+
+func (s *OAuthStateStore) consumeStateLocked(token string, now time.Time) (oauthStateEntry, bool) {
+	entry, ok := s.states[token]
+	if !ok {
+		return oauthStateEntry{}, false
+	}
+	delete(s.states, token)
+	if !now.Before(entry.expiresAt) {
+		return oauthStateEntry{}, false
+	}
+	return entry, true
+}
+
+// Generate creates a new cryptographic state token and stores it.
+func (s *OAuthStateStore) Generate() (string, error) {
+	return s.GenerateWithReturnTo("")
+}
+
+// GenerateWithReturnTo creates a new cryptographic state token and stores it
+// with the callback returnTo destination that was already validated at OAuth
+// start time. The bound returnTo is consumed exactly once with the state on
+// callback; callers should pass an empty string when no per-request redirect
+// override is requested so AYB falls back to AYB_AUTH_OAUTH_REDIRECT_URL.
+func (s *OAuthStateStore) GenerateWithReturnTo(returnTo string) (string, error) {
+	token, err := generateOAuthStateToken()
+	if err != nil {
+		return "", err
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	now := time.Now()
+	s.upsertStateLocked(token, returnTo, now)
 	return token, nil
 }
 
@@ -272,19 +312,28 @@ func (s *OAuthStateStore) Generate() (string, error) {
 func (s *OAuthStateStore) RegisterExternalState(state string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.states[state] = time.Now().Add(s.ttl)
+	s.upsertStateLocked(state, "", time.Now())
 }
 
 // Validate checks and consumes a state token (one-time use).
 func (s *OAuthStateStore) Validate(token string) bool {
+	_, ok := s.ValidateAndConsumeReturnTo(token)
+	return ok
+}
+
+// ValidateAndConsumeReturnTo validates and consumes a state token in one
+// callback-time operation (one-time use) and returns the bound returnTo value.
+// A successful validation may still return an empty string, which means no
+// per-request redirect was stored and callback dispatch should use the
+// configured AYB_AUTH_OAUTH_REDIRECT_URL fallback.
+func (s *OAuthStateStore) ValidateAndConsumeReturnTo(token string) (string, bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	exp, ok := s.states[token]
+	entry, ok := s.consumeStateLocked(token, time.Now())
 	if !ok {
-		return false
+		return "", false
 	}
-	delete(s.states, token)
-	return time.Now().Before(exp)
+	return entry.returnTo, true
 }
 
 func (pc OAuthProviderConfig) tokenAuthMethod() OAuthTokenAuthMethod {

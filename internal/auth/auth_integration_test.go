@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"strings"
 	"sync"
@@ -798,6 +799,139 @@ func TestOAuthHandlerFullFlowMocked(t *testing.T) {
 	testutil.Equal(t, 1, count)
 }
 
+func TestOAuthHandlerReturnToAllowlistedHost(t *testing.T) {
+	ctx := context.Background()
+	resetAndMigrate(t, ctx)
+
+	fakeProvider := newFakeGoogleOAuthProvider(t, "12345", "allowlisted@example.com", "Allowlisted User")
+	defer fakeProvider.Close()
+	configureFakeGoogleOAuthEndpoints(t, fakeProvider.URL)
+
+	cfg := oauthIntegrationBaseConfig()
+	cfg.Auth.OAuthRedirectURL = "http://localhost:5173/callback"
+	cfg.Auth.OAuthReturnToAllowlist = []string{"allowed.example.com"}
+
+	srv := newOAuthIntegrationServer(t, ctx, cfg)
+	returnTo := "https://allowed.example.com/welcome?from=oauth"
+
+	startPath := "/api/auth/oauth/google?redirect_to=" + url.QueryEscape(returnTo)
+	state := startOAuthStateFromRequest(t, srv, startPath)
+	redirectLoc := runOAuthCallbackAndGetRedirect(t, srv, state)
+
+	assertRedirectDestinationAndTokens(t, redirectLoc, returnTo)
+}
+
+func TestOAuthHandlerFallbackWithoutRedirectTo(t *testing.T) {
+	ctx := context.Background()
+	resetAndMigrate(t, ctx)
+
+	fakeProvider := newFakeGoogleOAuthProvider(t, "12345", "fallback@example.com", "Fallback User")
+	defer fakeProvider.Close()
+	configureFakeGoogleOAuthEndpoints(t, fakeProvider.URL)
+
+	cfg := oauthIntegrationBaseConfig()
+	cfg.Auth.OAuthRedirectURL = "http://localhost:5173/callback"
+
+	srv := newOAuthIntegrationServer(t, ctx, cfg)
+	state := startOAuthStateFromRequest(t, srv, "/api/auth/oauth/google")
+	redirectLoc := runOAuthCallbackAndGetRedirect(t, srv, state)
+
+	assertRedirectDestinationAndTokens(t, redirectLoc, cfg.Auth.OAuthRedirectURL)
+
+	var count int
+	err := sharedPG.Pool.QueryRow(ctx,
+		"SELECT COUNT(*) FROM _ayb_users WHERE email = 'fallback@example.com'",
+	).Scan(&count)
+	testutil.NoError(t, err)
+	testutil.Equal(t, 1, count)
+
+	err = sharedPG.Pool.QueryRow(ctx,
+		"SELECT COUNT(*) FROM _ayb_oauth_accounts WHERE provider = 'google' AND provider_user_id = '12345'",
+	).Scan(&count)
+	testutil.NoError(t, err)
+	testutil.Equal(t, 1, count)
+}
+
+func TestOAuthHandlerRejectsOffAllowlistRedirectTo(t *testing.T) {
+	ctx := context.Background()
+	resetAndMigrate(t, ctx)
+
+	fakeProviderRequests := 0
+	fakeProvider := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fakeProviderRequests++
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer fakeProvider.Close()
+	configureFakeGoogleOAuthEndpoints(t, fakeProvider.URL)
+
+	cfg := oauthIntegrationBaseConfig()
+	cfg.Auth.OAuthRedirectURL = "http://localhost:5173/callback"
+	cfg.Auth.OAuthReturnToAllowlist = []string{"allowed.example.com"}
+
+	srv := newOAuthIntegrationServer(t, ctx, cfg)
+	req := httptest.NewRequest(http.MethodGet, "/api/auth/oauth/google?redirect_to="+url.QueryEscape("https://evil.example.com/phish"), nil)
+	req.Host = "localhost:8090"
+	w := httptest.NewRecorder()
+	srv.Router().ServeHTTP(w, req)
+
+	testutil.StatusCode(t, http.StatusBadRequest, w.Code)
+	testutil.Contains(t, w.Body.String(), "invalid redirect_to")
+	testutil.Equal(t, "", w.Header().Get("Location"))
+	testutil.Equal(t, 0, fakeProviderRequests)
+}
+
+func TestOAuthHandlerRejectsHTTPAllowlistedRemoteRedirectTo(t *testing.T) {
+	ctx := context.Background()
+	resetAndMigrate(t, ctx)
+
+	fakeProviderRequests := 0
+	fakeProvider := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fakeProviderRequests++
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer fakeProvider.Close()
+	configureFakeGoogleOAuthEndpoints(t, fakeProvider.URL)
+
+	cfg := oauthIntegrationBaseConfig()
+	cfg.Auth.OAuthRedirectURL = "http://localhost:5173/callback"
+	cfg.Auth.OAuthReturnToAllowlist = []string{"allowed.example.com", "localhost", "127.0.0.1"}
+
+	srv := newOAuthIntegrationServer(t, ctx, cfg)
+	req := httptest.NewRequest(http.MethodGet, "/api/auth/oauth/google?redirect_to="+url.QueryEscape("http://allowed.example.com/insecure"), nil)
+	req.Host = "localhost:8090"
+	w := httptest.NewRecorder()
+	srv.Router().ServeHTTP(w, req)
+
+	testutil.StatusCode(t, http.StatusBadRequest, w.Code)
+	testutil.Contains(t, w.Body.String(), "invalid redirect_to")
+	testutil.Equal(t, "", w.Header().Get("Location"))
+	testutil.Equal(t, 0, fakeProviderRequests)
+}
+
+func TestOAuthHandlerAllowsHTTPLocalhostAllowlistedRedirectTo(t *testing.T) {
+	ctx := context.Background()
+	resetAndMigrate(t, ctx)
+
+	fakeProvider := newFakeGoogleOAuthProvider(t, "12345", "localhost-return@example.com", "Localhost Return")
+	defer fakeProvider.Close()
+	configureFakeGoogleOAuthEndpoints(t, fakeProvider.URL)
+
+	cfg := oauthIntegrationBaseConfig()
+	cfg.Auth.OAuthRedirectURL = "http://localhost:5173/callback"
+	cfg.Auth.OAuthReturnToAllowlist = []string{"allowed.example.com", "localhost", "127.0.0.1"}
+
+	srv := newOAuthIntegrationServer(t, ctx, cfg)
+	localhostReturnTo := "http://localhost:3000/local"
+	state := startOAuthStateFromRequest(t, srv, "/api/auth/oauth/google?redirect_to="+url.QueryEscape(localhostReturnTo))
+	redirectLoc := runOAuthCallbackAndGetRedirect(t, srv, state)
+	assertRedirectDestinationAndTokens(t, redirectLoc, localhostReturnTo)
+
+	loopbackReturnTo := "http://127.0.0.1:4000/local"
+	state = startOAuthStateFromRequest(t, srv, "/api/auth/oauth/google?redirect_to="+url.QueryEscape(loopbackReturnTo))
+	redirectLoc = runOAuthCallbackAndGetRedirect(t, srv, state)
+	assertRedirectDestinationAndTokens(t, redirectLoc, loopbackReturnTo)
+}
+
 // splitQuery splits a URL's query string into key=value pairs.
 func splitQuery(rawURL string) []string {
 	idx := 0
@@ -816,6 +950,123 @@ func splitQuery(rawURL string) []string {
 		parts = append(parts, p)
 	}
 	return parts
+}
+
+func oauthIntegrationBaseConfig() *config.Config {
+	cfg := config.Default()
+	cfg.Auth.Enabled = true
+	cfg.Auth.JWTSecret = testJWTSecret
+	cfg.Auth.OAuth = map[string]config.OAuthProvider{
+		"google": {Enabled: true, ClientID: "test-id", ClientSecret: "test-secret"},
+	}
+	return cfg
+}
+
+func newOAuthIntegrationServer(t *testing.T, ctx context.Context, cfg *config.Config) *server.Server {
+	t.Helper()
+
+	logger := testutil.DiscardLogger()
+	ch := schema.NewCacheHolder(sharedPG.Pool, logger)
+	testutil.NoError(t, ch.Load(ctx))
+
+	svc := newAuthService()
+	return server.New(cfg, logger, ch, sharedPG.Pool, svc, nil)
+}
+
+func newFakeGoogleOAuthProvider(t *testing.T, providerUserID, email, name string) *httptest.Server {
+	t.Helper()
+
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/token":
+			if err := json.NewEncoder(w).Encode(map[string]string{
+				"access_token": "fake-access-token",
+			}); err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+			}
+		case "/userinfo":
+			if err := json.NewEncoder(w).Encode(map[string]any{
+				"id":    providerUserID,
+				"email": email,
+				"name":  name,
+			}); err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+			}
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+}
+
+func configureFakeGoogleOAuthEndpoints(t *testing.T, fakeBaseURL string) {
+	t.Helper()
+
+	auth.SetProviderURLs("google", auth.OAuthProviderConfig{
+		AuthURL:     "https://accounts.google.com/o/oauth2/v2/auth",
+		TokenURL:    fakeBaseURL + "/token",
+		UserInfoURL: fakeBaseURL + "/userinfo",
+		Scopes:      []string{"openid", "email", "profile"},
+	})
+	t.Cleanup(func() {
+		auth.ResetProviderURLs("google")
+	})
+}
+
+func startOAuthStateFromRequest(t *testing.T, srv *server.Server, startPath string) string {
+	t.Helper()
+
+	req := httptest.NewRequest(http.MethodGet, startPath, nil)
+	req.Host = "localhost:8090"
+	w := httptest.NewRecorder()
+	srv.Router().ServeHTTP(w, req)
+
+	testutil.StatusCode(t, http.StatusTemporaryRedirect, w.Code)
+	loc := w.Header().Get("Location")
+	testutil.True(t, loc != "", "should redirect")
+	return oauthStateFromLocation(t, loc)
+}
+
+func runOAuthCallbackAndGetRedirect(t *testing.T, srv *server.Server, state string) string {
+	t.Helper()
+
+	callbackURL := fmt.Sprintf("/api/auth/oauth/google/callback?code=test-code&state=%s", state)
+	req := httptest.NewRequest(http.MethodGet, callbackURL, nil)
+	req.Host = "localhost:8090"
+	w := httptest.NewRecorder()
+	srv.Router().ServeHTTP(w, req)
+
+	testutil.StatusCode(t, http.StatusTemporaryRedirect, w.Code)
+	redirectLoc := w.Header().Get("Location")
+	testutil.True(t, redirectLoc != "", "should redirect with tokens")
+	return redirectLoc
+}
+
+func oauthStateFromLocation(t *testing.T, redirectLocation string) string {
+	t.Helper()
+
+	for _, part := range splitQuery(redirectLocation) {
+		const statePrefix = "state="
+		if strings.HasPrefix(part, statePrefix) {
+			state := part[len(statePrefix):]
+			testutil.True(t, state != "", "redirect should include state")
+			return state
+		}
+	}
+	t.Fatalf("redirect location did not contain state query: %s", redirectLocation)
+	return ""
+}
+
+func assertRedirectDestinationAndTokens(t *testing.T, redirectLoc, expectedBaseURL string) {
+	t.Helper()
+
+	parts := strings.SplitN(redirectLoc, "#", 2)
+	testutil.Equal(t, 2, len(parts))
+	testutil.Equal(t, expectedBaseURL, parts[0])
+
+	fragmentValues, err := url.ParseQuery(parts[1])
+	testutil.NoError(t, err)
+	testutil.True(t, fragmentValues.Get("token") != "", "token fragment should be present")
+	testutil.True(t, fragmentValues.Get("refreshToken") != "", "refreshToken fragment should be present")
 }
 
 func splitOn(s string, sep byte) []string {

@@ -50,6 +50,7 @@ var configKeyRegistry = withConfigKeyMetadata(map[string]configKeyMetadata{
 	"auth.rate_limit_auth":                       {getter: func(cfg *Config) any { return cfg.Auth.RateLimitAuth }},
 	"auth.min_password_length":                   {getter: func(cfg *Config) any { return cfg.Auth.MinPasswordLength }},
 	"auth.oauth_redirect_url":                    {getter: func(cfg *Config) any { return cfg.Auth.OAuthRedirectURL }},
+	"auth.oauth_return_to_allowlist":             {getter: func(cfg *Config) any { return strings.Join(cfg.Auth.OAuthReturnToAllowlist, ",") }},
 	"auth.oauth_provider.enabled":                {getter: func(cfg *Config) any { return cfg.Auth.OAuthProviderMode.Enabled }},
 	"auth.oauth_provider.access_token_duration":  {getter: func(cfg *Config) any { return cfg.Auth.OAuthProviderMode.AccessTokenDuration }},
 	"auth.oauth_provider.refresh_token_duration": {getter: func(cfg *Config) any { return cfg.Auth.OAuthProviderMode.RefreshTokenDuration }},
@@ -220,6 +221,7 @@ var csvCoercionKeys = []string{
 	"admin.allowed_ips",
 	"audit.tables",
 	"auth.sms_allowed_countries",
+	"auth.oauth_return_to_allowlist",
 }
 
 func withConfigKeyMetadata(registry map[string]configKeyMetadata) map[string]configKeyMetadata {

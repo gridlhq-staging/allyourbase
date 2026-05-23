@@ -120,53 +120,54 @@ type AdminConfig struct {
 }
 
 type AuthConfig struct {
-	Enabled              bool                     `toml:"enabled"`
-	JWTSecret            string                   `toml:"jwt_secret"`
-	TokenDuration        int                      `toml:"token_duration"`
-	RefreshTokenDuration int                      `toml:"refresh_token_duration"`
-	Argon2Memory         int                      `toml:"argon2_memory"`
-	Argon2Time           int                      `toml:"argon2_time"`
-	Argon2Threads        int                      `toml:"argon2_threads"`
-	RateLimit            int                      `toml:"rate_limit"`
-	AnonymousRateLimit   int                      `toml:"anonymous_rate_limit"`
-	RateLimitAuth        string                   `toml:"rate_limit_auth"`
-	MinPasswordLength    int                      `toml:"min_password_length"`
-	OAuth                map[string]OAuthProvider `toml:"oauth"`
-	OAuthRedirectURL     string                   `toml:"oauth_redirect_url"`
-	MagicLinkEnabled     bool                     `toml:"magic_link_enabled"`
-	MagicLinkDuration    int                      `toml:"magic_link_duration"` // seconds, default 600 (10 min)
-	EmailMFAEnabled      bool                     `toml:"email_mfa_enabled"`
-	AnonymousAuthEnabled bool                     `toml:"anonymous_auth_enabled"`
-	TOTPEnabled          bool                     `toml:"totp_enabled"`
-	EncryptionKey        string                   `toml:"encryption_key"`
-	SMSEnabled           bool                     `toml:"sms_enabled"`
-	SMSProvider          string                   `toml:"sms_provider"`
-	SMSCodeLength        int                      `toml:"sms_code_length"`
-	SMSCodeExpiry        int                      `toml:"sms_code_expiry"` // seconds
-	SMSMaxAttempts       int                      `toml:"sms_max_attempts"`
-	SMSDailyLimit        int                      `toml:"sms_daily_limit"` // 0 = unlimited
-	SMSAllowedCountries  []string                 `toml:"sms_allowed_countries"`
-	TwilioSID            string                   `toml:"twilio_sid"`
-	TwilioToken          string                   `toml:"twilio_token"`
-	TwilioFrom           string                   `toml:"twilio_from"`
-	PlivoAuthID          string                   `toml:"plivo_auth_id"`
-	PlivoAuthToken       string                   `toml:"plivo_auth_token"`
-	PlivoFrom            string                   `toml:"plivo_from"`
-	TelnyxAPIKey         string                   `toml:"telnyx_api_key"`
-	TelnyxFrom           string                   `toml:"telnyx_from"`
-	MSG91AuthKey         string                   `toml:"msg91_auth_key"`
-	MSG91TemplateID      string                   `toml:"msg91_template_id"`
-	AWSRegion            string                   `toml:"aws_region"`
-	VonageAPIKey         string                   `toml:"vonage_api_key"`
-	VonageAPISecret      string                   `toml:"vonage_api_secret"`
-	VonageFrom           string                   `toml:"vonage_from"`
-	SMSWebhookURL        string                   `toml:"sms_webhook_url"`
-	SMSWebhookSecret     string                   `toml:"sms_webhook_secret"`
-	SMSTestPhoneNumbers  map[string]string        `toml:"sms_test_phone_numbers"`
-	OAuthProviderMode    OAuthProviderModeConfig  `toml:"oauth_provider"`
-	OIDC                 map[string]OIDCProvider  `toml:"oidc"`
-	SAMLProviders        []SAMLProvider           `toml:"saml_providers"`
-	Hooks                AuthHooks                `toml:"hooks"`
+	Enabled                bool                     `toml:"enabled"`
+	JWTSecret              string                   `toml:"jwt_secret"`
+	TokenDuration          int                      `toml:"token_duration"`
+	RefreshTokenDuration   int                      `toml:"refresh_token_duration"`
+	Argon2Memory           int                      `toml:"argon2_memory"`
+	Argon2Time             int                      `toml:"argon2_time"`
+	Argon2Threads          int                      `toml:"argon2_threads"`
+	RateLimit              int                      `toml:"rate_limit"`
+	AnonymousRateLimit     int                      `toml:"anonymous_rate_limit"`
+	RateLimitAuth          string                   `toml:"rate_limit_auth"`
+	MinPasswordLength      int                      `toml:"min_password_length"`
+	OAuth                  map[string]OAuthProvider `toml:"oauth"`
+	OAuthRedirectURL       string                   `toml:"oauth_redirect_url"`
+	OAuthReturnToAllowlist []string                 `toml:"oauth_return_to_allowlist"`
+	MagicLinkEnabled       bool                     `toml:"magic_link_enabled"`
+	MagicLinkDuration      int                      `toml:"magic_link_duration"` // seconds, default 600 (10 min)
+	EmailMFAEnabled        bool                     `toml:"email_mfa_enabled"`
+	AnonymousAuthEnabled   bool                     `toml:"anonymous_auth_enabled"`
+	TOTPEnabled            bool                     `toml:"totp_enabled"`
+	EncryptionKey          string                   `toml:"encryption_key"`
+	SMSEnabled             bool                     `toml:"sms_enabled"`
+	SMSProvider            string                   `toml:"sms_provider"`
+	SMSCodeLength          int                      `toml:"sms_code_length"`
+	SMSCodeExpiry          int                      `toml:"sms_code_expiry"` // seconds
+	SMSMaxAttempts         int                      `toml:"sms_max_attempts"`
+	SMSDailyLimit          int                      `toml:"sms_daily_limit"` // 0 = unlimited
+	SMSAllowedCountries    []string                 `toml:"sms_allowed_countries"`
+	TwilioSID              string                   `toml:"twilio_sid"`
+	TwilioToken            string                   `toml:"twilio_token"`
+	TwilioFrom             string                   `toml:"twilio_from"`
+	PlivoAuthID            string                   `toml:"plivo_auth_id"`
+	PlivoAuthToken         string                   `toml:"plivo_auth_token"`
+	PlivoFrom              string                   `toml:"plivo_from"`
+	TelnyxAPIKey           string                   `toml:"telnyx_api_key"`
+	TelnyxFrom             string                   `toml:"telnyx_from"`
+	MSG91AuthKey           string                   `toml:"msg91_auth_key"`
+	MSG91TemplateID        string                   `toml:"msg91_template_id"`
+	AWSRegion              string                   `toml:"aws_region"`
+	VonageAPIKey           string                   `toml:"vonage_api_key"`
+	VonageAPISecret        string                   `toml:"vonage_api_secret"`
+	VonageFrom             string                   `toml:"vonage_from"`
+	SMSWebhookURL          string                   `toml:"sms_webhook_url"`
+	SMSWebhookSecret       string                   `toml:"sms_webhook_secret"`
+	SMSTestPhoneNumbers    map[string]string        `toml:"sms_test_phone_numbers"`
+	OAuthProviderMode      OAuthProviderModeConfig  `toml:"oauth_provider"`
+	OIDC                   map[string]OIDCProvider  `toml:"oidc"`
+	SAMLProviders          []SAMLProvider           `toml:"saml_providers"`
+	Hooks                  AuthHooks                `toml:"hooks"`
 }
 
 // BillingConfig controls billing provider and lifecycle configuration.

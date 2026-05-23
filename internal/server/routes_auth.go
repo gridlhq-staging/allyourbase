@@ -115,6 +115,9 @@ func (s *Server) configureOAuthProviders(authHandler *auth.Handler, oidcEnabled 
 	if s.cfg.Auth.OAuthRedirectURL != "" {
 		authHandler.SetOAuthRedirectURL(s.cfg.Auth.OAuthRedirectURL)
 	}
+	if len(s.cfg.Auth.OAuthReturnToAllowlist) > 0 {
+		authHandler.SetOAuthReturnToAllowlist(s.cfg.Auth.OAuthReturnToAllowlist)
+	}
 	authHandler.SetOAuthPublisher(s.hub)
 	if s.infraMetrics != nil {
 		authHandler.SetMetricsRecorder(s.infraMetrics)

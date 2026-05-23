@@ -1789,6 +1789,26 @@ func TestApplyOAuthEnvVars(t *testing.T) {
 	testutil.True(t, ap.Enabled, "apple should be enabled")
 }
 
+func TestApplyEnvOAuthReturnToAllowlistNormalizesHostnames(t *testing.T) {
+	t.Setenv("AYB_AUTH_OAUTH_RETURN_TO_ALLOWLIST", " App.Example.com , LOGIN.EXAMPLE.ORG ,,")
+
+	cfg := Default()
+	err := applyEnv(cfg)
+	testutil.NoError(t, err)
+	testutil.SliceLen(t, cfg.Auth.OAuthReturnToAllowlist, 2)
+	testutil.Equal(t, "app.example.com", cfg.Auth.OAuthReturnToAllowlist[0])
+	testutil.Equal(t, "login.example.org", cfg.Auth.OAuthReturnToAllowlist[1])
+}
+
+func TestApplyEnvOAuthReturnToAllowlistRejectsURLLikeEntry(t *testing.T) {
+	t.Setenv("AYB_AUTH_OAUTH_RETURN_TO_ALLOWLIST", "app.example.com,https://evil.example.com/path")
+
+	cfg := Default()
+	err := applyEnv(cfg)
+	testutil.ErrorContains(t, err, "AYB_AUTH_OAUTH_RETURN_TO_ALLOWLIST")
+	testutil.ErrorContains(t, err, "https://evil.example.com/path")
+}
+
 func TestLoadOAuthStoreProviderTokensFromFile(t *testing.T) {
 	dir := t.TempDir()
 	tomlPath := filepath.Join(dir, "ayb.toml")
@@ -2080,6 +2100,7 @@ func TestGetValue(t *testing.T) {
 	cfg := Default()
 	cfg.Server.AllowedIPs = []string{"203.0.113.10", "198.51.100.0/24"}
 	cfg.Admin.AllowedIPs = []string{"2001:db8::1"}
+	cfg.Auth.OAuthReturnToAllowlist = []string{"app.example.com", "login.example.org"}
 
 	tests := []struct {
 		key     string
@@ -2099,6 +2120,7 @@ func TestGetValue(t *testing.T) {
 		{"auth.oauth_provider.refresh_token_duration", 2592000, false},
 		{"auth.oauth_provider.auth_code_duration", 600, false},
 		{"auth.rate_limit_auth", "10/min", false},
+		{"auth.oauth_return_to_allowlist", "app.example.com,login.example.org", false},
 		{"logging.level", "info", false},
 		{"storage.backend", "local", false},
 		{"auth.magic_link_enabled", false, false},

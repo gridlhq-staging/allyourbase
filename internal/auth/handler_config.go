@@ -127,6 +127,14 @@ func (h *Handler) SetOAuthRedirectURL(u string) {
 	h.oauthRedirectURL = u
 }
 
+// SetOAuthReturnToAllowlist sets the normalized host allowlist used for OAuth
+// per-request return targets. The config layer owns normalization/validation.
+func (h *Handler) SetOAuthReturnToAllowlist(hosts []string) {
+	h.oauthConfigMu.Lock()
+	defer h.oauthConfigMu.Unlock()
+	h.oauthReturnToAllowlist = append([]string(nil), hosts...)
+}
+
 // SetOAuthPublisher sets the realtime hub for publishing OAuth results to SSE clients.
 func (h *Handler) SetOAuthPublisher(pub OAuthPublisher) {
 	h.oauthPublisher = pub

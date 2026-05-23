@@ -1,3 +1,9 @@
+// Package auth keeps OAuth/SAML callback redirect ownership in this file:
+// handleOAuthRedirect captures and validates OAuth redirect_to values with
+// validatedOAuthReturnTo, and dispatchOAuthCallbackResponse re-validates the
+// state-bound return target at callback time before issuing the final redirect.
+// SAML redirect_to handling stays alongside this flow in handleSAMLLogin and
+// handleSAMLACS through validatedSAMLRelayRedirect.
 package auth
 
 import (
@@ -22,6 +28,11 @@ func (h *Handler) handleOAuthRedirect(w http.ResponseWriter, r *http.Request) {
 			"https://allyourbase.io/guide/authentication#oauth")
 		return
 	}
+	returnTo, ok := validatedOAuthReturnTo(h.oauthRedirectURL, h.oauthReturnToAllowlistSnapshot(), r.URL.Query().Get("redirect_to"))
+	if !ok {
+		httputil.WriteError(w, http.StatusBadRequest, "invalid redirect_to")
+		return
+	}
 
 	// If state is provided and corresponds to an active SSE client, use it
 	// directly (popup flow). Otherwise, generate a new state token.
@@ -32,7 +43,7 @@ func (h *Handler) handleOAuthRedirect(w http.ResponseWriter, r *http.Request) {
 		h.oauthStateStore.RegisterExternalState(state)
 	} else {
 		var err error
-		state, err = h.oauthStateStore.Generate()
+		state, err = h.oauthStateStore.GenerateWithReturnTo(returnTo)
 		if err != nil {
 			h.logger.Error("OAuth state generation error", "error", err)
 			httputil.WriteError(w, http.StatusInternalServerError, "internal error")
@@ -186,6 +197,7 @@ type oauthCallbackRequest struct {
 	provider    string
 	client      OAuthClientConfig
 	state       string
+	returnTo    string
 	code        string
 	isSSEClient bool
 }
@@ -247,7 +259,8 @@ func (h *Handler) normalizeOAuthCallbackRequest(w http.ResponseWriter, r *http.R
 
 	req.state = oauthCallbackParam(r, "state")
 	req.isSSEClient = h.oauthPublisher != nil && h.oauthPublisher.HasClient(req.state)
-	if !h.oauthStateStore.Validate(req.state) {
+	req.returnTo, ok = h.oauthStateStore.ValidateAndConsumeReturnTo(req.state)
+	if !ok {
 		httputil.WriteErrorWithDocURL(w, http.StatusBadRequest, "invalid or expired OAuth state",
 			"https://allyourbase.io/guide/authentication#oauth")
 		return nil, false
@@ -365,12 +378,20 @@ func (h *Handler) dispatchOAuthCallbackResponse(w http.ResponseWriter, r *http.R
 	}
 
 	if h.oauthRedirectURL != "" {
+		destBase := h.oauthRedirectURL
+		if callbackReq.returnTo != "" {
+			if validated, ok := validatedOAuthReturnTo(h.oauthRedirectURL, h.oauthReturnToAllowlistSnapshot(), callbackReq.returnTo); ok && validated != "" {
+				destBase = validated
+			} else {
+				h.logger.Warn("discarding invalid OAuth callback return target", "provider", callbackReq.provider, "redirect_to", callbackReq.returnTo)
+			}
+		}
 		if isMFAPending {
 			fragment := url.Values{
 				"mfa_pending": {"true"},
 				"mfa_token":   {accessToken},
 			}
-			dest := h.oauthRedirectURL + "#" + fragment.Encode()
+			dest := destBase + "#" + fragment.Encode()
 			http.Redirect(w, r, dest, http.StatusTemporaryRedirect)
 			return
 		}
@@ -378,7 +399,7 @@ func (h *Handler) dispatchOAuthCallbackResponse(w http.ResponseWriter, r *http.R
 			"token":        {accessToken},
 			"refreshToken": {refreshToken},
 		}
-		dest := h.oauthRedirectURL + "#" + fragment.Encode()
+		dest := destBase + "#" + fragment.Encode()
 		http.Redirect(w, r, dest, http.StatusTemporaryRedirect)
 		return
 	}
@@ -417,6 +438,71 @@ func oauthCallbackURL(r *http.Request, provider string) string {
 		scheme = proto
 	}
 	return fmt.Sprintf("%s://%s/api/auth/oauth/%s/callback", scheme, r.Host, provider)
+}
+
+// validatedOAuthReturnTo validates and normalizes an OAuth redirect_to value
+// into an absolute callback destination with no fragment.
+func validatedOAuthReturnTo(baseRedirectURL string, allowlistedHosts []string, returnTo string) (string, bool) {
+	candidateRaw := strings.TrimSpace(returnTo)
+	if candidateRaw == "" {
+		return "", true
+	}
+	if strings.TrimSpace(baseRedirectURL) == "" {
+		return "", false
+	}
+	validated, ok := validatedSAMLRelayRedirect(baseRedirectURL, candidateRaw)
+	if ok {
+		u, err := url.Parse(validated)
+		if err != nil || !u.IsAbs() || u.User != nil {
+			return "", false
+		}
+		scheme := strings.ToLower(u.Scheme)
+		if scheme != "http" && scheme != "https" {
+			return "", false
+		}
+		u.Fragment = ""
+		return u.String(), true
+	}
+	u, err := url.Parse(candidateRaw)
+	if err != nil || !u.IsAbs() || u.User != nil {
+		return "", false
+	}
+	scheme := strings.ToLower(u.Scheme)
+	if scheme != "http" && scheme != "https" {
+		return "", false
+	}
+	if !oauthReturnToHostAllowlisted(allowlistedHosts, u.Hostname()) {
+		return "", false
+	}
+	if scheme == "http" && !oauthReturnToHTTPHostAllowed(u.Hostname()) {
+		return "", false
+	}
+	u.Fragment = ""
+	return u.String(), true
+}
+
+func (h *Handler) oauthReturnToAllowlistSnapshot() []string {
+	h.oauthConfigMu.RLock()
+	defer h.oauthConfigMu.RUnlock()
+	return append([]string(nil), h.oauthReturnToAllowlist...)
+}
+
+func oauthReturnToHostAllowlisted(allowlistedHosts []string, host string) bool {
+	normalizedHost := strings.ToLower(strings.TrimSpace(host))
+	if normalizedHost == "" {
+		return false
+	}
+	for _, allowed := range allowlistedHosts {
+		if normalizedHost == strings.ToLower(strings.TrimSpace(allowed)) {
+			return true
+		}
+	}
+	return false
+}
+
+func oauthReturnToHTTPHostAllowed(host string) bool {
+	normalizedHost := strings.ToLower(strings.TrimSpace(host))
+	return normalizedHost == "localhost" || normalizedHost == "127.0.0.1"
 }
 
 // validatedSAMLRelayRedirect validates a SAML relay state as a safe redirect URL, ensuring it is same-origin with the base redirect URL and stripping any fragment.

@@ -1,6 +1,7 @@
 package config
 
 import (
+	"fmt"
 	"os"
 	"strings"
 )
@@ -55,6 +56,37 @@ func applyAuthCoreEnv(cfg *Config) error {
 	}
 	if v := os.Getenv("AYB_AUTH_OAUTH_REDIRECT_URL"); v != "" {
 		cfg.Auth.OAuthRedirectURL = v
+	}
+	if v := os.Getenv("AYB_AUTH_OAUTH_RETURN_TO_ALLOWLIST"); v != "" {
+		rawHosts := parseCSV(v)
+		normalizedHosts := make([]string, 0, len(rawHosts))
+		for _, rawHost := range rawHosts {
+			host := strings.ToLower(strings.TrimSpace(rawHost))
+			if host == "" {
+				continue
+			}
+			if strings.ContainsAny(host, " \t\r\n") ||
+				strings.Contains(host, "://") ||
+				strings.ContainsAny(host, "/?#:") ||
+				strings.HasPrefix(host, ".") ||
+				strings.HasSuffix(host, ".") ||
+				strings.Contains(host, "..") {
+				return fmt.Errorf("invalid value for AYB_AUTH_OAUTH_RETURN_TO_ALLOWLIST entry %q: must be a bare hostname", rawHost)
+			}
+			labels := strings.Split(host, ".")
+			for _, label := range labels {
+				if label == "" || strings.HasPrefix(label, "-") || strings.HasSuffix(label, "-") {
+					return fmt.Errorf("invalid value for AYB_AUTH_OAUTH_RETURN_TO_ALLOWLIST entry %q: must be a bare hostname", rawHost)
+				}
+				for _, r := range label {
+					if (r < 'a' || r > 'z') && (r < '0' || r > '9') && r != '-' {
+						return fmt.Errorf("invalid value for AYB_AUTH_OAUTH_RETURN_TO_ALLOWLIST entry %q: must be a bare hostname", rawHost)
+					}
+				}
+			}
+			normalizedHosts = append(normalizedHosts, host)
+		}
+		cfg.Auth.OAuthReturnToAllowlist = normalizedHosts
 	}
 	if v := os.Getenv("AYB_AUTH_MAGIC_LINK_ENABLED"); v != "" {
 		cfg.Auth.MagicLinkEnabled = v == "true" || v == "1"

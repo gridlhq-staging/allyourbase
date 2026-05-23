@@ -49,6 +49,63 @@ func TestOAuthStateStoreInvalid(t *testing.T) {
 	testutil.False(t, store.Validate("nonexistent"), "unknown token should fail")
 }
 
+func TestOAuthStateStoreGenerateWithReturnToRoundTripAndOneTimeConsume(t *testing.T) {
+	t.Parallel()
+	store := NewOAuthStateStore(time.Minute)
+
+	token, err := store.GenerateWithReturnTo("/workspace?tab=members")
+	testutil.NoError(t, err)
+
+	returnTo, ok := store.ValidateAndConsumeReturnTo(token)
+	testutil.True(t, ok, "first consume should succeed")
+	testutil.Equal(t, "/workspace?tab=members", returnTo)
+
+	returnTo, ok = store.ValidateAndConsumeReturnTo(token)
+	testutil.False(t, ok, "second consume should fail")
+	testutil.Equal(t, "", returnTo)
+}
+
+func TestOAuthStateStoreValidateAndConsumeReturnToExpiry(t *testing.T) {
+	t.Parallel()
+	store := NewOAuthStateStore(1 * time.Millisecond)
+
+	token, err := store.GenerateWithReturnTo("/workspace")
+	testutil.NoError(t, err)
+
+	time.Sleep(5 * time.Millisecond)
+	returnTo, ok := store.ValidateAndConsumeReturnTo(token)
+	testutil.False(t, ok, "expired token should fail")
+	testutil.Equal(t, "", returnTo)
+}
+
+func TestOAuthStateStoreValidateAndConsumeReturnToEmptyTarget(t *testing.T) {
+	t.Parallel()
+	store := NewOAuthStateStore(time.Minute)
+
+	token, err := store.GenerateWithReturnTo("")
+	testutil.NoError(t, err)
+
+	returnTo, ok := store.ValidateAndConsumeReturnTo(token)
+	testutil.True(t, ok, "empty return target should still validate")
+	testutil.Equal(t, "", returnTo)
+}
+
+func TestOAuthStateStoreLegacyGenerateValidateSemanticsRemainUnchanged(t *testing.T) {
+	t.Parallel()
+	store := NewOAuthStateStore(time.Minute)
+
+	returnToToken, err := store.GenerateWithReturnTo("/workspace")
+	testutil.NoError(t, err)
+	returnTo, ok := store.ValidateAndConsumeReturnTo(returnToToken)
+	testutil.True(t, ok)
+	testutil.Equal(t, "/workspace", returnTo)
+
+	legacyToken, err := store.Generate()
+	testutil.NoError(t, err)
+	testutil.True(t, store.Validate(legacyToken), "legacy Generate/Validate flow must keep working")
+	testutil.False(t, store.Validate(legacyToken), "legacy flow remains one-time use")
+}
+
 func TestAuthorizationURLGoogle(t *testing.T) {
 	t.Parallel()
 	client := OAuthClientConfig{ClientID: "my-id", ClientSecret: "my-secret"}
