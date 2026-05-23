@@ -261,6 +261,19 @@ export interface OAuthOptions {
    * Use this for iOS PWAs or when popups are blocked.
    */
   urlCallback?: (url: string) => void | Promise<void>;
+  /**
+   * Per-request post-callback redirect target.
+   * The server enforces `AYB_AUTH_OAUTH_RETURN_TO_ALLOWLIST` host-allowlist
+   * validation at both OAuth start AND callback dispatch (see
+   * `internal/auth/handler_oauth.go`'s `validatedOAuthReturnTo`). The SDK
+   * passes this value through as an opaque string — it does NOT validate
+   * the value client-side because the server is the single security owner.
+   * If empty or unset, the server falls back to `AYB_AUTH_OAUTH_REDIRECT_URL`.
+   * Most useful with the redirect-based flow (`urlCallback`); the popup
+   * flow ignores any final redirect because the popup window closes before
+   * navigation completes.
+   */
+  redirectTo?: string;
 }
 
 /** Auth state change events emitted by `onAuthStateChange`. */

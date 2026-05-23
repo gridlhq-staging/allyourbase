@@ -316,7 +316,7 @@ test-demo-e2e: build ## Run demo app E2E tests — Playwright suites for kanban 
 	@cd _dev/manual_smoke_tests && AYB_BIN=$(CURDIR)/ayb bash 18_demo_e2e.test.sh
 
 test-demo-e2e-all: build ## Run cross-demo Playwright smoke — kanban + live-polls + movies in one suite
-	@cd tests/e2e && npm install --no-audit && \
+	@cd tests/e2e && npm ci --prefer-offline --no-audit && \
 		AYB_BIN=$(CURDIR)/ayb npx playwright install chromium >/dev/null && \
 		AYB_BIN=$(CURDIR)/ayb npx playwright test --reporter=line cross_demo.spec.ts
 

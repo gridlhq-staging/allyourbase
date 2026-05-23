@@ -435,10 +435,19 @@ class AuthClient {
   /// 5. Stores tokens and emits `SIGNED_IN`.
   ///
   /// For post-redirect token handling (deep links), use [handleOAuthRedirect].
+  ///
+  /// [redirectTo] sets a per-request post-callback redirect target. The
+  /// server validates this against `AYB_AUTH_OAUTH_RETURN_TO_ALLOWLIST` at
+  /// both OAuth start and callback dispatch (see
+  /// `internal/auth/handler_oauth.go`); the SDK passes the value through as
+  /// an opaque string with no client-side validation, because the server is
+  /// the single security owner. If empty or unset, the server falls back to
+  /// `AYB_AUTH_OAUTH_REDIRECT_URL`.
   Future<AuthResponse> signInWithOAuth(
     String provider, {
     required Future<void> Function(String url) urlCallback,
     List<String>? scopes,
+    String? redirectTo,
   }) async {
     // 1. Connect to SSE to get clientId
     final sseUri = Uri.parse('${client.baseUrl}/api/realtime?oauth=true');
@@ -511,6 +520,14 @@ class AuthClient {
               '${client.baseUrl}/api/auth/oauth/$provider?state=$clientId';
           if (scopes != null && scopes.isNotEmpty) {
             oauthUrl += '&scopes=${Uri.encodeComponent(scopes.join(","))}';
+          }
+          // Per-request OAuth post-callback redirect target. Server-side
+          // validation lives in internal/auth/handler_oauth.go's
+          // validatedOAuthReturnTo (host-allowlist + scheme checks at both
+          // start and callback dispatch); the SDK is the transport, not a
+          // validator. See signInWithOAuth's redirectTo doc.
+          if (redirectTo != null && redirectTo.isNotEmpty) {
+            oauthUrl += '&redirect_to=${Uri.encodeComponent(redirectTo)}';
           }
 
           // Call the consumer's URL callback

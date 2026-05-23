@@ -1,6 +1,10 @@
 package config
 
-import "testing"
+import (
+	"os"
+	"path/filepath"
+	"testing"
+)
 
 func TestGraphQLDefaults(t *testing.T) {
 	t.Parallel()
@@ -22,5 +26,24 @@ func TestGraphQLIntrospectionValidation(t *testing.T) {
 	cfg.GraphQL.Introspection = "invalid"
 	if err := cfg.Validate(); err == nil {
 		t.Fatalf("expected validation error for invalid graphql.introspection")
+	}
+}
+
+func TestFlyAybTomlEnablesGraphQLFromCommittedConfig(t *testing.T) {
+	t.Parallel()
+
+	workingDirectory, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("getwd failed: %v", err)
+	}
+	repoRoot := filepath.Clean(filepath.Join(workingDirectory, "..", ".."))
+	configPath := filepath.Join(repoRoot, "deploy", "fly", "ayb.toml")
+
+	cfg, err := Load(configPath, nil)
+	if err != nil {
+		t.Fatalf("Load(%q) returned error: %v", configPath, err)
+	}
+	if !cfg.GraphQL.Enabled {
+		t.Fatalf("expected graphql.enabled=true in %s", configPath)
 	}
 }

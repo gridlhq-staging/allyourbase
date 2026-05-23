@@ -199,6 +199,13 @@ export class AuthClient {
       if (options?.scopes?.length) {
         oauthURL += `&scopes=${encodeURIComponent(options.scopes.join(","))}`;
       }
+      // Per-request OAuth redirect target. Server-side validation lives in
+      // internal/auth/handler_oauth.go (host-allowlist + scheme/userinfo
+      // checks at both start and callback dispatch); the SDK is the
+      // transport, not a validator. See OAuthOptions.redirectTo doc.
+      if (options?.redirectTo) {
+        oauthURL += `&redirect_to=${encodeURIComponent(options.redirectTo)}`;
+      }
 
       if (options?.urlCallback) {
         await options.urlCallback(oauthURL);

@@ -53,6 +53,8 @@ describe("App actions delegate to lib/ayb", () => {
       login: vi.fn(),
       register: vi.fn(),
       signInAnonymously: vi.fn(),
+      requestMagicLink: vi.fn(),
+      confirmMagicLink: vi.fn(),
       linkEmail: vi.fn(),
       signInWithOAuth: vi.fn(),
       logout: vi.fn(),

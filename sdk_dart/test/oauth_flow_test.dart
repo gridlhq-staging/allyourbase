@@ -95,6 +95,106 @@ void main() {
       expect(capturedUrl, contains('scopes=read%3Auser%2Cuser%3Aemail'));
     });
 
+    // MAY22-OAUTH-RETURN-TO follow-up: the server accepts an optional
+    // `redirect_to` query param at /api/auth/oauth/{provider} and re-validates
+    // it server-side at start and callback dispatch (see
+    // internal/auth/handler_oauth.go). The SDK is the transport — it passes
+    // the value through opaquely. The server is the single security owner;
+    // no client-side host-allowlist check.
+    test('includes redirect_to in OAuth URL when redirectTo option is set',
+        () async {
+      final controller = httpClient.prepareStream(200);
+      String? capturedUrl;
+
+      final future = client.auth.signInWithOAuth(
+        'github',
+        redirectTo: 'https://app.example.com/post-oauth?next=/home',
+        urlCallback: (url) async {
+          capturedUrl = url;
+          controller.addSseEvent(
+            event: 'oauth',
+            data: jsonEncode({'token': 't', 'refreshToken': 'r'}),
+          );
+        },
+      );
+
+      await httpClient.waitForRequest();
+      controller.addSseEvent(
+        event: 'connected',
+        data: jsonEncode({'clientId': 'c-redir'}),
+      );
+      await future;
+
+      expect(capturedUrl, contains('state=c-redir'));
+      // Asserts both the param key AND the percent-encoded value so a missing
+      // encoder also fails the assertion.
+      expect(
+        capturedUrl,
+        contains(
+            'redirect_to=https%3A%2F%2Fapp.example.com%2Fpost-oauth%3Fnext%3D%2Fhome'),
+      );
+    });
+
+    test('omits redirect_to from OAuth URL when option is unset', () async {
+      final controller = httpClient.prepareStream(200);
+      String? capturedUrl;
+
+      final future = client.auth.signInWithOAuth(
+        'github',
+        urlCallback: (url) async {
+          capturedUrl = url;
+          controller.addSseEvent(
+            event: 'oauth',
+            data: jsonEncode({'token': 't', 'refreshToken': 'r'}),
+          );
+        },
+      );
+
+      await httpClient.waitForRequest();
+      controller.addSseEvent(
+        event: 'connected',
+        data: jsonEncode({'clientId': 'c-no-redir'}),
+      );
+      await future;
+
+      // Negative assertion: caller did not opt in, so the SDK must not
+      // append the param (no defaulting to empty string or anything else).
+      expect(capturedUrl, isNot(contains('redirect_to')));
+    });
+
+    test('appends redirect_to alongside scopes without dropping either',
+        () async {
+      final controller = httpClient.prepareStream(200);
+      String? capturedUrl;
+
+      final future = client.auth.signInWithOAuth(
+        'github',
+        scopes: ['user:email'],
+        redirectTo: 'https://app.example.com/welcome',
+        urlCallback: (url) async {
+          capturedUrl = url;
+          controller.addSseEvent(
+            event: 'oauth',
+            data: jsonEncode({'token': 't', 'refreshToken': 'r'}),
+          );
+        },
+      );
+
+      await httpClient.waitForRequest();
+      controller.addSseEvent(
+        event: 'connected',
+        data: jsonEncode({'clientId': 'c-both'}),
+      );
+      await future;
+
+      expect(capturedUrl, contains('state=c-both'));
+      expect(capturedUrl, contains('scopes=user%3Aemail'));
+      expect(
+        capturedUrl,
+        contains('redirect_to=https%3A%2F%2Fapp.example.com%2Fwelcome'),
+      );
+    });
+
     test('emits SIGNED_IN auth event', () async {
       final controller = httpClient.prepareStream(200);
       final events = <String>[];

@@ -125,17 +125,24 @@ func (s *Server) registerAPIWebhookRoutes(r chi.Router) {
 }
 
 func (s *Server) registerAPIGraphQLRoutes(r chi.Router) {
-	// Mount GraphQL API (when wired).
-	if s.graphqlHandler == nil {
-		return
-	}
+	// The graphql handler is wired by SetGraphQLHandler *after* server
+	// construction, so resolve the handler lazily at request time. Returning
+	// 404 here matches the legacy behavior of "not mounted yet".
+	lazy := http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		h := s.graphqlHandler
+		if h == nil {
+			http.NotFound(w, req)
+			return
+		}
+		h.ServeHTTP(w, req)
+	})
 	if s.authSvc != nil {
-		r.With(s.requireAdminOrUserAuth(s.authSvc)).Post("/graphql", s.graphqlHandler.ServeHTTP)
+		r.With(s.requireAdminOrUserAuth(s.authSvc)).Post("/graphql", lazy)
 	} else {
-		r.Post("/graphql", s.graphqlHandler.ServeHTTP)
+		r.Post("/graphql", lazy)
 	}
 	// WebSocket upgrade for graphql-ws. Auth is handled in protocol init.
-	r.Get("/graphql", s.graphqlHandler.ServeHTTP)
+	r.Get("/graphql", lazy)
 }
 
 func (s *Server) registerAPICRUDRoutes(r chi.Router) {

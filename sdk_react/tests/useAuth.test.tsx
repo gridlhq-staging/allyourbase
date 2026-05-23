@@ -191,4 +191,29 @@ describe("useAuth", () => {
     expect(client.auth.linkEmail).toHaveBeenCalledWith("next@example.com", "password123");
     expect(client.auth.signInWithOAuth).toHaveBeenCalledWith("google", undefined);
   });
+
+  // MAY22-OAUTH-RETURN-TO follow-up: confirms `useAuth().signInWithOAuth`
+  // forwards the new `redirectTo` option through to the underlying client
+  // unchanged. React is purely passthrough — the server is the security
+  // owner (`internal/auth/handler_oauth.go` host-allowlist validation), and
+  // the JS SDK builds the actual URL. This test guards against React's
+  // wrapper accidentally dropping options.
+  it("forwards redirectTo through useAuth.signInWithOAuth to the underlying client", async () => {
+    const { client } = createAuthClient();
+    const wrapper = ({ children }: { children: React.ReactNode }) => <AYBProvider client={client}>{children}</AYBProvider>;
+    const { result } = renderHook(() => useAuth(), { wrapper });
+
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    const options = { redirectTo: "https://app.example.com/post-oauth" };
+    await act(async () => {
+      await result.current.signInWithOAuth("github", options);
+    });
+
+    // Asserts the exact options object reached the client mock — covers both
+    // that React keeps the option set AND that it doesn't overwrite or
+    // synthesize a different one. `toHaveBeenCalledWith` does a structural
+    // match, so the redirectTo value is checked, not just presence.
+    expect(client.auth.signInWithOAuth).toHaveBeenCalledWith("github", options);
+  });
 });

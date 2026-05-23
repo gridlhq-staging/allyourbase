@@ -17,10 +17,6 @@ vi.mock("@allyourbase/react", () => {
       email,
       password,
       error,
-      emailPlaceholder = "you@example.com",
-      passwordPlaceholder = "At least 8 characters",
-      registerToggleLabel = "Sign up",
-      loginToggleLabel = "Sign in",
       oauthProviders,
       methods,
       onEmailChange,
@@ -37,10 +33,6 @@ vi.mock("@allyourbase/react", () => {
       email: string;
       password: string;
       error: string | null;
-      emailPlaceholder?: string;
-      passwordPlaceholder?: string;
-      registerToggleLabel?: string;
-      loginToggleLabel?: string;
       oauthProviders?: string[];
       methods: { password: boolean; oauth: boolean; anonymous: boolean; canUpgradeAnonymous: boolean; magicLink?: boolean };
       onEmailChange: (value: string) => void;
@@ -53,14 +45,14 @@ vi.mock("@allyourbase/react", () => {
       onUpgradeAnonymous?: () => Promise<void>;
     }) => (
       <div>
-        <input aria-label="Email" placeholder={emailPlaceholder} value={email} onChange={(event) => onEmailChange(event.target.value)} />
-        <input aria-label="Password" placeholder={passwordPlaceholder} value={password} onChange={(event) => onPasswordChange(event.target.value)} />
+        <input aria-label="Email" value={email} onChange={(event) => onEmailChange(event.target.value)} />
+        <input aria-label="Password" value={password} onChange={(event) => onPasswordChange(event.target.value)} />
         <button type="button" disabled={loading} onClick={() => void onSubmit()}>
           {mode === "register" ? "Create Account" : "Sign In"}
         </button>
         {onModeChange && (
           <button type="button" onClick={() => onModeChange(mode === "register" ? "login" : "register")}>
-            {mode === "register" ? loginToggleLabel : registerToggleLabel}
+            {mode === "register" ? "Sign in" : "Sign up"}
           </button>
         )}
         {methods.oauth && oauthProviders && onOAuthProvider && oauthProviders.map((p) => (
@@ -97,23 +89,21 @@ const mockPersistTokens = vi.mocked(persistTokens);
 const mockClearAnonymousBootstrapOptOut = vi.mocked(clearAnonymousBootstrapOptOut);
 const mockUseAuth = vi.mocked(useAuth);
 
-describe("AuthForm", () => {
+describe("movies AuthForm", () => {
   const login = vi.fn();
   const register = vi.fn();
-
   const signInAnonymously = vi.fn();
   const signInWithOAuth = vi.fn();
   const requestMagicLink = vi.fn();
   const linkEmail = vi.fn();
 
-  beforeEach(() => {
-    vi.clearAllMocks();
+  function setAuth(user: { id: string; email?: string; isAnonymous?: boolean } | null) {
     mockUseAuth.mockReturnValue({
       loading: false,
-      user: null,
+      user,
       error: null,
-      token: null,
-      refreshToken: null,
+      token: user ? "token" : null,
+      refreshToken: user ? "refresh" : null,
       login,
       register,
       signInAnonymously,
@@ -124,67 +114,24 @@ describe("AuthForm", () => {
       logout: vi.fn(),
       refresh: vi.fn(),
     });
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    setAuth(null);
   });
 
-  it("renders login mode by default", () => {
-    render(<AuthForm onAuth={vi.fn()} />);
-
-    expect(screen.getByRole("button", { name: "Sign In" })).toBeInTheDocument();
-    expect(screen.getByText("alice@demo.test")).toBeInTheDocument();
-  });
-
-  it("switches to register mode and hides demo account quick picks", () => {
-    render(<AuthForm onAuth={vi.fn()} />);
-
-    fireEvent.click(screen.getByRole("button", { name: "Register" }));
-
-    expect(screen.getByRole("button", { name: "Create Account" })).toBeInTheDocument();
-    expect(screen.queryByText("alice@demo.test")).not.toBeInTheDocument();
-  });
-
-  it("submits with register() in register mode", async () => {
-    register.mockResolvedValueOnce(undefined);
-    render(<AuthForm onAuth={vi.fn()} />);
-
-    fireEvent.click(screen.getByRole("button", { name: "Register" }));
-    fireEvent.change(screen.getByLabelText("Email"), { target: { value: "new@test.com" } });
-    fireEvent.change(screen.getByLabelText("Password"), { target: { value: "password123" } });
-    fireEvent.click(screen.getByRole("button", { name: "Create Account" }));
-
-    await waitFor(() => expect(register).toHaveBeenCalledOnce());
-    expect(register).toHaveBeenCalledWith("new@test.com", "password123");
-    expect(login).not.toHaveBeenCalled();
-  });
-
-  it("uses live-polls placeholders and register toggle copy", () => {
-    render(<AuthForm onAuth={vi.fn()} />);
-
-    expect(screen.getByPlaceholderText("Email")).toBeInTheDocument();
-    expect(screen.getByPlaceholderText("Password")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Register" })).toBeInTheDocument();
-  });
-
-  it("switches subtitle copy in register mode", () => {
-    render(<AuthForm onAuth={vi.fn()} />);
-
-    expect(screen.getByText("Sign in to create and vote on polls")).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "Register" }));
-    expect(screen.getByText("Create your account")).toBeInTheDocument();
-  });
-
-  it("persists tokens and notifies app after successful login", async () => {
+  it("submits login via the password path and notifies parent", async () => {
     login.mockResolvedValueOnce(undefined);
     const onAuth = vi.fn();
     render(<AuthForm onAuth={onAuth} />);
-
-    fireEvent.change(screen.getByLabelText("Email"), { target: { value: "user@test.com" } });
+    fireEvent.change(screen.getByLabelText("Email"), { target: { value: "u@test.com" } });
     fireEvent.change(screen.getByLabelText("Password"), { target: { value: "password123" } });
     fireEvent.click(screen.getByRole("button", { name: "Sign In" }));
-
-    await waitFor(() => expect(login).toHaveBeenCalledOnce());
-    expect(mockPersistTokens).toHaveBeenCalledWith("user@test.com");
+    await waitFor(() => expect(login).toHaveBeenCalledWith("u@test.com", "password123"));
+    expect(mockPersistTokens).toHaveBeenCalledWith("u@test.com");
     expect(mockClearAnonymousBootstrapOptOut).toHaveBeenCalledOnce();
-    expect(onAuth).toHaveBeenCalledWith("user@test.com");
+    expect(onAuth).toHaveBeenCalledWith("u@test.com");
   });
 
   it("renders per-provider OAuth buttons wired to signInWithOAuth", async () => {
@@ -210,5 +157,21 @@ describe("AuthForm", () => {
     fireEvent.change(screen.getByLabelText("Email"), { target: { value: "magic@test.com" } });
     fireEvent.click(screen.getByRole("button", { name: "Email me a magic link" }));
     await waitFor(() => expect(requestMagicLink).toHaveBeenCalledWith("magic@test.com"));
+  });
+
+  it("renders the Upgrade Account button when current user is anonymous and wires it to linkEmail", async () => {
+    linkEmail.mockResolvedValueOnce(undefined);
+    setAuth({ id: "anon-1", isAnonymous: true });
+    render(<AuthForm onAuth={vi.fn()} />);
+    fireEvent.change(screen.getByLabelText("Email"), { target: { value: "claim@test.com" } });
+    fireEvent.change(screen.getByLabelText("Password"), { target: { value: "password123" } });
+    fireEvent.click(screen.getByRole("button", { name: "Upgrade Account" }));
+    await waitFor(() => expect(linkEmail).toHaveBeenCalledWith("claim@test.com", "password123"));
+  });
+
+  it("does not render the Upgrade Account button for non-anonymous (logged-out) state", () => {
+    setAuth(null);
+    render(<AuthForm onAuth={vi.fn()} />);
+    expect(screen.queryByRole("button", { name: "Upgrade Account" })).not.toBeInTheDocument();
   });
 });

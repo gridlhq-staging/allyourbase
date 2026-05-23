@@ -53,15 +53,20 @@ function CopyButton({ value }: { value: string }) {
   );
 }
 
+const OAUTH_PROVIDERS: ("github" | "google")[] = ["github", "google"];
+
 export default function AuthForm({ onAuth }: Props) {
-  const { login, register, loading } = useAuth();
+  const { user, login, register, loading, signInWithOAuth, signInAnonymously, requestMagicLink, linkEmail } = useAuth();
+  const isAnonymous = Boolean(user?.isAnonymous);
   const [mode, setMode] = useState<"login" | "register">("login");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
 
   async function handleSubmit() {
     setError("");
+    setNotice("");
     try {
       if (mode === "register") {
         await register(email, password);
@@ -73,6 +78,50 @@ export default function AuthForm({ onAuth }: Props) {
       onAuth(email);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Authentication failed");
+    }
+  }
+
+  async function handleOAuthProvider(provider: "github" | "google") {
+    setError("");
+    setNotice("");
+    try {
+      await signInWithOAuth(provider);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "OAuth sign-in failed");
+    }
+  }
+
+  async function handleAnonymous() {
+    setError("");
+    setNotice("");
+    try {
+      await signInAnonymously();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Guest sign-in failed");
+    }
+  }
+
+  async function handleRequestMagicLink(value: string) {
+    setError("");
+    setNotice("");
+    try {
+      await requestMagicLink(value);
+      setNotice(`We sent a magic link to ${value}. Check your inbox.`);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Magic link request failed");
+    }
+  }
+
+  async function handleUpgradeAnonymous() {
+    setError("");
+    setNotice("");
+    try {
+      await linkEmail(email, password);
+      persistTokens(email);
+      clearAnonymousBootstrapOptOut();
+      onAuth(email);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Account upgrade failed");
     }
   }
 
@@ -93,23 +142,35 @@ export default function AuthForm({ onAuth }: Props) {
         </div>
 
         <AybLoginBar
-          methods={{ password: true, oauth: false, anonymous: false, canUpgradeAnonymous: false }}
+          methods={{
+            password: true,
+            oauth: true,
+            anonymous: !isAnonymous,
+            canUpgradeAnonymous: isAnonymous,
+            magicLink: true,
+          }}
           loading={loading}
           mode={mode}
           email={email}
           password={password}
           error={error || null}
           demoSuggestions={[]}
+          oauthProviders={OAUTH_PROVIDERS}
           onEmailChange={setEmail}
           onPasswordChange={setPassword}
           onModeChange={(nextMode) => {
             setMode(nextMode);
             setError("");
+            setNotice("");
           }}
           onSubmit={handleSubmit}
           onOAuth={async () => {}}
-          onAnonymous={async () => {}}
+          onAnonymous={handleAnonymous}
+          onOAuthProvider={handleOAuthProvider}
+          onRequestMagicLink={handleRequestMagicLink}
+          onUpgradeAnonymous={handleUpgradeAnonymous}
         />
+        {notice && <p className="text-xs text-emerald-600 mt-3" role="status">{notice}</p>}
 
         {mode === "login" && (
           <div className="mt-5 border-t border-gray-200 pt-4">

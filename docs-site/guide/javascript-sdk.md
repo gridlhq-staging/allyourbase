@@ -190,6 +190,16 @@ await ayb.auth.signInWithOAuth("github", { scopes: ["repo"] });
 await ayb.auth.signInWithOAuth("google", {
   urlCallback: (url) => { window.location.href = url; },
 });
+
+// Per-request post-callback redirect target (requires
+// AYB_AUTH_OAUTH_RETURN_TO_ALLOWLIST configured server-side). The SDK
+// forwards the value opaquely; the server validates against the allowlist
+// at both OAuth start and callback dispatch. Most useful with the
+// redirect flow.
+await ayb.auth.signInWithOAuth("google", {
+  urlCallback: (url) => { window.location.href = url; },
+  redirectTo: "https://app.example.com/post-oauth",
+});
 ```
 
 After a redirect-based OAuth flow, parse tokens from the URL hash:

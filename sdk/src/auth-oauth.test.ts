@@ -352,6 +352,124 @@ describe("signInWithOAuth", () => {
     expect(result.user.email).toBe("a@b.com");
     expect(client.token).toBe("t");
   });
+
+  // MAY22-OAUTH-RETURN-TO follow-up: the server now accepts a per-request
+  // `redirect_to` query param at /api/auth/oauth/{provider} and re-validates
+  // it at callback dispatch (see internal/auth/handler_oauth.go). The SDK
+  // surfaces this as an opaque pass-through string on OAuthOptions — the
+  // server is the single security owner (host-allowlist enforcement, scheme
+  // checks, callback re-validation), so the SDK does NOT validate the value
+  // client-side. The URL-construction tests below cover the contract; the
+  // server-side reject tests live in internal/auth/oauth_return_to_test.go.
+  it("includes redirect_to in OAuth URL when redirectTo option is set", async () => {
+    window.open = vi.fn().mockReturnValue({
+      closed: false,
+      close: vi.fn(),
+      location: { href: "" },
+    }) as unknown as typeof window.open;
+
+    const client = new AYBClient("http://localhost:8090", {
+      fetch: mockFetch(200, {}),
+    });
+
+    // Use a real URL with characters that require percent-encoding (query
+    // separator, slash, colon) so a missing encoder fails the assertion.
+    const promise = client.auth.signInWithOAuth("google", {
+      redirectTo: "https://app.example.com/post-oauth?next=/home",
+    });
+
+    const es = MockEventSource.instances[0];
+    es.emit("connected", { clientId: "c-redir" });
+
+    await vi.waitFor(() => {
+      const popup = (window.open as ReturnType<typeof vi.fn>).mock
+        .results[0].value;
+      expect(popup.location.href).toContain("state=c-redir");
+      // Asserts both the param key AND the percent-encoded value, so a bug
+      // that drops encoding (or appends the raw string) still fails.
+      expect(popup.location.href).toContain(
+        "redirect_to=https%3A%2F%2Fapp.example.com%2Fpost-oauth%3Fnext%3D%2Fhome",
+      );
+    });
+
+    es.emit("oauth", {
+      token: "t",
+      refreshToken: "r",
+      user: { id: "1", email: "a@b.com" },
+    });
+    await promise;
+  });
+
+  it("does not include redirect_to in OAuth URL when option is unset", async () => {
+    window.open = vi.fn().mockReturnValue({
+      closed: false,
+      close: vi.fn(),
+      location: { href: "" },
+    }) as unknown as typeof window.open;
+
+    const client = new AYBClient("http://localhost:8090", {
+      fetch: mockFetch(200, {}),
+    });
+
+    const promise = client.auth.signInWithOAuth("google");
+
+    const es = MockEventSource.instances[0];
+    es.emit("connected", { clientId: "c-no-redir" });
+
+    await vi.waitFor(() => {
+      const popup = (window.open as ReturnType<typeof vi.fn>).mock
+        .results[0].value;
+      // Negative assertion guards against accidentally appending a default
+      // value (e.g. empty string or location.href) when caller did not opt in.
+      expect(popup.location.href).not.toContain("redirect_to");
+    });
+
+    es.emit("oauth", {
+      token: "t",
+      refreshToken: "r",
+      user: { id: "1", email: "a@b.com" },
+    });
+    await promise;
+  });
+
+  it("appends redirect_to alongside scopes without dropping either", async () => {
+    window.open = vi.fn().mockReturnValue({
+      closed: false,
+      close: vi.fn(),
+      location: { href: "" },
+    }) as unknown as typeof window.open;
+
+    const client = new AYBClient("http://localhost:8090", {
+      fetch: mockFetch(200, {}),
+    });
+
+    // Covers the URL-builder order: state, scopes, redirect_to. Both extras
+    // must appear so a refactor that overwrites the URL var would fail.
+    const promise = client.auth.signInWithOAuth("github", {
+      scopes: ["user:email"],
+      redirectTo: "https://app.example.com/welcome",
+    });
+
+    const es = MockEventSource.instances[0];
+    es.emit("connected", { clientId: "c-both" });
+
+    await vi.waitFor(() => {
+      const popup = (window.open as ReturnType<typeof vi.fn>).mock
+        .results[0].value;
+      expect(popup.location.href).toContain("state=c-both");
+      expect(popup.location.href).toContain("scopes=user%3Aemail");
+      expect(popup.location.href).toContain(
+        "redirect_to=https%3A%2F%2Fapp.example.com%2Fwelcome",
+      );
+    });
+
+    es.emit("oauth", {
+      token: "t",
+      refreshToken: "r",
+      user: { id: "1", email: "a@b.com" },
+    });
+    await promise;
+  });
 });
 
 describe("handleOAuthRedirect", () => {

@@ -3,6 +3,7 @@ package codehealth
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -37,4 +38,42 @@ func TestReleaseEvidenceArtifactsStayIgnored(t *testing.T) {
 	requireContainsAll(t, string(data), []string{
 		"_dev/release/evidence/*",
 	})
+}
+
+func TestPublishedDockerImageBuildsAllEmbeddedDemoDistAssets(t *testing.T) {
+	t.Parallel()
+
+	repoRoot := findRepoRoot(t)
+	embedPath := filepath.Join(repoRoot, "examples", "embed.go")
+	embedData, err := os.ReadFile(embedPath)
+	if err != nil {
+		t.Fatalf("read %s failed: %v", embedPath, err)
+	}
+	embedContent := string(embedData)
+	requireContainsAll(t, embedContent, []string{
+		"//go:embed kanban/dist live-polls/dist movies/dist",
+	})
+
+	dockerfilePath := filepath.Join(repoRoot, "Dockerfile")
+	dockerfileData, err := os.ReadFile(dockerfilePath)
+	if err != nil {
+		t.Fatalf("read %s failed: %v", dockerfilePath, err)
+	}
+	dockerfileContent := string(dockerfileData)
+
+	requiredDemoDistDirs := []string{
+		"kanban/dist",
+		"live-polls/dist",
+		"movies/dist",
+	}
+	for _, distDir := range requiredDemoDistDirs {
+		demoName := strings.TrimSuffix(distDir, "/dist")
+		requireContainsAll(t, dockerfileContent, []string{
+			"WORKDIR /src/examples/" + demoName,
+			"COPY examples/" + demoName + "/package*.json ./",
+			"COPY examples/" + demoName + "/ .",
+			"RUN VITE_AYB_URL=\"\" npx vite build",
+			"COPY --from=demo-builder /src/examples/" + demoName + "/dist ./examples/" + demoName + "/dist",
+		})
+	}
 }

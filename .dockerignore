@@ -15,7 +15,6 @@ docs-site/.vitepress/dist
 .mike/
 
 # Dev/local artifacts
-sdk/
 live-polls/
 _dev/
 _qa/

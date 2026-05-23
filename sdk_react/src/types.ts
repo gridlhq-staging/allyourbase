@@ -4,6 +4,13 @@ export type OAuthProvider = "google" | "github";
 export interface OAuthOptions {
   scopes?: string[];
   urlCallback?: (url: string) => void | Promise<void>;
+  /**
+   * Per-request OAuth post-callback redirect target. Server validates against
+   * `AYB_AUTH_OAUTH_RETURN_TO_ALLOWLIST` at both start and callback dispatch
+   * (see `internal/auth/handler_oauth.go`). React just forwards the value to
+   * the underlying JS client; the server is the single security owner.
+   */
+  redirectTo?: string;
 }
 
 export type AuthStateListener = (
@@ -98,4 +105,30 @@ export interface AybAuthMethods {
   oauth: boolean;
   anonymous: boolean;
   canUpgradeAnonymous: boolean;
+  magicLink?: boolean;
+}
+
+export interface AybLoginBarProps {
+  methods: AybAuthMethods;
+  loading: boolean;
+  mode?: "login" | "register";
+  submitLabel?: string;
+  registerToggleLabel?: string;
+  loginToggleLabel?: string;
+  email: string;
+  emailPlaceholder?: string;
+  password: string;
+  passwordPlaceholder?: string;
+  error: string | null;
+  demoSuggestions: DemoSuggestion[];
+  oauthProviders?: OAuthProvider[];
+  onEmailChange: (value: string) => void;
+  onPasswordChange: (value: string) => void;
+  onModeChange?: (mode: "login" | "register") => void;
+  onSubmit: () => Promise<void>;
+  onOAuth: () => Promise<void>;
+  onAnonymous: () => Promise<void>;
+  onOAuthProvider?: (provider: OAuthProvider) => Promise<void>;
+  onRequestMagicLink?: (email: string) => Promise<void>;
+  onUpgradeAnonymous?: () => Promise<void>;
 }

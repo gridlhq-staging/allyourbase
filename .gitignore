@@ -101,6 +101,7 @@ Desktop.ini
 # AYB runtime
 ayb.toml
 !deploy/gridl-node/ayb.toml
+!deploy/fly/ayb.toml
 *.log
 docs-site/.vitepress/dist/
 docs-site/.vitepress/cache/
@@ -158,6 +159,7 @@ composer.lock
 !examples/kanban/package-lock.json
 !examples/live-polls/package-lock.json
 !examples/movies/package-lock.json
+!tests/e2e/package-lock.json
 
 # ML model caches
 **/.fastembed_cache/

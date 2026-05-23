@@ -8,6 +8,18 @@ RUN npm run build
 
 FROM node:20-alpine AS demo-builder
 
+WORKDIR /src
+COPY sdk/ ./sdk/
+COPY sdk_react/ ./sdk_react/
+
+WORKDIR /src/sdk
+RUN npm ci
+RUN npm run build
+
+WORKDIR /src/sdk_react
+RUN npm install --legacy-peer-deps
+RUN npm run build
+
 WORKDIR /src/examples/kanban
 COPY examples/kanban/package*.json ./
 RUN npm ci
@@ -18,6 +30,12 @@ WORKDIR /src/examples/live-polls
 COPY examples/live-polls/package*.json ./
 RUN npm ci
 COPY examples/live-polls/ .
+RUN VITE_AYB_URL="" npx vite build
+
+WORKDIR /src/examples/movies
+COPY examples/movies/package*.json ./
+RUN npm ci
+COPY examples/movies/ .
 RUN VITE_AYB_URL="" npx vite build
 
 FROM alpine:3.22 AS pg-builder
@@ -62,6 +80,7 @@ COPY . .
 COPY --from=ui-builder /src/ui/dist ./ui/dist
 COPY --from=demo-builder /src/examples/kanban/dist ./examples/kanban/dist
 COPY --from=demo-builder /src/examples/live-polls/dist ./examples/live-polls/dist
+COPY --from=demo-builder /src/examples/movies/dist ./examples/movies/dist
 
 RUN go build -ldflags "-s -w" -o /ayb ./cmd/ayb
 
@@ -78,6 +97,7 @@ LABEL org.opencontainers.image.licenses="MIT"
 
 COPY --from=pg-builder --chown=ayb:ayb /opt/ayb-managed-pg /home/ayb/.ayb/pgbin
 COPY --from=builder /ayb /usr/local/bin/ayb
+COPY --from=builder --chown=ayb:ayb /src/deploy/fly/ayb.toml /home/ayb/ayb.toml
 COPY docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
 RUN chmod +x /usr/local/bin/docker-entrypoint.sh
 

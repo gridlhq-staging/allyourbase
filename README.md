@@ -27,10 +27,11 @@ On first run, AYB downloads a prebuilt PostgreSQL binary for your platform and m
 
 Managed PostgreSQL is the zero-config path. If you need extensions beyond the managed build's default set, such as PostGIS, use an external PostgreSQL instance unless your managed PostgreSQL build explicitly includes them.
 
-Two demos ship in [`/examples`](examples/):
+Three demos ship in [`/examples`](examples/):
 
-- **[Live Polls](examples/live-polls/)** — real-time polling with auth, RLS, SSE, and database RPC
-- **[Kanban Board](examples/kanban/)** — Trello-lite with drag-and-drop, per-user boards via RLS
+- **[Live Polls](examples/live-polls/)** — Slido-lite — real-time polling with voting and bar charts
+- **[Kanban Board](examples/kanban/)** — Trello-lite with drag-and-drop, auth, and realtime sync
+- **[Movies](examples/movies/)** — Semantic movie search with notes, chat, and bring-your-own-key
 
 ## Who is this for?
 

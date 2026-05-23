@@ -215,7 +215,9 @@ curl -X POST http://localhost:8090/api/auth/magic-link/confirm \
 }
 ```
 
-For SDK callers, use `requestMagicLink` and `confirmMagicLink`; Stage 4 documents those wrappers in detail.
+If you confirm the link while sending an anonymous-session bearer token, AYB upgrades that existing anonymous user instead of creating a second account.
+
+For SDK callers, use `requestMagicLink` and `confirmMagicLink`; the [JavaScript SDK guide](./javascript-sdk#auth) documents those wrappers in detail.
 
 ## Anonymous auth
 
@@ -226,6 +228,8 @@ Canonical anchor for auth error links that reference `#anonymous`.
 Anonymous auth lets users start using your app without signing up. They get a real user ID and session, and can later link their account to an email/password or OAuth identity.
 
 The common progression is: start with an anonymous session, then upgrade to a credentialed account when the user is ready. You can upgrade with a magic link (`POST /api/auth/magic-link`) or by linking email/password credentials. After that first upgrade, you can add OAuth identity linking for provider-based sign-in.
+
+The AYB demo apps (kanban, polls, movies — see [Demos](./demos)) all use this pattern: bootstrap anonymous on first visit, then surface an in-page upgrade widget so users can claim their work later.
 
 ### Enable
 
@@ -715,6 +719,31 @@ AYB_AUTH_OAUTH_RETURN_TO_ALLOWLIST=app.example.com,admin.example.com,localhost,1
 `validatedOAuthReturnTo` (`internal/auth/handler_oauth.go`). Keep
 `AYB_AUTH_OAUTH_REDIRECT_URL` configured as the fallback destination when a
 request does not include `redirect_to`.
+
+#### SDK helpers
+
+The JavaScript SDK and Dart SDK accept `redirectTo` as a pass-through option
+on `signInWithOAuth`. The SDKs do not validate the value — the server is the
+single security owner, and the value is rejected at OAuth start unless it
+passes the allowlist check above.
+
+```ts
+// JavaScript / TypeScript
+await ayb.auth.signInWithOAuth("google", {
+  redirectTo: "https://app.example.com/post-oauth",
+});
+```
+
+```dart
+// Dart
+await client.auth.signInWithOAuth(
+  'google',
+  redirectTo: 'https://app.example.com/post-oauth',
+  urlCallback: (url) async => launchUrl(Uri.parse(url)),
+);
+```
+
+The React SDK forwards the option through `useAuth().signInWithOAuth(provider, options)` unchanged.
 
 ### Environment variables
 

@@ -78,4 +78,123 @@ describe("AybLoginBar", () => {
 
     expect(screen.getByLabelText("Password").getAttribute("type")).toBe("password");
   });
+
+  it("renders one OAuth button per provider when oauthProviders is provided", async () => {
+    const onOAuthProvider = vi.fn(async () => {});
+
+    render(
+      <AybLoginBar
+        methods={{ password: true, oauth: true, anonymous: false, canUpgradeAnonymous: false }}
+        loading={false}
+        email=""
+        password=""
+        error={null}
+        demoSuggestions={[]}
+        oauthProviders={["github", "google"]}
+        onEmailChange={() => {}}
+        onPasswordChange={() => {}}
+        onSubmit={async () => {}}
+        onOAuth={async () => {}}
+        onOAuthProvider={onOAuthProvider}
+        onAnonymous={async () => {}}
+      />,
+    );
+
+    const githubBtn = screen.getByRole("button", { name: /github/i });
+    const googleBtn = screen.getByRole("button", { name: /google/i });
+    expect(screen.queryByRole("button", { name: "Continue with OAuth" })).toBeNull();
+
+    fireEvent.click(githubBtn);
+    fireEvent.click(googleBtn);
+    expect(onOAuthProvider).toHaveBeenNthCalledWith(1, "github");
+    expect(onOAuthProvider).toHaveBeenNthCalledWith(2, "google");
+  });
+
+  it("falls back to single OAuth button when oauthProviders is absent (back-compat)", () => {
+    render(
+      <AybLoginBar
+        methods={{ password: true, oauth: true, anonymous: false, canUpgradeAnonymous: false }}
+        loading={false}
+        email=""
+        password=""
+        error={null}
+        demoSuggestions={[]}
+        onEmailChange={() => {}}
+        onPasswordChange={() => {}}
+        onSubmit={async () => {}}
+        onOAuth={async () => {}}
+        onAnonymous={async () => {}}
+      />,
+    );
+    expect(screen.getByRole("button", { name: "Continue with OAuth" })).toBeTruthy();
+  });
+
+  it("renders a magic-link trigger when methods.magicLink is true and calls onRequestMagicLink", async () => {
+    const onRequestMagicLink = vi.fn(async () => {});
+
+    render(
+      <AybLoginBar
+        methods={{ password: true, oauth: false, anonymous: false, canUpgradeAnonymous: false, magicLink: true }}
+        loading={false}
+        email="alice@demo.test"
+        password=""
+        error={null}
+        demoSuggestions={[]}
+        onEmailChange={() => {}}
+        onPasswordChange={() => {}}
+        onSubmit={async () => {}}
+        onOAuth={async () => {}}
+        onAnonymous={async () => {}}
+        onRequestMagicLink={onRequestMagicLink}
+      />,
+    );
+
+    const magicBtn = screen.getByRole("button", { name: /magic link/i });
+    fireEvent.click(magicBtn);
+    expect(onRequestMagicLink).toHaveBeenCalledWith("alice@demo.test");
+  });
+
+  it("does not render a magic-link trigger when methods.magicLink is falsy", () => {
+    render(
+      <AybLoginBar
+        methods={{ password: true, oauth: false, anonymous: false, canUpgradeAnonymous: false }}
+        loading={false}
+        email="alice@demo.test"
+        password=""
+        error={null}
+        demoSuggestions={[]}
+        onEmailChange={() => {}}
+        onPasswordChange={() => {}}
+        onSubmit={async () => {}}
+        onOAuth={async () => {}}
+        onAnonymous={async () => {}}
+      />,
+    );
+    expect(screen.queryByRole("button", { name: /magic link/i })).toBeNull();
+  });
+
+  it("renders a clickable guest-upgrade button when canUpgradeAnonymous and calls onUpgradeAnonymous", async () => {
+    const onUpgradeAnonymous = vi.fn(async () => {});
+
+    render(
+      <AybLoginBar
+        methods={{ password: true, oauth: false, anonymous: false, canUpgradeAnonymous: true }}
+        loading={false}
+        email="alice@demo.test"
+        password="password123"
+        error={null}
+        demoSuggestions={[]}
+        onEmailChange={() => {}}
+        onPasswordChange={() => {}}
+        onSubmit={async () => {}}
+        onOAuth={async () => {}}
+        onAnonymous={async () => {}}
+        onUpgradeAnonymous={onUpgradeAnonymous}
+      />,
+    );
+
+    const upgradeBtn = screen.getByRole("button", { name: /upgrade account/i });
+    fireEvent.click(upgradeBtn);
+    expect(onUpgradeAnonymous).toHaveBeenCalledTimes(1);
+  });
 });

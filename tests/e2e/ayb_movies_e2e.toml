@@ -1,0 +1,9 @@
+[ai]
+default_provider = "ollama"
+default_model = "llama3.2"
+embedding_provider = "ollama"
+embedding_model = "nomic-embed-text"
+
+[ai.providers.ollama]
+base_url = "http://127.0.0.1:11434"
+default_model = "llama3.2"

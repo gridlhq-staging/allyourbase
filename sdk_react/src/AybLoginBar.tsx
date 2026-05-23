@@ -1,27 +1,11 @@
 import { useMemo } from "react";
 import { DemoSuggestionChip } from "./DemoSuggestionChip";
-import type { AybAuthMethods, DemoSuggestion } from "./types";
+import type { AybLoginBarProps, OAuthProvider } from "./types";
 
-interface AybLoginBarProps {
-  methods: AybAuthMethods;
-  loading: boolean;
-  mode?: "login" | "register";
-  submitLabel?: string;
-  registerToggleLabel?: string;
-  loginToggleLabel?: string;
-  email: string;
-  emailPlaceholder?: string;
-  password: string;
-  passwordPlaceholder?: string;
-  error: string | null;
-  demoSuggestions: DemoSuggestion[];
-  onEmailChange: (value: string) => void;
-  onPasswordChange: (value: string) => void;
-  onModeChange?: (mode: "login" | "register") => void;
-  onSubmit: () => Promise<void>;
-  onOAuth: () => Promise<void>;
-  onAnonymous: () => Promise<void>;
-}
+const OAUTH_PROVIDER_LABEL: Record<OAuthProvider, string> = {
+  github: "Continue with GitHub",
+  google: "Continue with Google",
+};
 
 export function AybLoginBar(props: AybLoginBarProps) {
   const {
@@ -37,16 +21,24 @@ export function AybLoginBar(props: AybLoginBarProps) {
     passwordPlaceholder = "At least 8 characters",
     error,
     demoSuggestions,
+    oauthProviders,
     onEmailChange,
     onPasswordChange,
     onModeChange,
     onSubmit,
     onOAuth,
     onAnonymous,
+    onOAuthProvider,
+    onRequestMagicLink,
+    onUpgradeAnonymous,
   } = props;
   const canSubmitPassword = useMemo(
     () => methods.password && email.length > 0 && password.length > 0,
     [methods.password, email, password],
+  );
+  const canRequestMagicLink = useMemo(
+    () => Boolean(methods.magicLink) && email.length > 0,
+    [methods.magicLink, email],
   );
 
   return (
@@ -83,17 +75,51 @@ export function AybLoginBar(props: AybLoginBarProps) {
           )}
         </>
       )}
-      {methods.oauth && (
-        <button type="button" disabled={loading} onClick={() => void onOAuth()}>
-          Continue with OAuth
+      {methods.magicLink && onRequestMagicLink && (
+        <button
+          type="button"
+          disabled={loading || !canRequestMagicLink}
+          onClick={() => void onRequestMagicLink(email)}
+        >
+          Email me a magic link
         </button>
+      )}
+      {methods.oauth && (
+        oauthProviders && oauthProviders.length > 0 && onOAuthProvider ? (
+          oauthProviders.map((provider) => (
+            <button
+              key={provider}
+              type="button"
+              disabled={loading}
+              onClick={() => void onOAuthProvider(provider)}
+            >
+              {OAUTH_PROVIDER_LABEL[provider]}
+            </button>
+          ))
+        ) : (
+          <button type="button" disabled={loading} onClick={() => void onOAuth()}>
+            Continue with OAuth
+          </button>
+        )
       )}
       {methods.anonymous && (
         <button type="button" disabled={loading} onClick={() => void onAnonymous()}>
           Continue as Guest
         </button>
       )}
-      {methods.canUpgradeAnonymous && <p>Upgrade your guest account</p>}
+      {methods.canUpgradeAnonymous && (
+        onUpgradeAnonymous ? (
+          <button
+            type="button"
+            disabled={loading || !canSubmitPassword}
+            onClick={() => void onUpgradeAnonymous()}
+          >
+            Upgrade Account
+          </button>
+        ) : (
+          <p>Upgrade your guest account</p>
+        )
+      )}
       {error && <p role="alert">{error}</p>}
       <div>
         {demoSuggestions.map((suggestion) => (

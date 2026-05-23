@@ -68,6 +68,58 @@ describe("react contract parity", () => {
     expect(typeof DemoSuggestionChip).toBe("function");
   });
 
+  it("AybLoginBar exposes per-provider OAuth, magic-link, and guest-upgrade controls wired to useAuth methods", async () => {
+    const { fireEvent: fire, render, screen: scr } = await import("@testing-library/react");
+    const persistence = { save: vi.fn(), clear: vi.fn() };
+    const fetchFn = mockFetchSequence([
+      // magic-link request response
+      { status: 200, body: magicLinkRequestFixture },
+    ]);
+    const core = new AYBClient("https://api.example.com", { fetch: fetchFn, authPersistence: persistence });
+
+    const signInWithOAuth = vi.spyOn(core.auth, "signInWithOAuth").mockResolvedValue({} as never);
+    const linkEmail = vi.spyOn(core.auth, "linkEmail").mockResolvedValue({} as never);
+
+    // Render the LoginBar directly with callbacks bound to the core auth methods.
+    render(
+      <AybLoginBar
+        methods={{ password: true, oauth: true, anonymous: true, canUpgradeAnonymous: true, magicLink: true }}
+        loading={false}
+        email="alice@allyourbase.io"
+        password="password123"
+        error={null}
+        demoSuggestions={[]}
+        oauthProviders={["github", "google"]}
+        onEmailChange={() => {}}
+        onPasswordChange={() => {}}
+        onSubmit={async () => {}}
+        onOAuth={async () => {}}
+        onAnonymous={async () => {}}
+        onOAuthProvider={async (p) => {
+          await core.auth.signInWithOAuth(p);
+        }}
+        onRequestMagicLink={async (e) => {
+          await core.auth.requestMagicLink(e);
+        }}
+        onUpgradeAnonymous={async () => {
+          await core.auth.linkEmail("alice@allyourbase.io", "password123");
+        }}
+      />,
+    );
+
+    fire.click(scr.getByRole("button", { name: /github/i }));
+    fire.click(scr.getByRole("button", { name: /google/i }));
+    await waitFor(() => expect(signInWithOAuth).toHaveBeenCalledTimes(2));
+    expect(signInWithOAuth).toHaveBeenNthCalledWith(1, "github");
+    expect(signInWithOAuth).toHaveBeenNthCalledWith(2, "google");
+
+    fire.click(scr.getByRole("button", { name: /magic link/i }));
+    await waitFor(() => expect(fetchFn).toHaveBeenCalled());
+
+    fire.click(scr.getByRole("button", { name: /upgrade account/i }));
+    await waitFor(() => expect(linkEmail).toHaveBeenCalledWith("alice@allyourbase.io", "password123"));
+  });
+
   it("useAuth consumes canonical auth fixture shape parsed by core SDK", async () => {
     const fetchFn = mockFetchSequence([
       {

@@ -188,6 +188,19 @@ final auth = await client.auth.signInWithOAuth(
 print(auth.token);
 ```
 
+For per-request post-callback redirect targets, pass `redirectTo`. The
+server validates against `AYB_AUTH_OAUTH_RETURN_TO_ALLOWLIST` at both
+OAuth start and callback dispatch — the SDK forwards the value opaquely
+with no client-side validation.
+
+```dart
+await client.auth.signInWithOAuth(
+  'google',
+  redirectTo: 'https://app.example.com/post-oauth',
+  urlCallback: (url) async => launchUrl(Uri.parse(url)),
+);
+```
+
 Handle deep-link callback:
 
 ```dart
