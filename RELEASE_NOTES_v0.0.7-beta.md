@@ -26,7 +26,7 @@ This beta packages shipped work landed since 2026-02-22, with emphasis on demo u
 
 - Completed the full demo deployment cycle through runtime alignment, hosting rollout, DNS routing, seed application, and live verification.
 - Verified public endpoints for API and demo apps with green health/status signals.
-- Stabilized GHCR publication at `ghcr.io/griddlehq/allyourbase` for anonymous pulls.
+- MAY20 GHCR closure remains a dated milestone, but commit-edge re-probe output on 2026-05-24 currently shows `docker pull` `not found` for `ghcr.io/griddlehq/allyourbase:v0.0.7-beta` and `:dev-c1facd7`.
 - Kept release and installer surfaces aligned with canonical org/repo identifiers.
 - Expanded workflow trigger coverage so docs/installer regressions surface automatically during normal release activity.
 
@@ -55,7 +55,7 @@ This beta packages shipped work landed since 2026-02-22, with emphasis on demo u
 ## Upgrade Guidance
 
 - If you are using OAuth flows, prefer per-request redirect targets instead of static callback assumptions.
-- If you consume GHCR images, verify automation pins `griddlehq/allyourbase` before this beta rollout.
+- If you consume GHCR images, pin `griddlehq/allyourbase` and verify tag availability in your pipeline; the 2026-05-24 commit-edge re-probe did not find `v0.0.7-beta` or `dev-c1facd7`.
 - If you rely on installer bootstrap flows, confirm your environment still pulls from `install.allyourbase.io` and not cached legacy endpoints.
 
 ## Verification Snapshot
