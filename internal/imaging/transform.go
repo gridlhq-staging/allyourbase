@@ -12,7 +12,6 @@ import (
 	"math"
 	"strings"
 
-	"github.com/chai2010/webp"
 	"github.com/gen2brain/avif"
 	"golang.org/x/image/draw"
 )
@@ -405,7 +404,7 @@ func encode(w io.Writer, img image.Image, opts Options) error {
 	case FormatPNG:
 		return png.Encode(w, img)
 	case FormatWebP:
-		return webp.Encode(w, img, &webp.Options{Quality: float32(opts.Quality)})
+		return encodeWebP(w, img, opts.Quality)
 	case FormatAVIF:
 		return avif.Encode(w, img, avif.Options{Quality: opts.Quality})
 	default:
