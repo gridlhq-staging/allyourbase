@@ -120,3 +120,25 @@ func TestPublishedDockerfileCopiesFlyConfigFromBuildContext(t *testing.T) {
 		"COPY --from=builder --chown=ayb:ayb /src/deploy/fly/ayb.toml /home/ayb/ayb.toml",
 	})
 }
+
+func TestDebbieHooksRehydrateFlyConfigForDockerBuildContext(t *testing.T) {
+	t.Parallel()
+
+	repoRoot := findRepoRoot(t)
+	requiredSnippets := []string{
+		"$DEV_ROOT/deploy/fly/ayb.toml",
+		"$TARGET_ROOT/deploy/fly/ayb.toml",
+	}
+
+	for _, relativePath := range []string{
+		".debbie/post-sync-staging.sh",
+		".debbie/post-sync-prod.sh",
+	} {
+		path := filepath.Join(repoRoot, relativePath)
+		data, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatalf("read %s failed: %v", path, err)
+		}
+		requireContainsAll(t, string(data), requiredSnippets)
+	}
+}

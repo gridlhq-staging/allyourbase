@@ -1,0 +1,17 @@
+[server]
+host = "0.0.0.0"
+port = 8090
+
+[storage]
+enabled = true
+backend = "local"
+local_path = "/data/storage"
+
+[graphql]
+enabled = true
+
+# Pgvector is currently built with CPU optimizations that trigger SIGILL on
+# Fly's Firecracker microVMs. Track in a follow-up; omit from the demo until
+# the pg build script pins safe instruction-set flags.
+[managed_pg]
+extensions = ["pg_trgm", "pg_cron"]
