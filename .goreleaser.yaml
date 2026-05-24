@@ -49,12 +49,13 @@ release:
     owner: gridlhq-staging
     name: allyourbase
   draft: false
-  prerelease: "{{ contains .Tag \"-\" }}"
+  prerelease: auto
 
 scoops:
   - repository:
       owner: griddlehq
       name: scoop-bucket
+    skip_upload: auto
     homepage: "https://github.com/gridlhq-staging/allyourbase"
     description: "Backend-as-a-Service for PostgreSQL. Single binary, one config file."
     license: MIT
