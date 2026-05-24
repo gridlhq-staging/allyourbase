@@ -100,3 +100,23 @@ func TestCIDockerSmokeWorkflowContract(t *testing.T) {
 		"path: /tmp/docker-smoke-build.log",
 	})
 }
+
+func TestPublishedDockerfileCopiesFlyConfigFromBuildContext(t *testing.T) {
+	t.Parallel()
+
+	repoRoot := findRepoRoot(t)
+	dockerfilePath := filepath.Join(repoRoot, "Dockerfile")
+	dockerfileData, err := os.ReadFile(dockerfilePath)
+	if err != nil {
+		t.Fatalf("read %s failed: %v", dockerfilePath, err)
+	}
+	dockerfileContent := string(dockerfileData)
+
+	requireContainsAll(t, dockerfileContent, []string{
+		"deploy/fly/ayb.toml /home/ayb/ayb.toml",
+	})
+	requireDoesNotContainAny(t, dockerfileContent, []string{
+		"/src/deploy/fly/ayb.toml",
+		"COPY --from=builder --chown=ayb:ayb /src/deploy/fly/ayb.toml /home/ayb/ayb.toml",
+	})
+}

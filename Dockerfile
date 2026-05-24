@@ -97,7 +97,7 @@ LABEL org.opencontainers.image.licenses="MIT"
 
 COPY --from=pg-builder --chown=ayb:ayb /opt/ayb-managed-pg /home/ayb/.ayb/pgbin
 COPY --from=builder /ayb /usr/local/bin/ayb
-COPY --from=builder --chown=ayb:ayb /src/deploy/fly/ayb.toml /home/ayb/ayb.toml
+COPY --chown=ayb:ayb deploy/fly/ayb.toml /home/ayb/ayb.toml
 COPY docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
 RUN chmod +x /usr/local/bin/docker-entrypoint.sh
 
