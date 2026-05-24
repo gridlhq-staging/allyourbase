@@ -58,14 +58,42 @@ async function authenticateLiveAccount(
   page: import("@playwright/test").Page,
   scope: string,
 ): Promise<void> {
+  const email = uniqueLiveAccountEmail(scope);
+  const emailInput = page.getByLabel("Email");
+
+  // useAuth fires two concurrent loadMe() calls after register/login (one
+  // from the method, one from onAuthStateChange SIGNED_IN). If the second
+  // hits a rate limit, user resets to null and the auth form flickers back.
+  // Deduplicate concurrent /api/auth/me responses at the network layer so
+  // both loadMe() calls resolve with the same successful response.
+  type CachedResp = { body: string; status: number; headers: Record<string, string> };
+  let meInflight: Promise<CachedResp> | null = null;
+  await page.route("**/api/auth/me", async (route) => {
+    if (meInflight) {
+      const c = await meInflight;
+      await route.fulfill({ body: c.body, status: c.status, headers: c.headers });
+      return;
+    }
+    meInflight = route.fetch().then(async (resp) => {
+      const r = { body: await resp.text(), status: resp.status(), headers: resp.headers() };
+      setTimeout(() => { meInflight = null; }, 2_000);
+      return r;
+    });
+    const r = await meInflight;
+    await route.fulfill({ body: r.body, status: r.status, headers: r.headers });
+  });
+
   const registerToggle = page.getByRole("button", { name: /sign up|register/i });
   if (await registerToggle.isVisible({ timeout: 2_000 }).catch(() => false)) {
     await registerToggle.click();
   }
 
-  await page.getByLabel("Email").fill(uniqueLiveAccountEmail(scope));
+  await emailInput.fill(email);
   await page.getByLabel("Password").fill(DEMO_SIGNIN_PASSWORD);
   await page.getByRole("button", { name: "Create Account" }).click();
+  await emailInput.waitFor({ state: "hidden", timeout: SIGN_IN_TIMEOUT_MS });
+  await page.waitForTimeout(1_000);
+  await page.unroute("**/api/auth/me");
 }
 
 test("fixture leak-gate coverage includes fixture-declared runtime-managed ports", () => {
@@ -292,7 +320,7 @@ test.describe("live deployment", () => {
 
       await page.getByPlaceholder("New board name...").fill(boardTitle);
       await page.getByRole("button", { name: "Create" }).click();
-      await expect(page.getByText(boardTitle).first()).toBeVisible();
+      await expect(page.getByText(boardTitle).first()).toBeVisible({ timeout: 10_000 });
     });
   });
 

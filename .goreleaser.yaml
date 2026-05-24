@@ -49,7 +49,7 @@ release:
     owner: gridlhq-staging
     name: allyourbase
   draft: false
-  prerelease: auto
+  prerelease: "{{ contains .Tag \"-\" }}"
 
 scoops:
   - repository:

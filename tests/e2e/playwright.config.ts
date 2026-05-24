@@ -10,5 +10,8 @@ export default defineConfig({
     headless: true,
     locale: "en-US",
     screenshot: "only-on-failure",
+    // Stage 1 red-baseline capture: produce video.webm artifacts for the
+    // deployed live-polls regression repro (Playwright has no --video CLI flag).
+    video: "on",
   },
 });

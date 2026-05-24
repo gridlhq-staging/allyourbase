@@ -77,3 +77,26 @@ func TestPublishedDockerImageBuildsAllEmbeddedDemoDistAssets(t *testing.T) {
 		})
 	}
 }
+
+func TestCIDockerSmokeWorkflowContract(t *testing.T) {
+	t.Parallel()
+
+	repoRoot := findRepoRoot(t)
+	workflowPath := filepath.Join(repoRoot, ".github", "workflows", "ci.yml")
+	workflowData, err := os.ReadFile(workflowPath)
+	if err != nil {
+		t.Fatalf("read %s failed: %v", workflowPath, err)
+	}
+	workflowContent := string(workflowData)
+
+	requireContainsAll(t, workflowContent, []string{
+		"docker-smoke:",
+		"  docker-smoke:\n    runs-on: ubuntu-latest\n    steps:\n      - uses: actions/checkout@v6",
+		"      - name: Build Docker image (no-cache plain-progress evidence)\n        shell: bash\n        run: DOCKER_BUILDKIT=1 docker build --no-cache --progress=plain . 2>&1 | tee /tmp/docker-smoke-build.log",
+		"DOCKER_BUILDKIT=1 docker build --no-cache --progress=plain . 2>&1 | tee /tmp/docker-smoke-build.log",
+		"if: always()",
+		"uses: actions/upload-artifact@v7",
+		"name: docker-smoke-build-log",
+		"path: /tmp/docker-smoke-build.log",
+	})
+}

@@ -135,6 +135,13 @@ func TestAdminDeleteUserSessionSuccess(t *testing.T) {
 	r.ServeHTTP(w, req)
 
 	testutil.Equal(t, http.StatusNoContent, w.Code)
+
+	// Post-condition: prove the session was actually removed from the manager,
+	// not just that the handler returned 204. Without this follow-up, a
+	// regressed handler that no-ops and returns 204 would still pass.
+	sessions, err := mgr.ListSessions(context.Background(), "00000000-0000-0000-0000-000000000021", "")
+	testutil.NoError(t, err)
+	testutil.Equal(t, 0, len(sessions))
 }
 
 func TestAdminDeleteUserSessionNotFound(t *testing.T) {

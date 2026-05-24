@@ -462,6 +462,61 @@ func TestSSEMultipleTables(t *testing.T) {
 	testutil.Equal(t, "comments", evData2["table"])
 }
 
+// TestSSEMultipleTables_NoCrossTableDelivery asserts that events for tables the
+// client did not subscribe to are NOT enqueued for delivery. The hub's filter
+// in Hub.Publish (internal/realtime/hub.go:184-194) is the seam being guarded;
+// a regression that fans out to all clients would deliver "secrets" before
+// "posts" and fail the assertion below.
+func TestSSEMultipleTables_NoCrossTableDelivery(t *testing.T) {
+	t.Parallel()
+	hub := realtime.NewHub(testutil.DiscardLogger())
+	h := realtime.NewHandler(hub, nil, nil, testSchemaCache("posts", "comments", "secrets"), testutil.DiscardLogger())
+
+	srv := httptest.NewServer(h)
+	defer srv.Close()
+
+	resp, err := http.Get(srv.URL + "?tables=posts,comments")
+	testutil.NoError(t, err)
+	defer resp.Body.Close()
+
+	scanner := bufio.NewScanner(resp.Body)
+
+	// Skip connected event — once observed, the SSE handler has registered
+	// the client in the hub with tables={posts:true,comments:true}.
+	for scanner.Scan() {
+		if scanner.Text() == "" {
+			break
+		}
+	}
+
+	// Publish to an unsubscribed table first. Because Hub.Publish is
+	// synchronous and skips clients whose tables[event.Table] is false,
+	// a correctly-filtered hub will NOT enqueue this event for our client.
+	hub.Publish(&realtime.Event{Action: "create", Table: "secrets", Record: map[string]any{"id": 99, "secret": "leak"}})
+
+	// Then publish to a subscribed table. The next event the client reads
+	// must be "posts" — if cross-table fan-out regressed, "secrets" would
+	// arrive first and the assertion below would fail.
+	hub.Publish(&realtime.Event{Action: "create", Table: "posts", Record: map[string]any{"id": 1}})
+
+	var lines []string
+	for scanner.Scan() {
+		line := scanner.Text()
+		lines = append(lines, line)
+		if line == "" && len(lines) > 1 {
+			break
+		}
+	}
+	testutil.True(t, len(lines) >= 1, "should have event lines")
+	evData := parseSSEData(t, lines[0])
+	testutil.Equal(t, "posts", evData["table"])
+	// Defensive: also confirm the leaked record from the unsubscribed table
+	// did not piggyback into this event's payload.
+	rec, _ := evData["record"].(map[string]any)
+	_, hasSecret := rec["secret"]
+	testutil.Equal(t, false, hasSecret)
+}
+
 // --- OAuth SSE Handler Tests ---
 
 // TestOAuthSSEConnected tests that oauth=true creates a client and returns clientId.

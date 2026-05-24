@@ -113,6 +113,25 @@ jobs:
       - name: Test
         run: go test -race -count=1 ./...
 
+  docker-smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - name: Build Docker image (no-cache plain-progress evidence)
+        shell: bash
+        run: DOCKER_BUILDKIT=1 docker build --no-cache --progress=plain . 2>&1 | tee /tmp/docker-smoke-build.log
+
+      - name: Upload docker smoke build log
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: docker-smoke-build-log
+          path: /tmp/docker-smoke-build.log
+          if-no-files-found: warn
+
   sdk:
     runs-on: ubuntu-latest
     defaults:

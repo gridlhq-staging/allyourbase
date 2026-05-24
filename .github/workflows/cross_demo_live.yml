@@ -1,0 +1,48 @@
+name: Cross Demo Live
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 13 * * 1"
+
+permissions:
+  contents: read
+
+jobs:
+  cross-demo-live:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "22"
+
+      - name: Install dependencies
+        working-directory: tests/e2e
+        run: npm ci
+
+      - name: Install Playwright Chromium
+        working-directory: tests/e2e
+        run: npx playwright install --with-deps chromium
+
+      - name: Run live cross-demo suite
+        working-directory: tests/e2e
+        env:
+          CROSS_DEMO_LIVE: "1"
+          DEMO_KANBAN_URL: https://kanban.demo.allyourbase.io
+          DEMO_POLLS_URL: https://polls.demo.allyourbase.io
+          DEMO_MOVIES_URL: https://movies.demo.allyourbase.io
+          DEMO_API_URL: https://api.allyourbase.io
+        run: npx playwright test cross_demo.spec.ts --reporter=line --retries=2 --trace=retain-on-failure
+
+      - name: Upload Playwright failure artifacts
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: cross-demo-live-playwright-artifacts
+          path: tests/e2e/test-results/
+          if-no-files-found: warn

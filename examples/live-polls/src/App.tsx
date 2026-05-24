@@ -127,9 +127,15 @@ async function seedBootstrapPoll(userId: string): Promise<SeededBootstrapData> {
 }
 
 export default function App() {
-  const { user, token, loading, logout } = useAuth();
+  const { user, token, loading, logout, signInAnonymously } = useAuth();
   const [anonymousBootstrapEnabled, setAnonymousBootstrapEnabled] = useState(isAnonymousBootstrapEnabled);
-  const { bootstrapping } = useAybAnonymousBootstrap({ enabled: anonymousBootstrapEnabled });
+  // Pass the resolved token and auth method from useAuth so bootstrap does not
+  // race explicit sign-in or registration with a fresh anonymous session.
+  const { bootstrapping } = useAybAnonymousBootstrap({
+    enabled: anonymousBootstrapEnabled,
+    token,
+    signInAnonymously,
+  });
   const authed = Boolean(token) && user != null;
   const canCreatePolls = authed && user != null && !user.isAnonymous;
   const [userId, setUserId] = useState<string | null>(null);
@@ -324,7 +330,6 @@ export default function App() {
   }
 
   async function handleLogout() {
-    const bootstrapEnabledBeforeLogout = anonymousBootstrapEnabled;
     setLogoutPending(true);
     setLogoutError(null);
     setAnonymousBootstrapEnabled(false);
@@ -336,7 +341,7 @@ export default function App() {
       setOptionsMap(new Map());
       setVotesMap(new Map());
     } catch {
-      if (bootstrapEnabledBeforeLogout) {
+      if (anonymousBootstrapEnabled) {
         setAnonymousBootstrapEnabled(true);
         clearAnonymousBootstrapOptOut();
       }
@@ -361,64 +366,64 @@ export default function App() {
 
   return (
     <div className="min-h-screen">
-      <header className="border-b border-gray-800 px-4 py-3 flex justify-between items-center">
-        <h1 className="text-xl font-bold">Live Polls</h1>
-        <div className="flex gap-3 items-center">
-          {logoutError && (
-            <span role="alert" className="text-xs text-red-400">
-              {logoutError}
-            </span>
-          )}
-          {loadError && (
-            <span role="alert" className="text-xs text-red-400">
-              {loadError}
-            </span>
-          )}
-          {userEmail && (
-            <span data-testid="user-email" className="text-xs text-gray-500 hidden sm:block">
-              {userEmail}
-            </span>
-          )}
-          {canCreatePolls && (
+        <header className="border-b border-gray-800 px-4 py-3 flex justify-between items-center">
+          <h1 className="text-xl font-bold">Live Polls</h1>
+          <div className="flex gap-3 items-center">
+            {logoutError && (
+              <span role="alert" className="text-xs text-red-400">
+                {logoutError}
+              </span>
+            )}
+            {loadError && (
+              <span role="alert" className="text-xs text-red-400">
+                {loadError}
+              </span>
+            )}
+            {userEmail && (
+              <span data-testid="user-email" className="text-xs text-gray-500 hidden sm:block">
+                {userEmail}
+              </span>
+            )}
+            {canCreatePolls && (
+              <button
+                onClick={() => setShowCreate(!showCreate)}
+                className="bg-blue-600 hover:bg-blue-500 rounded px-3 py-1.5 text-sm font-semibold"
+              >
+                {showCreate ? "Cancel" : "+ New Poll"}
+              </button>
+            )}
             <button
-              onClick={() => setShowCreate(!showCreate)}
-              className="bg-blue-600 hover:bg-blue-500 rounded px-3 py-1.5 text-sm font-semibold"
+              onClick={() => void handleLogout()}
+              disabled={logoutPending}
+              className="text-gray-400 hover:text-white text-sm disabled:opacity-60"
             >
-              {showCreate ? "Cancel" : "+ New Poll"}
+              {logoutPending ? "Signing out..." : "Sign out"}
             </button>
-          )}
-          <button
-            onClick={() => void handleLogout()}
-            disabled={logoutPending}
-            className="text-gray-400 hover:text-white text-sm disabled:opacity-60"
-          >
-            {logoutPending ? "Signing out..." : "Sign out"}
-          </button>
-        </div>
-      </header>
-
-      <main className="max-w-2xl mx-auto p-4 flex flex-col gap-4">
-        {showCreate && canCreatePolls && userId && <CreatePoll userId={userId} onCreated={handlePollCreated} />}
-
-        {polls.length === 0 && !showCreate && (
-          <div className="text-center text-gray-500 py-12">
-            <p className="text-lg mb-2">No polls yet</p>
-            <p className="text-sm">Create the first one!</p>
           </div>
-        )}
+        </header>
 
-        {polls.map((poll) => (
-          <PollCard
-            key={poll.id}
-            poll={poll}
-            options={optionsMap.get(poll.id) ?? []}
-            votes={votesMap.get(poll.id) ?? []}
-            currentUserId={userId}
-            onClose={handleClosePoll}
-            onVote={handleVoteCast}
-          />
-        ))}
-      </main>
-    </div>
+        <main className="max-w-2xl mx-auto p-4 flex flex-col gap-4">
+          {showCreate && canCreatePolls && userId && <CreatePoll userId={userId} onCreated={handlePollCreated} />}
+
+          {polls.length === 0 && !showCreate && (
+            <div className="text-center text-gray-500 py-12">
+              <p className="text-lg mb-2">No polls yet</p>
+              <p className="text-sm">Create the first one!</p>
+            </div>
+          )}
+
+          {polls.map((poll) => (
+            <PollCard
+              key={poll.id}
+              poll={poll}
+              options={optionsMap.get(poll.id) ?? []}
+              votes={votesMap.get(poll.id) ?? []}
+              currentUserId={userId}
+              onClose={handleClosePoll}
+              onVote={handleVoteCast}
+            />
+          ))}
+        </main>
+      </div>
   );
 }

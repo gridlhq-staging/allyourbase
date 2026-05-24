@@ -182,11 +182,14 @@ func TestHandleUpload_SoftTenantQuotaWarning(t *testing.T) {
 
 	acc := tenant.NewUsageAccumulator(nil, nil)
 	acc.Record("tenant-1", tenant.ResourceTypeDBSizeBytes, 45)
+	metricsCapture := &storageQuotaMetricsCapture{}
+	auditCapture := &storageQuotaAuditCapture{}
 	h.SetTenantQuota(&tenantQuotaReaderMock{
 		quotas: &tenant.TenantQuotas{
 			DBSizeBytesSoft: ptrInt64(50),
 		},
 	}, tenant.DefaultQuotaChecker{}, acc)
+	h.SetTenantQuotaTelemetry(metricsCapture, auditCapture)
 
 	req := newMultipartUploadRequest(t, []byte("ten-bytes!!"))
 	req = req.WithContext(tenant.ContextWithTenantID(req.Context(), "tenant-1"))
@@ -195,6 +198,14 @@ func TestHandleUpload_SoftTenantQuotaWarning(t *testing.T) {
 	testutil.Equal(t, "storage", rec.Header().Get(headerTenantQuotaWarning))
 	testutil.NotEqual(t, http.StatusRequestEntityTooLarge, rec.Code)
 	testutil.Equal(t, 1, backend.putCount)
+
+	// Negative-telemetry contract: the soft-quota path must NOT fire the
+	// violation counter or emit a violation audit event — those are reserved
+	// for hard denies. Utilization metrics must still fire so dashboards
+	// observe the elevated tenant usage.
+	testutil.True(t, atomic.LoadInt32(&metricsCapture.utilizationCalls) > 0, "expected soft path to still emit utilization metrics")
+	testutil.Equal(t, int32(0), atomic.LoadInt32(&metricsCapture.violationCalls))
+	testutil.Equal(t, "", auditCapture.tenantID)
 }
 
 func TestHandleUpload_TenantWithoutQuotasPassesThrough(t *testing.T) {

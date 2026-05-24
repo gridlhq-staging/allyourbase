@@ -322,6 +322,15 @@ assert_install_script_match "Archive name matches goreleaser format (ayb_{ver}_{
 # Test: Downloads checksums.txt (goreleaser format)
 assert_install_script_match "Uses checksums.txt (goreleaser format)" "Does not reference checksums.txt" 'checksums.txt'
 
+# Test: Goreleaser prerelease metadata is not hardcoded to stable-only semantics
+if grep -Eq '^[[:space:]]*prerelease:[[:space:]]*"false"[[:space:]]*$' "$REPO_DIR/.goreleaser.yaml"; then
+  fail "Goreleaser prerelease metadata is hardcoded false (breaks beta tags)"
+elif grep -Fq 'prerelease: "{{ contains .Tag \"-\" }}"' "$REPO_DIR/.goreleaser.yaml"; then
+  pass "Goreleaser prerelease metadata derives from tag semantics"
+else
+  fail "Goreleaser prerelease metadata rule not found in .goreleaser.yaml"
+fi
+
 # ── Unit Tests: Install to User Directory ───────────────────────────────────
 
 section "Install Location"

@@ -5,7 +5,11 @@ import { AYBProvider } from "../src/provider";
 import { useAybAnonymousBootstrap } from "../src/useAybAnonymousBootstrap";
 import type { AYBClientLike, AuthStateListener } from "../src/types";
 
-function createClient(token: string | null): AYBClientLike {
+type TestClient = AYBClientLike & {
+  emitAuthStateChange: (...args: Parameters<AuthStateListener>) => void;
+};
+
+function createClient(token: string | null): TestClient {
   let listener: AuthStateListener | null = null;
   return {
     token,
@@ -28,6 +32,9 @@ function createClient(token: string | null): AYBClientLike {
     },
     records: { list: vi.fn(async () => ({ items: [], page: 1, perPage: 20, totalItems: 0, totalPages: 0 })) },
     realtime: { subscribe: vi.fn(() => () => {}) },
+    emitAuthStateChange: (...args) => {
+      listener?.(...args);
+    },
   };
 }
 
@@ -71,6 +78,55 @@ describe("useAybAnonymousBootstrap", () => {
     });
 
     expect(client.auth.signInAnonymously).not.toHaveBeenCalled();
+  });
+
+  it("does not bootstrap anonymously after enabled flips true with resolved token", async () => {
+    const client = createClient(null);
+    const bootstrapOverride = vi.fn(async () => {});
+    const wrapper = ({ children }: { children: React.ReactNode }) => <AYBProvider client={client}>{children}</AYBProvider>;
+
+    const { rerender } = renderHook(
+      ({ enabled, token }: { enabled: boolean; token: string | null }) =>
+        useAybAnonymousBootstrap({ enabled, token, signInAnonymously: bootstrapOverride }),
+      { initialProps: { enabled: false, token: null }, wrapper },
+    );
+
+    rerender({ enabled: true, token: "registered-token" });
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    expect(bootstrapOverride).not.toHaveBeenCalled();
+  });
+
+  it("respects provider auth-state updates before enabling anonymous bootstrap", async () => {
+    const client = createClient(null);
+    const bootstrapOverride = vi.fn(async () => {});
+    const wrapper = ({ children }: { children: React.ReactNode }) => <AYBProvider client={client}>{children}</AYBProvider>;
+
+    const { rerender } = renderHook(
+      ({ enabled }: { enabled: boolean }) => useAybAnonymousBootstrap({ enabled, signInAnonymously: bootstrapOverride }),
+      { initialProps: { enabled: false }, wrapper },
+    );
+
+    await act(async () => {
+      client.token = "registered-token";
+      client.refreshToken = "registered-refresh";
+      client.emitAuthStateChange(
+        ...([
+          "signed_in",
+          { token: "registered-token", refreshToken: "registered-refresh" },
+        ] as unknown as Parameters<AuthStateListener>),
+      );
+      await Promise.resolve();
+    });
+
+    rerender({ enabled: true });
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    expect(bootstrapOverride).not.toHaveBeenCalled();
   });
 
   it("handles rejected anonymous sign-in without leaking an unhandled rejection", async () => {

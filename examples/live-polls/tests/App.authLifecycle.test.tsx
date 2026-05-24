@@ -64,6 +64,7 @@ const mockGraphQLQuery = vi.mocked(ayb.graphql.query);
 
 describe("App auth lifecycle", () => {
   const logout = vi.fn();
+  const signInAnonymously = vi.fn();
 
   beforeEach(() => {
     vi.clearAllMocks();
@@ -76,7 +77,7 @@ describe("App auth lifecycle", () => {
       refreshToken: "refresh-1",
       login: vi.fn(),
       register: vi.fn(),
-      signInAnonymously: vi.fn(),
+      signInAnonymously,
       requestMagicLink: vi.fn(),
       confirmMagicLink: vi.fn(),
       linkEmail: vi.fn(),
@@ -87,11 +88,25 @@ describe("App auth lifecycle", () => {
     mockUseAybAnonymousBootstrap.mockReturnValue({ bootstrapping: false });
   });
 
+  it("passes resolved auth state into anonymous bootstrap to avoid post-register guest reentry", () => {
+    render(<App />);
+
+    expect(mockUseAybAnonymousBootstrap).toHaveBeenLastCalledWith({
+      enabled: true,
+      token: "token-1",
+      signInAnonymously,
+    });
+  });
+
   it("honors persisted anonymous bootstrap opt-out on mount", () => {
     mockIsAnonymousBootstrapEnabled.mockReturnValueOnce(false);
     render(<App />);
 
-    expect(mockUseAybAnonymousBootstrap).toHaveBeenLastCalledWith({ enabled: false });
+    expect(mockUseAybAnonymousBootstrap).toHaveBeenLastCalledWith({
+      enabled: false,
+      token: "token-1",
+      signInAnonymously,
+    });
   });
 
   it("does not clear local auth state when logout() fails", async () => {
@@ -110,13 +125,21 @@ describe("App auth lifecycle", () => {
     logout.mockResolvedValueOnce(undefined);
     render(<App />);
 
-    expect(mockUseAybAnonymousBootstrap).toHaveBeenLastCalledWith({ enabled: true });
+    expect(mockUseAybAnonymousBootstrap).toHaveBeenLastCalledWith({
+      enabled: true,
+      token: "token-1",
+      signInAnonymously,
+    });
 
     fireEvent.click(screen.getByRole("button", { name: "Sign out" }));
 
     await waitFor(() => expect(logout).toHaveBeenCalledOnce());
     await waitFor(() => {
-      expect(mockUseAybAnonymousBootstrap).toHaveBeenLastCalledWith({ enabled: false });
+      expect(mockUseAybAnonymousBootstrap).toHaveBeenLastCalledWith({
+        enabled: false,
+        token: "token-1",
+        signInAnonymously,
+      });
     });
     expect(mockDisableAnonymousBootstrap).toHaveBeenCalledOnce();
   });
@@ -136,7 +159,11 @@ describe("App auth lifecycle", () => {
 
     expect(mockDisableAnonymousBootstrap).toHaveBeenCalledOnce();
     await waitFor(() => {
-      expect(mockUseAybAnonymousBootstrap).toHaveBeenLastCalledWith({ enabled: false });
+      expect(mockUseAybAnonymousBootstrap).toHaveBeenLastCalledWith({
+        enabled: false,
+        token: "token-1",
+        signInAnonymously,
+      });
     });
 
     if (!logoutResolution.resolve) {
@@ -156,7 +183,7 @@ describe("App auth lifecycle", () => {
       refreshToken: null,
       login: vi.fn(),
       register: vi.fn(),
-      signInAnonymously: vi.fn(),
+      signInAnonymously,
       requestMagicLink: vi.fn(),
       confirmMagicLink: vi.fn(),
       linkEmail: vi.fn(),
@@ -166,12 +193,20 @@ describe("App auth lifecycle", () => {
     });
     render(<App />);
 
-    expect(mockUseAybAnonymousBootstrap).toHaveBeenLastCalledWith({ enabled: false });
+    expect(mockUseAybAnonymousBootstrap).toHaveBeenLastCalledWith({
+      enabled: false,
+      token: null,
+      signInAnonymously,
+    });
 
     fireEvent.click(screen.getByRole("button", { name: "Auth Form" }));
 
     await waitFor(() => {
-      expect(mockUseAybAnonymousBootstrap).toHaveBeenLastCalledWith({ enabled: true });
+      expect(mockUseAybAnonymousBootstrap).toHaveBeenLastCalledWith({
+        enabled: true,
+        token: null,
+        signInAnonymously,
+      });
     });
   });
 
