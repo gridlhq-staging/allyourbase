@@ -66,6 +66,9 @@ jobs:
         with:
           node-version: "22"
 
+      - name: Enable pnpm
+        run: corepack enable pnpm
+
       - uses: actions/setup-go@v6
         with:
           go-version: "1.25"
