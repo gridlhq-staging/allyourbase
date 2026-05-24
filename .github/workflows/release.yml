@@ -17,6 +17,9 @@ jobs:
         with:
           node-version: "22"
 
+      - name: Enable pnpm
+        run: corepack enable pnpm
+
       - name: Build Admin UI
         working-directory: ui
         run: npm install --legacy-peer-deps && npm run build
