@@ -137,6 +137,13 @@ func TestDebbieHooksRehydrateFlyConfigForDockerBuildContext(t *testing.T) {
 		path := filepath.Join(repoRoot, relativePath)
 		data, err := os.ReadFile(path)
 		if err != nil {
+			if os.IsNotExist(err) {
+				// .debbie/ is dev-repo-only — debbie strips it from staging/prod mirrors,
+				// so this PR-time grep-level contract cannot run there. The end-to-end
+				// equivalent is the ci.yml `docker-smoke` job, which catches the same
+				// regression by failing the `docker build .` step.
+				t.Skipf("skipping on mirror without .debbie/: %s", path)
+			}
 			t.Fatalf("read %s failed: %v", path, err)
 		}
 		requireContainsAll(t, string(data), requiredSnippets)

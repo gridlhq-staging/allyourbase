@@ -40,10 +40,11 @@ export function AybLoginBar(props: AybLoginBarProps) {
     () => Boolean(methods.magicLink) && email.length > 0,
     [methods.magicLink, email],
   );
+  const showEmailInput = methods.password || (methods.magicLink && onRequestMagicLink);
 
   return (
     <div>
-      {methods.password && (
+      {showEmailInput && (
         <>
           <input
             aria-label="Email"
@@ -51,6 +52,10 @@ export function AybLoginBar(props: AybLoginBarProps) {
             value={email}
             onChange={(e) => onEmailChange(e.target.value)}
           />
+        </>
+      )}
+      {methods.password && (
+        <>
           <input
             aria-label="Password"
             placeholder={passwordPlaceholder}

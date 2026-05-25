@@ -919,6 +919,92 @@ func TestHandler_DisconnectCleansUpChannelSubscriptions(t *testing.T) {
 	t.Fatalf("connection %s still subscribed after disconnect", connID)
 }
 
+func TestHandler_ExemplarPresenceSyncUsesCapturedClientID(t *testing.T) {
+	t.Parallel()
+	h := NewHandler(nil, slog.Default())
+	h.Broadcast = NewBroadcastHub(slog.Default())
+	h.Presence = NewPresenceHub(slog.Default())
+	srv := httptest.NewServer(h)
+	defer srv.Close()
+
+	ws1 := dialWS(t, srv)
+	defer ws1.Close()
+	ws2 := dialWS(t, srv)
+	defer ws2.Close()
+
+	connected1 := readJSON(t, ws1)
+	connected2 := readJSON(t, ws2)
+	if connected1.Type != MsgTypeConnected || connected1.ClientID == "" {
+		t.Fatalf("ws1 expected connected with non-empty client_id, got %+v", connected1)
+	}
+	if connected2.Type != MsgTypeConnected || connected2.ClientID == "" {
+		t.Fatalf("ws2 expected connected with non-empty client_id, got %+v", connected2)
+	}
+
+	writeJSON(t, ws1, ClientMessage{Type: MsgTypeChannelSubscribe, Channel: "room1", Ref: "s1"})
+	ws1SubReply := readJSON(t, ws1)
+	ws1State := readJSON(t, ws1)
+	if ws1SubReply.Type != MsgTypeReply || ws1SubReply.Status != "ok" || ws1SubReply.Ref != "s1" {
+		t.Fatalf("ws1 subscribe reply mismatch: %+v", ws1SubReply)
+	}
+	if ws1State.Type != MsgTypePresence || ws1State.PresenceAction != PresenceActionSync {
+		t.Fatalf("ws1 expected presence sync state after subscribe, got %+v", ws1State)
+	}
+
+	writeJSON(t, ws2, ClientMessage{Type: MsgTypeChannelSubscribe, Channel: "room1", Ref: "s2"})
+	ws2SubReply := readJSON(t, ws2)
+	ws2State := readJSON(t, ws2)
+	if ws2SubReply.Type != MsgTypeReply || ws2SubReply.Status != "ok" || ws2SubReply.Ref != "s2" {
+		t.Fatalf("ws2 subscribe reply mismatch: %+v", ws2SubReply)
+	}
+	if ws2State.Type != MsgTypePresence || ws2State.PresenceAction != PresenceActionSync {
+		t.Fatalf("ws2 expected presence sync state after subscribe, got %+v", ws2State)
+	}
+
+	writeJSON(t, ws2, ClientMessage{
+		Type:     MsgTypePresenceTrack,
+		Channel:  "room1",
+		Presence: map[string]any{"user": "alice"},
+		Ref:      "p2",
+	})
+	join := readJSON(t, ws1)
+	if join.Type != MsgTypePresence || join.PresenceAction != PresenceActionJoin {
+		t.Fatalf("ws1 expected presence join from ws2 track, got %+v", join)
+	}
+	ws2TrackFirst := readJSON(t, ws2)
+	ws2TrackSecond := readJSON(t, ws2)
+	var ws2TrackReply ServerMessage
+	if ws2TrackFirst.Type == MsgTypeReply {
+		ws2TrackReply = ws2TrackFirst
+	} else if ws2TrackSecond.Type == MsgTypeReply {
+		ws2TrackReply = ws2TrackSecond
+	}
+	if ws2TrackReply.Type != MsgTypeReply || ws2TrackReply.Status != "ok" || ws2TrackReply.Ref != "p2" {
+		t.Fatalf(
+			"ws2 expected presence_track reply ok (with presence diff in either slot), got first=%+v second=%+v",
+			ws2TrackFirst,
+			ws2TrackSecond,
+		)
+	}
+
+	writeJSON(t, ws1, ClientMessage{Type: MsgTypePresenceSync, Channel: "room1", Ref: "sync1"})
+	syncMsg := readJSON(t, ws1)
+	syncReply := readJSON(t, ws1)
+	if syncMsg.Type != MsgTypePresence || syncMsg.PresenceAction != PresenceActionSync {
+		t.Fatalf("ws1 expected presence sync message, got %+v", syncMsg)
+	}
+	if syncReply.Type != MsgTypeReply || syncReply.Status != "ok" || syncReply.Ref != "sync1" {
+		t.Fatalf("ws1 expected sync reply, got %+v", syncReply)
+	}
+	if syncMsg.Presences[connected2.ClientID]["user"] != "alice" {
+		t.Fatalf(
+			"ws1 expected presence entry under tracked client_id=%q, got presences=%+v",
+			connected2.ClientID,
+			syncMsg.Presences,
+		)
+	}
+}
+
 func TestHandler_PresenceTrackAndSync(t *testing.T) {
 	t.Parallel()
 	h := NewHandler(nil, slog.Default())
@@ -931,15 +1017,33 @@ func TestHandler_PresenceTrackAndSync(t *testing.T) {
 	defer ws1.Close()
 	ws2 := dialWS(t, srv)
 	defer ws2.Close()
-	readJSON(t, ws1)
-	readJSON(t, ws2)
+	connected1 := readJSON(t, ws1)
+	connected2 := readJSON(t, ws2)
+	if connected1.Type != MsgTypeConnected || connected1.ClientID == "" {
+		t.Fatalf("ws1 expected connected with non-empty client_id, got %+v", connected1)
+	}
+	if connected2.Type != MsgTypeConnected || connected2.ClientID == "" {
+		t.Fatalf("ws2 expected connected with non-empty client_id, got %+v", connected2)
+	}
 
 	writeJSON(t, ws1, ClientMessage{Type: MsgTypeChannelSubscribe, Channel: "room1", Ref: "s1"})
-	readJSON(t, ws1)
-	readJSON(t, ws1)
+	ws1SubReply := readJSON(t, ws1)
+	ws1State := readJSON(t, ws1)
+	if ws1SubReply.Type != MsgTypeReply || ws1SubReply.Status != "ok" || ws1SubReply.Ref != "s1" {
+		t.Fatalf("ws1 subscribe reply mismatch: %+v", ws1SubReply)
+	}
+	if ws1State.Type != MsgTypePresence || ws1State.PresenceAction != PresenceActionSync {
+		t.Fatalf("ws1 expected presence sync state after subscribe, got %+v", ws1State)
+	}
 	writeJSON(t, ws2, ClientMessage{Type: MsgTypeChannelSubscribe, Channel: "room1", Ref: "s2"})
-	readJSON(t, ws2)
-	readJSON(t, ws2)
+	ws2SubReply := readJSON(t, ws2)
+	ws2State := readJSON(t, ws2)
+	if ws2SubReply.Type != MsgTypeReply || ws2SubReply.Status != "ok" || ws2SubReply.Ref != "s2" {
+		t.Fatalf("ws2 subscribe reply mismatch: %+v", ws2SubReply)
+	}
+	if ws2State.Type != MsgTypePresence || ws2State.PresenceAction != PresenceActionSync {
+		t.Fatalf("ws2 expected presence sync state after subscribe, got %+v", ws2State)
+	}
 
 	writeJSON(t, ws1, ClientMessage{Type: MsgTypePresenceTrack, Channel: "room1", Presence: map[string]any{"user": "alice"}, Ref: "p1"})
 	join := readJSON(t, ws2)
@@ -948,19 +1052,36 @@ func TestHandler_PresenceTrackAndSync(t *testing.T) {
 	}
 	first := readJSON(t, ws1)
 	second := readJSON(t, ws1)
-	if first.Type != MsgTypeReply && second.Type != MsgTypeReply {
-		t.Fatalf("expected track reply, got first=%+v second=%+v", first, second)
+	var trackReply ServerMessage
+	if first.Type == MsgTypeReply {
+		trackReply = first
+	} else if second.Type == MsgTypeReply {
+		trackReply = second
+	}
+	if trackReply.Type != MsgTypeReply || trackReply.Status != "ok" || trackReply.Ref != "p1" {
+		t.Fatalf(
+			"expected track reply ok (with presence diff in either slot), got first=%+v second=%+v",
+			first,
+			second,
+		)
 	}
 
 	writeJSON(t, ws2, ClientMessage{Type: MsgTypePresenceSync, Channel: "room1", Ref: "sync1"})
 	syncMsg := readJSON(t, ws2)
+	syncReply := readJSON(t, ws2)
 	if syncMsg.Type != MsgTypePresence || syncMsg.PresenceAction != PresenceActionSync {
 		t.Fatalf("expected sync presence message, got %+v", syncMsg)
 	}
-	if syncMsg.Presences["ws-1"]["user"] != "alice" {
-		t.Fatalf("unexpected sync payload: %+v", syncMsg.Presences)
+	if syncReply.Type != MsgTypeReply || syncReply.Status != "ok" || syncReply.Ref != "sync1" {
+		t.Fatalf("expected sync reply, got %+v", syncReply)
 	}
-	readJSON(t, ws2) // sync reply
+	if syncMsg.Presences[connected1.ClientID]["user"] != "alice" {
+		t.Fatalf(
+			"expected sync payload under tracked client_id=%q, got presences=%+v",
+			connected1.ClientID,
+			syncMsg.Presences,
+		)
+	}
 }
 
 func TestHandler_PresenceSyncCounterIncludesStateAndDiffMessages(t *testing.T) {
@@ -1131,27 +1252,57 @@ func TestHandler_ChannelSubscribeSendsPresenceStateForPopulatedChannel(t *testin
 	defer ws1.Close()
 	ws2 := dialWS(t, srv)
 	defer ws2.Close()
-	readJSON(t, ws1)
-	readJSON(t, ws2)
+	connected1 := readJSON(t, ws1)
+	connected2 := readJSON(t, ws2)
+	if connected1.Type != MsgTypeConnected || connected1.ClientID == "" {
+		t.Fatalf("ws1 expected connected with non-empty client_id, got %+v", connected1)
+	}
+	if connected2.Type != MsgTypeConnected || connected2.ClientID == "" {
+		t.Fatalf("ws2 expected connected with non-empty client_id, got %+v", connected2)
+	}
 
 	writeJSON(t, ws1, ClientMessage{Type: MsgTypeChannelSubscribe, Channel: "room1", Ref: "s1"})
-	readJSON(t, ws1)
-	readJSON(t, ws1)
+	ws1SubReply := readJSON(t, ws1)
+	ws1State := readJSON(t, ws1)
+	if ws1SubReply.Type != MsgTypeReply || ws1SubReply.Status != "ok" || ws1SubReply.Ref != "s1" {
+		t.Fatalf("ws1 subscribe reply mismatch: %+v", ws1SubReply)
+	}
+	if ws1State.Type != MsgTypePresence || ws1State.PresenceAction != PresenceActionSync {
+		t.Fatalf("ws1 expected presence sync state after subscribe, got %+v", ws1State)
+	}
+
 	writeJSON(t, ws1, ClientMessage{Type: MsgTypePresenceTrack, Channel: "room1", Presence: map[string]any{"user": "alice"}, Ref: "p1"})
-	readJSON(t, ws1) // join diff
-	readJSON(t, ws1) // reply
+	ws1TrackFirst := readJSON(t, ws1)
+	ws1TrackSecond := readJSON(t, ws1)
+	var ws1TrackReply ServerMessage
+	if ws1TrackFirst.Type == MsgTypeReply {
+		ws1TrackReply = ws1TrackFirst
+	} else if ws1TrackSecond.Type == MsgTypeReply {
+		ws1TrackReply = ws1TrackSecond
+	}
+	if ws1TrackReply.Type != MsgTypeReply || ws1TrackReply.Status != "ok" || ws1TrackReply.Ref != "p1" {
+		t.Fatalf(
+			"ws1 expected presence_track reply ok (with presence diff in either slot), got first=%+v second=%+v",
+			ws1TrackFirst,
+			ws1TrackSecond,
+		)
+	}
 
 	writeJSON(t, ws2, ClientMessage{Type: MsgTypeChannelSubscribe, Channel: "room1", Ref: "s2"})
-	reply := readJSON(t, ws2)
-	if reply.Status != "ok" {
-		t.Fatalf("subscribe reply: %+v", reply)
+	ws2SubReply := readJSON(t, ws2)
+	if ws2SubReply.Type != MsgTypeReply || ws2SubReply.Status != "ok" || ws2SubReply.Ref != "s2" {
+		t.Fatalf("ws2 subscribe reply mismatch: %+v", ws2SubReply)
 	}
 	state := readJSON(t, ws2)
 	if state.Type != MsgTypePresence || state.PresenceAction != PresenceActionSync {
 		t.Fatalf("expected presence state on subscribe, got %+v", state)
 	}
-	if state.Presences["ws-1"]["user"] != "alice" {
-		t.Fatalf("expected joining client to receive full presence state, got %+v", state.Presences)
+	if state.Presences[connected1.ClientID]["user"] != "alice" {
+		t.Fatalf(
+			"expected joining client to receive full presence state under tracked client_id=%q, got presences=%+v",
+			connected1.ClientID,
+			state.Presences,
+		)
 	}
 }
 
