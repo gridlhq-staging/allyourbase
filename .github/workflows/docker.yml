@@ -14,6 +14,8 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
+      - uses: docker/setup-qemu-action@v4
+
       - uses: docker/setup-buildx-action@v4
 
       - uses: docker/login-action@v4
@@ -32,11 +34,31 @@ jobs:
             type=raw,value=latest,enable=${{ startsWith(github.ref, 'refs/tags/v') }}
             type=sha,format=short,prefix=dev-,enable=${{ github.event_name == 'workflow_dispatch' }}
 
+      - name: Derive build metadata args
+        id: build_meta
+        run: |
+          set -euo pipefail
+          if [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
+            ayb_version="${GITHUB_REF_NAME}"
+          else
+            ayb_version="dev-${GITHUB_SHA::7}"
+          fi
+          ayb_commit="${GITHUB_SHA}"
+          ayb_date="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          printf 'version=%s\n' "$ayb_version" >> "$GITHUB_OUTPUT"
+          printf 'commit=%s\n' "$ayb_commit" >> "$GITHUB_OUTPUT"
+          printf 'date=%s\n' "$ayb_date" >> "$GITHUB_OUTPUT"
+
       - uses: docker/build-push-action@v7
         with:
           context: .
+          platforms: linux/amd64,linux/arm64
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+          build-args: |
+            AYB_VERSION=${{ steps.build_meta.outputs.version }}
+            AYB_COMMIT=${{ steps.build_meta.outputs.commit }}
+            AYB_DATE=${{ steps.build_meta.outputs.date }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
