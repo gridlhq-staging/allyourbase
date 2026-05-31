@@ -1146,19 +1146,9 @@ func TestRefreshTokenCanOnlyBeUsedOnce(t *testing.T) {
 
 func TestRefreshTokenRejectedAfterExpiry(t *testing.T) {
 	ctx := context.Background()
-	resetAndMigrate(t, ctx)
-
-	// Create auth service with very short refresh token expiry (1 second).
-	authSvc := auth.NewService(sharedPG.Pool, testJWTSecret, time.Hour, 1*time.Second, 8, testutil.DiscardLogger())
-
-	logger := testutil.DiscardLogger()
-	ch := schema.NewCacheHolder(sharedPG.Pool, logger)
-	testutil.NoError(t, ch.Load(ctx))
-
-	cfg := config.Default()
-	cfg.Auth.Enabled = true
-	cfg.Auth.JWTSecret = testJWTSecret
-	srv := server.New(cfg, logger, ch, sharedPG.Pool, authSvc, nil)
+	// Match the existing short-TTL helper path so the refresh token expires
+	// deterministically without a 1s wall-clock wait.
+	srv := setupAuthServerWithRefreshDur(t, ctx, time.Millisecond)
 
 	// Register.
 	w := doJSON(t, srv, "POST", "/api/auth/register", map[string]string{
@@ -1167,7 +1157,7 @@ func TestRefreshTokenRejectedAfterExpiry(t *testing.T) {
 	resp := parseAuthResp(t, w)
 
 	// Wait for refresh token to expire.
-	time.Sleep(1200 * time.Millisecond)
+	time.Sleep(50 * time.Millisecond)
 
 	// Refresh should fail.
 	w = doJSON(t, srv, "POST", "/api/auth/refresh", map[string]string{

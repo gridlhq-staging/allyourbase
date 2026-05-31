@@ -1,8 +1,10 @@
 package pgmanager
 
 import (
+	"bytes"
 	"context"
 	"fmt"
+	"io"
 	"log/slog"
 	"os"
 	"os/exec"
@@ -53,11 +55,16 @@ func runInitDB(ctx context.Context, binDir, dataDir string, logger *slog.Logger)
 		"--encoding=UTF8",
 		"--locale=C",
 	)
+	var stderrBuf bytes.Buffer
 	cmd.Stdout = newLogWriter(logger)
-	cmd.Stderr = newLogWriter(logger)
+	cmd.Stderr = io.MultiWriter(newLogWriter(logger), &stderrBuf)
 
 	logger.Info("initializing postgres data directory", "data_dir", dataDir)
 	if err := cmd.Run(); err != nil {
+		stderrDetail := strings.TrimSpace(stderrBuf.String())
+		if stderrDetail != "" {
+			return fmt.Errorf("initdb failed (stderr: %s): %w", stderrDetail, err)
+		}
 		return fmt.Errorf("initdb failed: %w", err)
 	}
 	return nil

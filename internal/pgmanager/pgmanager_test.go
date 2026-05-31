@@ -143,3 +143,20 @@ func TestStopWhenNotRunning(t *testing.T) {
 	err := m.Stop()
 	testutil.NoError(t, err)
 }
+
+func TestSharedPreloadLibrariesForBinarySourceDropsPgCronOnLegacyFallback(t *testing.T) {
+	t.Parallel()
+
+	got := sharedPreloadLibrariesForBinarySource([]string{"pg_stat_statements", "pg_cron"}, true)
+	testutil.Equal(t, 1, len(got))
+	testutil.Equal(t, "pg_stat_statements", got[0])
+}
+
+func TestSharedPreloadLibrariesForBinarySourceKeepsConfiguredLibrariesOnManagedRelease(t *testing.T) {
+	t.Parallel()
+
+	got := sharedPreloadLibrariesForBinarySource([]string{"pg_stat_statements", "pg_cron"}, false)
+	testutil.Equal(t, 2, len(got))
+	testutil.Equal(t, "pg_stat_statements", got[0])
+	testutil.Equal(t, "pg_cron", got[1])
+}

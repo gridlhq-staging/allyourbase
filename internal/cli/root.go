@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -15,17 +16,31 @@ import (
 // It has a 30-second timeout to prevent hanging on unresponsive servers.
 var cliHTTPClient = &http.Client{Timeout: 30 * time.Second}
 
+const (
+	defaultBuildVersion = "dev"
+	defaultBuildCommit  = "none"
+	defaultBuildDate    = "unknown"
+)
+
 var (
-	buildVersion = "dev"
-	buildCommit  = "none"
-	buildDate    = "unknown"
+	buildVersion = defaultBuildVersion
+	buildCommit  = defaultBuildCommit
+	buildDate    = defaultBuildDate
 )
 
 // SetVersion is called from main to inject build-time version info.
 func SetVersion(version, commit, date string) {
-	buildVersion = version
-	buildCommit = commit
-	buildDate = date
+	buildVersion = normalizeBuildValue(version, defaultBuildVersion)
+	buildCommit = normalizeBuildValue(commit, defaultBuildCommit)
+	buildDate = normalizeBuildValue(date, defaultBuildDate)
+}
+
+func normalizeBuildValue(value string, fallback string) string {
+	trimmed := strings.TrimSpace(value)
+	if trimmed == "" {
+		return fallback
+	}
+	return trimmed
 }
 
 var rootCmd = &cobra.Command{

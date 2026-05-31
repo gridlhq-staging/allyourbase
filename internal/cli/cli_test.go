@@ -27,6 +27,28 @@ func TestSetVersion(t *testing.T) {
 	if buildDate != "2026-01-01" {
 		t.Fatalf("expected 2026-01-01, got %q", buildDate)
 	}
+
+	SetVersion(" 2.0.0 ", "  deadbeef  ", " 2026-03-01 ")
+	if buildVersion != "2.0.0" {
+		t.Fatalf("expected trimmed version 2.0.0, got %q", buildVersion)
+	}
+	if buildCommit != "deadbeef" {
+		t.Fatalf("expected trimmed commit deadbeef, got %q", buildCommit)
+	}
+	if buildDate != "2026-03-01" {
+		t.Fatalf("expected trimmed date 2026-03-01, got %q", buildDate)
+	}
+
+	SetVersion("", "", "")
+	if buildVersion != defaultBuildVersion {
+		t.Fatalf("expected default version %q, got %q", defaultBuildVersion, buildVersion)
+	}
+	if buildCommit != defaultBuildCommit {
+		t.Fatalf("expected default commit %q, got %q", defaultBuildCommit, buildCommit)
+	}
+	if buildDate != defaultBuildDate {
+		t.Fatalf("expected default date %q, got %q", defaultBuildDate, buildDate)
+	}
 	SetVersion("dev", "none", "unknown")
 }
 

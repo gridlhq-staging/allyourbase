@@ -182,6 +182,9 @@ func shouldSkipCodehealthDir(relativePath string) bool {
 	if relativePath == "." {
 		return false
 	}
+	if relativePath == "node_modules" || strings.HasSuffix(relativePath, "/node_modules") || strings.Contains(relativePath, "/node_modules/") {
+		return true
+	}
 
 	skipped := []string{
 		".git",

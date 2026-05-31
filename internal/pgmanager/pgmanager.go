@@ -102,6 +102,13 @@ func (m *Manager) Start(ctx context.Context) (string, error) {
 			"platform", platform,
 		)
 	}
+	preloadLibraries := sharedPreloadLibrariesForBinarySource(m.cfg.SharedPreloadLibraries, usedLegacyFallback)
+	if usedLegacyFallback && len(preloadLibraries) != len(m.cfg.SharedPreloadLibraries) {
+		m.logger.Warn("dropping unsupported shared_preload_libraries for the legacy fallback binary source",
+			"requested", m.cfg.SharedPreloadLibraries,
+			"effective", preloadLibraries,
+		)
+	}
 
 	// Initialize data directory (skips if already initialized).
 	if err := runInitDB(ctx, m.binDir, m.dataDir, m.logger); err != nil {
@@ -109,7 +116,7 @@ func (m *Manager) Start(ctx context.Context) (string, error) {
 	}
 
 	// Write postgresql.conf.
-	if err := writePostgresConf(m.dataDir, port, m.runtimeDir, m.cfg.SharedPreloadLibraries); err != nil {
+	if err := writePostgresConf(m.dataDir, port, m.runtimeDir, preloadLibraries); err != nil {
 		return "", fmt.Errorf("writing postgresql.conf: %w", err)
 	}
 
@@ -179,6 +186,22 @@ func defaultManagedPGVersion(version string) string {
 		return "16"
 	}
 	return version
+}
+
+func sharedPreloadLibrariesForBinarySource(configured []string, usedLegacyFallback bool) []string {
+	effective := append([]string(nil), configured...)
+	if !usedLegacyFallback {
+		return effective
+	}
+
+	filtered := effective[:0]
+	for _, lib := range effective {
+		if managedExtensionName(lib) == "pg_cron" {
+			continue
+		}
+		filtered = append(filtered, lib)
+	}
+	return filtered
 }
 
 // Stop gracefully shuts down the managed PostgreSQL child process.

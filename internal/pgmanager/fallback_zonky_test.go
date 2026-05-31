@@ -44,9 +44,10 @@ func TestResolveLegacyArchiveSourceSelectsLatestPatch(t *testing.T) {
 
 func TestEnsureBinaryFromLegacyArchiveDownloadsAndExtracts(t *testing.T) {
 	txzPayload := makeLegacyTarXZ(t, map[string]string{
-		"bin/postgres":               "pg",
+		"bin/postgres":               fakePostgresVersionScript("16.13"),
 		"bin/initdb":                 "initdb",
 		"share/postgresql/dummy.txt": "ok",
+		"PG_VERSION":                 "16",
 	})
 	jarBytes := makeLegacyJar(t, "postgres-darwin-arm_64.txz", txzPayload)
 	jarHash := sha256.Sum256(jarBytes)
@@ -91,7 +92,7 @@ func TestEnsureBinaryFromLegacyArchiveDownloadsAndExtracts(t *testing.T) {
 
 	content, err := os.ReadFile(filepath.Join(binDir, "bin", "postgres"))
 	testutil.NoError(t, err)
-	testutil.Equal(t, "pg", string(content))
+	testutil.Contains(t, string(content), "16.13")
 
 	_, err = os.Stat(filepath.Join(cacheDir, "embedded-postgres-binaries-darwin-arm64v8-16.13.0.jar"))
 	testutil.NoError(t, err)
@@ -108,7 +109,8 @@ func TestExtractLegacyJarArchiveRejectsMissingPayload(t *testing.T) {
 
 func TestEnsureBinaryReportsLegacyFallbackUsage(t *testing.T) {
 	archive := makeLegacyTarXZ(t, map[string]string{
-		"bin/postgres": "pg",
+		"bin/postgres": fakePostgresVersionScript("16.9"),
+		"PG_VERSION":   "16",
 	})
 	jarBytes := makeLegacyJar(t, "postgres-darwin-arm_64.txz", archive)
 	jarHash := sha256.Sum256(jarBytes)
@@ -153,6 +155,88 @@ func TestEnsureBinaryReportsLegacyFallbackUsage(t *testing.T) {
 	})
 	testutil.NoError(t, err)
 	testutil.True(t, usedLegacyFallback, "missing managed release assets should report legacy fallback usage")
+}
+
+func TestEnsureBinaryFallsBackWhenManagedReleaseBinaryCannotRun(t *testing.T) {
+	badManagedArchive := makeTarXZWithHeaders(t, []*tar.Header{
+		{Name: "ayb-postgres-16/bin/", Typeflag: tar.TypeDir, Mode: 0o755},
+		{Name: "ayb-postgres-16/bin/postgres", Typeflag: tar.TypeReg, Mode: 0o755, Size: int64(len("#!/bin/sh\necho \"qemu-x86_64: Could not open '/lib64/ld-linux-x86-64.so.2': No such file or directory\" >&2\nexit 255\n"))},
+		{Name: "ayb-postgres-16/lib/", Typeflag: tar.TypeDir, Mode: 0o755},
+		{Name: "ayb-postgres-16/lib/libecpg.so.6.16", Typeflag: tar.TypeReg, Mode: 0o755, Size: int64(len("bad"))},
+		{Name: "ayb-postgres-16/lib/libecpg.so", Typeflag: tar.TypeSymlink, Mode: 0o755, Linkname: "libecpg.so.6.16"},
+		{Name: "ayb-postgres-16/PG_VERSION", Typeflag: tar.TypeReg, Mode: 0o644, Size: int64(len("16"))},
+	}, map[string]string{
+		"ayb-postgres-16/bin/postgres":        "#!/bin/sh\necho \"qemu-x86_64: Could not open '/lib64/ld-linux-x86-64.so.2': No such file or directory\" >&2\nexit 255\n",
+		"ayb-postgres-16/lib/libecpg.so.6.16": "bad",
+		"ayb-postgres-16/PG_VERSION":          "16",
+	})
+	badManagedHash := sha256.Sum256(badManagedArchive)
+	badManagedHashHex := hex.EncodeToString(badManagedHash[:])
+
+	legacyArchive := makeTarXZWithHeaders(t, []*tar.Header{
+		{Name: "bin/", Typeflag: tar.TypeDir, Mode: 0o755},
+		{Name: "bin/postgres", Typeflag: tar.TypeReg, Mode: 0o755, Size: int64(len(fakePostgresVersionScript("16.13")))},
+		{Name: "bin/initdb", Typeflag: tar.TypeReg, Mode: 0o755, Size: int64(len("#!/bin/sh\necho initdb\n"))},
+		{Name: "lib/", Typeflag: tar.TypeDir, Mode: 0o755},
+		{Name: "lib/libecpg.so.6.16", Typeflag: tar.TypeReg, Mode: 0o755, Size: int64(len("good"))},
+		{Name: "lib/libecpg.so", Typeflag: tar.TypeSymlink, Mode: 0o755, Linkname: "libecpg.so.6.16"},
+		{Name: "PG_VERSION", Typeflag: tar.TypeReg, Mode: 0o644, Size: int64(len("16"))},
+	}, map[string]string{
+		"bin/postgres":        fakePostgresVersionScript("16.13"),
+		"bin/initdb":          "#!/bin/sh\necho initdb\n",
+		"lib/libecpg.so.6.16": "good",
+		"PG_VERSION":          "16",
+	})
+	legacyJarBytes := makeLegacyJar(t, "postgres-darwin-arm_64.txz", legacyArchive)
+	legacyJarHash := sha256.Sum256(legacyJarBytes)
+	legacyJarHashHex := hex.EncodeToString(legacyJarHash[:])
+
+	metadata := `<?xml version="1.0" encoding="UTF-8"?>
+<metadata>
+  <versioning>
+    <versions>
+      <version>16.13.0</version>
+    </versions>
+  </versioning>
+</metadata>`
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/managed/SHA256SUMS":
+			_, _ = w.Write([]byte(badManagedHashHex + "  ayb-postgres-16-linux-arm64.tar.xz\n"))
+		case "/managed/16/linux-arm64.tar.xz":
+			_, _ = w.Write(badManagedArchive)
+		case "/embedded-postgres-binaries-linux-arm64v8/maven-metadata.xml":
+			_, _ = w.Write([]byte(metadata))
+		case "/embedded-postgres-binaries-linux-arm64v8/16.13.0/embedded-postgres-binaries-linux-arm64v8-16.13.0.jar.sha256":
+			_, _ = w.Write([]byte(legacyJarHashHex))
+		case "/embedded-postgres-binaries-linux-arm64v8/16.13.0/embedded-postgres-binaries-linux-arm64v8-16.13.0.jar":
+			_, _ = w.Write(legacyJarBytes)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+
+	cacheDir := t.TempDir()
+	binDir := filepath.Join(t.TempDir(), "bin")
+	testutil.NoError(t, os.MkdirAll(binDir, 0o755))
+
+	usedLegacyFallback, err := ensureBinary(context.Background(), ensureBinaryOpts{
+		version:       "16",
+		platform:      "linux-arm64",
+		cacheDir:      cacheDir,
+		binDir:        binDir,
+		baseURL:       srv.URL + "/managed/{version}/{platform}.tar.xz",
+		sha256URL:     srv.URL + "/managed/SHA256SUMS",
+		legacyBaseURL: srv.URL,
+	})
+	testutil.NoError(t, err)
+	testutil.True(t, usedLegacyFallback, "managed release binaries that cannot execute should fall back to the legacy archive")
+
+	versionOut, readErr := os.ReadFile(filepath.Join(binDir, "bin", "postgres"))
+	testutil.NoError(t, readErr)
+	testutil.Contains(t, string(versionOut), "16.13")
 }
 
 func makeLegacyJar(t *testing.T, entryName string, content []byte) []byte {

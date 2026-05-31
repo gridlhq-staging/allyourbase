@@ -106,18 +106,28 @@ mkdir -p "$stub_dir"
 cat > "${stub_dir}/docker" <<'EOF_DOCKER'
 #!/usr/bin/env bash
 set -euo pipefail
-if [[ "${1:-}" != "pull" ]]; then
-  exit 0
-fi
-image_ref="${2:-}"
-if [[ "$image_ref" == *":dev-cce462e" ]]; then
-  exit 0
-fi
-if [[ "$image_ref" == *":v0.0.7-beta" ]]; then
-  echo "manifest unknown" >&2
-  exit 1
-fi
-exit 0
+command_name="${1:-}"
+case "$command_name" in
+  pull)
+    image_ref="${2:-}"
+    if [[ "$image_ref" == *":dev-cce462e" ]]; then
+      exit 0
+    fi
+    if [[ "$image_ref" == *":v0.0.7-beta" ]]; then
+      echo "manifest unknown" >&2
+      exit 1
+    fi
+    exit 0
+    ;;
+  run)
+    runtime_metadata_json="${AYB_TEST_RUNTIME_METADATA_JSON:-{\"version\":\"0.0.7-beta\",\"commit\":\"abc1234\",\"date\":\"2026-03-28T12:34:56Z\"}}"
+    printf '%s\n' "$runtime_metadata_json"
+    exit 0
+    ;;
+  *)
+    exit 0
+    ;;
+esac
 EOF_DOCKER
 chmod +x "${stub_dir}/docker"
 
@@ -155,7 +165,7 @@ EOF_GH
 chmod +x "${stub_dir}/gh"
 
 output_ok="${TMP_DIR}/probe_ok.txt"
-if ! PATH="${stub_dir}:$PATH" AYB_GHCR_PROBE_REPO_ROOT="$fixture_root" "$SCRIPT_PATH" > "$output_ok" 2>&1; then
+if ! PATH="${stub_dir}:$PATH" AYB_GHCR_PROBE_REPO_ROOT="$fixture_root" AYB_TEST_RUNTIME_METADATA_JSON='{"version":"0.0.7-beta","commit":"abc1234","date":"2026-03-28T12:34:56Z"}' "$SCRIPT_PATH" > "$output_ok" 2>&1; then
   cat "$output_ok"
   fail "probe helper should exit zero when all required probes execute, even if docker pull findings include failures"
 fi
@@ -173,5 +183,15 @@ if [[ "$missing_gh_exit" -eq 0 ]]; then
   fail "probe helper should exit non-zero when required probes are not executable"
 fi
 assert_contains "$output_missing_gh" "SUMMARY_PROBE|gh_auth_status|not_executable" "missing gh should be classified as not_executable"
+
+output_placeholder_runtime="${TMP_DIR}/probe_placeholder_runtime.txt"
+PATH="${stub_dir}:$PATH" AYB_GHCR_PROBE_REPO_ROOT="$fixture_root" AYB_TEST_RUNTIME_METADATA_JSON='{"version":"dev","commit":"none","date":"unknown"}' "$SCRIPT_PATH" > "$output_placeholder_runtime" 2>&1 || placeholder_runtime_exit=$?
+placeholder_runtime_exit="${placeholder_runtime_exit:-0}"
+if [[ "$placeholder_runtime_exit" -eq 0 ]]; then
+  cat "$output_placeholder_runtime"
+  fail "probe helper should exit non-zero when runtime metadata is placeholder"
+fi
+assert_contains "$output_placeholder_runtime" "SUMMARY_PROBE|runtime_metadata_release_v0_0_7_beta|executed" "runtime metadata probe should execute"
+assert_contains "$output_placeholder_runtime" "SUMMARY_REQUIRED_FAILURE|count=1|runtime_metadata_release_v0_0_7_beta:placeholder_metadata" "placeholder runtime metadata should be a required failure"
 
 echo "PASS: ghcr claims probe helper records findings and enforces required-probe execution semantics"

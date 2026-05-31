@@ -144,7 +144,9 @@ func TestBackgroundStartStopCycle(t *testing.T) {
 	// Ensure clean state.
 	stopCmd := backgroundCommand(homeDir, bin, "stop", "--port", fmt.Sprintf("%d", port))
 	stopCmd.Run()
-	time.Sleep(500 * time.Millisecond)
+	if !waitForNoHealthPort(port, 5*time.Second) {
+		t.Fatalf("background server on port %d did not fully stop before test start", port)
+	}
 
 	// ── 7.5: ayb start → background, banner, status ──
 
@@ -294,7 +296,9 @@ func TestBackgroundForegroundSignal(t *testing.T) {
 	// Ensure clean state.
 	stopCmd := backgroundCommand(homeDir, bin, "stop", "--port", fmt.Sprintf("%d", port))
 	stopCmd.Run()
-	time.Sleep(500 * time.Millisecond)
+	if !waitForNoHealthPort(port, 5*time.Second) {
+		t.Fatalf("background server on port %d did not fully stop before foreground test start", port)
+	}
 
 	cmd := backgroundCommand(homeDir, bin, startArgs(port, "--foreground")...)
 	var stderr strings.Builder

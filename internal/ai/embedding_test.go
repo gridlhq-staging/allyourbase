@@ -189,7 +189,7 @@ func TestOllamaEmbeddingSuccess(t *testing.T) {
 
 func TestOllamaEmbeddingTimeout(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		time.Sleep(2 * time.Second)
+		time.Sleep(200 * time.Millisecond)
 	}))
 	defer srv.Close()
 

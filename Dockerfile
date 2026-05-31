@@ -82,7 +82,10 @@ COPY --from=demo-builder /src/examples/kanban/dist ./examples/kanban/dist
 COPY --from=demo-builder /src/examples/live-polls/dist ./examples/live-polls/dist
 COPY --from=demo-builder /src/examples/movies/dist ./examples/movies/dist
 
-RUN go build -ldflags "-s -w" -o /ayb ./cmd/ayb
+ARG AYB_VERSION=dev
+ARG AYB_COMMIT=none
+ARG AYB_DATE=unknown
+RUN go build -ldflags "-s -w -X main.version=${AYB_VERSION} -X main.commit=${AYB_COMMIT} -X main.date=${AYB_DATE}" -o /ayb ./cmd/ayb
 
 FROM alpine:3.20
 

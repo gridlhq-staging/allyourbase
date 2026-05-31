@@ -19,24 +19,24 @@ jobs:
     strategy:
       matrix:
         include:
-          - os: ubuntu-latest
+          - runs_on: ubuntu-latest
             platform: linux-amd64
             goos: linux
             goarch: amd64
-          - os: ubuntu-latest
+          - runs_on: ubuntu-24.04-arm
             platform: linux-arm64
             goos: linux
             goarch: arm64
-          - os: macos-latest
+          - runs_on: macos-15-intel
             platform: darwin-amd64
             goos: darwin
             goarch: amd64
-          - os: macos-latest
+          - runs_on: macos-latest
             platform: darwin-arm64
             goos: darwin
             goarch: arm64
 
-    runs-on: ${{ matrix.os }}
+    runs-on: ${{ matrix.runs_on }}
     name: Build (${{ matrix.platform }})
 
     steps:
@@ -59,6 +59,7 @@ jobs:
           sudo apt-get update -qq
           sudo apt-get install -y --no-install-recommends \
             gcc make curl xz-utils \
+            file \
             libssl-dev libxml2-dev uuid-dev \
             libreadline-dev zlib1g-dev
 
@@ -74,6 +75,46 @@ jobs:
             --os "${{ matrix.goos }}" \
             --arch "${{ matrix.goarch }}" \
             --output-dir dist/pg-binaries
+
+      - name: Verify built postgres architecture
+        run: |
+          binary_path="dist/pg-binaries/ayb-postgres-${{ steps.version.outputs.pg_version }}/bin/postgres"
+          if [ ! -f "$binary_path" ]; then
+            echo "Missing postgres binary at $binary_path"
+            exit 1
+          fi
+
+          file_output="$(file -b "$binary_path")"
+          detected_token="$(echo "$file_output" | awk '
+            /x86_64|x86-64/ {print "x86_64"; exit}
+            /aarch64/ {print "aarch64"; exit}
+            /arm64|arm64e/ {print "arm64"; exit}
+          ')"
+          if [ -z "$detected_token" ]; then
+            echo "Unable to map architecture token from: $file_output"
+            exit 1
+          fi
+
+          case "$detected_token" in
+            x86_64)
+              detected_goarch="amd64"
+              ;;
+            aarch64)
+              detected_goarch="arm64"
+              ;;
+            arm64)
+              detected_goarch="arm64"
+              ;;
+            *)
+              echo "Unsupported detected architecture token: $detected_token"
+              exit 1
+              ;;
+          esac
+
+          if [ "$detected_goarch" != "${{ matrix.goarch }}" ]; then
+            echo "Architecture mismatch: detected=$detected_goarch expected=${{ matrix.goarch }}"
+            exit 1
+          fi
 
       - name: Upload artifact
         uses: actions/upload-artifact@v7

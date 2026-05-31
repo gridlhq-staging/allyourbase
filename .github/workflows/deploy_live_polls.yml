@@ -1,0 +1,60 @@
+name: Deploy Live Polls
+
+on:
+  workflow_dispatch: {}
+  push:
+    branches: [main]
+    paths:
+      - "examples/live-polls/**"
+      - "sdk/**"
+      - "sdk_react/**"
+      - ".github/workflows/deploy_live_polls.yml"
+
+permissions:
+  contents: read
+  deployments: write
+
+jobs:
+  deploy-live-polls:
+    runs-on: ubuntu-latest
+    steps:
+      # Do not leave the repo-scoped token available to later npm script hooks.
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6
+        with:
+          node-version: "22"
+
+      # live-polls links the in-repo SDK packages via file: dependencies.
+      # Build them first so their dist exports exist on a clean runner.
+      - name: Install SDK dependencies
+        run: npm ci
+        working-directory: sdk
+
+      - name: Install React SDK dependencies
+        run: npm install --package-lock=false
+        working-directory: sdk_react
+
+      - name: Build SDK packages
+        run: |
+          npm run build
+          npm --prefix ../sdk_react run build
+        working-directory: sdk
+
+      - name: Install live-polls dependencies
+        run: npm ci
+        working-directory: examples/live-polls
+
+      - name: Build live-polls
+        run: npm run build
+        working-directory: examples/live-polls
+
+      - name: Deploy to Cloudflare Pages
+        uses: cloudflare/wrangler-action@9acf94ace14e7dc412b076f2c5c20b8ce93c79cd # v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          command: pages deploy dist --project-name=ayb-demo-polls
+          workingDirectory: examples/live-polls

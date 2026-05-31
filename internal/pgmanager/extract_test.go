@@ -17,6 +17,10 @@ import (
 	"github.com/ulikunitz/xz"
 )
 
+func fakePostgresVersionScript(version string) string {
+	return fmt.Sprintf("#!/bin/sh\necho 'postgres (PostgreSQL) %s'\n", version)
+}
+
 // makeTarXZ creates a small .tar.xz in memory with the given file entries.
 // Each entry is path -> content.
 func makeTarXZ(t *testing.T, files map[string]string) []byte {
@@ -134,7 +138,7 @@ func TestExtractTarXZRejectsEscapingSymlinkTarget(t *testing.T) {
 func TestCacheHitSkipsDownload(t *testing.T) {
 	t.Parallel()
 	archive := makeTarXZ(t, map[string]string{
-		"ayb-postgres-16/bin/postgres": "pg",
+		"ayb-postgres-16/bin/postgres": fakePostgresVersionScript("16.9"),
 		"ayb-postgres-16/PG_VERSION":   "16",
 	})
 
@@ -162,7 +166,7 @@ func TestCacheHitSkipsDownload(t *testing.T) {
 
 	// Pre-populate binDir with extracted content.
 	testutil.NoError(t, os.MkdirAll(filepath.Join(binDir, "bin"), 0o755))
-	testutil.NoError(t, os.WriteFile(filepath.Join(binDir, "bin", "postgres"), []byte("pg"), 0o755))
+	testutil.NoError(t, os.WriteFile(filepath.Join(binDir, "bin", "postgres"), []byte(fakePostgresVersionScript("16.9")), 0o755))
 	testutil.NoError(t, os.WriteFile(filepath.Join(binDir, "PG_VERSION"), []byte("16"), 0o644))
 
 	usedLegacyFallback, err := ensureBinary(context.Background(), ensureBinaryOpts{
@@ -183,7 +187,7 @@ func TestCacheHitSkipsDownload(t *testing.T) {
 func TestCacheMissTriggersDownload(t *testing.T) {
 	t.Parallel()
 	archive := makeTarXZ(t, map[string]string{
-		"ayb-postgres-16/bin/postgres": "pg",
+		"ayb-postgres-16/bin/postgres": fakePostgresVersionScript("16.9"),
 		"ayb-postgres-16/PG_VERSION":   "16",
 	})
 
@@ -225,7 +229,7 @@ func TestCacheMissTriggersDownload(t *testing.T) {
 func TestVersionMismatchTriggersReExtraction(t *testing.T) {
 	t.Parallel()
 	archive := makeTarXZ(t, map[string]string{
-		"ayb-postgres-16/bin/postgres": "pg16",
+		"ayb-postgres-16/bin/postgres": fakePostgresVersionScript("16.9"),
 		"ayb-postgres-16/PG_VERSION":   "16",
 	})
 
@@ -251,7 +255,7 @@ func TestVersionMismatchTriggersReExtraction(t *testing.T) {
 
 	// Pre-populate binDir but with wrong PG_VERSION.
 	testutil.NoError(t, os.MkdirAll(filepath.Join(binDir, "bin"), 0o755))
-	testutil.NoError(t, os.WriteFile(filepath.Join(binDir, "bin", "postgres"), []byte("old"), 0o755))
+	testutil.NoError(t, os.WriteFile(filepath.Join(binDir, "bin", "postgres"), []byte(fakePostgresVersionScript("15.12")), 0o755))
 	testutil.NoError(t, os.WriteFile(filepath.Join(binDir, "PG_VERSION"), []byte("15"), 0o644))
 
 	usedLegacyFallback, err := ensureBinary(context.Background(), ensureBinaryOpts{

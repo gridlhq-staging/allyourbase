@@ -57,11 +57,12 @@ func ensureBinaryFromLegacyArchive(ctx context.Context, opts ensureBinaryOpts) e
 		}
 	}
 
-	if err := extractLegacyJarArchive(cachePath, opts.binDir); err != nil {
-		return fmt.Errorf("extracting legacy embedded-postgres archive: %w", err)
-	}
-
-	return nil
+	return installBinaryTree(opts.binDir, opts.version, func(stageDir string) error {
+		if err := extractLegacyJarArchive(cachePath, stageDir); err != nil {
+			return fmt.Errorf("extracting legacy embedded-postgres archive: %w", err)
+		}
+		return nil
+	})
 }
 
 func resolveLegacyArchiveSource(ctx context.Context, version, platform, baseURL string) (legacyArchiveSource, error) {

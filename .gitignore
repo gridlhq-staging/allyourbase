@@ -1,6 +1,9 @@
 # Dev artifacts
 /testpg
 .scrai/codemap_graph_cache.json
+.scrai/state.json
+.scrai/summaries.json
+.scrai/dir_summaries.json
 /temptodo*.md
 /live-polls/
 /.toolchains/
@@ -22,6 +25,10 @@ _dev/release/evidence/*/docker-home/
 _dev/release/evidence/*/docker-pgdata/
 _dev/release/evidence/*/docker-storage/
 _dev/release/evidence/*/docker-storage-payload.txt
+
+# Integration test runtime audit raw artifacts (large JSONL test output, not source-of-truth).
+# The summarized findings live in _dev/integration_test_runtime_audit.md which IS committed.
+_dev/integration_test_runtime_audit_artifacts/
 
 ayb-linux-amd64
 

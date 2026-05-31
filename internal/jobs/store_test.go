@@ -96,8 +96,9 @@ func TestEnqueueClaimFailRetry(t *testing.T) {
 	testutil.NotNil(t, failed.LastError)
 	testutil.Equal(t, "attempt 1 error", *failed.LastError)
 
-	// Wait for run_at to pass.
-	time.Sleep(1100 * time.Millisecond)
+	// Force the retry window open without waiting on a full 1s SQL interval.
+	_, err = sharedPG.Pool.Exec(ctx, `UPDATE _ayb_jobs SET run_at = NOW() WHERE id = $1`, claimed.ID)
+	testutil.NoError(t, err)
 
 	// Second attempt: claim + fail (should re-queue again).
 	claimed2, err := store.Claim(ctx, "w1", 5*time.Minute)
@@ -109,8 +110,9 @@ func TestEnqueueClaimFailRetry(t *testing.T) {
 	testutil.NoError(t, err)
 	testutil.Equal(t, jobs.StateQueued, failed2.State)
 
-	// Wait for run_at to pass.
-	time.Sleep(1100 * time.Millisecond)
+	// Force the retry window open without waiting on a full 1s SQL interval.
+	_, err = sharedPG.Pool.Exec(ctx, `UPDATE _ayb_jobs SET run_at = NOW() WHERE id = $1`, claimed2.ID)
+	testutil.NoError(t, err)
 
 	// Third attempt: claim + fail (should be terminal).
 	claimed3, err := store.Claim(ctx, "w1", 5*time.Minute)
@@ -229,8 +231,9 @@ func TestRecoverStalledJobs(t *testing.T) {
 	testutil.NoError(t, err)
 	testutil.Equal(t, job.ID, claimed.ID)
 
-	// Wait for lease to expire.
-	time.Sleep(1100 * time.Millisecond)
+	// Force the lease into the past so recovery sees a stalled job immediately.
+	_, err = sharedPG.Pool.Exec(ctx, `UPDATE _ayb_jobs SET lease_until = NOW() - INTERVAL '1 second' WHERE id = $1`, claimed.ID)
+	testutil.NoError(t, err)
 
 	// Recover stalled jobs.
 	recovered, err := store.RecoverStalledJobs(ctx)

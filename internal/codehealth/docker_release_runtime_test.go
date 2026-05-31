@@ -1,11 +1,52 @@
 package codehealth
 
 import (
+	"encoding/json"
+	"errors"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"sort"
 	"strings"
 	"testing"
 )
+
+const publishedDockerImageRepository = "ghcr.io/griddlehq/allyourbase"
+const publishedDockerImageRef = publishedDockerImageRepository + ":latest"
+
+var retryableDockerManifestInspectSignatures = []string{
+	"could not resolve host",
+	"temporary failure in name resolution",
+	"no such host",
+	"i/o timeout",
+	"net/http: request canceled",
+	"tls handshake timeout",
+	"service unavailable",
+	"too many requests",
+	"429",
+	"500 internal server error",
+	"502 bad gateway",
+	"503 service unavailable",
+	"504 gateway timeout",
+}
+
+var dockerManifestDaemonUnavailableSignatures = []string{
+	"cannot connect to the docker daemon",
+	"is the docker daemon running",
+	"error during connect",
+	"permission denied while trying to connect to the docker daemon socket",
+}
+
+type dockerManifestInspectResponse struct {
+	Manifests []struct {
+		Platform dockerManifestPlatform `json:"platform"`
+	} `json:"manifests"`
+}
+
+type dockerManifestPlatform struct {
+	Architecture string `json:"architecture"`
+	OS           string `json:"os"`
+}
 
 func TestPublishedDockerImageBindsToAllInterfaces(t *testing.T) {
 	t.Parallel()
@@ -148,4 +189,100 @@ func TestDebbieHooksRehydrateFlyConfigForDockerBuildContext(t *testing.T) {
 		}
 		requireContainsAll(t, string(data), requiredSnippets)
 	}
+}
+
+func TestPublishedDockerImageManifestIncludesArm64(t *testing.T) {
+	t.Parallel()
+
+	if os.Getenv("AYB_GHCR_MULTIARCH_GATE") != "1" {
+		t.Skip("set AYB_GHCR_MULTIARCH_GATE=1 to run live GHCR multi-arch manifest contract")
+	}
+
+	manifestOutput, observedPlatforms := inspectPublishedDockerImageManifestPlatforms(t)
+	requireManifestPlatform(t, observedPlatforms, "linux/amd64", manifestOutput)
+	requireManifestPlatform(t, observedPlatforms, "linux/arm64", manifestOutput)
+}
+
+func TestPublishedDockerImageManifestContractMatchesDockerWorkflowTarget(t *testing.T) {
+	t.Parallel()
+
+	repoRoot := findRepoRoot(t)
+	workflowPath := filepath.Join(repoRoot, ".github", "workflows", "docker.yml")
+	workflowData, err := os.ReadFile(workflowPath)
+	if err != nil {
+		t.Fatalf("read %s failed: %v", workflowPath, err)
+	}
+
+	requireContainsAll(t, string(workflowData), []string{
+		"images: " + publishedDockerImageRepository,
+	})
+}
+
+func inspectPublishedDockerImageManifestPlatforms(t *testing.T) (string, []string) {
+	t.Helper()
+
+	cmd := exec.Command("docker", "manifest", "inspect", publishedDockerImageRef)
+	output, err := cmd.CombinedOutput()
+	manifestOutput := strings.TrimSpace(string(output))
+	if err != nil {
+		skipOrFailDockerManifestInspect(t, err, manifestOutput)
+	}
+
+	var parsedManifest dockerManifestInspectResponse
+	if err := json.Unmarshal(output, &parsedManifest); err != nil {
+		t.Fatalf("docker manifest inspect returned non-JSON output: %v output=%s", err, manifestOutput)
+	}
+
+	observedPlatforms := make([]string, 0, len(parsedManifest.Manifests))
+	for _, manifest := range parsedManifest.Manifests {
+		observedPlatforms = append(observedPlatforms, formatDockerManifestPlatform(manifest.Platform))
+	}
+	sort.Strings(observedPlatforms)
+
+	return manifestOutput, observedPlatforms
+}
+
+func skipOrFailDockerManifestInspect(t *testing.T, err error, manifestOutput string) {
+	t.Helper()
+
+	lowerOutput := strings.ToLower(manifestOutput)
+	for _, signature := range retryableDockerManifestInspectSignatures {
+		if strings.Contains(lowerOutput, signature) {
+			t.Skipf("skipping due to transient registry failure from docker manifest inspect: %v output=%s", err, manifestOutput)
+		}
+	}
+
+	if execErr := new(exec.Error); errors.As(err, &execErr) {
+		t.Skipf("skipping: Docker CLI not found: %v", err)
+	}
+	if exitErr := new(exec.ExitError); errors.As(err, &exitErr) {
+		for _, signature := range dockerManifestDaemonUnavailableSignatures {
+			if strings.Contains(lowerOutput, signature) {
+				t.Skipf("skipping: Docker daemon unavailable for docker manifest inspect: %s", manifestOutput)
+			}
+		}
+	}
+
+	t.Fatalf("docker manifest inspect failed (non-transient): %v output=%s", err, manifestOutput)
+}
+
+func requireManifestPlatform(t *testing.T, observedPlatforms []string, expectedPlatform string, manifestOutput string) {
+	t.Helper()
+
+	for _, platform := range observedPlatforms {
+		if platform == expectedPlatform {
+			return
+		}
+	}
+
+	t.Fatalf(
+		"published image manifest missing %s platform entry; observed platforms=%s output=%s",
+		expectedPlatform,
+		strings.Join(observedPlatforms, ", "),
+		manifestOutput,
+	)
+}
+
+func formatDockerManifestPlatform(platform dockerManifestPlatform) string {
+	return strings.TrimSpace(platform.OS) + "/" + strings.TrimSpace(platform.Architecture)
 }

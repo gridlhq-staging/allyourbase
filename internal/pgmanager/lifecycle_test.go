@@ -178,6 +178,28 @@ func TestRunInitDBArgs(t *testing.T) {
 	testutil.Contains(t, err.Error(), "initdb failed")
 }
 
+func TestRunInitDBIncludesStderrDetailOnFailure(t *testing.T) {
+	t.Parallel()
+
+	binDir := t.TempDir()
+	dataDir := t.TempDir()
+	initdbDir := filepath.Join(binDir, "bin")
+	testutil.NoError(t, os.MkdirAll(initdbDir, 0o755))
+
+	initdbPath := filepath.Join(initdbDir, "initdb")
+	script := `#!/bin/sh
+echo "initdb: error: invalid locale settings; check LANG" >&2
+exit 255
+`
+	testutil.NoError(t, os.WriteFile(initdbPath, []byte(script), 0o755))
+
+	err := runInitDB(context.Background(), binDir, dataDir, testutil.DiscardLogger())
+	testutil.True(t, err != nil, "expected initdb failure")
+	testutil.Contains(t, err.Error(), "initdb failed")
+	// Red-phase contract: callers need the concrete initdb stderr reason, not only exit status.
+	testutil.Contains(t, err.Error(), "invalid locale settings")
+}
+
 // --- extension initialization ---
 
 func TestInitExtensionsEmptyList(t *testing.T) {

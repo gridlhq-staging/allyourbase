@@ -170,13 +170,12 @@ func ensureBinary(ctx context.Context, opts ensureBinaryOpts) (bool, error) {
 		return false, nil
 	}
 
-	if opts.baseURL != "" {
-		return false, ensureBinaryFromManagedRelease(ctx, opts)
-	}
-
 	primaryErr := ensureBinaryFromManagedRelease(ctx, opts)
 	if primaryErr == nil {
 		return false, nil
+	}
+	if opts.baseURL != "" && opts.legacyBaseURL == "" {
+		return false, primaryErr
 	}
 
 	fallbackErr := ensureBinaryFromLegacyArchive(ctx, opts)
@@ -219,46 +218,98 @@ func ensureBinaryFromManagedRelease(ctx context.Context, opts ensureBinaryOpts) 
 		}
 	}
 
-	if err := extractTarXZ(cachePath, opts.binDir); err != nil {
-		return fmt.Errorf("extracting binary: %w", err)
-	}
-
-	return nil
+	return installBinaryTree(opts.binDir, opts.version, func(stageDir string) error {
+		if err := extractTarXZ(cachePath, stageDir); err != nil {
+			return fmt.Errorf("extracting binary: %w", err)
+		}
+		return nil
+	})
 }
 
 // binariesReady returns true if the bin directory has postgres and the correct PG_VERSION.
 func binariesReady(binDir, version string) bool {
+	return validateBinaryInstall(binDir, version) == nil
+}
+
+func validateBinaryInstall(binDir, version string) error {
 	pgBin := filepath.Join(binDir, "bin", "postgres")
 	if _, err := os.Stat(pgBin); err != nil {
-		return false
+		return err
+	}
+
+	binaryVersion, err := postgresBinaryVersion(pgBin)
+	if err != nil {
+		return err
+	}
+	if binaryVersion != version && !strings.HasPrefix(binaryVersion, version+".") {
+		return fmt.Errorf("postgres binary version mismatch: got %s, want %s", binaryVersion, version)
 	}
 
 	versionFile := filepath.Join(binDir, "PG_VERSION")
 	data, err := os.ReadFile(versionFile)
 	if err == nil {
-		return strings.TrimSpace(string(data)) == version
+		if strings.TrimSpace(string(data)) != version {
+			return fmt.Errorf("PG_VERSION mismatch: got %s, want %s", strings.TrimSpace(string(data)), version)
+		}
+		return nil
 	}
-
-	// Backward compatibility: older local installations may have extracted
-	// binaries without a PG_VERSION sentinel file.
 	if os.IsNotExist(err) {
-		return postgresBinaryMatchesVersion(pgBin, version)
+		return nil
 	}
-
-	return false
+	return err
 }
 
-func postgresBinaryMatchesVersion(pgBin, version string) bool {
-	// pgBin points to a local executable path under the configured binDir.
-	out, err := exec.Command(pgBin, "--version").Output() //nolint:gosec
+func installBinaryTree(binDir, version string, populate func(stageDir string) error) error {
+	parentDir := filepath.Dir(binDir)
+	stageDir, err := os.MkdirTemp(parentDir, ".aybpgbin-*")
 	if err != nil {
-		return false
+		return fmt.Errorf("creating staged binary dir: %w", err)
+	}
+
+	promoted := false
+	defer func() {
+		if !promoted {
+			_ = os.RemoveAll(stageDir)
+		}
+	}()
+
+	if err := populate(stageDir); err != nil {
+		return err
+	}
+	if err := validateBinaryInstall(stageDir, version); err != nil {
+		return fmt.Errorf("validating extracted binary: %w", err)
+	}
+	if err := os.RemoveAll(binDir); err != nil {
+		return fmt.Errorf("removing existing binary dir: %w", err)
+	}
+	if err := os.Rename(stageDir, binDir); err != nil {
+		return fmt.Errorf("promoting extracted binary dir: %w", err)
+	}
+
+	promoted = true
+	return nil
+}
+
+func postgresBinaryVersion(pgBin string) (string, error) {
+	out, err := exec.Command(pgBin, "--version").CombinedOutput() //nolint:gosec
+	if err != nil {
+		detail := strings.TrimSpace(string(out))
+		if detail != "" {
+			return "", fmt.Errorf("running postgres --version: %w (output: %s)", err, detail)
+		}
+		return "", fmt.Errorf("running postgres --version: %w", err)
 	}
 	fields := strings.Fields(string(out))
 	if len(fields) == 0 {
+		return "", fmt.Errorf("postgres --version returned no version output")
+	}
+	return fields[len(fields)-1], nil
+}
+
+func postgresBinaryMatchesVersion(pgBin, version string) bool {
+	ver, err := postgresBinaryVersion(pgBin)
+	if err != nil {
 		return false
 	}
-
-	ver := fields[len(fields)-1]
 	return ver == version || strings.HasPrefix(ver, version+".")
 }
