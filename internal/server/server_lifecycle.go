@@ -146,6 +146,29 @@ func (s *Server) Shutdown(ctx context.Context) error {
 	defer cancel()
 
 	s.logger.Info("shutting down server", "timeout", timeout)
+	s.stopRequestRateLimiters()
+	s.stopBackgroundServices()
+
+	shutdownErr := shutdownHTTPThenMetrics(
+		shutdownCtx,
+		func(ctx context.Context) error {
+			if s.http == nil {
+				return nil
+			}
+			err := s.http.Shutdown(ctx)
+			s.http = nil
+			return err
+		},
+		nil,
+	)
+	shutdownErr = errors.Join(shutdownErr, s.shutdownRequestLogger(shutdownCtx))
+	s.stopDrainManager()
+	shutdownErr = errors.Join(shutdownErr, s.shutdownTelemetry(shutdownCtx))
+	s.closeRuntimeResources()
+	return shutdownErr
+}
+
+func (s *Server) stopRequestRateLimiters() {
 	if s.authRL != nil {
 		stopServerRateLimiter(s.authRL)
 	}
@@ -173,6 +196,9 @@ func (s *Server) Shutdown(ctx context.Context) error {
 	if s.storageCDNPurgeAllRL != nil {
 		stopServerRateLimiter(s.storageCDNPurgeAllRL)
 	}
+}
+
+func (s *Server) stopBackgroundServices() {
 	if s.jobService != nil {
 		s.jobService.Stop()
 	}
@@ -189,40 +215,43 @@ func (s *Server) Shutdown(ctx context.Context) error {
 	if s.statusChecker != nil {
 		s.statusChecker.Stop()
 	}
-	shutdownErr := shutdownHTTPThenMetrics(
-		shutdownCtx,
-		func(ctx context.Context) error {
-			if s.http == nil {
-				return nil
-			}
-			err := s.http.Shutdown(ctx)
-			s.http = nil
-			return err
-		},
-		nil,
-	)
+}
+
+func (s *Server) shutdownRequestLogger(ctx context.Context) error {
 	if s.requestLogger != nil {
-		if err := s.requestLogger.Shutdown(shutdownCtx); err != nil {
+		if err := s.requestLogger.Shutdown(ctx); err != nil {
 			s.logger.Error("request logger shutdown error", "error", err)
-			shutdownErr = errors.Join(shutdownErr, err)
+			return err
 		}
 		s.requestLogger = nil
 	}
+	return nil
+}
+
+func (s *Server) stopDrainManager() {
 	if manager := s.currentDrainManager(); manager != nil {
 		manager.Stop()
 	}
+}
+
+func (s *Server) shutdownTelemetry(ctx context.Context) error {
+	var shutdownErr error
 	if s.tracerProvider != nil {
-		if err := s.tracerProvider.Shutdown(shutdownCtx); err != nil {
+		if err := s.tracerProvider.Shutdown(ctx); err != nil {
 			s.logger.Error("tracer provider shutdown error", "error", err)
 			shutdownErr = errors.Join(shutdownErr, err)
 		}
 	}
 	if s.httpMetrics != nil {
-		if err := s.httpMetrics.Shutdown(shutdownCtx); err != nil {
+		if err := s.httpMetrics.Shutdown(ctx); err != nil {
 			s.logger.Error("metrics shutdown error", "error", err)
 			shutdownErr = errors.Join(shutdownErr, err)
 		}
 	}
+	return shutdownErr
+}
+
+func (s *Server) closeRuntimeResources() {
 	// Drain the connection manager before hard-closing transports: give existing
 	// connections a chance to leave gracefully, then force-close any that remain.
 	if s.connManager != nil {
@@ -236,7 +265,6 @@ func (s *Server) Shutdown(ctx context.Context) error {
 		s.wsHandler.Shutdown()
 	}
 	s.hub.Close()
-	return shutdownErr
 }
 
 func shutdownHTTPThenMetrics(ctx context.Context, shutdownHTTP func(context.Context) error, shutdownMetrics func(context.Context) error) error {

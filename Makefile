@@ -168,7 +168,7 @@ test: ## Run Go unit tests (no DB, fast)
 	go tool gotestsum --format testdox -- -count=1 ./...
 
 test-sdk: ## Run SDK unit tests (vitest, no browser)
-	cd sdk && npm test
+	cd sdk && npm ci && npm test
 
 test-sdk-go: ## Run Go SDK checks
 	cd sdk_go && go vet ./... && go test -count=1 ./...
@@ -201,7 +201,7 @@ test-sdk-all: ## Run all locally-runnable SDK checks (excludes Kotlin)
 	$(MAKE) test-sdk-ssr
 
 test-ui: ## Run UI component tests (vitest + jsdom, no browser)
-	cd ui && pnpm test
+	cd ui && pnpm install --frozen-lockfile && pnpm test
 
 test-integration: ## Run integration tests (uses AYB's managed Postgres — no Docker needed)
 	bash scripts/run-integration-tests.sh

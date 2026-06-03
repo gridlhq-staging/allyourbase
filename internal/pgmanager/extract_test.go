@@ -294,6 +294,25 @@ func TestBinariesReady_MissingVersionFileFallsBackToBinaryVersion(t *testing.T) 
 	}
 }
 
+func TestBinariesReady_MissingVersionFileAllowsHomebrewVersionSuffix(t *testing.T) {
+	t.Parallel()
+	if runtime.GOOS == "windows" {
+		t.Skip("shell script fixture is unix-specific")
+	}
+
+	binDir := t.TempDir()
+	testutil.NoError(t, os.MkdirAll(filepath.Join(binDir, "bin"), 0o755))
+	testutil.NoError(t, os.WriteFile(
+		filepath.Join(binDir, "bin", "postgres"),
+		[]byte("#!/bin/sh\necho 'postgres (PostgreSQL) 16.14 (Homebrew)'\n"),
+		0o755,
+	))
+
+	if !binariesReady(binDir, "16") {
+		t.Fatal("binariesReady() = false, want true when postgres --version has a vendor suffix")
+	}
+}
+
 func TestBinariesReady_MissingVersionFileMismatchedBinaryVersion(t *testing.T) {
 	t.Parallel()
 	if runtime.GOOS == "windows" {

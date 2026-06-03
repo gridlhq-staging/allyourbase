@@ -7,7 +7,8 @@ if [[ $# -ne 1 ]]; then
 fi
 
 readonly POST_HEALTH_COMMAND="$1"
-readonly AYB_START_COMMAND="${AYB_START_COMMAND:-./ayb start --foreground}"
+readonly AYB_DEFAULT_START_COMMAND="./ayb start --foreground"
+readonly AYB_START_COMMAND="${AYB_START_COMMAND:-$AYB_DEFAULT_START_COMMAND}"
 readonly AYB_START_LOG="${AYB_START_LOG:-/tmp/ayb-e2e.log}"
 readonly AYB_HEALTH_URL="${AYB_HEALTH_URL:-http://localhost:8090/health}"
 readonly AYB_HEALTH_TIMEOUT_SECONDS="${AYB_HEALTH_TIMEOUT_SECONDS:-60}"
@@ -25,14 +26,17 @@ if [[ -n "${AYB_AUTH_RATE_LIMIT_AUTH+x}" ]]; then
   export AYB_AUTH_RATE_LIMIT_AUTH
 fi
 
-# Auth enablement and JWT secret are only propagated when the caller explicitly
-# sets them (e.g., load_export_auth_env or BROWSER_EXPORT_AUTH_ENV). Baseline
-# load targets deliberately omit auth config.
+# Auth remains opt-in for baseline load targets, but explicit auth-enabled
+# wrapper runs need a local JWT secret before AYB's config validation starts.
 if [[ -n "${AYB_AUTH_ENABLED+x}" ]]; then
   export AYB_AUTH_ENABLED
 fi
 if [[ -n "${AYB_AUTH_JWT_SECRET+x}" ]]; then
   export AYB_AUTH_JWT_SECRET
+fi
+if [[ "${AYB_AUTH_ENABLED:-}" == "true" && -z "${AYB_AUTH_JWT_SECRET:-}" ]]; then
+  export AYB_AUTH_JWT_SECRET
+  AYB_AUTH_JWT_SECRET="$(python3 -c "import secrets; print(secrets.token_urlsafe(48))")"
 fi
 
 if ! [[ "$AYB_HEALTH_TIMEOUT_SECONDS" =~ ^[0-9]+$ ]] || (( AYB_HEALTH_TIMEOUT_SECONDS < 1 )); then
@@ -90,6 +94,20 @@ restore_admin_token_if_needed() {
   fi
 }
 
+ensure_ayb_binary_if_needed() {
+  case "$AYB_START_COMMAND" in
+    "./ayb"|"./ayb "*) ;;
+    *) return 0 ;;
+  esac
+
+  if [[ -x ./ayb ]]; then
+    return 0
+  fi
+
+  echo "Building ./ayb because AYB_START_COMMAND uses it and no executable exists." >&2
+  go build -o ayb ./cmd/ayb
+}
+
 ayb_process_running() {
   local ayb_pid="$1"
 
@@ -137,6 +155,7 @@ wait_for_ayb_readiness() {
 # Always back up any pre-existing admin-token so cleanup can restore it.
 # When AYB_ADMIN_PASSWORD is unset, also remove the token file so AYB
 # generates a fresh password and writes a new one on startup.
+ensure_ayb_binary_if_needed
 prepare_admin_token_file
 if [[ -z "${AYB_ADMIN_PASSWORD:-}" ]]; then
   remove_admin_token_file

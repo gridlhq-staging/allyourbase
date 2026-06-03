@@ -303,7 +303,13 @@ func postgresBinaryVersion(pgBin string) (string, error) {
 	if len(fields) == 0 {
 		return "", fmt.Errorf("postgres --version returned no version output")
 	}
-	return fields[len(fields)-1], nil
+	for _, field := range fields {
+		token := strings.Trim(field, "()")
+		if token != "" && token[0] >= '0' && token[0] <= '9' {
+			return token, nil
+		}
+	}
+	return "", fmt.Errorf("postgres --version returned no version token: %s", strings.TrimSpace(string(out)))
 }
 
 func postgresBinaryMatchesVersion(pgBin, version string) bool {
