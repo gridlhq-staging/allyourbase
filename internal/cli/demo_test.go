@@ -5,11 +5,13 @@ import (
 	"io/fs"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"testing"
 	"testing/fstest"
 
 	"github.com/allyourbase/ayb/examples"
+	"github.com/allyourbase/ayb/internal/config"
 	"github.com/allyourbase/ayb/internal/vector"
 )
 
@@ -122,6 +124,95 @@ func TestEmbeddedDemoFSContainsMoviesEmbeddingsArtifact(t *testing.T) {
 	}
 	if len(decoded.Records) == 0 {
 		t.Fatal("embedded movies artifact has no records")
+	}
+}
+
+func TestEmbeddedMoviesConfigWiresLocalOllamaAI(t *testing.T) {
+	data, err := fs.ReadFile(examples.FS, "movies/ayb.toml")
+	if err != nil {
+		t.Fatalf("reading embedded movies/ayb.toml: %v", err)
+	}
+	cfg, err := config.ParseTOML(data)
+	if err != nil {
+		t.Fatalf("parsing embedded movies/ayb.toml: %v", err)
+	}
+	if cfg.AI.DefaultProvider != "ollama" {
+		t.Fatalf("movies default AI provider = %q, want ollama", cfg.AI.DefaultProvider)
+	}
+	if cfg.AI.EmbeddingProvider != "ollama" {
+		t.Fatalf("movies embedding AI provider = %q, want ollama", cfg.AI.EmbeddingProvider)
+	}
+	ollama, ok := cfg.AI.Providers["ollama"]
+	if !ok {
+		t.Fatal("movies ayb.toml must configure an ollama provider")
+	}
+	if ollama.BaseURL != "http://127.0.0.1:11434" {
+		t.Fatalf("movies ollama base_url = %q, want http://127.0.0.1:11434", ollama.BaseURL)
+	}
+	if ollama.DefaultModel == "" {
+		t.Fatal("movies ollama provider must set a default chat model")
+	}
+	if cfg.AI.EmbeddingModel == "" {
+		t.Fatal("movies ayb.toml must set an embedding model")
+	}
+}
+
+func TestDemoServerStartCommandMoviesUsesEmbeddedConfig(t *testing.T) {
+	originalDir, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("get working directory: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := os.Chdir(originalDir); err != nil {
+			t.Fatalf("restore working directory: %v", err)
+		}
+	})
+	if err := os.Chdir(t.TempDir()); err != nil {
+		t.Fatalf("change working directory: %v", err)
+	}
+
+	cmd, cleanup, err := demoServerStartCommand("ayb", "movies")
+	if err != nil {
+		t.Fatalf("building movies start command: %v", err)
+	}
+	defer cleanup()
+	if len(cmd.Args) != 4 {
+		t.Fatalf("movies start args = %#v, want ayb start --config <path>", cmd.Args)
+	}
+	if cmd.Args[0] != "ayb" || cmd.Args[1] != "start" || cmd.Args[2] != "--config" {
+		t.Fatalf("movies start args = %#v, want ayb start --config <path>", cmd.Args)
+	}
+	data, err := os.ReadFile(cmd.Args[3])
+	if err != nil {
+		t.Fatalf("reading materialized movies config: %v", err)
+	}
+	cfg, err := config.ParseTOML(data)
+	if err != nil {
+		t.Fatalf("parsing materialized movies config: %v", err)
+	}
+	if cfg.AI.DefaultProvider != "ollama" {
+		t.Fatalf("materialized movies default AI provider = %q, want ollama", cfg.AI.DefaultProvider)
+	}
+	if _, ok := cfg.AI.Providers["ollama"]; !ok {
+		t.Fatal("materialized movies config must include ollama provider")
+	}
+	info, err := os.Stat(cmd.Args[3])
+	if err != nil {
+		t.Fatalf("stat materialized movies config: %v", err)
+	}
+	if info.Mode().Perm() != 0o600 {
+		t.Fatalf("materialized movies config mode = %v, want 0600", info.Mode().Perm())
+	}
+}
+
+func TestDemoServerStartCommandOtherDemosUseDefaultConfigDiscovery(t *testing.T) {
+	cmd, cleanup, err := demoServerStartCommand("ayb", "kanban")
+	if err != nil {
+		t.Fatalf("building kanban start command: %v", err)
+	}
+	defer cleanup()
+	if strings.Join(cmd.Args, " ") != "ayb start" {
+		t.Fatalf("kanban start args = %#v, want ayb start", cmd.Args)
 	}
 }
 

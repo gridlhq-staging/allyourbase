@@ -1,3 +1,4 @@
+// Package jobs Stub summary for /Users/stuart/parallel_development/allyourbase_dev/jun01_pm_6_release_readiness_closeout/allyourbase_dev/internal/jobs/service_store.go.
 package jobs
 
 import (
@@ -15,6 +16,11 @@ func (s *Service) Enqueue(ctx context.Context, jobType string, payload json.RawM
 // Get delegates to the underlying store.
 func (s *Service) Get(ctx context.Context, jobID string) (*Job, error) {
 	return s.store.Get(ctx, jobID)
+}
+
+// ListRuns delegates to the underlying store.
+func (s *Service) ListRuns(ctx context.Context, jobID string) ([]JobRun, error) {
+	return s.store.ListRuns(ctx, jobID)
 }
 
 // List delegates to the underlying store.
@@ -92,23 +98,43 @@ func (s *Service) SetScheduleEnabled(ctx context.Context, id string, enabled boo
 
 // RegisterDefaultSchedules inserts the built-in schedule definitions (idempotent).
 func (s *Service) RegisterDefaultSchedules(ctx context.Context) error {
-	return s.RegisterDefaultSchedulesWithAuditRetention(ctx, 90)
+	return s.RegisterDefaultSchedulesWithAuditRetention(ctx, auditLogRetentionDefaultDays, jobRunsRetentionDefaultDays)
 }
 
 // RegisterDefaultSchedulesWithAuditRetention inserts built-in schedules and uses
-// the provided audit retention days in the audit_log_retention schedule payload.
-// Optionally accepts request_log retention days as a second argument for the
-// request_log_retention schedule payload.
-func (s *Service) RegisterDefaultSchedulesWithAuditRetention(ctx context.Context, auditRetentionDays int, requestLogRetentionDays ...int) error {
+// the provided retention days in the built-in retention schedule payloads.
+// request_log_retention keeps its optional variadic override so the single
+// startup caller can thread its non-jobs config owner without parallel seams.
+func (s *Service) RegisterDefaultSchedulesWithAuditRetention(ctx context.Context, auditRetentionDays, jobRunsRetentionDays int, requestLogRetentionDays ...int) error {
 	if auditRetentionDays <= 0 {
-		auditRetentionDays = 90
+		auditRetentionDays = auditLogRetentionDefaultDays
 	}
-	requestLogRetention := 7
+	if jobRunsRetentionDays <= 0 {
+		jobRunsRetentionDays = jobRunsRetentionDefaultDays
+	}
+	requestLogRetention := requestLogRetentionDefaultDays
 	if len(requestLogRetentionDays) > 0 && requestLogRetentionDays[0] > 0 {
 		requestLogRetention = requestLogRetentionDays[0]
 	}
 
-	defaults := []Schedule{
+	defaults := defaultSchedules(auditRetentionDays, jobRunsRetentionDays, requestLogRetention)
+	for i := range defaults {
+		sched := &defaults[i]
+		next, err := CronNextTime(sched.CronExpr, sched.Timezone, time.Now())
+		if err != nil {
+			return fmt.Errorf("compute next_run_at for %s: %w", sched.Name, err)
+		}
+		sched.NextRunAt = &next
+
+		if _, err := s.store.UpsertSchedule(ctx, sched); err != nil {
+			return fmt.Errorf("upsert default schedule %s: %w", sched.Name, err)
+		}
+	}
+	return nil
+}
+
+func defaultSchedules(auditDays, jobRunsDays, requestLogDays int) []Schedule {
+	return []Schedule{
 		{
 			Name:        "session_cleanup_hourly",
 			JobType:     "stale_session_cleanup",
@@ -153,8 +179,17 @@ func (s *Service) RegisterDefaultSchedulesWithAuditRetention(ctx context.Context
 		{
 			Name:        "audit_log_retention_daily",
 			JobType:     "audit_log_retention",
-			Payload:     json.RawMessage(fmt.Sprintf(`{"retention_days":%d}`, auditRetentionDays)),
+			Payload:     json.RawMessage(fmt.Sprintf(`{"retention_days":%d}`, auditDays)),
 			CronExpr:    "0 2 * * *",
+			Timezone:    "UTC",
+			Enabled:     true,
+			MaxAttempts: 3,
+		},
+		{
+			Name:        jobRunsRetentionScheduleName,
+			JobType:     jobRunsRetentionJobType,
+			Payload:     json.RawMessage(fmt.Sprintf(`{"retention_days":%d}`, jobRunsDays)),
+			CronExpr:    jobRunsRetentionCronExpr,
 			Timezone:    "UTC",
 			Enabled:     true,
 			MaxAttempts: 3,
@@ -162,7 +197,7 @@ func (s *Service) RegisterDefaultSchedulesWithAuditRetention(ctx context.Context
 		{
 			Name:        "request_log_retention_daily",
 			JobType:     "request_log_retention",
-			Payload:     json.RawMessage(fmt.Sprintf(`{"retention_days":%d}`, requestLogRetention)),
+			Payload:     json.RawMessage(fmt.Sprintf(`{"retention_days":%d}`, requestLogDays)),
 			CronExpr:    "0 6 * * *",
 			Timezone:    "UTC",
 			Enabled:     true,
@@ -178,18 +213,4 @@ func (s *Service) RegisterDefaultSchedulesWithAuditRetention(ctx context.Context
 			MaxAttempts: 3,
 		},
 	}
-
-	for i := range defaults {
-		sched := &defaults[i]
-		next, err := CronNextTime(sched.CronExpr, sched.Timezone, time.Now())
-		if err != nil {
-			return fmt.Errorf("compute next_run_at for %s: %w", sched.Name, err)
-		}
-		sched.NextRunAt = &next
-
-		if _, err := s.store.UpsertSchedule(ctx, sched); err != nil {
-			return fmt.Errorf("upsert default schedule %s: %w", sched.Name, err)
-		}
-	}
-	return nil
 }

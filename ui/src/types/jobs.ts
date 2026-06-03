@@ -31,6 +31,20 @@ export interface JobListResponse {
   count: number;
 }
 
+export interface JobRunResponse {
+  attempt: number;
+  status: JobState;
+  startedAt: string;
+  finishedAt: string;
+  durationMs: number;
+  error?: string;
+}
+
+export interface JobRunListResponse {
+  items: JobRunResponse[];
+  count: number;
+}
+
 export interface QueueStats {
   queued: number;
   running: number;

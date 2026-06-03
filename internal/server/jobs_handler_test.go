@@ -17,13 +17,15 @@ import (
 
 // fakeJobService is an in-memory fake for testing jobs admin handlers.
 type fakeJobService struct {
-	jobs      []jobs.Job
-	schedules []jobs.Schedule
-	listErr   error
-	getErr    error
-	retryErr  error
-	cancelErr error
-	statsErr  error
+	jobs        []jobs.Job
+	runsByJob   map[string][]jobs.JobRun
+	schedules   []jobs.Schedule
+	listErr     error
+	listRunsErr error
+	getErr      error
+	retryErr    error
+	cancelErr   error
+	statsErr    error
 
 	schedCreateErr error
 	schedUpdateErr error
@@ -72,6 +74,21 @@ func (f *fakeJobService) Get(_ context.Context, id string) (*jobs.Job, error) {
 	for _, j := range f.jobs {
 		if j.ID == id {
 			return &j, nil
+		}
+	}
+	return nil, fmt.Errorf("job %s not found", id)
+}
+
+func (f *fakeJobService) ListRuns(_ context.Context, id string) ([]jobs.JobRun, error) {
+	if f.listRunsErr != nil {
+		return nil, f.listRunsErr
+	}
+	for _, j := range f.jobs {
+		if j.ID == id {
+			if f.runsByJob[id] == nil {
+				return []jobs.JobRun{}, nil
+			}
+			return f.runsByJob[id], nil
 		}
 	}
 	return nil, fmt.Errorf("job %s not found", id)
@@ -252,6 +269,25 @@ func newFakeJobService() *fakeJobService {
 				UpdatedAt:   now,
 			},
 		},
+		runsByJob: map[string][]jobs.JobRun{
+			"11111111-1111-1111-1111-111111111111": {
+				{
+					Attempt:    1,
+					Status:     jobs.StateFailed,
+					StartedAt:  now.Add(-2 * time.Minute).UTC(),
+					FinishedAt: now.Add(-90 * time.Second).UTC(),
+					DurationMs: 30000,
+					Error:      jobStrPtr("upstream timeout"),
+				},
+				{
+					Attempt:    2,
+					Status:     jobs.StateCompleted,
+					StartedAt:  now.Add(-60 * time.Second).UTC(),
+					FinishedAt: now.Add(-30 * time.Second).UTC(),
+					DurationMs: 30000,
+				},
+			},
+		},
 	}
 }
 
@@ -362,6 +398,96 @@ func TestHandleAdminGetJobInvalidUUID(t *testing.T) {
 	testutil.Equal(t, http.StatusBadRequest, w.Code)
 }
 
+func TestHandleAdminListJobRuns(t *testing.T) {
+	svc := newFakeJobService()
+	handler := handleAdminListJobRuns(svc)
+
+	r := chi.NewRouter()
+	r.Get("/api/admin/jobs/{id}/runs", handler)
+
+	req := httptest.NewRequest("GET", "/api/admin/jobs/11111111-1111-1111-1111-111111111111/runs", nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	testutil.Equal(t, http.StatusOK, w.Code)
+
+	var resp struct {
+		Items []jobs.JobRun `json:"items"`
+		Count int           `json:"count"`
+	}
+	testutil.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
+	testutil.Equal(t, 2, resp.Count)
+	testutil.Equal(t, 2, len(resp.Items))
+	testutil.Equal(t, 1, resp.Items[0].Attempt)
+	testutil.Equal(t, jobs.StateFailed, resp.Items[0].Status)
+	testutil.Equal(t, 2, resp.Items[1].Attempt)
+	testutil.Equal(t, jobs.StateCompleted, resp.Items[1].Status)
+}
+
+func TestHandleAdminListJobRunsNotFound(t *testing.T) {
+	svc := newFakeJobService()
+	handler := handleAdminListJobRuns(svc)
+
+	r := chi.NewRouter()
+	r.Get("/api/admin/jobs/{id}/runs", handler)
+
+	req := httptest.NewRequest("GET", "/api/admin/jobs/99999999-9999-9999-9999-999999999999/runs", nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	testutil.Equal(t, http.StatusNotFound, w.Code)
+}
+
+func TestHandleAdminListJobRunsInternalErrorContainingNotFoundReturns500(t *testing.T) {
+	svc := newFakeJobService()
+	svc.listRunsErr = fmt.Errorf("backend cache not found while loading job runs")
+	handler := handleAdminListJobRuns(svc)
+
+	r := chi.NewRouter()
+	r.Get("/api/admin/jobs/{id}/runs", handler)
+
+	req := httptest.NewRequest("GET", "/api/admin/jobs/11111111-1111-1111-1111-111111111111/runs", nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	testutil.Equal(t, http.StatusInternalServerError, w.Code)
+}
+
+func TestHandleAdminListJobRunsInvalidUUID(t *testing.T) {
+	svc := newFakeJobService()
+	handler := handleAdminListJobRuns(svc)
+
+	r := chi.NewRouter()
+	r.Get("/api/admin/jobs/{id}/runs", handler)
+
+	req := httptest.NewRequest("GET", "/api/admin/jobs/not-a-uuid/runs", nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	testutil.Equal(t, http.StatusBadRequest, w.Code)
+}
+
+func TestHandleAdminListJobRunsEmptyForExistingJob(t *testing.T) {
+	svc := newFakeJobService()
+	handler := handleAdminListJobRuns(svc)
+
+	r := chi.NewRouter()
+	r.Get("/api/admin/jobs/{id}/runs", handler)
+
+	req := httptest.NewRequest("GET", "/api/admin/jobs/22222222-2222-2222-2222-222222222222/runs", nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	testutil.Equal(t, http.StatusOK, w.Code)
+	var resp struct {
+		Items []jobs.JobRun `json:"items"`
+		Count int           `json:"count"`
+	}
+	testutil.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
+	testutil.Equal(t, 0, resp.Count)
+	testutil.Equal(t, 0, len(resp.Items))
+}
+
 // --- Jobs Retry ---
 
 func TestHandleAdminRetryJob(t *testing.T) {
@@ -397,6 +523,21 @@ func TestHandleAdminRetryJobNotFailed(t *testing.T) {
 	testutil.Equal(t, http.StatusConflict, w.Code)
 }
 
+func TestHandleAdminRetryJobInternalErrorContainingNotFoundReturns500(t *testing.T) {
+	svc := newFakeJobService()
+	svc.retryErr = fmt.Errorf("backend cache not found while retrying job")
+	handler := handleAdminRetryJob(svc)
+
+	r := chi.NewRouter()
+	r.Post("/api/admin/jobs/{id}/retry", handler)
+
+	req := httptest.NewRequest("POST", "/api/admin/jobs/33333333-3333-3333-3333-333333333333/retry", nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	testutil.Equal(t, http.StatusInternalServerError, w.Code)
+}
+
 // --- Jobs Cancel ---
 
 func TestHandleAdminCancelJob(t *testing.T) {
@@ -430,6 +571,21 @@ func TestHandleAdminCancelJobNotQueued(t *testing.T) {
 	r.ServeHTTP(w, req)
 
 	testutil.Equal(t, http.StatusConflict, w.Code)
+}
+
+func TestHandleAdminCancelJobInternalErrorContainingNotFoundReturns500(t *testing.T) {
+	svc := newFakeJobService()
+	svc.cancelErr = fmt.Errorf("backend cache not found while canceling job")
+	handler := handleAdminCancelJob(svc)
+
+	r := chi.NewRouter()
+	r.Post("/api/admin/jobs/{id}/cancel", handler)
+
+	req := httptest.NewRequest("POST", "/api/admin/jobs/22222222-2222-2222-2222-222222222222/cancel", nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	testutil.Equal(t, http.StatusInternalServerError, w.Code)
 }
 
 // --- Jobs Stats ---
@@ -658,6 +814,16 @@ func TestServerHandleJobsListReturnsServiceUnavailableWithoutJobService(t *testi
 	w := httptest.NewRecorder()
 
 	srv.handleJobsList(w, req)
+
+	testutil.Equal(t, http.StatusServiceUnavailable, w.Code)
+}
+
+func TestServerHandleJobsRunsReturnsServiceUnavailableWithoutJobService(t *testing.T) {
+	srv := &Server{}
+	req := httptest.NewRequest("GET", "/api/admin/jobs/11111111-1111-1111-1111-111111111111/runs", nil)
+	w := httptest.NewRecorder()
+
+	srv.handleJobsRuns(w, req)
 
 	testutil.Equal(t, http.StatusServiceUnavailable, w.Code)
 }

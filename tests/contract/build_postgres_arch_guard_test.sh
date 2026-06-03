@@ -26,6 +26,8 @@ assert_command_fails() {
 [[ -f "$SCRIPT_PATH" ]] || fail "missing $SCRIPT_PATH"
 
 assert_contains "$SCRIPT_PATH" "normalize_arch_token()" "normalize_arch_token helper missing"
+assert_contains "$SCRIPT_PATH" "validate_pg_version()" "validate_pg_version helper missing"
+assert_contains "$SCRIPT_PATH" "validate_target_os()" "validate_target_os helper missing"
 assert_contains "$SCRIPT_PATH" "verify_linux_postgres_architecture()" "verify_linux_postgres_architecture helper missing"
 assert_contains "$SCRIPT_PATH" "main()" "main() boundary missing"
 assert_contains "$SCRIPT_PATH" "if [[ \"\${BASH_SOURCE[0]}\" == \"\$0\" ]]; then" "source-safe main guard missing"
@@ -51,6 +53,14 @@ cleanup() {
   rm -rf "$fixture_dir"
 }
 trap cleanup EXIT
+
+invalid_pg_version_output="$fixture_dir/invalid_pg_version.txt"
+assert_command_fails "bash \"$SCRIPT_PATH\" --pg-version '../escape' --output-dir \"$fixture_dir/out\"" "$invalid_pg_version_output" "non-numeric pg_version must fail before build work begins"
+assert_contains "$invalid_pg_version_output" "Unsupported pg_version" "invalid pg_version failure message missing"
+
+unsupported_os_output="$fixture_dir/unsupported_os.txt"
+assert_command_fails "bash \"$SCRIPT_PATH\" --os plan9 --output-dir \"$fixture_dir/out\"" "$unsupported_os_output" "unsupported target OS must fail before build work begins"
+assert_contains "$unsupported_os_output" "Unsupported target OS" "unsupported target OS failure message missing"
 
 mkdir -p "$fixture_dir/install/bin" "$fixture_dir/fakebin"
 cat > "$fixture_dir/install/bin/postgres" <<'PGEOF'

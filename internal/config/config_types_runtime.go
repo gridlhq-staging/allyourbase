@@ -37,13 +37,14 @@ type TelemetryConfig struct {
 }
 
 type JobsConfig struct {
-	Enabled           bool `toml:"enabled"`             // default false
-	WorkerConcurrency int  `toml:"worker_concurrency"`  // default 4
-	PollIntervalMs    int  `toml:"poll_interval_ms"`    // default 1000
-	LeaseDurationS    int  `toml:"lease_duration_s"`    // default 300 (5 min)
-	MaxRetriesDefault int  `toml:"max_retries_default"` // default 3
-	SchedulerEnabled  bool `toml:"scheduler_enabled"`   // default true (when jobs enabled)
-	SchedulerTickS    int  `toml:"scheduler_tick_s"`    // default 15
+	Enabled              bool `toml:"enabled"`                 // default false
+	WorkerConcurrency    int  `toml:"worker_concurrency"`      // default 4
+	PollIntervalMs       int  `toml:"poll_interval_ms"`        // default 1000
+	LeaseDurationS       int  `toml:"lease_duration_s"`        // default 300 (5 min)
+	MaxRetriesDefault    int  `toml:"max_retries_default"`     // default 3
+	SchedulerEnabled     bool `toml:"scheduler_enabled"`       // default true (when jobs enabled)
+	SchedulerTickS       int  `toml:"scheduler_tick_s"`        // default 15
+	JobRunsRetentionDays int  `toml:"job_runs_retention_days"` // default 90
 }
 
 type PushConfig struct {

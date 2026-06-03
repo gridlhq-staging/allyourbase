@@ -1,3 +1,4 @@
+// Package api Stub summary for /Users/stuart/parallel_development/allyourbase_dev/jun01_pm_1_search_product_backend/allyourbase_dev/internal/api/aggregate.go.
 package api
 
 import (
@@ -172,6 +173,27 @@ func parseSingleAggregate(tbl *schema.Table, expr string) (AggregateExpr, error)
 // parseGroupColumns parses and validates a comma-separated list of group-by column names.
 // Returns the validated column names (unquoted). Quoting is done by the SQL builder.
 func parseGroupColumns(tbl *schema.Table, input string) ([]string, error) {
+	return parseColumnList(tbl, input, "group", false)
+}
+
+func parseFacetColumns(tbl *schema.Table, input string) ([]string, error) {
+	cols, err := parseColumnList(tbl, input, "facets", true)
+	if err != nil {
+		return nil, err
+	}
+	for _, name := range cols {
+		col := tbl.ColumnByName(name)
+		if col == nil {
+			return nil, fmt.Errorf("unknown column %q in facets parameter", name)
+		}
+		if !isFacetColumnTypeSupported(col) {
+			return nil, fmt.Errorf("unsupported facet column %q with type %q", name, col.TypeName)
+		}
+	}
+	return cols, nil
+}
+
+func parseColumnList(tbl *schema.Table, input, paramName string, dedupe bool) ([]string, error) {
 	input = strings.TrimSpace(input)
 	if input == "" {
 		return nil, nil
@@ -179,6 +201,7 @@ func parseGroupColumns(tbl *schema.Table, input string) ([]string, error) {
 
 	parts := strings.Split(input, ",")
 	cols := make([]string, 0, len(parts))
+	seen := make(map[string]struct{}, len(parts))
 
 	for _, p := range parts {
 		p = strings.TrimSpace(p)
@@ -186,12 +209,47 @@ func parseGroupColumns(tbl *schema.Table, input string) ([]string, error) {
 			continue
 		}
 		if tbl.ColumnByName(p) == nil {
-			return nil, fmt.Errorf("unknown column %q in group parameter", p)
+			return nil, fmt.Errorf("unknown column %q in %s parameter", p, paramName)
+		}
+		if dedupe {
+			if _, exists := seen[p]; exists {
+				continue
+			}
+			seen[p] = struct{}{}
 		}
 		cols = append(cols, p)
 	}
 
 	return cols, nil
+}
+
+func isFacetColumnTypeSupported(col *schema.Column) bool {
+	return !col.IsGeometry && !col.IsGeography && !col.IsVector && !col.IsArray && !col.IsJSON && !col.IsRaster
+}
+
+func buildFacetCountQueries(tbl *schema.Table, opts listOpts) (map[string]string, []any) {
+	if len(opts.facetCols) == 0 {
+		return nil, nil
+	}
+	ref := sqlutil.QuoteQualifiedName(tbl.Schema, tbl.Name)
+	combinedPredicate, allArgs := combineSQLConditions(
+		sqlCondition{clause: opts.filterSQL, args: opts.filterArgs},
+		sqlCondition{clause: opts.spatialSQL, args: opts.spatialArgs},
+		sqlCondition{clause: opts.searchSQL, args: opts.searchArgs},
+	)
+	whereClause := ""
+	if combinedPredicate != "" {
+		whereClause = " WHERE " + combinedPredicate
+	}
+	queries := make(map[string]string, len(opts.facetCols))
+	for _, facetCol := range opts.facetCols {
+		quotedCol := sqlutil.QuoteIdent(facetCol)
+		queries[facetCol] = fmt.Sprintf(
+			"SELECT %s AS value, COUNT(*)::bigint AS count FROM %s%s GROUP BY %s ORDER BY COUNT(*) DESC, %s ASC",
+			quotedCol, ref, whereClause, quotedCol, quotedCol,
+		)
+	}
+	return queries, allArgs
 }
 
 // aggregateSelectExpr returns the SQL select expression and alias for an AggregateExpr.

@@ -18,6 +18,7 @@ type ListResponse struct {
 	TotalItems int              `json:"totalItems"`
 	TotalPages int              `json:"totalPages"`
 	Items      []map[string]any `json:"items"`
+	Facets     FacetCounts      `json:"facets,omitempty"`
 }
 
 // AggregateResponse is the envelope for aggregate query results.
@@ -30,7 +31,15 @@ type CursorListResponse struct {
 	PerPage    int              `json:"perPage"`
 	NextCursor string           `json:"nextCursor,omitempty"`
 	Items      []map[string]any `json:"items"`
+	Facets     FacetCounts      `json:"facets,omitempty"`
 }
+
+type FacetValueCount struct {
+	Value any `json:"value"`
+	Count int `json:"count"`
+}
+
+type FacetCounts map[string][]FacetValueCount
 
 // ImportResponse is the envelope for bulk import results.
 type ImportResponse struct {

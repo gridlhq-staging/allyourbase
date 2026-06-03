@@ -33,6 +33,7 @@ function makeSettings(overrides: Partial<AuthSettingsType> = {}): AuthSettingsTy
     email_mfa_enabled: false,
     anonymous_auth_enabled: false,
     totp_enabled: false,
+    webauthn_enabled: false,
     ...overrides,
   };
 }
@@ -105,6 +106,9 @@ describe("AuthSettings", () => {
     // Anonymous should be unchecked
     const anonToggle = screen.getByTestId("toggle-anonymous_auth_enabled");
     expect(anonToggle).not.toBeChecked();
+
+    const webauthnToggle = screen.getByTestId("toggle-webauthn_enabled");
+    expect(webauthnToggle).not.toBeChecked();
 
     // Email MFA should be unchecked
     const emailToggle = screen.getByTestId("toggle-email_mfa_enabled");
@@ -384,6 +388,7 @@ describe("AuthSettings", () => {
 
     await waitFor(() => {
       expect(screen.getByText("TOTP MFA")).toBeVisible();
+      expect(screen.getByText("Passkeys / WebAuthn")).toBeVisible();
       expect(screen.getByText("Anonymous Auth")).toBeVisible();
       expect(screen.getByText("Email MFA")).toBeVisible();
       expect(screen.getByText("SMS Auth")).toBeVisible();

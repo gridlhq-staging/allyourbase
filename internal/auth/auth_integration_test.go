@@ -20,6 +20,7 @@ import (
 
 	"github.com/allyourbase/ayb/internal/auth"
 	"github.com/allyourbase/ayb/internal/config"
+	"github.com/allyourbase/ayb/internal/httputil"
 	"github.com/allyourbase/ayb/internal/mailer"
 	"github.com/allyourbase/ayb/internal/migrations"
 	"github.com/allyourbase/ayb/internal/schema"
@@ -64,6 +65,11 @@ func newAuthService() *auth.Service {
 
 func setupAuthServer(t *testing.T, ctx context.Context) *server.Server {
 	t.Helper()
+	return setupAuthServerWithConfig(t, ctx, nil)
+}
+
+func setupAuthServerWithConfig(t *testing.T, ctx context.Context, configure func(*config.Config)) *server.Server {
+	t.Helper()
 	resetAndMigrate(t, ctx)
 
 	logger := testutil.DiscardLogger()
@@ -75,6 +81,9 @@ func setupAuthServer(t *testing.T, ctx context.Context) *server.Server {
 	cfg := config.Default()
 	cfg.Auth.Enabled = true
 	cfg.Auth.JWTSecret = testJWTSecret
+	if configure != nil {
+		configure(cfg)
+	}
 
 	authSvc := newAuthService()
 	return server.New(cfg, logger, ch, sharedPG.Pool, authSvc, nil)
@@ -212,6 +221,99 @@ func TestLoginSuccess(t *testing.T) {
 		t.Fatalf("validating login token: %v", err)
 	}
 	testutil.True(t, claims.TenantID != "", "login token should include tenant id")
+}
+
+func TestLoginRateLimit(t *testing.T) {
+	ctx := context.Background()
+	srv := setupAuthServerWithConfig(t, ctx, func(cfg *config.Config) {
+		cfg.Auth.RateLimit = 100
+		cfg.Auth.RateLimitAuth = "30/hour"
+	})
+
+	_, _, _, err := newAuthService().Register(ctx, "login-rate-limit@example.com", "password123")
+	testutil.NoError(t, err)
+
+	login := doJSON(t, srv, "POST", "/api/auth/login", map[string]string{
+		"email": "login-rate-limit@example.com", "password": "password123",
+	}, "")
+	testutil.StatusCode(t, http.StatusOK, login.Code)
+	loginResp := parseAuthResp(t, login)
+	testutil.True(t, loginResp.Token != "", "login should return an access token")
+	testutil.True(t, loginResp.RefreshToken != "", "login should return a refresh token")
+
+	wrongPassword := map[string]string{
+		"email": "login-rate-limit@example.com", "password": "wrongpassword",
+	}
+	for i := 0; i < 29; i++ {
+		attempt := doJSON(t, srv, "POST", "/api/auth/login", wrongPassword, "")
+		testutil.StatusCode(t, http.StatusUnauthorized, attempt.Code)
+	}
+
+	overLimit := doJSON(t, srv, "POST", "/api/auth/login", wrongPassword, "")
+	testutil.StatusCode(t, http.StatusTooManyRequests, overLimit.Code)
+	testutil.Equal(t, "30", overLimit.Header().Get("X-RateLimit-Limit"))
+	testutil.Equal(t, "0", overLimit.Header().Get("X-RateLimit-Remaining"))
+	testutil.True(t, overLimit.Header().Get("Retry-After") != "", "Retry-After should be set")
+	testutil.Contains(t, strings.ToLower(overLimit.Body.String()), "too many requests")
+}
+
+func TestServerShutdownIsIdempotentWithAuthRateLimiters(t *testing.T) {
+	ctx := context.Background()
+	srv := setupAuthServerWithConfig(t, ctx, func(cfg *config.Config) {
+		cfg.Auth.AnonymousAuthEnabled = true
+	})
+
+	// Exercise both handler-owned limiter paths before shutdown so the test
+	// fails if repeated cleanup closes an already-stopped limiter channel.
+	login := doJSON(t, srv, "POST", "/api/auth/login", map[string]string{
+		"email": "nobody@example.com", "password": "wrongpassword",
+	}, "")
+	testutil.StatusCode(t, http.StatusUnauthorized, login.Code)
+
+	anonymous := doJSON(t, srv, "POST", "/api/auth/anonymous", map[string]any{}, "")
+	testutil.StatusCode(t, http.StatusCreated, anonymous.Code)
+
+	testutil.NoError(t, srv.Shutdown(ctx))
+	testutil.NoError(t, srv.Shutdown(ctx))
+}
+
+func TestLoginEnumerationResistance(t *testing.T) {
+	ctx := context.Background()
+	srv := setupAuthServerWithConfig(t, ctx, func(cfg *config.Config) {
+		cfg.Auth.RateLimit = 100
+		cfg.Auth.RateLimitAuth = "100/min"
+	})
+
+	register := doJSON(t, srv, "POST", "/api/auth/register", map[string]string{
+		"email": "login-enumeration@example.com", "password": "password123",
+	}, "")
+	testutil.StatusCode(t, http.StatusCreated, register.Code)
+
+	knownEmail := doJSON(t, srv, "POST", "/api/auth/login", map[string]string{
+		"email": "login-enumeration@example.com", "password": "wrongpassword",
+	}, "")
+	unknownEmail := doJSON(t, srv, "POST", "/api/auth/login", map[string]string{
+		"email": "unknown-login-enumeration@example.com", "password": "wrongpassword",
+	}, "")
+
+	assertInvalidLoginEnvelope(t, knownEmail)
+	assertInvalidLoginEnvelope(t, unknownEmail)
+	testutil.Equal(t, knownEmail.Code, unknownEmail.Code)
+	testutil.Equal(t, knownEmail.Body.String(), unknownEmail.Body.String())
+}
+
+func assertInvalidLoginEnvelope(t *testing.T, w *httptest.ResponseRecorder) {
+	t.Helper()
+
+	testutil.StatusCode(t, http.StatusUnauthorized, w.Code)
+	var resp httputil.ErrorResponse
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("parsing login error response: %v (body: %s)", err, w.Body.String())
+	}
+	testutil.Equal(t, http.StatusUnauthorized, resp.Code)
+	testutil.Equal(t, "invalid email or password", resp.Message)
+	testutil.Equal(t, "https://allyourbase.io/guide/authentication", resp.DocURL)
+	testutil.True(t, len(resp.Data) == 0, "invalid credential response must not include data")
 }
 
 func TestLoginBackfillsDefaultTenantForLegacyUser(t *testing.T) {
@@ -2639,6 +2741,7 @@ func setupMFAServer(t *testing.T) (*server.Server, *auth.Service, *sms.CapturePr
 	cfg.Auth.Enabled = true
 	cfg.Auth.JWTSecret = testJWTSecret
 	cfg.Auth.SMSEnabled = true
+	cfg.Auth.WebAuthnEnabled = true
 
 	authSvc := newAuthService()
 	capture := &sms.CaptureProvider{}

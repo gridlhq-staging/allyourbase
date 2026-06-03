@@ -34,3 +34,14 @@ func mfaSessionOptions(firstFactorMethod, secondFactorMethod string) *tokenOptio
 		AMR: amr,
 	}
 }
+
+func firstFactorSessionOptions(firstFactorMethod string) *tokenOptions {
+	method := strings.TrimSpace(firstFactorMethod)
+	if method == "" {
+		return nil
+	}
+	return &tokenOptions{
+		AAL: "aal1",
+		AMR: []string{method},
+	}
+}

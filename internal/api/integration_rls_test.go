@@ -184,6 +184,190 @@ func TestAggregate_EnforcesRLS(t *testing.T) {
 	}
 }
 
+func TestSearch_EnforcesRLS(t *testing.T) {
+	ctx := context.Background()
+	srv := setupRLSTestServer(t, ctx)
+
+	claims := &auth.Claims{
+		RegisteredClaims: jwt.RegisteredClaims{
+			Subject: "user-alice",
+		},
+	}
+
+	w := doRequestWithClaims(t, srv, "GET", "/api/collections/rls_test_docs/?search=doc", nil, claims)
+	testutil.StatusCode(t, http.StatusOK, w.Code)
+
+	body := parseJSON(t, w)
+	items := jsonItems(t, body)
+	if len(items) != 2 {
+		t.Fatalf("expected 2 search rows (Alice only), got %d", len(items))
+	}
+	if strings.Contains(w.Body.String(), "Bob private doc") {
+		t.Fatal("RLS leak: Bob's data visible to Alice in list search")
+	}
+}
+
+func TestSearchFacets_EnforcesRLS(t *testing.T) {
+	ctx := context.Background()
+	srv := setupRLSTestServer(t, ctx)
+
+	claims := &auth.Claims{
+		RegisteredClaims: jwt.RegisteredClaims{
+			Subject: "user-alice",
+		},
+	}
+
+	w := doRequestWithClaims(t, srv, "GET", "/api/collections/rls_test_docs/?search=doc&facets=owner_id", nil, claims)
+	testutil.StatusCode(t, http.StatusOK, w.Code)
+
+	body := parseJSON(t, w)
+	facetsRaw, ok := body["facets"].(map[string]any)
+	testutil.True(t, ok, "expected facets in response")
+	ownerRaw, ok := facetsRaw["owner_id"].([]any)
+	testutil.True(t, ok, "expected owner_id facet bucket")
+	testutil.Equal(t, 1, len(ownerRaw))
+	ownerBucket := ownerRaw[0].(map[string]any)
+	testutil.Equal(t, "user-alice", jsonStr(t, ownerBucket["value"]))
+	testutil.Equal(t, 2.0, jsonNum(t, ownerBucket["count"]))
+}
+
+// TestCursorSearchFacets_EnforcesRLS ensures cursor-paginated facet counts
+// execute inside the authenticated RLS transaction. Regression: prior to the
+// fix, handleCursorList committed the tx via done(nil) before running facet
+// queries, so they ran outside RLS (or failed on a closed tx).
+func TestCursorSearchFacets_EnforcesRLS(t *testing.T) {
+	ctx := context.Background()
+	srv := setupRLSTestServer(t, ctx)
+
+	claims := &auth.Claims{
+		RegisteredClaims: jwt.RegisteredClaims{
+			Subject: "user-alice",
+		},
+	}
+
+	w := doRequestWithClaims(t, srv, "GET", "/api/collections/rls_test_docs/?cursor=&search=doc&facets=owner_id", nil, claims)
+	testutil.StatusCode(t, http.StatusOK, w.Code)
+
+	body := parseJSON(t, w)
+	facetsRaw, ok := body["facets"].(map[string]any)
+	testutil.True(t, ok, "expected facets in cursor response")
+	ownerRaw, ok := facetsRaw["owner_id"].([]any)
+	testutil.True(t, ok, "expected owner_id facet bucket on cursor path")
+	testutil.Equal(t, 1, len(ownerRaw))
+	ownerBucket := ownerRaw[0].(map[string]any)
+	testutil.Equal(t, "user-alice", jsonStr(t, ownerBucket["value"]))
+	testutil.Equal(t, 2.0, jsonNum(t, ownerBucket["count"]))
+	if strings.Contains(w.Body.String(), "user-bob") {
+		t.Fatal("RLS leak: bob bucket visible in cursor facet counts for Alice")
+	}
+}
+
+func TestAggregateSearch_EnforcesRLS(t *testing.T) {
+	ctx := context.Background()
+	srv := setupRLSTestServer(t, ctx)
+
+	claims := &auth.Claims{
+		RegisteredClaims: jwt.RegisteredClaims{
+			Subject: "user-alice",
+		},
+	}
+
+	w := doRequestWithClaims(t, srv, "GET", "/api/collections/rls_test_docs/?aggregate=count&search=doc", nil, claims)
+	testutil.StatusCode(t, http.StatusOK, w.Code)
+
+	body := parseJSON(t, w)
+	results := jsonResults(t, body)
+	if len(results) != 1 {
+		t.Fatalf("expected 1 aggregate result, got %d", len(results))
+	}
+
+	count := jsonNum(t, results[0]["count"])
+	if count != 2.0 {
+		t.Fatalf("expected count=2 for Alice's rows with search, got %v", count)
+	}
+}
+
+func TestSearchFuzzy_EnforcesRLS(t *testing.T) {
+	ctx := context.Background()
+	srv := setupRLSTestServer(t, ctx)
+	if !pgTrgmInstalled(t, ctx, sharedPG) {
+		t.Fatal("shared migration/setup path must install pg_trgm for fuzzy RLS list coverage")
+	}
+
+	claims := &auth.Claims{
+		RegisteredClaims: jwt.RegisteredClaims{
+			Subject: "user-alice",
+		},
+	}
+
+	t.Run("fuzzy_true_only_alice_rows", func(t *testing.T) {
+		w := doRequestWithClaims(t, srv, "GET", "/api/collections/rls_test_docs/?search=privte&fuzzy=true", nil, claims)
+		testutil.StatusCode(t, http.StatusOK, w.Code)
+
+		body := parseJSON(t, w)
+		items := jsonItems(t, body)
+		testutil.Equal(t, 0, len(items))
+		if strings.Contains(w.Body.String(), "Bob private doc") {
+			t.Fatal("RLS leak: Bob private row visible to Alice under fuzzy=true list search")
+		}
+	})
+
+	t.Run("fuzzy_false_exact_search", func(t *testing.T) {
+		w := doRequestWithClaims(t, srv, "GET", "/api/collections/rls_test_docs/?search=doc&fuzzy=false", nil, claims)
+		testutil.StatusCode(t, http.StatusOK, w.Code)
+		body := parseJSON(t, w)
+		items := jsonItems(t, body)
+		testutil.Equal(t, 2, len(items))
+		if strings.Contains(w.Body.String(), "Bob private doc") {
+			t.Fatal("RLS leak: Bob private row visible to Alice under fuzzy=false list search")
+		}
+	})
+}
+
+func TestAggregateSearchFuzzy_EnforcesRLS(t *testing.T) {
+	ctx := context.Background()
+	srv := setupRLSTestServer(t, ctx)
+	if !pgTrgmInstalled(t, ctx, sharedPG) {
+		t.Fatal("shared migration/setup path must install pg_trgm for fuzzy RLS aggregate coverage")
+	}
+
+	claims := &auth.Claims{
+		RegisteredClaims: jwt.RegisteredClaims{
+			Subject: "user-alice",
+		},
+	}
+
+	t.Run("fuzzy_true_only_alice_rows", func(t *testing.T) {
+		w := doRequestWithClaims(t, srv, "GET", "/api/collections/rls_test_docs/?aggregate=count&search=privte&fuzzy=true", nil, claims)
+		testutil.StatusCode(t, http.StatusOK, w.Code)
+
+		body := parseJSON(t, w)
+		results := jsonResults(t, body)
+		if len(results) != 1 {
+			t.Fatalf("expected 1 aggregate result, got %d", len(results))
+		}
+		count := jsonNum(t, results[0]["count"])
+		if count != 0.0 {
+			t.Fatalf("expected count=0 for Alice under fuzzy=true typo on Bob-only term, got %v", count)
+		}
+	})
+
+	t.Run("fuzzy_false_exact_search", func(t *testing.T) {
+		w := doRequestWithClaims(t, srv, "GET", "/api/collections/rls_test_docs/?aggregate=count&search=doc&fuzzy=false", nil, claims)
+		testutil.StatusCode(t, http.StatusOK, w.Code)
+
+		body := parseJSON(t, w)
+		results := jsonResults(t, body)
+		if len(results) != 1 {
+			t.Fatalf("expected 1 aggregate result, got %d", len(results))
+		}
+		count := jsonNum(t, results[0]["count"])
+		if count != 2.0 {
+			t.Fatalf("expected count=2 for Alice under fuzzy=false exact search, got %v", count)
+		}
+	})
+}
+
 // TestAggregateGroupBy_EnforcesRLS verifies that grouped aggregates respect RLS.
 func TestAggregateGroupBy_EnforcesRLS(t *testing.T) {
 	ctx := context.Background()
@@ -481,29 +665,34 @@ func TestExport_SearchPassthrough_Regression(t *testing.T) {
 	ctx := context.Background()
 	srv := setupExportTestServer(t, ctx)
 
-	// Use list endpoint as source-of-truth for search ranking/order semantics.
-	listW := doRequest(t, srv, "GET", "/api/collections/posts/?search=post", nil)
-	testutil.StatusCode(t, http.StatusOK, listW.Code)
-	listBody := parseJSON(t, listW)
-	listItems := jsonItems(t, listBody)
-
-	exportW := doRequest(t, srv, "GET", "/api/collections/posts/export.json?search=post", nil)
-	testutil.StatusCode(t, http.StatusOK, exportW.Code)
-
-	var exportItems []map[string]any
-	if err := json.Unmarshal(exportW.Body.Bytes(), &exportItems); err != nil {
-		t.Fatalf("parsing JSON: %v\nbody: %s", err, exportW.Body.String())
+	queries := []string{
+		"search=post",
+		"search=post&filter=status%3D'published'",
 	}
+	for _, rawQuery := range queries {
+		listW := doRequest(t, srv, "GET", "/api/collections/posts/?"+rawQuery, nil)
+		testutil.StatusCode(t, http.StatusOK, listW.Code)
+		listBody := parseJSON(t, listW)
+		listItems := jsonItems(t, listBody)
 
-	if len(exportItems) != len(listItems) {
-		t.Fatalf("expected export and list search results to have equal length, got export=%d list=%d", len(exportItems), len(listItems))
-	}
+		exportW := doRequest(t, srv, "GET", "/api/collections/posts/export.json?"+rawQuery, nil)
+		testutil.StatusCode(t, http.StatusOK, exportW.Code)
 
-	for i := range exportItems {
-		exportID := jsonNum(t, exportItems[i]["id"])
-		listID := jsonNum(t, listItems[i]["id"])
-		if exportID != listID {
-			t.Fatalf("search order mismatch at index %d: export id %.0f != list id %.0f", i, exportID, listID)
+		var exportItems []map[string]any
+		if err := json.Unmarshal(exportW.Body.Bytes(), &exportItems); err != nil {
+			t.Fatalf("parsing JSON: %v\nbody: %s", err, exportW.Body.String())
+		}
+
+		if len(exportItems) != len(listItems) {
+			t.Fatalf("expected export and list search results to have equal length for query %q, got export=%d list=%d", rawQuery, len(exportItems), len(listItems))
+		}
+
+		for i := range exportItems {
+			exportID := jsonNum(t, exportItems[i]["id"])
+			listID := jsonNum(t, listItems[i]["id"])
+			if exportID != listID {
+				t.Fatalf("search order mismatch for query %q at index %d: export id %.0f != list id %.0f", rawQuery, i, exportID, listID)
+			}
 		}
 	}
 }

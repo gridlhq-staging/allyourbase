@@ -1,3 +1,12 @@
+/** Single facet bucket returned inside the facets envelope. */
+export interface FacetValueCount {
+  value: unknown;
+  count: number;
+}
+
+/** Facet counts keyed by column name, matching backend FacetCounts. */
+export type FacetCounts = Record<string, FacetValueCount[]>;
+
 /** List response envelope returned by collection endpoints. */
 export interface ListResponse<T = Record<string, unknown>> {
   items: T[];
@@ -5,6 +14,7 @@ export interface ListResponse<T = Record<string, unknown>> {
   perPage: number;
   totalItems: number;
   totalPages: number;
+  facets?: FacetCounts;
 }
 
 /** Single GraphQL error payload item from the GraphQL `errors` envelope. */
@@ -29,6 +39,13 @@ export interface ListParams {
   fields?: string;
   expand?: string;
   skipTotal?: boolean;
+  fuzzy?: boolean;
+  facets?: string[];
+  semantic?: boolean;
+  semanticQuery?: string;
+  nearest?: number[];
+  vectorColumn?: string;
+  distance?: string;
 }
 
 /** Parameters for reading a single record. */
@@ -57,6 +74,98 @@ export interface MFAPendingAuthResponse {
 
 /** Response body for POST /api/auth/magic-link/confirm. */
 export type MagicLinkConfirmResponse = AuthResponse | MFAPendingAuthResponse;
+
+/** JSON-serializable credential descriptor used by WebAuthn request options. */
+export interface PublicKeyCredentialDescriptorJSON {
+  id: string;
+  type: PublicKeyCredentialType;
+  transports?: AuthenticatorTransport[];
+}
+
+/** JSON-serializable request options for first-factor WebAuthn login. */
+export interface PublicKeyCredentialRequestOptionsJSON {
+  challenge: string;
+  timeout?: number;
+  rpId?: string;
+  allowCredentials?: PublicKeyCredentialDescriptorJSON[];
+  userVerification?: UserVerificationRequirement;
+  extensions?: AuthenticationExtensionsClientInputs;
+}
+
+/** Response body for POST /api/auth/webauthn/login/begin. */
+export interface WebAuthnLoginBeginResponse {
+  challengeId: string;
+  options: PublicKeyCredentialRequestOptionsJSON;
+}
+
+/** Request body for POST /api/auth/webauthn/login/finish in canonical SDK shape. */
+export interface WebAuthnLoginFinishRequest {
+  challengeId: string;
+  assertionResponse: Record<string, unknown>;
+}
+
+/** JSON-serializable PublicKeyCredentialUserEntity used by WebAuthn creation options. */
+export interface PublicKeyCredentialUserEntityJSON {
+  id: string;
+  name: string;
+  displayName: string;
+}
+
+/** JSON-serializable RP entity used by WebAuthn creation options. */
+export interface PublicKeyCredentialRpEntityJSON {
+  id?: string;
+  name: string;
+}
+
+/** Single pubKeyCredParam entry in serialized creation options. */
+export interface PublicKeyCredentialParametersJSON {
+  type: PublicKeyCredentialType;
+  alg: number;
+}
+
+/**
+ * JSON-serializable creation options for WebAuthn enrollment.
+ * Mirrors go-webauthn's serialized PublicKeyCredentialCreationOptions:
+ * `challenge`, `user.id`, and each `excludeCredentials[].id` are base64url
+ * strings that the SDK decodes to ArrayBuffers before navigator.credentials.create.
+ */
+export interface PublicKeyCredentialCreationOptionsJSON {
+  challenge: string;
+  rp: PublicKeyCredentialRpEntityJSON;
+  user: PublicKeyCredentialUserEntityJSON;
+  pubKeyCredParams: PublicKeyCredentialParametersJSON[];
+  timeout?: number;
+  excludeCredentials?: PublicKeyCredentialDescriptorJSON[];
+  authenticatorSelection?: AuthenticatorSelectionCriteria;
+  attestation?: AttestationConveyancePreference;
+  extensions?: AuthenticationExtensionsClientInputs;
+}
+
+/**
+ * Response body from POST /api/auth/mfa/webauthn/enroll.
+ * The backend writes `creation.Response` directly (go-webauthn's
+ * `PublicKeyCredentialCreationOptions` value), so the JSON body IS the
+ * creation options — there is no outer `{publicKey: ...}` wrapper.
+ */
+export type WebAuthnEnrollBeginResponse = PublicKeyCredentialCreationOptionsJSON;
+
+/** Request body for POST /api/auth/mfa/webauthn/enroll/confirm in canonical SDK shape. */
+export interface WebAuthnEnrollConfirmRequest {
+  displayName: string;
+  attestationResponse: Record<string, unknown>;
+}
+
+/** Response body for POST /api/auth/mfa/webauthn/challenge. */
+export interface WebAuthnMFAChallengeResponse {
+  challengeId: string;
+  options: PublicKeyCredentialRequestOptionsJSON;
+}
+
+/** Request body for POST /api/auth/mfa/webauthn/verify in canonical SDK shape. */
+export interface WebAuthnMFAVerifyRequest {
+  challengeId: string;
+  assertionResponse: Record<string, unknown>;
+}
 
 /** Health check response returned by GET /health. */
 export interface HealthResponse {

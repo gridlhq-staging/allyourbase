@@ -281,6 +281,185 @@ func TestRequestLogRetentionHandlerPayloadOverridesDefault(t *testing.T) {
 	testutil.Equal(t, 1, count)
 }
 
+func waitForSingleJobResult(
+	t *testing.T,
+	ctx context.Context,
+	svc *jobs.Service,
+	jobType string,
+	expectedTerminalCount int,
+	timeout time.Duration,
+) (state string, lastError string) {
+	t.Helper()
+	if expectedTerminalCount <= 0 {
+		t.Fatalf("expectedTerminalCount must be positive, got %d", expectedTerminalCount)
+	}
+
+	deadline := time.After(timeout)
+	for {
+		completed, err := svc.List(ctx, "completed", jobType, 10, 0)
+		testutil.NoError(t, err)
+		if len(completed) >= expectedTerminalCount {
+			return "completed", ""
+		}
+
+		failed, err := svc.List(ctx, "failed", jobType, 10, 0)
+		testutil.NoError(t, err)
+		if len(failed) >= expectedTerminalCount {
+			idx := expectedTerminalCount - 1
+			if idx >= len(failed) {
+				idx = len(failed) - 1
+			}
+			if failed[idx].LastError != nil {
+				return "failed", *failed[idx].LastError
+			}
+			return "failed", ""
+		}
+
+		select {
+		case <-deadline:
+			t.Fatalf("timed out waiting for terminal state for job type %q", jobType)
+		default:
+			time.Sleep(50 * time.Millisecond)
+		}
+	}
+}
+
+func seedJobRunForRetention(t *testing.T, ctx context.Context, jobType string, finishedAt time.Time) {
+	t.Helper()
+
+	var jobID string
+	err := sharedPG.Pool.QueryRow(ctx,
+		`INSERT INTO _ayb_jobs (type, payload, state, run_at, max_attempts)
+		 VALUES ($1, '{}'::jsonb, 'completed', NOW(), 1)
+		 RETURNING id`,
+		jobType,
+	).Scan(&jobID)
+	testutil.NoError(t, err)
+
+	_, err = sharedPG.Pool.Exec(ctx,
+		`INSERT INTO _ayb_job_runs (job_id, attempt, status, started_at, finished_at, duration_ms)
+		 VALUES ($1, 1, 'completed', $2, $3, 60000)`,
+		jobID,
+		finishedAt.Add(-1*time.Minute),
+		finishedAt,
+	)
+	testutil.NoError(t, err)
+}
+
+func countRetentionFixtureRuns(t *testing.T, ctx context.Context) int {
+	t.Helper()
+	var count int
+	err := sharedPG.Pool.QueryRow(ctx,
+		`SELECT COUNT(*)
+		 FROM _ayb_job_runs r
+		 JOIN _ayb_jobs j ON j.id = r.job_id
+		 WHERE j.type LIKE 'job_runs_retention_fixture_%'`,
+	).Scan(&count)
+	testutil.NoError(t, err)
+	return count
+}
+
+func retentionFixtureRunPresent(t *testing.T, ctx context.Context, jobType string) bool {
+	t.Helper()
+	var count int
+	err := sharedPG.Pool.QueryRow(ctx,
+		`SELECT COUNT(*)
+		 FROM _ayb_job_runs r
+		 JOIN _ayb_jobs j ON j.id = r.job_id
+		 WHERE j.type = $1`,
+		jobType,
+	).Scan(&count)
+	testutil.NoError(t, err)
+	return count > 0
+}
+
+func TestRegisterBuiltinHandlers(t *testing.T) {
+	setupHandlerDB(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
+	defer cancel()
+
+	store := jobs.NewStore(sharedPG.Pool)
+	cfg := jobs.DefaultServiceConfig()
+	cfg.PollInterval = 100 * time.Millisecond
+	cfg.LeaseDuration = 5 * time.Second
+	cfg.WorkerConcurrency = 1
+	cfg.SchedulerEnabled = false
+	cfg.ShutdownTimeout = 5 * time.Second
+
+	svc := jobs.NewService(store, testutil.DiscardLogger(), cfg)
+	jobs.RegisterBuiltinHandlers(svc, sharedPG.Pool, nil, testutil.DiscardLogger())
+
+	_, err := svc.Enqueue(ctx, "stale_session_cleanup", nil, jobs.EnqueueOpts{MaxAttempts: 1})
+	testutil.NoError(t, err)
+	_, err = svc.Enqueue(ctx, "job_runs_retention", nil, jobs.EnqueueOpts{MaxAttempts: 1})
+	testutil.NoError(t, err)
+
+	svc.Start(ctx)
+	defer svc.Stop()
+
+	state, lastError := waitForSingleJobResult(t, ctx, svc, "stale_session_cleanup", 1, 5*time.Second)
+	testutil.Equal(t, "completed", state)
+	testutil.Equal(t, "", lastError)
+
+	state, lastError = waitForSingleJobResult(t, ctx, svc, "job_runs_retention", 1, 5*time.Second)
+	testutil.Equal(t, "completed", state)
+	testutil.Equal(t, "", lastError)
+}
+
+func TestJobRunsRetentionThroughService(t *testing.T) {
+	setupHandlerDB(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	store := jobs.NewStore(sharedPG.Pool)
+	cfg := jobs.DefaultServiceConfig()
+	cfg.PollInterval = 100 * time.Millisecond
+	cfg.LeaseDuration = 5 * time.Second
+	cfg.WorkerConcurrency = 1
+	cfg.SchedulerEnabled = false
+	cfg.ShutdownTimeout = 5 * time.Second
+
+	svc := jobs.NewService(store, testutil.DiscardLogger(), cfg)
+	jobs.RegisterBuiltinHandlers(svc, sharedPG.Pool, nil, testutil.DiscardLogger())
+
+	anchor := time.Now().UTC().Truncate(time.Second)
+	seedJobRunForRetention(t, ctx, "job_runs_retention_fixture_older_than_default", anchor.Add(-120*24*time.Hour))
+	seedJobRunForRetention(t, ctx, "job_runs_retention_fixture_just_inside_default", anchor.Add(-(90*24*time.Hour)+(2*time.Minute)))
+	seedJobRunForRetention(t, ctx, "job_runs_retention_fixture_newer_than_default", anchor.Add(-10*24*time.Hour))
+
+	initialCount := countRetentionFixtureRuns(t, ctx)
+	testutil.Equal(t, 3, initialCount)
+
+	_, err := svc.Enqueue(ctx, "job_runs_retention", nil, jobs.EnqueueOpts{MaxAttempts: 1})
+	testutil.NoError(t, err)
+
+	svc.Start(ctx)
+	defer svc.Stop()
+
+	state, lastError := waitForSingleJobResult(t, ctx, svc, "job_runs_retention", 1, 6*time.Second)
+	testutil.Equal(t, "completed", state)
+	testutil.Equal(t, "", lastError)
+
+	afterDefault := countRetentionFixtureRuns(t, ctx)
+	testutil.Equal(t, 2, afterDefault)
+	testutil.True(t, retentionFixtureRunPresent(t, ctx, "job_runs_retention_fixture_just_inside_default"))
+	testutil.True(t, retentionFixtureRunPresent(t, ctx, "job_runs_retention_fixture_newer_than_default"))
+	testutil.False(t, retentionFixtureRunPresent(t, ctx, "job_runs_retention_fixture_older_than_default"))
+
+	_, err = svc.Enqueue(ctx, "job_runs_retention", json.RawMessage(`{"retention_days":30}`), jobs.EnqueueOpts{MaxAttempts: 1})
+	testutil.NoError(t, err)
+
+	state, lastError = waitForSingleJobResult(t, ctx, svc, "job_runs_retention", 2, 6*time.Second)
+	testutil.Equal(t, "completed", state)
+	testutil.Equal(t, "", lastError)
+
+	afterOverride := countRetentionFixtureRuns(t, ctx)
+	testutil.Equal(t, 1, afterOverride)
+	testutil.True(t, retentionFixtureRunPresent(t, ctx, "job_runs_retention_fixture_newer_than_default"))
+	testutil.False(t, retentionFixtureRunPresent(t, ctx, "job_runs_retention_fixture_just_inside_default"))
+	testutil.False(t, retentionFixtureRunPresent(t, ctx, "job_runs_retention_fixture_older_than_default"))
+}
+
 func TestExpiredOAuthCleanupHandler(t *testing.T) {
 	setupHandlerDB(t)
 	ctx := context.Background()

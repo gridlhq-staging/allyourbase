@@ -1,3 +1,6 @@
+/**
+ * @module Stub summary for /Users/stuart/parallel_development/allyourbase_dev/jun01_pm_2_passwordless_passkey_login/allyourbase_dev/sdk_react/src/types.ts.
+ */
 export type AuthStateEvent = "SIGNED_IN" | "SIGNED_OUT" | "TOKEN_REFRESHED";
 export type OAuthProvider = "google" | "github";
 
@@ -43,6 +46,7 @@ export interface AYBClientLike {
     login(email: string, password: string): Promise<unknown>;
     register(email: string, password: string): Promise<unknown>;
     signInAnonymously(): Promise<unknown>;
+    signInWithPasskey?(email: string): Promise<unknown>;
     requestMagicLink(email: string): Promise<unknown>;
     confirmMagicLink(token: string): Promise<unknown>;
     linkEmail(email: string, password: string): Promise<unknown>;
@@ -86,6 +90,7 @@ export interface UseAuthResult {
   login: (email: string, password: string) => Promise<void>;
   register: (email: string, password: string) => Promise<void>;
   signInAnonymously: () => Promise<void>;
+  signInWithPasskey: (email: string) => Promise<void>;
   requestMagicLink: (email: string) => Promise<void>;
   confirmMagicLink: (token: string) => Promise<void>;
   linkEmail: (email: string, password: string) => Promise<void>;
@@ -106,6 +111,7 @@ export interface AybAuthMethods {
   anonymous: boolean;
   canUpgradeAnonymous: boolean;
   magicLink?: boolean;
+  passkey?: boolean;
 }
 
 export interface AybLoginBarProps {
@@ -129,6 +135,7 @@ export interface AybLoginBarProps {
   onOAuth: () => Promise<void>;
   onAnonymous: () => Promise<void>;
   onOAuthProvider?: (provider: OAuthProvider) => Promise<void>;
+  onPasskey?: (email: string) => Promise<void>;
   onRequestMagicLink?: (email: string) => Promise<void>;
   onUpgradeAnonymous?: () => Promise<void>;
 }

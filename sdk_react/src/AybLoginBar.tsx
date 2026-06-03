@@ -29,6 +29,7 @@ export function AybLoginBar(props: AybLoginBarProps) {
     onOAuth,
     onAnonymous,
     onOAuthProvider,
+    onPasskey,
     onRequestMagicLink,
     onUpgradeAnonymous,
   } = props;
@@ -40,7 +41,11 @@ export function AybLoginBar(props: AybLoginBarProps) {
     () => Boolean(methods.magicLink) && email.length > 0,
     [methods.magicLink, email],
   );
-  const showEmailInput = methods.password || (methods.magicLink && onRequestMagicLink);
+  const canSignInWithPasskey = useMemo(
+    () => Boolean(methods.passkey) && email.length > 0,
+    [methods.passkey, email],
+  );
+  const showEmailInput = methods.password || (methods.magicLink && onRequestMagicLink) || methods.passkey;
 
   return (
     <div>
@@ -87,6 +92,15 @@ export function AybLoginBar(props: AybLoginBarProps) {
           onClick={() => void onRequestMagicLink(email)}
         >
           Email me a magic link
+        </button>
+      )}
+      {methods.passkey && onPasskey && (
+        <button
+          type="button"
+          disabled={loading || !canSignInWithPasskey}
+          onClick={() => void onPasskey(email)}
+        >
+          Sign in with a passkey
         </button>
       )}
       {methods.oauth && (

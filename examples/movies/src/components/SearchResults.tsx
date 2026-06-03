@@ -17,6 +17,7 @@ export default function SearchResults({ rows, selectedSlug, onSelect }: Props) {
         <button
           key={row.slug}
           onClick={() => onSelect(row.slug)}
+          data-testid={`search-result-row-${row.slug}`}
           className={`w-full text-left p-3 rounded-lg border transition-colors ${
             selectedSlug === row.slug
               ? "border-purple-500 bg-purple-950/30"
@@ -24,8 +25,8 @@ export default function SearchResults({ rows, selectedSlug, onSelect }: Props) {
           }`}
         >
           <div className="flex items-baseline justify-between gap-2">
-            <h3 className="font-medium text-white truncate">{row.title}</h3>
-            <span className="text-xs text-gray-500 shrink-0">{row.release_year}</span>
+            <h3 data-testid={`search-result-title-${row.slug}`} className="font-medium text-white truncate">{row.title}</h3>
+            <span data-testid={`search-result-year-${row.slug}`} className="text-xs text-gray-500 shrink-0">{row.release_year}</span>
           </div>
           <p className="text-sm text-gray-400 mt-1 line-clamp-2">{row.overview}</p>
         </button>

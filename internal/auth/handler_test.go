@@ -98,6 +98,46 @@ func TestHandleLoginValidation(t *testing.T) {
 	testutil.Contains(t, w.Body.String(), "invalid JSON body")
 }
 
+func TestHandleLoginUsesDefaultRateLimitWhenMountedDirectly(t *testing.T) {
+	t.Parallel()
+	svc := newTestService()
+	h := NewHandler(svc, testutil.DiscardLogger())
+	router := h.Routes()
+
+	for i := 0; i < DefaultLoginRateLimit; i++ {
+		req := httptest.NewRequest(http.MethodPost, "/login", strings.NewReader("not json"))
+		req.Header.Set("Content-Type", "application/json")
+		req.RemoteAddr = "198.51.100.24:4567"
+		w := httptest.NewRecorder()
+		router.ServeHTTP(w, req)
+
+		testutil.Equal(t, "30", w.Header().Get("X-RateLimit-Limit"))
+		testutil.Equal(t, http.StatusBadRequest, w.Code)
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/login", strings.NewReader("not json"))
+	req.Header.Set("Content-Type", "application/json")
+	req.RemoteAddr = "198.51.100.24:4567"
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	testutil.Equal(t, http.StatusTooManyRequests, w.Code)
+	testutil.Equal(t, "30", w.Header().Get("X-RateLimit-Limit"))
+	testutil.Equal(t, "0", w.Header().Get("X-RateLimit-Remaining"))
+}
+
+func TestStopRateLimitersIsIdempotent(t *testing.T) {
+	t.Parallel()
+	h := NewHandler(newTestService(), testutil.DiscardLogger())
+	h.SetAnonymousAuthEnabled(true)
+
+	h.StopRateLimiters()
+	h.StopRateLimiters()
+
+	testutil.True(t, h.loginRateLimiter == nil, "login rate limiter should be released")
+	testutil.True(t, h.anonymousRateLimiter == nil, "anonymous rate limiter should be released")
+}
+
 func TestHandleMeWithoutToken(t *testing.T) {
 	t.Parallel()
 	svc := newTestService()

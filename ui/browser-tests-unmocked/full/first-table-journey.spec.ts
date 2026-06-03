@@ -37,6 +37,8 @@ test.describe("First Table Journey (Full E2E)", () => {
   test("empty dashboard to first table with data", async ({ page }, testInfo: TestInfo) => {
     const runId = `${Date.now()}_${testInfo.parallelIndex}_${testInfo.repeatEachIndex}_${testInfo.retry}`;
     const tableName = `first_test_${runId}`;
+    const seededName = `hello_${runId}`;
+    const seededValue = 42000 + testInfo.parallelIndex;
 
     // Register cleanup before creating resources
     pendingCleanup.push(`DROP TABLE IF EXISTS ${tableName}`);
@@ -106,7 +108,7 @@ test.describe("First Table Journey (Full E2E)", () => {
     await expect(sqlInput).toBeVisible({ timeout: 5000 });
 
     await sqlInput.fill(
-      `INSERT INTO ${tableName} (name, value) VALUES ('hello', 42)`,
+      `INSERT INTO ${tableName} (name, value) VALUES ('${seededName}', ${seededValue})`,
     );
     await page.getByRole("button", { name: /Execute/i }).click();
     await expect(page.getByText(/1 row affected/i)).toBeVisible({
@@ -115,9 +117,9 @@ test.describe("First Table Journey (Full E2E)", () => {
 
     // --- Navigate back to table browser and verify the row renders ---
     await sidebar.getByText(tableName, { exact: true }).click();
-    await expect(page.getByRole("cell", { name: "hello" })).toBeVisible({
+    await expect(page.getByRole("cell", { name: seededName })).toBeVisible({
       timeout: 5000,
     });
-    await expect(page.getByRole("cell", { name: "42" })).toBeVisible();
+    await expect(page.getByRole("cell", { name: String(seededValue) })).toBeVisible();
   });
 });

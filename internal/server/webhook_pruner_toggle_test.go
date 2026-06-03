@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"io"
 	"log/slog"
 	"testing"
@@ -23,6 +24,10 @@ type fakeWebhookDispatcher struct {
 
 func (f *fakeWebhookDispatcher) Enqueue(_ *realtime.Event) {}
 
+func (f *fakeWebhookDispatcher) Replay(_ context.Context, _, _ string) (*webhooks.Delivery, error) {
+	return nil, nil
+}
+
 func (f *fakeWebhookDispatcher) SetDeliveryStore(_ webhooks.DeliveryStore) {
 	f.setDeliveryStoreCalls++
 }
@@ -43,7 +48,10 @@ func TestNewStartsLegacyWebhookPrunerWhenJobsDisabled(t *testing.T) {
 	fake := &fakeWebhookDispatcher{}
 
 	origFactory := newWebhookDispatcher
-	newWebhookDispatcher = func(_ webhooks.WebhookLister, _ *slog.Logger) webhookDispatcher {
+	newWebhookDispatcher = func(_ interface {
+		ListEnabled(ctx context.Context) ([]webhooks.Webhook, error)
+		Get(ctx context.Context, id string) (*webhooks.Webhook, error)
+	}, _ *slog.Logger) webhookDispatcher {
 		return fake
 	}
 	t.Cleanup(func() {
@@ -66,7 +74,10 @@ func TestNewSkipsLegacyWebhookPrunerWhenJobsEnabled(t *testing.T) {
 	fake := &fakeWebhookDispatcher{}
 
 	origFactory := newWebhookDispatcher
-	newWebhookDispatcher = func(_ webhooks.WebhookLister, _ *slog.Logger) webhookDispatcher {
+	newWebhookDispatcher = func(_ interface {
+		ListEnabled(ctx context.Context) ([]webhooks.Webhook, error)
+		Get(ctx context.Context, id string) (*webhooks.Webhook, error)
+	}, _ *slog.Logger) webhookDispatcher {
 		return fake
 	}
 	t.Cleanup(func() {

@@ -1,3 +1,4 @@
+// Package webhooks Stub summary for /Users/stuart/parallel_development/allyourbase_dev/may31_pm_7_webhook_replay_deadletter/allyourbase_dev/internal/webhooks/dispatcher.go.
 package webhooks
 
 import (
@@ -7,10 +8,14 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
+	"net"
 	"net/http"
+	"net/url"
+	"strings"
 	"sync"
 	"time"
 
@@ -30,9 +35,85 @@ var defaultBackoff = [maxRetries]time.Duration{
 	25 * time.Second,
 }
 
+var errUnsafeReplayDestination = errors.New("webhook replay destination is unsafe")
+
+var replayBlockedCIDRs = mustParseCIDRs([]string{
+	"0.0.0.0/8",          // This network (RFC 1122)
+	"10.0.0.0/8",         // Private (RFC 1918)
+	"100.64.0.0/10",      // Carrier-grade NAT (RFC 6598)
+	"127.0.0.0/8",        // Loopback (RFC 1122)
+	"169.254.0.0/16",     // Link-local (RFC 3927)
+	"172.16.0.0/12",      // Private (RFC 1918)
+	"192.168.0.0/16",     // Private (RFC 1918)
+	"224.0.0.0/4",        // Multicast (RFC 5771)
+	"240.0.0.0/4",        // Reserved (RFC 1112)
+	"255.255.255.255/32", // Broadcast
+	"::1/128",            // IPv6 loopback
+	"::/128",             // IPv6 unspecified
+	"fc00::/7",           // IPv6 unique local (RFC 4193)
+	"fe80::/10",          // IPv6 link-local (RFC 4291)
+})
+
+func mustParseCIDRs(cidrs []string) []*net.IPNet {
+	nets := make([]*net.IPNet, 0, len(cidrs))
+	for _, cidr := range cidrs {
+		_, network, err := net.ParseCIDR(cidr)
+		if err != nil {
+			panic(fmt.Sprintf("invalid CIDR %q: %v", cidr, err))
+		}
+		nets = append(nets, network)
+	}
+	return nets
+}
+
+func isPrivateOrReservedReplayIP(ip net.IP) bool {
+	if v4 := ip.To4(); v4 != nil {
+		ip = v4
+	}
+	for _, cidr := range replayBlockedCIDRs {
+		if cidr.Contains(ip) {
+			return true
+		}
+	}
+	return false
+}
+
+func validateReplayDestination(ctx context.Context, rawURL string) error {
+	parsed, err := url.ParseRequestURI(rawURL)
+	if err != nil {
+		return fmt.Errorf("%w: invalid webhook URL", errUnsafeReplayDestination)
+	}
+	host := parsed.Hostname()
+	if host == "" {
+		return fmt.Errorf("%w: missing webhook host", errUnsafeReplayDestination)
+	}
+	if strings.EqualFold(host, "localhost") {
+		return fmt.Errorf("%w: localhost destinations are blocked", errUnsafeReplayDestination)
+	}
+	if ip := net.ParseIP(host); ip != nil {
+		if isPrivateOrReservedReplayIP(ip) {
+			return fmt.Errorf("%w: private or reserved IP destinations are blocked", errUnsafeReplayDestination)
+		}
+		return nil
+	}
+
+	lookupCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
+	defer cancel()
+	ips, err := net.DefaultResolver.LookupIP(lookupCtx, "ip", host)
+	if err != nil {
+		return nil
+	}
+	for _, ip := range ips {
+		if isPrivateOrReservedReplayIP(ip) {
+			return fmt.Errorf("%w: resolved destination is private or reserved", errUnsafeReplayDestination)
+		}
+	}
+	return nil
+}
+
 // Dispatcher receives realtime events and delivers them to matching webhooks.
 type Dispatcher struct {
-	store     WebhookLister
+	store     replayWebhookStore
 	deliveryS DeliveryStore // optional — nil disables delivery logging
 	client    *http.Client
 	logger    *slog.Logger
@@ -42,8 +123,13 @@ type Dispatcher struct {
 	backoff   [maxRetries]time.Duration // per-instance; tests override without touching globals
 }
 
+type replayWebhookStore interface {
+	ListEnabled(ctx context.Context) ([]Webhook, error)
+	Get(ctx context.Context, id string) (*Webhook, error)
+}
+
 // NewDispatcher creates a Dispatcher and starts its background worker.
-func NewDispatcher(store WebhookLister, logger *slog.Logger) *Dispatcher {
+func NewDispatcher(store replayWebhookStore, logger *slog.Logger) *Dispatcher {
 	d := &Dispatcher{
 		store:   store,
 		client:  &http.Client{Timeout: 10 * time.Second},
@@ -151,45 +237,75 @@ func (d *Dispatcher) deliver(hook *Webhook, event *realtime.Event, payload []byt
 			time.Sleep(d.backoff[attempt-1])
 		}
 
-		req, err := http.NewRequest(http.MethodPost, hook.URL, bytes.NewReader(payload))
+		recorded, err := d.sendAndRecordSingleAttempt(context.Background(), hook, event.Action, event.Table, payload, attempt+1)
 		if err != nil {
 			d.logger.Error("failed to create webhook request", "error", err, "url", hook.URL)
 			return
 		}
-		req.Header.Set("Content-Type", "application/json")
-
-		if hook.Secret != "" {
-			req.Header.Set("X-AYB-Signature", Sign(hook.Secret, payload))
-		}
-
-		start := time.Now()
-		resp, err := d.client.Do(req)
-		durationMs := int(time.Since(start).Milliseconds())
-
-		if err != nil {
-			d.logger.Warn("webhook delivery failed",
-				"url", hook.URL, "attempt", attempt+1, "error", err)
-			d.recordDelivery(hook, event, payload, 0, false, attempt+1, durationMs, err.Error(), "")
-			continue
-		}
-		respBytes, err := readLimitedResponseBody(resp.Body)
-		if err != nil {
-			readErr := fmt.Errorf("failed to read webhook response body: %w", err)
-			d.logger.Warn("webhook response body read failed",
-				"url", hook.URL, "status", resp.StatusCode, "attempt", attempt+1, "error", readErr)
-			d.recordDelivery(hook, event, payload, resp.StatusCode, false, attempt+1, durationMs, readErr.Error(), "")
-			continue
-		}
-
-		if resp.StatusCode >= 200 && resp.StatusCode < 300 {
-			d.recordDelivery(hook, event, payload, resp.StatusCode, true, attempt+1, durationMs, "", string(respBytes))
+		if recorded.Success {
 			return
 		}
+		if recorded.Error != "" {
+			d.logger.Warn("webhook delivery failed",
+				"url", hook.URL, "attempt", attempt+1, "error", recorded.Error)
+			continue
+		}
 		d.logger.Warn("webhook returned non-2xx",
-			"url", hook.URL, "status", resp.StatusCode, "attempt", attempt+1)
-		d.recordDelivery(hook, event, payload, resp.StatusCode, false, attempt+1, durationMs, "", string(respBytes))
+			"url", hook.URL, "status", recorded.StatusCode, "attempt", attempt+1)
 	}
 	d.logger.Error("webhook delivery exhausted retries", "url", hook.URL, "webhookID", hook.ID)
+}
+
+// Replay performs a synchronous, single-attempt resend of a previously recorded
+// webhook delivery. It intentionally reuses the stored request body verbatim,
+// which may already be truncated by the delivery recorder contract.
+func (d *Dispatcher) Replay(ctx context.Context, webhookID, deliveryID string) (*Delivery, error) {
+	if d.deliveryS == nil {
+		return nil, fmt.Errorf("delivery history is unavailable")
+	}
+	recorded, err := d.deliveryS.GetDelivery(ctx, webhookID, deliveryID)
+	if err != nil {
+		return nil, err
+	}
+	hook, err := d.store.Get(ctx, webhookID)
+	if err != nil {
+		return nil, err
+	}
+	// Replays are admin-triggered and synchronous, so fail closed before the
+	// outbound request if the stored destination points at localhost or a
+	// private/reserved network target.
+	if err := validateReplayDestination(ctx, hook.URL); err != nil {
+		return nil, err
+	}
+	return d.sendAndRecordSingleAttempt(ctx, hook, recorded.EventAction, recorded.EventTable, []byte(recorded.RequestBody), 1)
+}
+
+// sendAndRecordSingleAttempt is the single source of truth for request creation,
+// signing, HTTP send, response capture, and delivery recording.
+func (d *Dispatcher) sendAndRecordSingleAttempt(ctx context.Context, hook *Webhook, eventAction, eventTable string, payload []byte, attempt int) (*Delivery, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, hook.URL, bytes.NewReader(payload))
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	if hook.Secret != "" {
+		req.Header.Set("X-AYB-Signature", Sign(hook.Secret, payload))
+	}
+
+	start := time.Now()
+	resp, err := d.client.Do(req)
+	durationMs := int(time.Since(start).Milliseconds())
+	if err != nil {
+		return d.recordDelivery(hook, eventAction, eventTable, payload, 0, false, attempt, durationMs, err.Error(), ""), nil
+	}
+	respBytes, err := readLimitedResponseBody(resp.Body)
+	if err != nil {
+		readErr := fmt.Errorf("failed to read webhook response body: %w", err)
+		return d.recordDelivery(hook, eventAction, eventTable, payload, resp.StatusCode, false, attempt, durationMs, readErr.Error(), ""), nil
+	}
+
+	success := resp.StatusCode >= 200 && resp.StatusCode < 300
+	return d.recordDelivery(hook, eventAction, eventTable, payload, resp.StatusCode, success, attempt, durationMs, "", string(respBytes)), nil
 }
 
 func readLimitedResponseBody(body io.ReadCloser) ([]byte, error) {
@@ -198,18 +314,15 @@ func readLimitedResponseBody(body io.ReadCloser) ([]byte, error) {
 }
 
 // Records a webhook delivery attempt to the delivery store if one is configured, truncating the request body to 4096 bytes if needed. Logs any recording errors without failing the delivery.
-func (d *Dispatcher) recordDelivery(hook *Webhook, event *realtime.Event, payload []byte, statusCode int, success bool, attempt, durationMs int, errMsg, respBody string) {
-	if d.deliveryS == nil {
-		return
-	}
+func (d *Dispatcher) recordDelivery(hook *Webhook, eventAction, eventTable string, payload []byte, statusCode int, success bool, attempt, durationMs int, errMsg, respBody string) *Delivery {
 	reqBody := string(payload)
 	if len(reqBody) > 4096 {
 		reqBody = reqBody[:4096]
 	}
 	del := &Delivery{
 		WebhookID:    hook.ID,
-		EventAction:  event.Action,
-		EventTable:   event.Table,
+		EventAction:  eventAction,
+		EventTable:   eventTable,
 		Success:      success,
 		StatusCode:   statusCode,
 		Attempt:      attempt,
@@ -218,9 +331,13 @@ func (d *Dispatcher) recordDelivery(hook *Webhook, event *realtime.Event, payloa
 		RequestBody:  reqBody,
 		ResponseBody: respBody,
 	}
+	if d.deliveryS == nil {
+		return del
+	}
 	if err := d.deliveryS.RecordDelivery(context.Background(), del); err != nil {
 		d.logger.Error("failed to record delivery", "error", err)
 	}
+	return del
 }
 
 // StartPruner begins periodic cleanup of old delivery logs.

@@ -158,7 +158,7 @@ export function trackedUserIDSQLList(): string {
 export async function expectAYBError(
   operation: () => Promise<unknown>,
   status: number,
-  message: string,
+  message: string | RegExp,
 ): Promise<void> {
   try {
     await operation();
@@ -166,11 +166,15 @@ export async function expectAYBError(
     expect(error).toBeInstanceOf(AYBError);
     const aybError = error as AYBError;
     expect(aybError.status).toBe(status);
-    expect(aybError.message).toBe(message);
+    if (message instanceof RegExp) {
+      expect(aybError.message).toMatch(message);
+    } else {
+      expect(aybError.message).toBe(message);
+    }
     return;
   }
   throw new Error(
-    `Expected AYBError(${status}, "${message}") but operation succeeded`,
+    `Expected AYBError(${status}, ${message instanceof RegExp ? message.toString() : `"${message}"`}) but operation succeeded`,
   );
 }
 

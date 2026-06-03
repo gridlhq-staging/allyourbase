@@ -72,6 +72,7 @@ describe("App GraphQL bootstrap fallback", () => {
       login: vi.fn(),
       register: vi.fn(),
       signInAnonymously: vi.fn(),
+      signInWithPasskey: vi.fn(),
       requestMagicLink: vi.fn(),
       confirmMagicLink: vi.fn(),
       linkEmail: vi.fn(),

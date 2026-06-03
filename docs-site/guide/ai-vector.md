@@ -144,6 +144,12 @@ All query modes are on collection list endpoints:
 
 - `GET /api/collections/{table}`
 
+Supported vector list paths:
+
+- `nearest=<json_vector>`
+- `semantic_query=<text>`
+- `search=<text>&semantic=true`
+
 Common vector params:
 
 - `vector_column` (optional unless table has multiple vector columns)
@@ -200,6 +206,16 @@ Rules from `dispatchVectorPaths`:
 
 - `semantic=true` cannot be combined with `nearest` or `semantic_query`
 - `nearest` and `semantic_query` are mutually exclusive
+
+### Mode compatibility matrix
+
+| `nearest` | `semantic_query` | `semantic=true` | `fuzzy` | `facets` | `typo_threshold` | `aggregate` | Result |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| ✅ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | nearest-neighbor vector search |
+| ❌ | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ | embedding-backed semantic nearest-neighbor search |
+| ❌ | ❌ | ✅ (requires `search`) | ❌ | ❌ | ❌ | ❌ | hybrid full-text + vector fusion |
+| ✅ + ✅ | n/a | n/a | n/a | n/a | n/a | n/a | `400` cannot combine `nearest` with `semantic_query` |
+| (any) | (any) | ✅ | ✅/✅/✅ | n/a | n/a | n/a | `400` when `fuzzy`, `facets`, or `typo_threshold` is present with vector list modes |
 
 Hybrid responses include fused fields:
 

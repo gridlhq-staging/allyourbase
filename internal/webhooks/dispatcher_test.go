@@ -3,10 +3,12 @@ package webhooks
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -14,6 +16,7 @@ import (
 
 	"github.com/allyourbase/ayb/internal/realtime"
 	"github.com/allyourbase/ayb/internal/testutil"
+	"github.com/jackc/pgx/v5"
 )
 
 type mockLister struct {
@@ -23,6 +26,15 @@ type mockLister struct {
 
 func (m *mockLister) ListEnabled(_ context.Context) ([]Webhook, error) {
 	return m.hooks, m.err
+}
+
+func (m *mockLister) Get(_ context.Context, id string) (*Webhook, error) {
+	for i := range m.hooks {
+		if m.hooks[i].ID == id {
+			return &m.hooks[i], nil
+		}
+	}
+	return nil, pgx.ErrNoRows
 }
 
 type roundTripFunc func(*http.Request) (*http.Response, error)
@@ -44,7 +56,7 @@ func (failingReadCloser) Close() error {
 // fastBackoff is used by test dispatchers — short delays, no global mutation.
 var fastBackoff = [maxRetries]time.Duration{1 * time.Millisecond, 1 * time.Millisecond, 1 * time.Millisecond}
 
-func testDispatcher(lister WebhookLister) *Dispatcher {
+func testDispatcher(lister replayWebhookStore) *Dispatcher {
 	d := &Dispatcher{
 		store:   lister,
 		client:  &http.Client{Timeout: 2 * time.Second},
@@ -421,4 +433,119 @@ func TestEnqueueNonBlocking(t *testing.T) {
 	d.Enqueue(event)
 
 	testutil.Equal(t, 2, len(d.queue))
+}
+
+func TestReplayIsSingleShotAndSynchronousOnNon2xx(t *testing.T) {
+	t.Parallel()
+
+	var requestCount atomic.Int32
+	var receivedBody []byte
+	lister := &mockLister{hooks: []Webhook{{
+		ID: "wh1", URL: "https://hooks.example.test/replay", Secret: "replay-secret", Enabled: false,
+	}}}
+	ds := newMockDeliveryStore()
+	ds.deliveries["original-1"] = &Delivery{
+		ID:          "original-1",
+		WebhookID:   "wh1",
+		EventAction: "update",
+		EventTable:  "posts",
+		RequestBody: `{"id":42,"name":"stored payload"}`,
+		Success:     false,
+		Attempt:     3,
+	}
+	d := testDispatcher(lister)
+	d.client = &http.Client{
+		Timeout: 2 * time.Second,
+		Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+			requestCount.Add(1)
+			receivedBody, _ = io.ReadAll(req.Body)
+			return &http.Response{
+				StatusCode: http.StatusInternalServerError,
+				Body:       io.NopCloser(strings.NewReader("")),
+				Header:     make(http.Header),
+			}, nil
+		}),
+	}
+	d.deliveryS = ds
+
+	replayed, err := d.Replay(context.Background(), "wh1", "original-1")
+	testutil.NoError(t, err)
+	testutil.Equal(t, int32(1), requestCount.Load())
+	testutil.Equal(t, `{"id":42,"name":"stored payload"}`, string(receivedBody))
+	testutil.Equal(t, false, replayed.Success)
+	testutil.Equal(t, http.StatusInternalServerError, replayed.StatusCode)
+	testutil.Equal(t, 1, replayed.Attempt)
+	testutil.Equal(t, "wh1", replayed.WebhookID)
+	testutil.Equal(t, 2, len(ds.deliveries))
+}
+
+func TestReplayHonorsCanceledContextBeforeSending(t *testing.T) {
+	t.Parallel()
+
+	var requestCount atomic.Int32
+	lister := &mockLister{hooks: []Webhook{{
+		ID: "wh1", URL: "https://hooks.example.test/replay", Secret: "replay-secret", Enabled: false,
+	}}}
+	ds := newMockDeliveryStore()
+	ds.deliveries["original-1"] = &Delivery{
+		ID:          "original-1",
+		WebhookID:   "wh1",
+		EventAction: "update",
+		EventTable:  "posts",
+		RequestBody: `{"id":42,"name":"stored payload"}`,
+		Success:     false,
+		Attempt:     3,
+	}
+	d := testDispatcher(lister)
+	d.client = &http.Client{
+		Timeout: 2 * time.Second,
+		Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+			if err := req.Context().Err(); err != nil {
+				return nil, err
+			}
+			requestCount.Add(1)
+			return &http.Response{
+				StatusCode: http.StatusAccepted,
+				Body:       io.NopCloser(strings.NewReader("")),
+				Header:     make(http.Header),
+			}, nil
+		}),
+	}
+	d.deliveryS = ds
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	replayed, err := d.Replay(ctx, "wh1", "original-1")
+	testutil.NoError(t, err)
+	testutil.Equal(t, int32(0), requestCount.Load())
+	testutil.Equal(t, false, replayed.Success)
+	testutil.Contains(t, replayed.Error, "context canceled")
+	testutil.Equal(t, 1, replayed.Attempt)
+	testutil.Equal(t, 2, len(ds.deliveries))
+}
+
+func TestReplayRejectsPrivateDestination(t *testing.T) {
+	t.Parallel()
+
+	lister := &mockLister{hooks: []Webhook{{
+		ID: "wh1", URL: "http://127.0.0.1:9000/internal", Secret: "replay-secret", Enabled: false,
+	}}}
+	ds := newMockDeliveryStore()
+	ds.deliveries["original-1"] = &Delivery{
+		ID:          "original-1",
+		WebhookID:   "wh1",
+		EventAction: "update",
+		EventTable:  "posts",
+		RequestBody: `{"id":42,"name":"stored payload"}`,
+		Success:     false,
+		Attempt:     3,
+	}
+	d := testDispatcher(lister)
+	d.deliveryS = ds
+
+	replayed, err := d.Replay(context.Background(), "wh1", "original-1")
+	testutil.True(t, errors.Is(err, errUnsafeReplayDestination), "replay should reject private or loopback destinations")
+	testutil.Equal(t, (*Delivery)(nil), replayed)
+	testutil.Equal(t, 1, len(ds.deliveries))
 }

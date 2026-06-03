@@ -1,5 +1,5 @@
 /**
- * @module Stub summary for /Users/stuart/parallel_development/allyourbase_dev/MAR18_WS_C_phase5_features_and_phase6/allyourbase_dev/ui/browser-tests-unmocked/fixtures/jobs.ts.
+ * @module Stub summary for /Users/stuart/parallel_development/allyourbase_dev/may31_pm_11_coverage_load_truth_closeout/allyourbase_dev/ui/browser-tests-unmocked/fixtures/jobs.ts.
  */
 import type { APIRequestContext } from "@playwright/test";
 import { execSQL, sqlLiteral, validateResponse } from "./core";
@@ -35,6 +35,32 @@ export async function seedJob(
     throw new Error(`Expected seeded job id/type/state for ${options.type}`);
   }
   return { id, type, state: returnedState };
+}
+
+export async function seedJobRuns(
+  request: APIRequestContext,
+  token: string,
+  options: {
+    jobId: string;
+    runs: Array<{
+      attempt: number;
+      status: "queued" | "running" | "completed" | "failed" | "canceled";
+      durationMs: number;
+      error?: string | null;
+      startedAt: string;
+      finishedAt: string;
+    }>;
+  },
+): Promise<void> {
+  for (const run of options.runs) {
+    const errorSQL = run.error ? `'${sqlLiteral(run.error)}'` : "NULL";
+    await execSQL(
+      request,
+      token,
+      `INSERT INTO _ayb_job_runs (job_id, attempt, status, started_at, finished_at, duration_ms, error)
+       VALUES ('${sqlLiteral(options.jobId)}', ${run.attempt}, '${run.status}', '${sqlLiteral(run.startedAt)}'::timestamptz, '${sqlLiteral(run.finishedAt)}'::timestamptz, ${run.durationMs}, ${errorSQL})`,
+    );
+  }
 }
 
 export async function cleanupJobsByType(

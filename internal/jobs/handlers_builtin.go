@@ -30,6 +30,9 @@ type webhookPrunePayload struct {
 type auditRetentionPayload struct {
 	RetentionDays int `json:"retention_days"`
 }
+type jobRunsRetentionPayload struct {
+	RetentionDays int `json:"retention_days"`
+}
 type requestLogRetentionPayload struct {
 	RetentionDays int `json:"retention_days"`
 }
@@ -318,6 +321,38 @@ func AuditLogRetentionHandler(pool *pgxpool.Pool, defaultRetentionDays int, logg
 		}
 		if logger != nil {
 			logger.Info("audit_log_retention completed",
+				"deleted", tag.RowsAffected(),
+				"retention_days", retentionDays)
+		}
+		return nil
+	}
+}
+
+func JobRunsRetentionHandler(pool *pgxpool.Pool, defaultRetentionDays int, logger *slog.Logger) JobHandler {
+	return func(ctx context.Context, payload json.RawMessage) error {
+		retentionDays := defaultRetentionDays
+		if retentionDays <= 0 {
+			retentionDays = jobRunsRetentionDefaultDays
+		}
+		var p jobRunsRetentionPayload
+		if hasJobPayload(payload) {
+			if err := json.Unmarshal(payload, &p); err != nil {
+				return fmt.Errorf("job_runs_retention: invalid payload: %w", err)
+			}
+			if p.RetentionDays > 0 {
+				retentionDays = p.RetentionDays
+			}
+		}
+		// finished_at is the stable terminal timestamp for persisted run history rows.
+		tag, err := pool.Exec(ctx, `
+			DELETE FROM _ayb_job_runs
+			 WHERE finished_at < NOW() - make_interval(days => $1)`,
+			retentionDays)
+		if err != nil {
+			return fmt.Errorf("job_runs_retention: %w", err)
+		}
+		if logger != nil {
+			logger.Info("job_runs_retention completed",
 				"deleted", tag.RowsAffected(),
 				"retention_days", retentionDays)
 		}

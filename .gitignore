@@ -32,6 +32,15 @@ _dev/integration_test_runtime_audit_artifacts/
 
 ayb-linux-amd64
 
+# Downloaded pg release artifacts from contract validation reruns.
+# The contract probe uses mktemp; manual gh/curl downloads must not leak into tracked paths.
+/ayb-postgres-*-linux-arm64.tar.xz
+/ayb-postgres-*-linux-amd64.tar.xz
+/ayb-postgres-*-darwin-arm64.tar.xz
+/ayb-postgres-*-darwin-amd64.tar.xz
+/ayb-postgres-*/
+/SHA256SUMS
+
 # Go
 *.exe
 *.exe~
@@ -107,6 +116,7 @@ Desktop.ini
 
 # AYB runtime
 ayb.toml
+!examples/movies/ayb.toml
 !deploy/gridl-node/ayb.toml
 !deploy/fly/ayb.toml
 *.log

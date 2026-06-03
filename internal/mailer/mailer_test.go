@@ -111,6 +111,14 @@ func TestWebhookMailerCustomTimeout(t *testing.T) {
 	testutil.Equal(t, float64(30), m.client.Timeout.Seconds())
 }
 
+func TestWebhookMailerUsesDedicatedTransport(t *testing.T) {
+	t.Parallel()
+	m := NewWebhookMailer(WebhookConfig{URL: "http://localhost"})
+	testutil.NotNil(t, m.client.Transport)
+	testutil.True(t, m.client.Transport != http.DefaultTransport,
+		"webhook mailer should use a dedicated transport, not the process-wide default")
+}
+
 func TestWebhookMailerNon2xx(t *testing.T) {
 	t.Parallel()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -121,6 +129,13 @@ func TestWebhookMailerNon2xx(t *testing.T) {
 	m := NewWebhookMailer(WebhookConfig{URL: srv.URL})
 	err := m.Send(context.Background(), &Message{To: "a@b.com", Subject: "x"})
 	testutil.ErrorContains(t, err, "status 500")
+}
+
+func TestWebhookMailerNilMessage(t *testing.T) {
+	t.Parallel()
+	m := NewWebhookMailer(WebhookConfig{URL: "http://localhost"})
+	err := m.Send(context.Background(), nil)
+	testutil.ErrorContains(t, err, "message is required")
 }
 
 func TestRenderPasswordReset(t *testing.T) {

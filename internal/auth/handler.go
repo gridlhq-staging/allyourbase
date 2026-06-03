@@ -1,4 +1,4 @@
-// Package auth Handler implements HTTP endpoint handlers for authentication operations including credential-based login, passwordless flows, OAuth/SAML integrations, session management, and MFA enrollment.
+// Package auth Stub summary for /Users/stuart/parallel_development/allyourbase_dev/jun01_pm_6_release_readiness_closeout/allyourbase_dev/internal/auth/handler.go.
 package auth
 
 import (
@@ -60,8 +60,11 @@ type Handler struct {
 	smsEnabled               bool
 	anonymousAuthEnabled     bool
 	anonymousRateLimiter     *RateLimiter
+	loginRateLimiter         *RateLimiter
 	totpEnabled              bool
 	emailMFAEnabled          bool
+	webauthnEnabled          bool
+	webauthnPublicBaseURL    string
 	existingMFAOverride      *bool // test-only: override HasAnyMFA check for AAL2 guard
 	metricsRecorder          AuthMetricsRecorder
 }
@@ -77,7 +80,7 @@ func NewHandler(svc *Service, logger *slog.Logger) *Handler {
 		urls[k] = v
 	}
 	oauthMu.RUnlock()
-	return &Handler{
+	handler := &Handler{
 		auth:                     svc,
 		oauthAuthorize:           svc,
 		oauthToken:               svc,
@@ -89,6 +92,10 @@ func NewHandler(svc *Service, logger *slog.Logger) *Handler {
 		oauthHTTPClient:          oauthHTTPClient,
 		oauthStateStore:          NewOAuthStateStore(10 * time.Minute),
 	}
+	// Keep login throttling attached to the handler owner so direct mounts of
+	// auth.Handler.Routes() preserve the Stage 2 contract without extra wiring.
+	handler.SetLoginRateLimit(0, 0)
+	return handler
 }
 
 // Routes returns a chi.Router with auth endpoints mounted.
@@ -96,7 +103,7 @@ func (h *Handler) Routes() chi.Router {
 	r := chi.NewRouter()
 	r.Use(h.attachRequestMetadata)
 	r.Post("/register", h.handleRegister)
-	r.Post("/login", h.handleLogin)
+	r.With(h.loginRateLimitMiddleware).Post("/login", h.handleLogin)
 	r.With(h.anonymousRateLimitMiddleware).Post("/anonymous", h.handleAnonymousSignIn)
 	r.With(RequireAuth(h.auth)).Post("/link/email", h.handleLinkEmail)
 	r.With(RequireAuth(h.auth)).Post("/link/oauth", h.handleLinkOAuth)
@@ -127,7 +134,13 @@ func (h *Handler) Routes() chi.Router {
 	r.Post("/sms", h.handleSMSRequest)
 	r.Post("/sms/confirm", h.handleSMSConfirm)
 
-	// MFA endpoints — gated behind smsEnabled check before auth middleware.
+	h.mountMFARoutes(r)
+	h.mountAPIKeyRoutes(r)
+
+	return r
+}
+
+func (h *Handler) mountMFARoutes(r chi.Router) {
 	r.Route("/mfa/sms", func(mfa chi.Router) {
 		mfa.Use(h.requireSMSEnabled)
 		mfa.With(RequireAuth(h.auth)).Post("/enroll", h.handleMFAEnroll)
@@ -135,8 +148,6 @@ func (h *Handler) Routes() chi.Router {
 		mfa.With(RequireMFAPending(h.auth)).Post("/challenge", h.handleMFAChallenge)
 		mfa.With(RequireMFAPending(h.auth)).Post("/verify", h.handleMFAVerify)
 	})
-
-	// TOTP MFA endpoints.
 	r.Route("/mfa/totp", func(mfa chi.Router) {
 		mfa.Use(h.requireTOTPEnabled)
 		mfa.With(RequireAuth(h.auth)).Post("/enroll", h.handleTOTPEnroll)
@@ -144,8 +155,6 @@ func (h *Handler) Routes() chi.Router {
 		mfa.With(RequireMFAPending(h.auth)).Post("/challenge", h.handleTOTPChallenge)
 		mfa.With(RequireMFAPending(h.auth)).Post("/verify", h.handleTOTPVerify)
 	})
-
-	// Email MFA endpoints.
 	r.Route("/mfa/email", func(mfa chi.Router) {
 		mfa.Use(h.requireEmailMFAEnabled)
 		mfa.With(RequireAuth(h.auth)).Post("/enroll", h.handleEmailMFAEnroll)
@@ -153,27 +162,35 @@ func (h *Handler) Routes() chi.Router {
 		mfa.With(RequireMFAPending(h.auth)).Post("/challenge", h.handleEmailMFAChallenge)
 		mfa.With(RequireMFAPending(h.auth)).Post("/verify", h.handleEmailMFAVerify)
 	})
-
-	// Backup code endpoints.
+	r.Route("/mfa/webauthn", func(mfa chi.Router) {
+		mfa.Use(h.requireWebAuthnEnabled)
+		mfa.With(RequireAuth(h.auth)).Post("/enroll", h.handleWebAuthnEnroll)
+		mfa.With(RequireAuth(h.auth)).Post("/enroll/confirm", h.handleWebAuthnEnrollConfirm)
+		mfa.With(RequireAuth(h.auth)).Delete("/", h.handleWebAuthnDelete)
+		mfa.With(RequireMFAPending(h.auth)).Post("/challenge", h.handleWebAuthnChallenge)
+		mfa.With(RequireMFAPending(h.auth)).Post("/verify", h.handleWebAuthnVerify)
+	})
+	r.Route("/webauthn/login", func(login chi.Router) {
+		login.Use(h.requireWebAuthnEnabled)
+		login.With(h.loginRateLimitMiddleware).Post("/begin", h.handleWebAuthnFirstFactorBegin)
+		login.With(h.loginRateLimitMiddleware).Post("/finish", h.handleWebAuthnFirstFactorFinish)
+	})
 	r.Route("/mfa/backup", func(mfa chi.Router) {
 		mfa.With(RequireAuth(h.auth), RequireAAL2).Post("/generate", h.handleBackupCodeGenerate)
 		mfa.With(RequireAuth(h.auth), RequireAAL2).Post("/regenerate", h.handleBackupCodeRegenerate)
 		mfa.With(RequireAuth(h.auth)).Get("/count", h.handleBackupCodeCount)
 		mfa.With(RequireMFAPending(h.auth)).Post("/verify", h.handleBackupCodeVerify)
 	})
-
-	// MFA factor listing (accepts both regular auth and MFA pending tokens).
 	r.With(RequireAuthOrMFAPending(h.auth)).Get("/mfa/factors", h.handleMFAFactors)
+}
 
-	// API key management (requires JWT auth — not API key auth, to prevent key bootstrapping).
+func (h *Handler) mountAPIKeyRoutes(r chi.Router) {
 	r.Route("/api-keys", func(r chi.Router) {
 		r.Use(RequireAuth(h.auth))
 		r.Post("/", h.handleCreateAPIKey)
 		r.Get("/", h.handleListAPIKeys)
 		r.Delete("/{id}", h.handleRevokeAPIKey)
 	})
-
-	return r
 }
 
 type authRequest struct {

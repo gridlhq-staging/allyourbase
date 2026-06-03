@@ -1,4 +1,4 @@
-// Package jobs Store provides database operations for the job queue, including job lifecycle management and scheduled execution.
+// Package jobs Stub summary for /Users/stuart/parallel_development/allyourbase_dev/may31_pm_8_job_run_history/allyourbase_dev/internal/jobs/store.go.
 package jobs
 
 import (
@@ -64,6 +64,25 @@ func scanJobs(rows pgx.Rows) ([]Job, error) {
 	return result, rows.Err()
 }
 
+func scanJobRuns(rows pgx.Rows) ([]JobRun, error) {
+	var result []JobRun
+	for rows.Next() {
+		var run JobRun
+		if err := rows.Scan(
+			&run.Attempt,
+			&run.Status,
+			&run.StartedAt,
+			&run.FinishedAt,
+			&run.DurationMs,
+			&run.Error,
+		); err != nil {
+			return nil, err
+		}
+		result = append(result, run)
+	}
+	return result, rows.Err()
+}
+
 // Enqueue inserts a new job with state=queued.
 func (s *Store) Enqueue(ctx context.Context, jobType string, payload json.RawMessage, opts EnqueueOpts) (*Job, error) {
 	if payload == nil {
@@ -124,9 +143,55 @@ func (s *Store) Claim(ctx context.Context, workerID string, leaseDuration time.D
 	return j, err
 }
 
+// mutateJobAndRecordRun executes the state mutation and inserts one run-history
+// row in a single transaction so terminal state and per-attempt history stay consistent.
+func (s *Store) mutateJobAndRecordRun(ctx context.Context, mutationSQL string, mutationArgs []any, runStatus string, runErr *string, timing RunTiming) (*Job, error) {
+	if timing.DurationMs < 0 {
+		timing.DurationMs = 0
+	}
+
+	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		return nil, err
+	}
+	defer func() {
+		_ = tx.Rollback(ctx)
+	}()
+
+	row := tx.QueryRow(ctx, mutationSQL, mutationArgs...)
+	j, err := scanJob(row)
+	if err != nil {
+		return nil, err
+	}
+
+	_, err = tx.Exec(ctx,
+		`INSERT INTO _ayb_job_runs (job_id, attempt, status, started_at, finished_at, duration_ms, error)
+		 VALUES (
+			$1,
+			GREATEST(
+				$7,
+				COALESCE((SELECT MAX(attempt) + 1 FROM _ayb_job_runs WHERE job_id = $1), 1)
+			),
+			$2,
+			$3,
+			$4,
+			$5,
+			$6
+		)`,
+		j.ID, runStatus, timing.StartedAt, timing.FinishedAt, timing.DurationMs, runErr, j.Attempts,
+	)
+	if err != nil {
+		return nil, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return nil, err
+	}
+	return j, nil
+}
+
 // Complete marks a running job as completed.
-func (s *Store) Complete(ctx context.Context, jobID string) (*Job, error) {
-	row := s.pool.QueryRow(ctx,
+func (s *Store) Complete(ctx context.Context, jobID string, timing RunTiming) (*Job, error) {
+	j, err := s.mutateJobAndRecordRun(ctx,
 		`UPDATE _ayb_jobs SET
 			state = 'completed',
 			completed_at = NOW(),
@@ -135,9 +200,11 @@ func (s *Store) Complete(ctx context.Context, jobID string) (*Job, error) {
 			updated_at = NOW()
 		WHERE id = $1 AND state = 'running'
 		RETURNING `+jobColumns,
-		jobID,
+		[]any{jobID},
+		"completed",
+		nil,
+		timing,
 	)
-	j, err := scanJob(row)
 	if err == pgx.ErrNoRows {
 		return nil, fmt.Errorf("job %s not found or not in running state", jobID)
 	}
@@ -146,9 +213,11 @@ func (s *Store) Complete(ctx context.Context, jobID string) (*Job, error) {
 
 // Fail handles a job failure. If retries remain, re-queues with backoff.
 // Otherwise marks as permanently failed.
-func (s *Store) Fail(ctx context.Context, jobID string, errMsg string, backoff time.Duration) (*Job, error) {
+func (s *Store) Fail(ctx context.Context, jobID string, errMsg string, backoff time.Duration, timing RunTiming) (*Job, error) {
+	runErr := &errMsg
+
 	// First try re-queue (attempts < max_attempts).
-	row := s.pool.QueryRow(ctx,
+	j, err := s.mutateJobAndRecordRun(ctx,
 		`UPDATE _ayb_jobs SET
 			state = 'queued',
 			run_at = NOW() + $2::interval,
@@ -158,9 +227,11 @@ func (s *Store) Fail(ctx context.Context, jobID string, errMsg string, backoff t
 			updated_at = NOW()
 		WHERE id = $1 AND state = 'running' AND attempts < max_attempts
 		RETURNING `+jobColumns,
-		jobID, intervalSec(backoff), errMsg,
+		[]any{jobID, intervalSec(backoff), errMsg},
+		"failed",
+		runErr,
+		timing,
 	)
-	j, err := scanJob(row)
 	if err == nil {
 		return j, nil
 	}
@@ -169,7 +240,7 @@ func (s *Store) Fail(ctx context.Context, jobID string, errMsg string, backoff t
 	}
 
 	// Terminal failure: attempts >= max_attempts.
-	row = s.pool.QueryRow(ctx,
+	j, err = s.mutateJobAndRecordRun(ctx,
 		`UPDATE _ayb_jobs SET
 			state = 'failed',
 			last_error = $2,
@@ -178,9 +249,11 @@ func (s *Store) Fail(ctx context.Context, jobID string, errMsg string, backoff t
 			updated_at = NOW()
 		WHERE id = $1 AND state = 'running'
 		RETURNING `+jobColumns,
-		jobID, errMsg,
+		[]any{jobID, errMsg},
+		"failed",
+		runErr,
+		timing,
 	)
-	j, err = scanJob(row)
 	if err == pgx.ErrNoRows {
 		return nil, fmt.Errorf("job %s not found or not in running state", jobID)
 	}
@@ -312,6 +385,41 @@ func (s *Store) List(ctx context.Context, state string, jobType string, limit, o
 		jobs = []Job{}
 	}
 	return jobs, err
+}
+
+// ListRuns returns persisted run-history rows for the job in attempt order.
+// It returns a deterministic not-found error only when the parent job row does not exist.
+func (s *Store) ListRuns(ctx context.Context, jobID string) ([]JobRun, error) {
+	rows, err := s.pool.Query(ctx,
+		`SELECT attempt, status, started_at, finished_at, duration_ms, error
+		 FROM _ayb_job_runs
+		 WHERE job_id = $1
+		 ORDER BY attempt ASC`,
+		jobID,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	runs, err := scanJobRuns(rows)
+	rows.Close()
+	if err != nil {
+		return nil, err
+	}
+	if len(runs) > 0 {
+		return runs, nil
+	}
+
+	var exists bool
+	err = s.pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM _ayb_jobs WHERE id = $1)`, jobID).Scan(&exists)
+	if err != nil {
+		return nil, err
+	}
+	if !exists {
+		return nil, fmt.Errorf("job %s not found", jobID)
+	}
+
+	return []JobRun{}, nil
 }
 
 // Stats returns aggregate counts by state.

@@ -54,7 +54,7 @@ type Delivery struct {
 // DeliveryStore persists and queries webhook delivery logs.
 type DeliveryStore interface {
 	RecordDelivery(ctx context.Context, d *Delivery) error
-	ListDeliveries(ctx context.Context, webhookID string, page, perPage int) ([]Delivery, int, error)
+	ListDeliveries(ctx context.Context, webhookID string, page, perPage int, failedOnly bool) ([]Delivery, int, error)
 	GetDelivery(ctx context.Context, webhookID, deliveryID string) (*Delivery, error)
 	PruneDeliveries(ctx context.Context, olderThan time.Duration) (int64, error)
 }
@@ -185,12 +185,22 @@ func (s *Store) RecordDelivery(ctx context.Context, d *Delivery) error {
 	return row.Scan(&d.ID, &d.DeliveredAt)
 }
 
+func deliveryListWhereClause(failedOnly bool) string {
+	where := "webhook_id = $1"
+	if failedOnly {
+		where += " AND success = false"
+	}
+	return where
+}
+
 // ListDeliveries returns paginated webhook delivery logs for a given webhook, ordered by delivery time in descending order, along with the total count of deliveries for that webhook.
-func (s *Store) ListDeliveries(ctx context.Context, webhookID string, page, perPage int) ([]Delivery, int, error) {
+func (s *Store) ListDeliveries(ctx context.Context, webhookID string, page, perPage int, failedOnly bool) ([]Delivery, int, error) {
+	where := deliveryListWhereClause(failedOnly)
+
 	// Count total.
 	var total int
 	err := s.pool.QueryRow(ctx,
-		"SELECT COUNT(*) FROM _ayb_webhook_deliveries WHERE webhook_id = $1",
+		"SELECT COUNT(*) FROM _ayb_webhook_deliveries WHERE "+where,
 		webhookID,
 	).Scan(&total)
 	if err != nil {
@@ -199,7 +209,7 @@ func (s *Store) ListDeliveries(ctx context.Context, webhookID string, page, perP
 
 	offset := (page - 1) * perPage
 	rows, err := s.pool.Query(ctx,
-		"SELECT "+deliveryColumns+" FROM _ayb_webhook_deliveries WHERE webhook_id = $1 ORDER BY delivered_at DESC LIMIT $2 OFFSET $3",
+		"SELECT "+deliveryColumns+" FROM _ayb_webhook_deliveries WHERE "+where+" ORDER BY delivered_at DESC LIMIT $2 OFFSET $3",
 		webhookID, perPage, offset,
 	)
 	if err != nil {

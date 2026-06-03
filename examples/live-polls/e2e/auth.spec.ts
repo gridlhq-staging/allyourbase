@@ -17,9 +17,9 @@ test.describe("Authentication", () => {
     });
     await page.goto("/");
     await expect(
-      page.getByRole("heading", { name: "Live Polls" }),
+      page.getByRole("heading", { name: "Live Polls", exact: true }),
     ).toBeVisible();
-    await expect(page.getByText("Sign out")).toBeVisible();
+    await expect(page.getByRole("button", { name: "Sign out", exact: true })).toBeVisible();
     await expect(page.getByPlaceholder("Email")).toBeHidden();
     await expect(page.getByPlaceholder("Password")).toBeHidden();
     await expect(
@@ -37,23 +37,24 @@ test.describe("Authentication", () => {
 
   test("can toggle between login and register", async ({ page }) => {
     await openExplicitAuth(page);
-    await expect(page.getByRole("button", { name: "Sign In" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Sign in to Live Polls" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Sign In", exact: true })).toBeVisible();
 
     await page.getByRole("button", { name: "Register" }).click();
     await expect(
       page.getByRole("button", { name: "Create Account" }),
     ).toBeVisible();
 
-    await page.getByRole("button", { name: "Sign in" }).click();
-    await expect(page.getByRole("button", { name: "Sign In" })).toBeVisible();
+    await page.getByRole("button", { name: "Sign in", exact: true }).click();
+    await expect(page.getByRole("button", { name: "Sign In", exact: true })).toBeVisible();
   });
 
   test("can register a new user", async ({ page }) => {
     const email = await registerUser(page);
     await expect(
-      page.getByRole("heading", { name: "Live Polls" }),
+      page.getByRole("heading", { name: "Live Polls", exact: true }),
     ).toBeVisible();
-    await expect(page.getByRole("button", { name: "Sign out" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Sign out", exact: true })).toBeVisible();
     // Logged-in user's email should be visible in the header.
     await expect(page.getByTestId("user-email")).toHaveText(email);
   });
@@ -61,9 +62,9 @@ test.describe("Authentication", () => {
   test("can login with demo account", async ({ page }) => {
     await loginWithDemoAccount(page);
     await expect(
-      page.getByRole("heading", { name: "Live Polls" }),
+      page.getByRole("heading", { name: "Live Polls", exact: true }),
     ).toBeVisible();
-    await expect(page.getByRole("button", { name: "Sign out" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Sign out", exact: true })).toBeVisible();
   });
 
   test("clicking demo account fills credentials", async ({ page }) => {
@@ -81,8 +82,8 @@ test.describe("Authentication", () => {
     const email = await registerUser(page);
 
     // Logout.
-    await page.getByRole("button", { name: "Sign out" }).click();
-    await expect(page.getByRole("button", { name: "Sign In" })).toBeVisible();
+    await page.getByRole("button", { name: "Sign out", exact: true }).click();
+    await expect(page.getByRole("button", { name: "Sign In", exact: true })).toBeVisible();
     await expect(
       page.getByRole("button", { name: "+ New Poll" }),
     ).toBeHidden();
@@ -90,7 +91,7 @@ test.describe("Authentication", () => {
     // Login.
     await loginUser(page, email);
     await expect(
-      page.getByRole("heading", { name: "Live Polls" }),
+      page.getByRole("heading", { name: "Live Polls", exact: true }),
     ).toBeVisible();
   });
 
@@ -98,7 +99,7 @@ test.describe("Authentication", () => {
     await openExplicitAuth(page);
     await page.getByPlaceholder("Email").fill("wrong@example.com");
     await page.getByPlaceholder("Password").fill("wrongpassword");
-    await page.getByRole("button", { name: "Sign In" }).click();
+    await page.getByRole("button", { name: "Sign In", exact: true }).click();
 
     // Should show an error message.
     await expect(page.getByText(/wrong|invalid|error|failed/i)).toBeVisible({
@@ -108,8 +109,8 @@ test.describe("Authentication", () => {
 
   test("can logout", async ({ page }) => {
     await loginWithDemoAccount(page);
-    await page.getByRole("button", { name: "Sign out" }).click();
-    await expect(page.getByRole("button", { name: "Sign In" })).toBeVisible();
+    await page.getByRole("button", { name: "Sign out", exact: true }).click();
+    await expect(page.getByRole("button", { name: "Sign In", exact: true })).toBeVisible();
     await expect(
       page.getByRole("button", { name: "+ New Poll" }),
     ).toBeHidden();
@@ -131,8 +132,8 @@ test.describe("Authentication", () => {
     const email = await registerUser(page);
 
     // Logout.
-    await page.getByRole("button", { name: "Sign out" }).click();
-    await expect(page.getByRole("button", { name: "Sign In" })).toBeVisible();
+    await page.getByRole("button", { name: "Sign out", exact: true }).click();
+    await expect(page.getByRole("button", { name: "Sign In", exact: true })).toBeVisible();
 
     // Try to register again with same email.
     await page.getByRole("button", { name: "Register" }).click();
@@ -150,26 +151,26 @@ test.describe("Authentication", () => {
     const email = await registerUser(page);
 
     // Logout.
-    await page.getByRole("button", { name: "Sign out" }).click();
-    await expect(page.getByRole("button", { name: "Sign In" })).toBeVisible();
+    await page.getByRole("button", { name: "Sign out", exact: true }).click();
+    await expect(page.getByRole("button", { name: "Sign In", exact: true })).toBeVisible();
     await expect(
       page.getByRole("button", { name: "+ New Poll" }),
     ).toBeHidden();
 
     // Login again.
     await loginUser(page, email);
-    await expect(page.getByRole("button", { name: "Sign out" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Sign out", exact: true })).toBeVisible();
 
     // Logout again.
-    await page.getByRole("button", { name: "Sign out" }).click();
-    await expect(page.getByRole("button", { name: "Sign In" })).toBeVisible();
+    await page.getByRole("button", { name: "Sign out", exact: true }).click();
+    await expect(page.getByRole("button", { name: "Sign In", exact: true })).toBeVisible();
     await expect(
       page.getByRole("button", { name: "+ New Poll" }),
     ).toBeHidden();
 
     // Login one more time.
     await loginUser(page, email);
-    await expect(page.getByRole("button", { name: "Sign out" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Sign out", exact: true })).toBeVisible();
   });
 
   test("login page subtitle matches mode", async ({ page }) => {

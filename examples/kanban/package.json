@@ -9,7 +9,8 @@
     "test:e2e": "playwright test",
     "test:e2e:smoke": "playwright test --config playwright.smoke.config.ts tests/auth.spec.ts tests/seed.spec.ts tests/realtime.spec.ts --grep \"lands anonymous users in the board shell by default|fresh anonymous user lands on one seeded board with starter columns|board realtime transport connects via websocket\"",
     "test:e2e:ui": "playwright test --ui",
-    "lint:e2e": "eslint tests/"
+    "lint:e2e": "eslint tests/",
+    "lint:browser-tests": "npm run lint:e2e"
   },
   "dependencies": {
     "@allyourbase/js": "file:../../sdk",

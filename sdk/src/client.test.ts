@@ -2,6 +2,7 @@ import { describe, it, expect, expectTypeOf, vi, beforeEach, afterEach } from "v
 import { AYBClient } from "./client";
 import { AYBError } from "./errors";
 import type { RpcNotifyOption, RpcOptions } from "./index";
+import { mockFetchSequence } from "./test_utils/mockFetchSequence";
 
 // --- EventSource mock for realtime tests ---
 
@@ -494,6 +495,72 @@ describe("auth", () => {
     expect(eventSpy).not.toHaveBeenCalled();
   });
 
+  it("beginWebAuthnLogin sends POST with email and normalizes challenge shape", async () => {
+    const fetchFn = mockFetch(200, {
+      challenge_id: "challenge-first-factor",
+      options: {
+        challenge: "Zmlyc3QtZmFjdG9yLWNoYWxsZW5nZQ",
+        rpId: "localhost",
+        allowCredentials: [],
+      },
+    });
+    const client = new AYBClient("http://localhost:8090", { fetch: fetchFn });
+
+    const result = await client.auth.beginWebAuthnLogin("passkey@example.com");
+    const call = (fetchFn as ReturnType<typeof vi.fn>).mock.calls[0];
+
+    expect(call[0]).toContain("/api/auth/webauthn/login/begin");
+    expect(call[1].method).toBe("POST");
+    expect(JSON.parse(call[1].body as string)).toEqual({ email: "passkey@example.com" });
+    expect(result).toEqual({
+      challengeId: "challenge-first-factor",
+      options: {
+        challenge: "Zmlyc3QtZmFjdG9yLWNoYWxsZW5nZQ",
+        rpId: "localhost",
+        allowCredentials: [],
+      },
+    });
+  });
+
+  it("finishWebAuthnLogin sends challenge/assertion payload and stores tokens", async () => {
+    expect.assertions(8);
+    const fetchFn = mockFetch(200, {
+      token: "passkey-token",
+      refreshToken: "passkey-refresh",
+      user: { id: "u-passkey", email: "passkey@example.com", email_verified: true },
+    });
+    const client = new AYBClient("http://localhost:8090", { fetch: fetchFn });
+    client.onAuthStateChange((event) => {
+      expect(event).toBe("SIGNED_IN");
+    });
+
+    const assertionResponse = {
+      id: "cred-1",
+      rawId: "cmF3LWlk",
+      type: "public-key",
+      response: {
+        clientDataJSON: "Y2xpZW50LWRhdGE",
+        authenticatorData: "YXV0aC1kYXRh",
+        signature: "c2ln",
+        userHandle: null,
+      },
+      clientExtensionResults: {},
+    };
+    const result = await client.auth.finishWebAuthnLogin("challenge-first-factor", assertionResponse);
+    const call = (fetchFn as ReturnType<typeof vi.fn>).mock.calls[0];
+
+    expect(call[0]).toContain("/api/auth/webauthn/login/finish");
+    expect(call[1].method).toBe("POST");
+    expect(JSON.parse(call[1].body as string)).toEqual({
+      challenge_id: "challenge-first-factor",
+      assertion_response: assertionResponse,
+    });
+    expect(result.token).toBe("passkey-token");
+    expect(client.token).toBe("passkey-token");
+    expect(client.refreshToken).toBe("passkey-refresh");
+    expect(result.user.emailVerified).toBe(true);
+  });
+
   it("linkEmail requires auth header and stores tokens", async () => {
     expect.assertions(7);
     const fetchFn = mockFetch(200, {
@@ -524,6 +591,228 @@ describe("auth", () => {
     });
     expect(client.token).toBe("linked-token");
     expect(result.user.linkedAt).toBe("2026-05-20T10:11:12Z");
+  });
+});
+
+describe("auth webauthn MFA", () => {
+  function utf8Bytes(value: string): ArrayBuffer {
+    return new TextEncoder().encode(value).buffer;
+  }
+
+  class MockAuthenticatorAttestationResponse {
+    clientDataJSON: ArrayBuffer;
+    attestationObject: ArrayBuffer;
+    constructor(clientDataJSON: ArrayBuffer, attestationObject: ArrayBuffer) {
+      this.clientDataJSON = clientDataJSON;
+      this.attestationObject = attestationObject;
+    }
+  }
+
+  class MockAuthenticatorAssertionResponse {
+    clientDataJSON: ArrayBuffer;
+    authenticatorData: ArrayBuffer;
+    signature: ArrayBuffer;
+    userHandle: ArrayBuffer | null;
+    constructor(
+      clientDataJSON: ArrayBuffer,
+      authenticatorData: ArrayBuffer,
+      signature: ArrayBuffer,
+      userHandle: ArrayBuffer | null,
+    ) {
+      this.clientDataJSON = clientDataJSON;
+      this.authenticatorData = authenticatorData;
+      this.signature = signature;
+      this.userHandle = userHandle;
+    }
+  }
+
+  class MockPublicKeyCredential {
+    id: string;
+    rawId: ArrayBuffer;
+    type: string;
+    response: object;
+    constructor(id: string, rawId: ArrayBuffer, type: string, response: object) {
+      this.id = id;
+      this.rawId = rawId;
+      this.type = type;
+      this.response = response;
+    }
+    getClientExtensionResults() {
+      return {};
+    }
+  }
+
+  function stubWebAuthnGlobals(
+    credentialsApi: { create?: ReturnType<typeof vi.fn>; get?: ReturnType<typeof vi.fn> },
+  ): void {
+    vi.stubGlobal("navigator", { credentials: credentialsApi });
+    vi.stubGlobal("PublicKeyCredential", MockPublicKeyCredential);
+    vi.stubGlobal("AuthenticatorAttestationResponse", MockAuthenticatorAttestationResponse);
+    vi.stubGlobal("AuthenticatorAssertionResponse", MockAuthenticatorAssertionResponse);
+  }
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("enrollPasskey POSTs enroll, runs ceremony, then POSTs enroll/confirm with display_name and serialized attestation", async () => {
+    const creationOptions = {
+      challenge: "Y2hhbGxlbmdl",
+      rp: { id: "localhost", name: "Allyourbase" },
+      user: { id: "dXNlci1pZA", name: "user@example.com", displayName: "User" },
+      pubKeyCredParams: [{ type: "public-key", alg: -7 }],
+    };
+    const attestationCredential = new MockPublicKeyCredential(
+      "new-cred",
+      utf8Bytes("raw-id"),
+      "public-key",
+      new MockAuthenticatorAttestationResponse(
+        utf8Bytes('{"type":"webauthn.create"}'),
+        utf8Bytes("attestation-bytes"),
+      ),
+    );
+    const credentialsCreate = vi.fn().mockResolvedValue(attestationCredential);
+    stubWebAuthnGlobals({ create: credentialsCreate });
+
+    const fetchFn = mockFetchSequence([
+      { status: 200, body: creationOptions },
+      { status: 204, body: undefined },
+    ]);
+    const client = new AYBClient("http://localhost:8090", { fetch: fetchFn });
+    client.setTokens("session-token", "session-refresh");
+
+    const result = await client.auth.enrollPasskey("My YubiKey");
+    expect(result).toBeUndefined();
+
+    const calls = (fetchFn as ReturnType<typeof vi.fn>).mock.calls;
+    expect(calls).toHaveLength(2);
+
+    expect(calls[0][0]).toContain("/api/auth/mfa/webauthn/enroll");
+    expect(calls[0][0]).not.toContain("/confirm");
+    expect(calls[0][1].method).toBe("POST");
+    expect(calls[0][1].body).toBeUndefined();
+    expect(calls[0][1].headers.Authorization).toBe("Bearer session-token");
+
+    expect(credentialsCreate).toHaveBeenCalledTimes(1);
+
+    expect(calls[1][0]).toContain("/api/auth/mfa/webauthn/enroll/confirm");
+    expect(calls[1][1].method).toBe("POST");
+    expect(calls[1][1].headers.Authorization).toBe("Bearer session-token");
+    expect(JSON.parse(calls[1][1].body as string)).toEqual({
+      display_name: "My YubiKey",
+      attestation_response: {
+        id: "new-cred",
+        rawId: "cmF3LWlk",
+        type: "public-key",
+        response: {
+          clientDataJSON: "eyJ0eXBlIjoid2ViYXV0aG4uY3JlYXRlIn0",
+          attestationObject: "YXR0ZXN0YXRpb24tYnl0ZXM",
+        },
+        clientExtensionResults: {},
+      },
+    });
+  });
+
+  it("verifyPasskey sends mfa bearer on both challenge and verify, persists session from verify response", async () => {
+    const challengeBody = {
+      challenge_id: "mfa-challenge-1",
+      options: {
+        challenge: "bWZhLWNoYWxsZW5nZQ",
+        rpId: "localhost",
+        allowCredentials: [{ id: "Y3JlZA", type: "public-key" }],
+      },
+    };
+    const verifyBody = {
+      token: "stepped-up-token",
+      refreshToken: "stepped-up-refresh",
+      user: { id: "u-mfa", email: "mfa@example.com", email_verified: true },
+    };
+
+    const assertionCredential = new MockPublicKeyCredential(
+      "mfa-cred",
+      utf8Bytes("raw-mfa"),
+      "public-key",
+      new MockAuthenticatorAssertionResponse(
+        utf8Bytes('{"type":"webauthn.get"}'),
+        utf8Bytes("auth-data"),
+        utf8Bytes("sig"),
+        null,
+      ),
+    );
+    const credentialsGet = vi.fn().mockResolvedValue(assertionCredential);
+    stubWebAuthnGlobals({ get: credentialsGet });
+
+    const fetchFn = mockFetchSequence([
+      { status: 200, body: challengeBody },
+      { status: 200, body: verifyBody },
+    ]);
+    const client = new AYBClient("http://localhost:8090", { fetch: fetchFn });
+    client.onAuthStateChange((event) => {
+      expect(event).toBe("SIGNED_IN");
+    });
+
+    const result = await client.auth.verifyPasskey("pending-mfa-token");
+
+    const calls = (fetchFn as ReturnType<typeof vi.fn>).mock.calls;
+    expect(calls).toHaveLength(2);
+
+    expect(calls[0][0]).toContain("/api/auth/mfa/webauthn/challenge");
+    expect(calls[0][1].method).toBe("POST");
+    expect(calls[0][1].body).toBeUndefined();
+    expect(calls[0][1].headers.Authorization).toBe("Bearer pending-mfa-token");
+
+    expect(credentialsGet).toHaveBeenCalledTimes(1);
+
+    expect(calls[1][0]).toContain("/api/auth/mfa/webauthn/verify");
+    expect(calls[1][1].method).toBe("POST");
+    expect(calls[1][1].headers.Authorization).toBe("Bearer pending-mfa-token");
+    const verifyPayload = JSON.parse(calls[1][1].body as string);
+    expect(verifyPayload.challenge_id).toBe("mfa-challenge-1");
+    expect(verifyPayload.assertion_response).toMatchObject({
+      id: "mfa-cred",
+      type: "public-key",
+    });
+
+    expect(result.token).toBe("stepped-up-token");
+    expect(client.token).toBe("stepped-up-token");
+    expect(client.refreshToken).toBe("stepped-up-refresh");
+  });
+
+  it("verifyPasskey sends the mfa token (not the session token) when a session is already set", async () => {
+    const challengeBody = {
+      challenge_id: "mfa-challenge-2",
+      options: { challenge: "Y2gy" },
+    };
+    const verifyBody = {
+      token: "stepped-up-2",
+      refreshToken: "stepped-up-refresh-2",
+      user: { id: "u-mfa-2" },
+    };
+    const assertionCredential = new MockPublicKeyCredential(
+      "mfa-cred-2",
+      utf8Bytes("raw-mfa-2"),
+      "public-key",
+      new MockAuthenticatorAssertionResponse(
+        utf8Bytes('{"t":"g"}'),
+        utf8Bytes("ad"),
+        utf8Bytes("sg"),
+        null,
+      ),
+    );
+    stubWebAuthnGlobals({ get: vi.fn().mockResolvedValue(assertionCredential) });
+
+    const fetchFn = mockFetchSequence([
+      { status: 200, body: challengeBody },
+      { status: 200, body: verifyBody },
+    ]);
+    const client = new AYBClient("http://localhost:8090", { fetch: fetchFn });
+    client.setTokens("session-token", "session-refresh");
+
+    await client.auth.verifyPasskey("pending-mfa-token");
+
+    const calls = (fetchFn as ReturnType<typeof vi.fn>).mock.calls;
+    expect(calls[0][1].headers.Authorization).toBe("Bearer pending-mfa-token");
+    expect(calls[1][1].headers.Authorization).toBe("Bearer pending-mfa-token");
   });
 });
 
@@ -675,6 +964,70 @@ describe("records params coverage", () => {
     const client = new AYBClient("http://localhost:8090", { fetch: fetchFn });
     const result = await client.records.delete("posts", "42");
     expect(result).toBeUndefined();
+  });
+
+  it("list encodes fuzzy=true (omits when false/undefined)", async () => {
+    const fetchFn = mockFetch(200, { items: [], page: 1, perPage: 20, totalItems: 0, totalPages: 0 });
+    const client = new AYBClient("http://localhost:8090", { fetch: fetchFn });
+    await client.records.list("posts", { search: "hello", fuzzy: true });
+    const url = (fetchFn as ReturnType<typeof vi.fn>).mock.calls[0][0] as string;
+    expect(url).toContain("fuzzy=true");
+
+    const fetchFn2 = mockFetch(200, { items: [], page: 1, perPage: 20, totalItems: 0, totalPages: 0 });
+    const client2 = new AYBClient("http://localhost:8090", { fetch: fetchFn2 });
+    await client2.records.list("posts", { search: "hello", fuzzy: false });
+    const url2 = (fetchFn2 as ReturnType<typeof vi.fn>).mock.calls[0][0] as string;
+    expect(url2).not.toContain("fuzzy");
+  });
+
+  it("list encodes facets as comma-separated single param", async () => {
+    const fetchFn = mockFetch(200, { items: [], page: 1, perPage: 20, totalItems: 0, totalPages: 0 });
+    const client = new AYBClient("http://localhost:8090", { fetch: fetchFn });
+    await client.records.list("posts", { facets: ["col_a", "col_b"] });
+    const url = (fetchFn as ReturnType<typeof vi.fn>).mock.calls[0][0] as string;
+    expect(url).toContain("facets=col_a%2Ccol_b");
+  });
+
+  it("list encodes semantic search params", async () => {
+    const fetchFn = mockFetch(200, { items: [], page: 1, perPage: 20, totalItems: 0, totalPages: 0 });
+    const client = new AYBClient("http://localhost:8090", { fetch: fetchFn });
+    await client.records.list("posts", {
+      semantic: true,
+      semanticQuery: "find similar articles",
+      vectorColumn: "embedding",
+      distance: "cosine",
+    });
+    const url = (fetchFn as ReturnType<typeof vi.fn>).mock.calls[0][0] as string;
+    expect(url).toContain("semantic=true");
+    expect(url).toContain("semantic_query=find+similar+articles");
+    expect(url).toContain("vector_column=embedding");
+    expect(url).toContain("distance=cosine");
+  });
+
+  it("list encodes nearest as JSON-stringified number array", async () => {
+    const fetchFn = mockFetch(200, { items: [], page: 1, perPage: 20, totalItems: 0, totalPages: 0 });
+    const client = new AYBClient("http://localhost:8090", { fetch: fetchFn });
+    await client.records.list("posts", { nearest: [0.1, 0.2, 0.3] });
+    const url = (fetchFn as ReturnType<typeof vi.fn>).mock.calls[0][0] as string;
+    const params = new URL(url).searchParams;
+    expect(params.get("nearest")).toBe("[0.1,0.2,0.3]");
+  });
+
+  it("list response includes typed facets envelope", async () => {
+    const facetsPayload = { status: [{ value: "published", count: 2 }] };
+    const fetchFn = mockFetch(200, {
+      items: [{ id: "1" }],
+      page: 1,
+      perPage: 20,
+      totalItems: 1,
+      totalPages: 1,
+      facets: facetsPayload,
+    });
+    const client = new AYBClient("http://localhost:8090", { fetch: fetchFn });
+    const result = await client.records.list("posts", { facets: ["status"] });
+    expect(result.facets).toEqual(facetsPayload);
+    expect(result.facets?.status[0].value).toBe("published");
+    expect(result.facets?.status[0].count).toBe(2);
   });
 });
 

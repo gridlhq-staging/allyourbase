@@ -1,3 +1,6 @@
+/**
+ * @module Stub summary for /Users/stuart/parallel_development/allyourbase_dev/may31_pm_11_coverage_load_truth_closeout/allyourbase_dev/examples/movies/src/lib/ayb.ts.
+ */
 import { AYBClient } from "@allyourbase/js";
 import type {
   MovieSearchResponse,
@@ -6,7 +9,7 @@ import type {
   BYOKProvider,
 } from "../types";
 
-const url = import.meta.env.VITE_AYB_URL ?? "http://localhost:8090";
+const url = import.meta.env.VITE_AYB_URL ?? "";
 const TOKEN_KEY = "ayb_token";
 const REFRESH_TOKEN_KEY = "ayb_refresh_token";
 const ANONYMOUS_BOOTSTRAP_OPTOUT_KEY = "ayb_anonymous_bootstrap_optout";
@@ -65,13 +68,24 @@ function apiBase(): string {
   return url;
 }
 
+function apiHeaders(): HeadersInit {
+  const token = sessionStorage.getItem(TOKEN_KEY);
+  if (!token) {
+    return { "Content-Type": "application/json" };
+  }
+  return {
+    "Content-Type": "application/json",
+    Authorization: `Bearer ${token}`,
+  };
+}
+
 export async function searchMovies(
   query: string,
   limit?: number,
 ): Promise<MovieSearchResponse> {
   const res = await fetch(`${apiBase()}/api/admin/movies/search`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: apiHeaders(),
     body: JSON.stringify({ query, limit }),
   });
   if (!res.ok) {
@@ -86,7 +100,7 @@ export async function embedNote(
 ): Promise<NoteEmbedResponse> {
   const res = await fetch(`${apiBase()}/api/admin/movies/notes/embed`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: apiHeaders(),
     body: JSON.stringify({ text, movie_slug: movieSlug }),
   });
   if (!res.ok) {
@@ -102,7 +116,7 @@ export async function streamChat(
 ): Promise<{ sessionId: string; fullText: string }> {
   const res = await fetch(`${apiBase()}/api/admin/movies/chat/stream`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: apiHeaders(),
     body: JSON.stringify({
       messages,
       provider: opts?.provider ?? "",
@@ -156,7 +170,7 @@ export async function setBYOKKey(
 ): Promise<void> {
   const res = await fetch(`${apiBase()}/api/admin/movies/byok`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: apiHeaders(),
     body: JSON.stringify({ provider, secret_name: secretName }),
   });
   if (!res.ok) {
@@ -167,6 +181,7 @@ export async function setBYOKKey(
 export async function clearBYOKKey(provider: BYOKProvider): Promise<void> {
   const res = await fetch(`${apiBase()}/api/admin/movies/byok/${provider}`, {
     method: "DELETE",
+    headers: apiHeaders(),
   });
   if (!res.ok) {
     throw new Error(`BYOK clear failed: ${res.status}`);

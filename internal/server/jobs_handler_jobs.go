@@ -1,12 +1,24 @@
 package server
 
 import (
+	"fmt"
 	"net/http"
 	"strconv"
-	"strings"
 
 	"github.com/allyourbase/ayb/internal/httputil"
 )
+
+func isExactJobNotFoundError(err error, jobID string) bool {
+	return err != nil && err.Error() == fmt.Sprintf("job %s not found", jobID)
+}
+
+func isExactRetryConflictError(err error, jobID string) bool {
+	return err != nil && err.Error() == fmt.Sprintf("job %s not found or not in failed state", jobID)
+}
+
+func isExactCancelConflictError(err error, jobID string) bool {
+	return err != nil && err.Error() == fmt.Sprintf("job %s not found or not in queued state", jobID)
+}
 
 // handleAdminListJobs returns a list of jobs with optional filters.
 func handleAdminListJobs(svc jobAdmin) http.HandlerFunc {
@@ -57,7 +69,7 @@ func handleAdminGetJob(svc jobAdmin) http.HandlerFunc {
 
 		job, err := svc.Get(r.Context(), id)
 		if err != nil {
-			if strings.Contains(err.Error(), "not found") {
+			if isExactJobNotFoundError(err, id) {
 				httputil.WriteError(w, http.StatusNotFound, "job not found")
 				return
 			}
@@ -66,6 +78,32 @@ func handleAdminGetJob(svc jobAdmin) http.HandlerFunc {
 		}
 
 		httputil.WriteJSON(w, http.StatusOK, job)
+	}
+}
+
+// handleAdminListJobRuns returns persisted run history for a single job.
+func handleAdminListJobRuns(svc jobAdmin) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		jobID, ok := parseUUIDParamWithLabel(w, r, "id", "job id")
+		if !ok {
+			return
+		}
+		id := jobID.String()
+
+		items, err := svc.ListRuns(r.Context(), id)
+		if err != nil {
+			if isExactJobNotFoundError(err, id) {
+				httputil.WriteError(w, http.StatusNotFound, "job not found")
+				return
+			}
+			httputil.WriteError(w, http.StatusInternalServerError, "failed to list job runs")
+			return
+		}
+
+		httputil.WriteJSON(w, http.StatusOK, jobRunListResponse{
+			Items: items,
+			Count: len(items),
+		})
 	}
 }
 
@@ -80,7 +118,7 @@ func handleAdminRetryJob(svc jobAdmin) http.HandlerFunc {
 
 		job, err := svc.RetryNow(r.Context(), id)
 		if err != nil {
-			if strings.Contains(err.Error(), "not found") || strings.Contains(err.Error(), "not in failed state") {
+			if isExactRetryConflictError(err, id) {
 				httputil.WriteError(w, http.StatusConflict, err.Error())
 				return
 			}
@@ -103,7 +141,7 @@ func handleAdminCancelJob(svc jobAdmin) http.HandlerFunc {
 
 		job, err := svc.Cancel(r.Context(), id)
 		if err != nil {
-			if strings.Contains(err.Error(), "not found") || strings.Contains(err.Error(), "not in queued state") {
+			if isExactCancelConflictError(err, id) {
 				httputil.WriteError(w, http.StatusConflict, err.Error())
 				return
 			}
@@ -142,6 +180,14 @@ func (s *Server) handleJobsGet(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	handleAdminGetJob(s.jobService).ServeHTTP(w, r)
+}
+
+func (s *Server) handleJobsRuns(w http.ResponseWriter, r *http.Request) {
+	if s.jobService == nil {
+		serviceUnavailable(w, serviceUnavailableJobQueue)
+		return
+	}
+	handleAdminListJobRuns(s.jobService).ServeHTTP(w, r)
 }
 
 func (s *Server) handleJobsRetry(w http.ResponseWriter, r *http.Request) {

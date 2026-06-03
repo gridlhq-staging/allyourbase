@@ -1,4 +1,7 @@
-import { type Page, type Locator, expect } from "@playwright/test";
+/**
+ * @module Stub summary for /Users/stuart/parallel_development/allyourbase_dev/jun02_pm_2_demos_green_browser_standards/allyourbase_dev/examples/live-polls/e2e/helpers.ts.
+ */
+import { type Page, type Locator, type CDPSession, type Request, expect } from "@playwright/test";
 
 let userCounter = 0;
 export const runId = Math.random().toString(36).slice(2, 8);
@@ -19,6 +22,24 @@ export const DEMO_ACCOUNTS = [
 
 const ANONYMOUS_BOOTSTRAP_OPTOUT_KEY = "ayb_anonymous_bootstrap_optout";
 const ensuredDemoAccounts = new Set<string>();
+interface VirtualAuthenticatorHandle {
+  authenticatorId: string;
+  remove: () => Promise<void>;
+}
+type ObservedAuthRequest = {
+  pathname: string;
+  method: string;
+  payload: unknown;
+};
+
+const PASSKEY_BEGIN_ENDPOINT = "/api/auth/webauthn/login/begin";
+const PASSKEY_FINISH_ENDPOINT = "/api/auth/webauthn/login/finish";
+const PASSWORD_LOGIN_ENDPOINT = "/api/auth/login";
+
+export interface PasskeyFirstFactorRequestObserver {
+  stop: () => void;
+  expectPasskeyOnlySignIn: (email: string) => void;
+}
 
 async function ensureDemoAccountExists(
   page: Page,
@@ -48,7 +69,7 @@ export async function openExplicitAuth(page: Page): Promise<void> {
     localStorage.setItem(optOutKey, "1");
   }, ANONYMOUS_BOOTSTRAP_OPTOUT_KEY);
   await page.goto("/");
-  const authFormReady = page.getByRole("button", { name: "Sign In" });
+  const authFormReady = page.getByRole("button", { name: "Sign In", exact: true });
   const anonymousShellReady = page.getByRole("button", { name: "Sign out" });
   await Promise.race([
     authFormReady.waitFor({ state: "visible", timeout: 15000 }),
@@ -62,6 +83,204 @@ export async function openExplicitAuth(page: Page): Promise<void> {
   await expect(page.getByPlaceholder("Email")).toBeVisible();
 }
 
+/**
+ * Create one scoped Chromium virtual authenticator and return an explicit
+ * teardown handle. Mirrors the CDP setup/cleanup contract used by
+ * ui/browser-tests-unmocked/fixtures/auth.ts::createVirtualAuthenticator.
+ */
+export async function attachVirtualAuthenticator(
+  page: Page,
+): Promise<VirtualAuthenticatorHandle> {
+  const session: CDPSession = await page.context().newCDPSession(page);
+  await session.send("WebAuthn.enable");
+  const response = (await session.send("WebAuthn.addVirtualAuthenticator", {
+    options: {
+      protocol: "ctap2",
+      transport: "internal",
+      hasResidentKey: true,
+      hasUserVerification: true,
+      isUserVerified: true,
+      automaticPresenceSimulation: true,
+    },
+  })) as { authenticatorId?: string };
+  const authenticatorId = response?.authenticatorId;
+  if (typeof authenticatorId !== "string" || authenticatorId.length === 0) {
+    await session.send("WebAuthn.disable").catch(() => {});
+    await session.detach().catch(() => {});
+    throw new Error("CDP virtual authenticator setup succeeded but no authenticatorId was returned");
+  }
+  return {
+    authenticatorId,
+    remove: async () => {
+      await session
+        .send("WebAuthn.removeVirtualAuthenticator", { authenticatorId })
+        .catch(() => {});
+      await session.send("WebAuthn.disable").catch(() => {});
+      await session.detach().catch(() => {});
+    },
+  };
+}
+
+export function observePasskeyFirstFactorRequests(
+  page: Page,
+): PasskeyFirstFactorRequestObserver {
+  const observedAuthRequests: ObservedAuthRequest[] = [];
+  const requestListener = (request: Request) => {
+    const pathname = new URL(request.url()).pathname;
+    if (!pathname.startsWith("/api/auth/")) {
+      return;
+    }
+    let payload: unknown = null;
+    try {
+      payload = request.postDataJSON();
+    } catch {
+      payload = null;
+    }
+    observedAuthRequests.push({
+      pathname,
+      method: request.method(),
+      payload,
+    });
+  };
+  page.on("request", requestListener);
+
+  return {
+    stop: () => page.off("request", requestListener),
+    expectPasskeyOnlySignIn: (email: string) => {
+      const passkeyBeginRequests = observedAuthRequests.filter(
+        (request) => request.pathname === PASSKEY_BEGIN_ENDPOINT,
+      );
+      const passkeyFinishRequests = observedAuthRequests.filter(
+        (request) => request.pathname === PASSKEY_FINISH_ENDPOINT,
+      );
+      const passwordLoginRequests = observedAuthRequests.filter(
+        (request) => request.pathname === PASSWORD_LOGIN_ENDPOINT,
+      );
+
+      expect(passkeyBeginRequests).toHaveLength(1);
+      expect(passkeyBeginRequests[0].method).toBe("POST");
+      expect(passkeyBeginRequests[0].payload).toEqual({ email });
+      expect(passkeyFinishRequests).toHaveLength(1);
+      expect(passkeyFinishRequests[0].method).toBe("POST");
+      expect(passwordLoginRequests).toHaveLength(0);
+      expect(
+        observedAuthRequests.findIndex((request) => request.pathname === PASSKEY_BEGIN_ENDPOINT),
+      ).toBeLessThan(
+        observedAuthRequests.findIndex((request) => request.pathname === PASSKEY_FINISH_ENDPOINT),
+      );
+    },
+  };
+}
+
+/**
+ * Enroll one passkey for the currently signed-in browser session by calling the
+ * real enrollment endpoints and generating attestation in-browser where
+ * WebAuthn constructors are available.
+ */
+export async function enrollPasskeyForCurrentSession(
+  page: Page,
+  displayName: string,
+): Promise<void> {
+  await page.evaluate(
+    async ({ passkeyDisplayName }: { passkeyDisplayName: string }) => {
+      const decodeBase64URL = (value: string): ArrayBuffer => {
+        const normalized = value.replace(/-/g, "+").replace(/_/g, "/");
+        const padded = normalized.padEnd(Math.ceil(normalized.length / 4) * 4, "=");
+        const binary = window.atob(padded);
+        const bytes = Uint8Array.from(binary, (character) => character.charCodeAt(0));
+        return bytes.buffer;
+      };
+
+      const token = window.sessionStorage.getItem("ayb_token");
+      if (!token) {
+        throw new Error("passkey enrollment requires ayb_token in sessionStorage");
+      }
+
+      const beginResponse = await window.fetch("/api/auth/mfa/webauthn/enroll", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!beginResponse.ok) {
+        throw new Error(
+          `passkey enroll begin failed: ${beginResponse.status} ${await beginResponse.text()}`,
+        );
+      }
+      const options = await beginResponse.json();
+
+      const publicKey: PublicKeyCredentialCreationOptions = {
+        ...options,
+        challenge: decodeBase64URL(String((options as { challenge?: unknown }).challenge ?? "")),
+        user: {
+          ...((options as { user?: unknown }).user as Record<string, unknown>),
+          id: decodeBase64URL(
+            String((((options as { user?: unknown }).user as { id?: unknown })?.id ?? "")),
+          ),
+        },
+        excludeCredentials: Array.isArray((options as { excludeCredentials?: unknown }).excludeCredentials)
+          ? ((options as { excludeCredentials?: unknown }).excludeCredentials as Array<Record<string, unknown>>)
+              .map((credential) => ({
+                ...credential,
+                id: decodeBase64URL(String((credential as { id?: unknown }).id ?? "")),
+              }))
+          : undefined,
+      };
+
+      const credential = await navigator.credentials.create({ publicKey });
+      if (!(credential instanceof PublicKeyCredential)) {
+        throw new Error("The browser did not return a WebAuthn attestation credential");
+      }
+      const response = credential.response;
+      if (!(response instanceof AuthenticatorAttestationResponse)) {
+        throw new Error("The browser returned an unexpected passkey attestation response");
+      }
+      const toJSON = (credential as { toJSON?: () => unknown }).toJSON;
+      if (typeof toJSON !== "function") {
+        throw new Error("The browser did not expose PublicKeyCredential.toJSON()");
+      }
+      const attestationResponse = toJSON.call(credential);
+      if (typeof attestationResponse !== "object" || attestationResponse === null) {
+        throw new Error("Passkey attestation serialization did not return an object payload");
+      }
+      const attestationRecord = attestationResponse as {
+        response?: { transports?: unknown };
+      };
+      const transports = typeof response.getTransports === "function" ? response.getTransports() : [];
+      if (
+        attestationRecord.response
+        && (attestationRecord.response.transports === undefined
+          || attestationRecord.response.transports === null)
+      ) {
+        attestationRecord.response.transports = transports;
+      }
+
+      const confirmResponse = await window.fetch("/api/auth/mfa/webauthn/enroll/confirm", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          display_name: passkeyDisplayName,
+          attestation_response: attestationResponse,
+        }),
+      });
+      if (!confirmResponse.ok) {
+        throw new Error(
+          `passkey enroll confirm failed: ${confirmResponse.status} ${await confirmResponse.text()}`,
+        );
+      }
+
+      const body = (await confirmResponse.json().catch(() => null)) as { token?: unknown } | null;
+      if (typeof body?.token === "string" && body.token.length > 0) {
+        window.sessionStorage.setItem("ayb_token", body.token);
+      }
+    },
+    {
+      passkeyDisplayName: displayName,
+    },
+  );
+}
+
 /** Register a new user via the UI and return the email. */
 export async function registerUser(page: Page): Promise<string> {
   const email = uniqueEmail();
@@ -73,7 +292,7 @@ export async function registerUser(page: Page): Promise<string> {
   await page.getByPlaceholder("Password").fill(TEST_PASSWORD);
   await page.getByRole("button", { name: "Create Account" }).click();
 
-  await expect(page.getByRole("button", { name: "Sign In" })).toBeHidden({
+  await expect(page.getByRole("button", { name: "Sign In", exact: true })).toBeHidden({
     timeout: 15000,
   });
   await expect(page.getByRole("button", { name: "Sign out" })).toBeVisible();
@@ -94,9 +313,9 @@ export async function loginWithDemoAccount(
   await page.getByText(acct.email).click();
 
   // Submit the form.
-  await page.getByRole("button", { name: "Sign In" }).click();
+  await page.getByRole("button", { name: "Sign In", exact: true }).click();
 
-  await expect(page.getByRole("button", { name: "Sign In" })).toBeHidden({
+  await expect(page.getByRole("button", { name: "Sign In", exact: true })).toBeHidden({
     timeout: 10000,
   });
   await expect(page.getByRole("button", { name: "Sign out" })).toBeVisible();
@@ -111,8 +330,8 @@ export async function loginUser(
   await openExplicitAuth(page);
   await page.getByPlaceholder("Email").fill(email);
   await page.getByPlaceholder("Password").fill(password);
-  await page.getByRole("button", { name: "Sign In" }).click();
-  await expect(page.getByRole("button", { name: "Sign In" })).toBeHidden({
+  await page.getByRole("button", { name: "Sign In", exact: true }).click();
+  await expect(page.getByRole("button", { name: "Sign In", exact: true })).toBeHidden({
     timeout: 10000,
   });
   await expect(page.getByRole("button", { name: "Sign out" })).toBeVisible();

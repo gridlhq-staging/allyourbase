@@ -48,6 +48,20 @@ const server = http.createServer((req, res) => {
     return;
   }
 
+  if (req.method === "POST" && req.url === "/v1/embeddings") {
+    readJSON(req, (body) => {
+      const input = Array.isArray(body.input) ? body.input : [body.input ?? ""];
+      const data = input.map(() => ({ embedding: [0.9, 0.1, 0.2] }));
+      writeJSON(res, 200, {
+        object: "list",
+        model: body.model || "text-embedding-3-small",
+        data,
+        usage: { prompt_tokens: 1, total_tokens: 1 },
+      });
+    });
+    return;
+  }
+
   if (req.method === "POST" && req.url === "/api/chat") {
     readJSON(req, (body) => {
       const messages = Array.isArray(body.messages) ? body.messages : [];
@@ -62,6 +76,28 @@ const server = http.createServer((req, res) => {
         done_reason: "stop",
         prompt_eval_count: 1,
         eval_count: 1,
+      });
+    });
+    return;
+  }
+
+  if (req.method === "POST" && req.url === "/v1/chat/completions") {
+    readJSON(req, (body) => {
+      const messages = Array.isArray(body.messages) ? body.messages : [];
+      const last = messages[messages.length - 1];
+      const content = typeof last?.content === "string" ? last.content : "stub response";
+      writeJSON(res, 200, {
+        id: "chatcmpl-demo",
+        object: "chat.completion",
+        model: body.model || "gpt-4o-mini",
+        choices: [
+          {
+            index: 0,
+            message: { role: "assistant", content: `Local stub response: ${content}` },
+            finish_reason: "stop",
+          },
+        ],
+        usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 },
       });
     });
     return;

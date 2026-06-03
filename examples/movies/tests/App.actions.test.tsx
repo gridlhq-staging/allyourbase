@@ -120,6 +120,22 @@ describe("App actions delegate to lib/ayb", () => {
     });
   });
 
+  it("renders the assistant response after chat completes", async () => {
+    mockStreamChat.mockResolvedValue({
+      sessionId: "sess-1",
+      fullText: "Local stub response: Summarize inception",
+    });
+    render(<App />);
+
+    const chatInput = screen.getByPlaceholderText(/ask about movies/i);
+    fireEvent.change(chatInput, { target: { value: "Summarize inception" } });
+    fireEvent.submit(chatInput.closest("form")!);
+
+    await waitFor(() => {
+      expect(screen.getByText("Local stub response: Summarize inception")).toBeInTheDocument();
+    });
+  });
+
   it("does not call fetch directly from components", async () => {
     const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response());
     render(<App />);

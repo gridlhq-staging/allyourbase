@@ -11,7 +11,7 @@ import (
 // FS contains the pre-built static assets (dist/) and schema files for all demos.
 //
 //go:embed kanban/dist live-polls/dist movies/dist
-//go:embed kanban/schema.sql live-polls/schema.sql movies/schema.sql movies/seed.sql movies/embeddings.json
+//go:embed kanban/schema.sql live-polls/schema.sql movies/schema.sql movies/seed.sql movies/embeddings.json movies/ayb.toml
 var FS embed.FS
 
 // DemoDist returns a sub-filesystem rooted at the given demo's dist/ directory.

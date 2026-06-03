@@ -11,7 +11,10 @@ import {
   challengeSMSMFA,
   verifySMSMFA,
   verifyBackupCode,
+  beginPasskeyChallenge,
+  verifyPasskeyChallenge,
 } from "../../api";
+import { createPasskeyAssertion } from "../../webauthn";
 import type { MFAFactor, AuthTokens } from "../../types";
 
 vi.mock("../../api", () => ({
@@ -23,6 +26,12 @@ vi.mock("../../api", () => ({
   challengeSMSMFA: vi.fn(),
   verifySMSMFA: vi.fn(),
   verifyBackupCode: vi.fn(),
+  beginPasskeyChallenge: vi.fn(),
+  verifyPasskeyChallenge: vi.fn(),
+}));
+
+vi.mock("../../webauthn", () => ({
+  createPasskeyAssertion: vi.fn(),
 }));
 
 const mockGetMFAFactors = vi.mocked(getMFAFactors);
@@ -33,6 +42,9 @@ const mockVerifyEmailMFA = vi.mocked(verifyEmailMFA);
 const mockChallengeSMSMFA = vi.mocked(challengeSMSMFA);
 const mockVerifySMSMFA = vi.mocked(verifySMSMFA);
 const mockVerifyBackupCode = vi.mocked(verifyBackupCode);
+const mockBeginPasskeyChallenge = vi.mocked(beginPasskeyChallenge);
+const mockVerifyPasskeyChallenge = vi.mocked(verifyPasskeyChallenge);
+const mockCreatePasskeyAssertion = vi.mocked(createPasskeyAssertion);
 
 const TOKENS: AuthTokens = {
   token: "aal2-token",
@@ -115,6 +127,33 @@ describe("MFAChallenge", () => {
       await waitFor(() => {
         // Should jump straight to TOTP code entry
         expect(screen.getByTestId("mfa-code-input")).toBeInTheDocument();
+      });
+    });
+
+    it("starts passkey verification when a WebAuthn factor is selected", async () => {
+      mockGetMFAFactors.mockResolvedValue({
+        factors: [
+          { id: "f1", method: "webauthn", label: "MacBook Touch ID", display_name: "MacBook Touch ID" },
+          { id: "f2", method: "email", label: "Email" },
+        ],
+      });
+      mockBeginPasskeyChallenge.mockResolvedValue({
+        challenge_id: "passkey-challenge",
+        options: {
+          challenge: "Y2hhbGxlbmdl",
+        },
+      });
+
+      const user = userEvent.setup();
+      render(<MFAChallenge onVerified={onVerified} />);
+
+      await waitFor(() => {
+        expect(screen.getByRole("button", { name: /macbook touch id/i })).toBeInTheDocument();
+      });
+      await user.click(screen.getByRole("button", { name: /macbook touch id/i }));
+
+      await waitFor(() => {
+        expect(screen.getByTestId("passkey-verify-button")).toBeInTheDocument();
       });
     });
   });
@@ -263,6 +302,42 @@ describe("MFAChallenge", () => {
         expect(screen.getByText(/temporarily locked/i)).toBeInTheDocument();
       });
       expect(screen.getByText(/27 minutes/i)).toBeInTheDocument();
+    });
+  });
+
+  describe("Passkey verification", () => {
+    it("verifies a passkey challenge and reports upgraded tokens", async () => {
+      mockGetMFAFactors.mockResolvedValue({
+        factors: [{ id: "f1", method: "webauthn", label: "MacBook Touch ID", display_name: "MacBook Touch ID" }],
+      });
+      mockBeginPasskeyChallenge.mockResolvedValue({
+        challenge_id: "passkey-challenge",
+        options: {
+          challenge: "Y2hhbGxlbmdl",
+        },
+      });
+      mockCreatePasskeyAssertion.mockResolvedValue({ id: "assertion-1" });
+      mockVerifyPasskeyChallenge.mockResolvedValue(TOKENS);
+
+      const user = userEvent.setup();
+      render(<MFAChallenge onVerified={onVerified} />);
+
+      await waitFor(() => {
+        expect(screen.getByTestId("passkey-verify-button")).toBeInTheDocument();
+      });
+      await user.click(screen.getByTestId("passkey-verify-button"));
+
+      await waitFor(() => {
+        expect(mockCreatePasskeyAssertion).toHaveBeenCalledWith({
+          challenge: "Y2hhbGxlbmdl",
+        });
+      });
+      await waitFor(() => {
+        expect(mockVerifyPasskeyChallenge).toHaveBeenCalledWith("passkey-challenge", { id: "assertion-1" });
+      });
+      await waitFor(() => {
+        expect(onVerified).toHaveBeenCalledWith(TOKENS);
+      });
     });
   });
 

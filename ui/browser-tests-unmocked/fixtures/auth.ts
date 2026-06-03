@@ -1,9 +1,52 @@
 /**
  * @module Stub summary for /Users/stuart/parallel_development/allyourbase_dev/MAR18_WS_C_phase5_features_and_phase6/allyourbase_dev/ui/browser-tests-unmocked/fixtures/auth.ts.
  */
-import type { APIRequestContext, Page } from "@playwright/test";
+import type { APIRequestContext, CDPSession, Page } from "@playwright/test";
 import { createHmac } from "crypto";
 import { execSQL, probeEndpoint, sqlLiteral, validateResponse } from "./core";
+
+interface VirtualAuthenticatorHandle {
+  authenticatorId: string;
+  remove: () => Promise<void>;
+}
+
+/**
+ * Creates a per-test Chromium virtual authenticator and returns a scoped teardown handle.
+ */
+export async function createVirtualAuthenticator(
+  page: Page,
+): Promise<VirtualAuthenticatorHandle> {
+  const session: CDPSession = await page.context().newCDPSession(page);
+  await session.send("WebAuthn.enable");
+  const response = (await session.send("WebAuthn.addVirtualAuthenticator", {
+    options: {
+      protocol: "ctap2",
+      transport: "internal",
+      hasResidentKey: true,
+      hasUserVerification: true,
+      isUserVerified: true,
+      automaticPresenceSimulation: true,
+    },
+  })) as { authenticatorId?: string };
+
+  const authenticatorId = response?.authenticatorId;
+  if (typeof authenticatorId !== "string" || authenticatorId.length === 0) {
+    await session.send("WebAuthn.disable").catch(() => {});
+    await session.detach().catch(() => {});
+    throw new Error("CDP virtual authenticator setup succeeded but no authenticatorId was returned");
+  }
+
+  return {
+    authenticatorId,
+    remove: async () => {
+      await session
+        .send("WebAuthn.removeVirtualAuthenticator", { authenticatorId })
+        .catch(() => {});
+      await session.send("WebAuthn.disable").catch(() => {});
+      await session.detach().catch(() => {});
+    },
+  };
+}
 
 function base32Decode(encoded: string): Buffer {
   const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
@@ -104,6 +147,148 @@ export async function promoteSessionToAAL2WithTOTP(
   }
   if (!upgradedToken) {
     throw new Error("AAL2 step-up failed: TOTP code was rejected twice");
+  }
+
+  await page.evaluate((token: string) => {
+    window.localStorage.setItem("ayb_auth_token", token);
+  }, upgradedToken);
+}
+
+export async function promoteSessionToAAL2WithPasskey(
+  request: APIRequestContext,
+  page: Page,
+  email: string,
+  password: string,
+): Promise<void> {
+  const loginRes = await request.post("/api/auth/login", {
+    data: { email, password },
+  });
+  await validateResponse(loginRes, "Login for WebAuthn AAL2 step-up");
+  const loginBody = await loginRes.json();
+  if (
+    !loginBody?.mfa_pending ||
+    typeof loginBody?.mfa_token !== "string" ||
+    loginBody.mfa_token.length === 0
+  ) {
+    throw new Error("Expected MFA pending token during WebAuthn AAL2 step-up login");
+  }
+
+  const pendingToken = loginBody.mfa_token as string;
+  const newChallenge = async (): Promise<{ challengeID: string; options: Record<string, unknown> }> => {
+    const challengeRes = await request.post("/api/auth/mfa/webauthn/challenge", {
+      headers: { Authorization: `Bearer ${pendingToken}` },
+    });
+    await validateResponse(challengeRes, "Create WebAuthn challenge for AAL2 step-up");
+    const challengeBody = await challengeRes.json();
+    if (
+      typeof challengeBody?.challenge_id !== "string" ||
+      challengeBody.challenge_id.length === 0
+    ) {
+      throw new Error("WebAuthn AAL2 challenge succeeded but no challenge_id was returned");
+    }
+    if (
+      typeof challengeBody?.options !== "object" ||
+      challengeBody.options === null
+    ) {
+      throw new Error("WebAuthn AAL2 challenge succeeded but no request options were returned");
+    }
+    return {
+      challengeID: challengeBody.challenge_id,
+      options: challengeBody.options as Record<string, unknown>,
+    };
+  };
+
+  const createAssertionResponse = async (options: Record<string, unknown>): Promise<Record<string, unknown>> => {
+    return page.evaluate(async (requestOptions: Record<string, unknown>) => {
+      const decodeBase64URL = (value: string): ArrayBuffer => {
+        const normalized = value.replace(/-/g, "+").replace(/_/g, "/");
+        const padded = normalized.padEnd(Math.ceil(normalized.length / 4) * 4, "=");
+        const binary = window.atob(padded);
+        const bytes = Uint8Array.from(binary, (character) => character.charCodeAt(0));
+        return bytes.buffer;
+      };
+
+      const encodeBase64URL = (buffer: ArrayBuffer): string => {
+        const binary = String.fromCharCode(...new Uint8Array(buffer));
+        return window.btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
+      };
+
+      const publicKey: PublicKeyCredentialRequestOptions = {
+        ...requestOptions,
+        challenge: decodeBase64URL(String(requestOptions.challenge ?? "")),
+        allowCredentials: Array.isArray(requestOptions.allowCredentials)
+          ? requestOptions.allowCredentials.map((credential) => ({
+              ...(credential as Record<string, unknown>),
+              id: decodeBase64URL(String((credential as { id?: unknown }).id ?? "")),
+            }))
+          : undefined,
+      };
+
+      const credential = await navigator.credentials.get({ publicKey });
+      if (!(credential instanceof PublicKeyCredential)) {
+        throw new Error("The browser did not return a WebAuthn assertion credential");
+      }
+
+      const response = credential.response;
+      if (!(response instanceof AuthenticatorAssertionResponse)) {
+        throw new Error("The browser returned an unexpected WebAuthn assertion response");
+      }
+
+      return {
+        id: credential.id,
+        rawId: encodeBase64URL(credential.rawId),
+        type: credential.type,
+        response: {
+          clientDataJSON: encodeBase64URL(response.clientDataJSON),
+          authenticatorData: encodeBase64URL(response.authenticatorData),
+          signature: encodeBase64URL(response.signature),
+          userHandle: response.userHandle ? encodeBase64URL(response.userHandle) : null,
+        },
+        clientExtensionResults: credential.getClientExtensionResults(),
+      };
+    }, options);
+  };
+
+  const tryVerify = async (
+    challengeID: string,
+    options: Record<string, unknown>,
+  ): Promise<string | null> => {
+    const assertionResponse = await createAssertionResponse(options);
+    const verifyRes = await request.post("/api/auth/mfa/webauthn/verify", {
+      headers: { Authorization: `Bearer ${pendingToken}` },
+      data: {
+        challenge_id: challengeID,
+        assertion_response: assertionResponse,
+      },
+    });
+    if (!verifyRes.ok()) {
+      if (verifyRes.status() === 401) {
+        return null;
+      }
+      let detail = "";
+      try {
+        detail = (await verifyRes.text()).trim();
+      } catch {
+        // Ignore parse issues and report status-only error.
+      }
+      const suffix = detail.length > 0 ? `: ${detail}` : "";
+      throw new Error(`WebAuthn AAL2 verify failed with status ${verifyRes.status()}${suffix}`);
+    }
+    const verifyBody = await verifyRes.json();
+    if (typeof verifyBody?.token !== "string" || verifyBody.token.length === 0) {
+      throw new Error("WebAuthn AAL2 verify succeeded but no access token was returned");
+    }
+    return verifyBody.token as string;
+  };
+
+  const firstChallenge = await newChallenge();
+  let upgradedToken = await tryVerify(firstChallenge.challengeID, firstChallenge.options);
+  if (!upgradedToken) {
+    const retryChallenge = await newChallenge();
+    upgradedToken = await tryVerify(retryChallenge.challengeID, retryChallenge.options);
+  }
+  if (!upgradedToken) {
+    throw new Error("WebAuthn AAL2 step-up failed: assertion was rejected twice");
   }
 
   await page.evaluate((token: string) => {

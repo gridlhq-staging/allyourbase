@@ -39,6 +39,8 @@ curl "http://localhost:8090/api/collections/posts?filter=status='active'&sort=-c
 | Parameter | Example | Description |
 |-----------|---------|-------------|
 | `search` | `?search=hello world` | Full-text search across all text columns |
+| `fuzzy` | `?search=helo&fuzzy=true` | Optional typo-tolerant search via `pg_trgm` (disabled unless extension is installed) |
+| `facets` | `?search=post&facets=status,author_id` | Return facet counts for requested columns alongside list results |
 | `filter` | `?filter=status='active' AND age>21` | SQL-safe parameterized filtering |
 | `sort` | `?sort=-created_at,+title` | Sort by fields (`-` desc, `+` asc) |
 | `page` | `?page=2` | Page number (default: 1) |
@@ -107,6 +109,8 @@ Values: strings in single quotes (`'hello'`), numbers (`42`, `3.14`), booleans (
 
 ### Full-text search
 
+For an end-to-end workflow that combines full-text search, fuzzy matching, filters, facet buckets, and RLS behavior, see [Search](/guide/search).
+
 Use `?search=` to search across all text columns (`text`, `varchar`, `char`) in a table:
 
 ```bash
@@ -140,6 +144,30 @@ Search can be combined with filters:
 curl "http://localhost:8090/api/collections/posts?search=postgres&filter=status='active'&perPage=10"
 ```
 
+`fuzzy` requires a non-empty `search` value, must be `true` or `false`, and returns `400` for invalid combinations.
+
+`typo_threshold` is not supported on collection list endpoints and returns `400 Bad Request` when provided.
+
+`facets=column_a,column_b` requests per-column facet counts in the same list response. Requested columns must exist on the target table.
+
+Unsupported query-mode combinations return `400` (for example `semantic=true` with `nearest` or `semantic_query`).
+
+When `facets` is requested, list responses include an additional `facets` object:
+
+```json
+{
+  "items": [{ "id": 1, "title": "Hello" }],
+  "page": 1,
+  "perPage": 20,
+  "totalItems": 42,
+  "totalPages": 3,
+  "facets": {
+    "status": [{ "value": "published", "count": 30 }],
+    "author_id": [{ "value": 7, "count": 12 }]
+  }
+}
+```
+
 ::: tip Performance
 For tables with many rows, add a GIN index on text columns for faster search:
 
@@ -162,6 +190,8 @@ Shared vector params:
 
 - `vector_column=<column_name>` when needed
 - `distance=cosine|l2|inner_product` (default: `cosine`)
+
+Vector mode boundary: keep vector-specific payload, scoring, and mode details in [AI and Vector Search](/guide/ai-vector).
 
 See [AI and Vector Search](/guide/ai-vector) for supported payloads, response fields, and admin vector index endpoints.
 

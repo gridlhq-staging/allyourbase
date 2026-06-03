@@ -64,6 +64,23 @@ type EnqueueOpts struct {
 	ScheduleID     string
 }
 
+// RunTiming captures the execution window persisted per job attempt.
+type RunTiming struct {
+	StartedAt  time.Time
+	FinishedAt time.Time
+	DurationMs int
+}
+
+// JobRun represents one persisted attempt row from _ayb_job_runs.
+type JobRun struct {
+	Attempt    int       `json:"attempt"`
+	Status     JobState  `json:"status"`
+	StartedAt  time.Time `json:"startedAt"`
+	FinishedAt time.Time `json:"finishedAt"`
+	DurationMs int       `json:"durationMs"`
+	Error      *string   `json:"error,omitempty"`
+}
+
 // JobHandler processes a job payload. Implementations must be idempotent.
 type JobHandler func(ctx context.Context, payload json.RawMessage) error
 

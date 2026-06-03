@@ -39,6 +39,30 @@ normalize_arch_token() {
   esac
 }
 
+validate_pg_version() {
+  local pg_version="$1"
+
+  # The archive name, install path, and upstream URL all derive from this value.
+  # Restrict it to a numeric major-version token before touching the filesystem.
+  if [[ ! "$pg_version" =~ ^[0-9]+$ ]]; then
+    echo "Unsupported pg_version: $pg_version" >&2
+    return 1
+  fi
+}
+
+validate_target_os() {
+  local target_os="$1"
+
+  case "$target_os" in
+    linux|darwin)
+      ;;
+    *)
+      echo "Unsupported target OS: $target_os" >&2
+      return 1
+      ;;
+  esac
+}
+
 verify_linux_postgres_architecture() {
   local requested_arch="$1"
   local install_dir="$2"
@@ -156,6 +180,8 @@ main() {
     esac
   done
 
+  validate_pg_version "$PG_VERSION"
+  validate_target_os "$TARGET_OS"
   TARGET_ARCH="$(normalize_arch_token "$TARGET_ARCH")"
 
   mkdir -p "${OUTPUT_DIR}"

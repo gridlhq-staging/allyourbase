@@ -35,7 +35,7 @@ export default function App() {
 
   const [streamedText, setStreamedText] = useState("");
   const [streaming, setStreaming] = useState(false);
-  const [, setChatHistory] = useState<ChatMessage[]>([]);
+  const [chatHistory, setChatHistory] = useState<ChatMessage[]>([]);
 
   useEffect(() => {
     if (user?.email) {
@@ -59,6 +59,7 @@ export default function App() {
       setEmail(null);
       setSearchResults([]);
       setSelectedSlug(null);
+      setChatHistory([]);
     } catch {
       if (bootstrapEnabledBeforeLogout) {
         setAnonymousBootstrapEnabled(true);
@@ -185,7 +186,13 @@ export default function App() {
 
         <section>
           <h2 className="text-sm font-semibold text-gray-400 uppercase tracking-wider mb-3">Chat</h2>
-          <ChatPanel onSend={handleChat} streamedText={streamedText} streaming={streaming} />
+          <ChatPanel
+            history={chatHistory}
+            onHistoryChange={setChatHistory}
+            onSend={handleChat}
+            streamedText={streamedText}
+            streaming={streaming}
+          />
         </section>
 
         <section>

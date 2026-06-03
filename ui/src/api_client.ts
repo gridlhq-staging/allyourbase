@@ -149,6 +149,18 @@ export async function requestAuth<T>(
   return res.json();
 }
 
+export async function requestAuthNoBody(
+  path: string,
+  init?: RequestInit,
+  includeAuthHeader = true,
+): Promise<void> {
+  const token = includeAuthHeader ? getAuthToken() : null;
+  const res = await fetchWithToken(path, init, token);
+  if (!res.ok) {
+    await throwResponseError(res, () => dispatchUnauthorizedEvent("ayb:auth-unauthorized", clearAuthToken));
+  }
+}
+
 export class ApiError extends Error {
   constructor(
     public status: number,

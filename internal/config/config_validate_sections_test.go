@@ -1,6 +1,10 @@
 package config
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/allyourbase/ayb/internal/testutil"
+)
 
 func TestValidateSectionExtractionsExist(t *testing.T) {
 	_ = validateServerConfig
@@ -25,4 +29,14 @@ func TestValidateSectionExtractionsExist(t *testing.T) {
 	_ = validateBackupConfig
 	_ = validateAIConfig
 	_ = validateRealtimeConfig
+}
+
+func TestValidateJobsConfigJobRunsRetentionDays(t *testing.T) {
+	cfg := Default()
+	cfg.Jobs.Enabled = true
+	cfg.Jobs.JobRunsRetentionDays = 0
+
+	err := validateJobsConfig(cfg)
+	testutil.NotNil(t, err)
+	testutil.Contains(t, err.Error(), "jobs.job_runs_retention_days must be positive")
 }

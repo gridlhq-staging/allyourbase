@@ -166,7 +166,7 @@ test.describe("local orchestration", () => {
       await page.goto(demoTarget.url);
 
       await page.getByText(DEMO_SIGNIN_EMAIL).click();
-      await page.getByRole("button", { name: "Sign In" }).click();
+      await page.getByRole("button", { name: "Sign In", exact: true }).click();
       await expect(page.getByText("Your Boards")).toBeVisible({ timeout: SIGN_IN_TIMEOUT_MS });
 
       // Board/column/card interaction — selectors from helpers.ts:createBoard/openBoard/addColumn/addCard
@@ -205,7 +205,7 @@ test.describe("local orchestration", () => {
       await page.goto(demoTarget.url);
 
       await page.getByText(DEMO_SIGNIN_EMAIL).click();
-      await page.getByRole("button", { name: "Sign In" }).click();
+      await page.getByRole("button", { name: "Sign In", exact: true }).click();
       // Waiting for "+ New Poll" confirms auth success AND polls UI readiness in one assertion.
       const newPollButton = page.getByRole("button", { name: "+ New Poll" });
       await expect(newPollButton).toBeVisible({ timeout: SIGN_IN_TIMEOUT_MS });
@@ -253,7 +253,7 @@ test.describe("local orchestration", () => {
       if (!(await signOutButton.isVisible())) {
         await page.getByPlaceholder("you@example.com").fill(DEMO_SIGNIN_EMAIL);
         await page.getByPlaceholder("At least 8 characters").fill(DEMO_SIGNIN_PASSWORD);
-        await page.getByRole("button", { name: "Sign In" }).click();
+        await page.getByRole("button", { name: "Sign In", exact: true }).click();
       }
       await expect(signOutButton).toBeVisible({ timeout: SIGN_IN_TIMEOUT_MS });
 

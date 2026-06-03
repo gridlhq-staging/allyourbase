@@ -19,6 +19,7 @@ type SchemaCache struct {
 	PostGISRasterVersion string               `json:"postGISRasterVersion,omitempty"`
 	PostGISExtensions    []string             `json:"postGISExtensions,omitempty"`
 	HasPgVector          bool                 `json:"hasPgVector"`
+	HasPgTrgm            bool                 `json:"hasPgTrgm"`
 	BuiltAt              time.Time            `json:"builtAt"`
 }
 

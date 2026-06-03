@@ -559,11 +559,21 @@ func (s *Service) loginByID(ctx context.Context, userID string) (*User, string, 
 }
 
 func (s *Service) issueTokens(ctx context.Context, user *User) (*User, string, string, error) {
-	sessionID, refreshToken, err := s.createSession(ctx, user.ID, nil)
+	return s.issueTokensWithFirstFactorMethod(ctx, user, "")
+}
+
+func (s *Service) issueTokensWithFirstFactorMethod(ctx context.Context, user *User, firstFactorMethod string) (*User, string, string, error) {
+	sessionOpts := firstFactorSessionOptions(firstFactorMethod)
+	sessionID, refreshToken, err := s.createSession(ctx, user.ID, sessionOpts)
 	if err != nil {
 		return nil, "", "", fmt.Errorf("creating session: %w", err)
 	}
-	opts, err := s.sessionTokenOptions(ctx, user, &tokenOptions{SessionID: sessionID})
+	if sessionOpts == nil {
+		sessionOpts = &tokenOptions{}
+	}
+	sessionOpts.SessionID = sessionID
+
+	opts, err := s.sessionTokenOptions(ctx, user, sessionOpts)
 	if err != nil {
 		return nil, "", "", fmt.Errorf("resolving session tenant: %w", err)
 	}

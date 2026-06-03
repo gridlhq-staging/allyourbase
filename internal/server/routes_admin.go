@@ -278,6 +278,7 @@ func (s *Server) registerAdminServicesRoutes(r chi.Router) {
 		r.Get("/", s.handleJobsList)
 		r.Get("/stats", s.handleJobsStats)
 		r.Get("/{id}", s.handleJobsGet)
+		r.Get("/{id}/runs", s.handleJobsRuns)
 		r.Post("/{id}/retry", s.handleJobsRetry)
 		r.Post("/{id}/cancel", s.handleJobsCancel)
 	})

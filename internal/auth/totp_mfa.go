@@ -207,11 +207,12 @@ func (s *Service) HasAnyMFA(ctx context.Context, userID string) (bool, string, e
 
 // GetUserMFAFactors returns all enabled MFA factors for a user.
 type MFAFactor struct {
-	ID     string `json:"id"`
-	Method string `json:"method"`
-	Label  string `json:"label"`           // human-readable: "Authenticator app", masked phone/email
-	Phone  string `json:"phone,omitempty"` // e.g. "***1234"
-	Email  string `json:"email,omitempty"` // e.g. "t***@example.com"
+	ID          string `json:"id"`
+	Method      string `json:"method"`
+	Label       string `json:"label"`                  // human-readable: "Authenticator app", masked phone/email
+	Phone       string `json:"phone,omitempty"`        // e.g. "***1234"
+	Email       string `json:"email,omitempty"`        // e.g. "t***@example.com"
+	DisplayName string `json:"display_name,omitempty"` // raw user-entered label for passkeys
 }
 
 // maskEmail masks an email for display, e.g. "test@example.com" → "t***@example.com".
@@ -229,7 +230,7 @@ func (s *Service) GetUserMFAFactors(ctx context.Context, userID string) ([]MFAFa
 		return nil, errors.New("database pool is not configured")
 	}
 	rows, err := s.pool.Query(ctx,
-		`SELECT f.id, f.method, COALESCE(f.phone, ''), COALESCE(u.email, '')
+		`SELECT f.id, f.method, COALESCE(f.phone, ''), COALESCE(u.email, ''), COALESCE(f.webauthn_display_name, '')
 		 FROM _ayb_user_mfa f
 		 JOIN _ayb_users u ON u.id = f.user_id
 		 WHERE f.user_id = $1 AND f.enabled = true
@@ -245,7 +246,7 @@ func (s *Service) GetUserMFAFactors(ctx context.Context, userID string) ([]MFAFa
 	var userEmail string
 	for rows.Next() {
 		var f MFAFactor
-		if err := rows.Scan(&f.ID, &f.Method, &f.Phone, &userEmail); err != nil {
+		if err := rows.Scan(&f.ID, &f.Method, &f.Phone, &userEmail, &f.DisplayName); err != nil {
 			return nil, fmt.Errorf("scanning MFA factor: %w", err)
 		}
 		// Set method-specific display fields.
@@ -262,6 +263,12 @@ func (s *Service) GetUserMFAFactors(ctx context.Context, userID string) ([]MFAFa
 			f.Label = "Email (" + f.Email + ")"
 		case "totp":
 			f.Label = "Authenticator app"
+		case "webauthn":
+			if f.DisplayName != "" {
+				f.Label = f.DisplayName
+			} else {
+				f.Label = "Passkey"
+			}
 		default:
 			f.Label = f.Method
 		}

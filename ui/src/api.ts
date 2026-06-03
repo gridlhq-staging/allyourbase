@@ -13,6 +13,7 @@ export {
 } from "./api_client";
 
 export * from "./api_auth";
+export * from "./api_passkeys";
 export * from "./api_schema";
 export * from "./api_database";
 export * from "./api_webhooks";

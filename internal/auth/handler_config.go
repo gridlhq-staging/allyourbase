@@ -193,6 +193,7 @@ type AuthSettings struct {
 	EmailMFAEnabled      bool `json:"email_mfa_enabled"`
 	AnonymousAuthEnabled bool `json:"anonymous_auth_enabled"`
 	TOTPEnabled          bool `json:"totp_enabled"`
+	WebAuthnEnabled      bool `json:"webauthn_enabled"`
 }
 
 // GetAuthSettings returns the current auth feature toggle states.
@@ -203,6 +204,7 @@ func (h *Handler) GetAuthSettings() AuthSettings {
 		EmailMFAEnabled:      h.emailMFAEnabled,
 		AnonymousAuthEnabled: h.anonymousAuthEnabled,
 		TOTPEnabled:          h.totpEnabled,
+		WebAuthnEnabled:      h.webauthnEnabled,
 	}
 }
 
@@ -213,6 +215,7 @@ func (h *Handler) UpdateAuthSettings(s AuthSettings) {
 	h.emailMFAEnabled = s.EmailMFAEnabled
 	h.SetAnonymousAuthEnabled(s.AnonymousAuthEnabled)
 	h.totpEnabled = s.TOTPEnabled
+	h.SetWebAuthnEnabled(s.WebAuthnEnabled)
 }
 
 // OAuthProviderInfo represents the public metadata for a configured OAuth provider.

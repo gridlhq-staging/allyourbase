@@ -79,6 +79,9 @@ func applyAuthCoreEnv(cfg *Config) error {
 	if v := os.Getenv("AYB_AUTH_TOTP_ENABLED"); v != "" {
 		cfg.Auth.TOTPEnabled = v == "true" || v == "1"
 	}
+	if v := os.Getenv("AYB_AUTH_WEBAUTHN_ENABLED"); v != "" {
+		cfg.Auth.WebAuthnEnabled = v == "true" || v == "1"
+	}
 	if v := os.Getenv("AYB_AUTH_ENCRYPTION_KEY"); v != "" {
 		cfg.Auth.EncryptionKey = v
 	}

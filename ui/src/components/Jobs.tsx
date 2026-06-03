@@ -5,6 +5,7 @@ import { AlertCircle, Loader2, RefreshCw, XCircle } from "lucide-react";
 import { cn } from "../lib/utils";
 import { formatDate } from "./shared/format";
 import { useAppToast } from "./ToastProvider";
+import { JobRuns } from "./JobRuns";
 
 const STATE_OPTIONS: Array<{ value: ""; label: string } | { value: JobState; label: string }> = [
   { value: "", label: "All states" },
@@ -49,6 +50,7 @@ export function Jobs() {
   const [error, setError] = useState<string | null>(null);
   const [retryingId, setRetryingId] = useState<string | null>(null);
   const [cancelingId, setCancelingId] = useState<string | null>(null);
+  const [selectedJobId, setSelectedJobId] = useState<string | null>(null);
 
   const [stateFilter, setStateFilter] = useState<JobState | "">("");
   const [typeFilter, setTypeFilter] = useState("");
@@ -83,6 +85,16 @@ export function Jobs() {
   useEffect(() => {
     load(appliedFilters);
   }, [load, appliedFilters]);
+
+  useEffect(() => {
+    if (!jobs || !selectedJobId) {
+      return;
+    }
+    const selectedStillExists = jobs.items.some((job) => job.id === selectedJobId);
+    if (!selectedStillExists) {
+      setSelectedJobId(null);
+    }
+  }, [jobs, selectedJobId]);
 
   const handleApplyFilters = (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -161,6 +173,7 @@ export function Jobs() {
   }
 
   const hasAppliedFilters = Boolean(appliedFilters.state || appliedFilters.type);
+  const selectedJob = jobs?.items.find((job) => job.id === selectedJobId) ?? null;
 
   return (
     <div className="p-6">
@@ -259,79 +272,90 @@ export function Jobs() {
           )}
         </div>
       ) : jobs ? (
-        <div className="border rounded-lg overflow-hidden">
-          <table className="w-full text-sm">
-            <thead className="bg-gray-50 dark:bg-gray-800 border-b">
-              <tr>
-                <th className="text-left px-4 py-2 font-medium text-gray-600 dark:text-gray-300">State</th>
-                <th className="text-left px-4 py-2 font-medium text-gray-600 dark:text-gray-300">Type</th>
-                <th className="text-left px-4 py-2 font-medium text-gray-600 dark:text-gray-300">Created</th>
-                <th className="text-left px-4 py-2 font-medium text-gray-600 dark:text-gray-300">Attempts</th>
-                <th className="text-left px-4 py-2 font-medium text-gray-600 dark:text-gray-300">Last Error</th>
-                <th className="text-right px-4 py-2 font-medium text-gray-600 dark:text-gray-300">Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {jobs.items.map((job) => (
-                <tr key={job.id} className="border-b last:border-0 hover:bg-gray-50 dark:hover:bg-gray-800 dark:bg-gray-800">
-                  <td className="px-4 py-2.5">
-                    <span
-                      className={cn(
-                        "inline-block px-2 py-0.5 rounded-full text-[10px] font-medium",
-                        stateBadgeClass(job.state),
-                      )}
-                    >
-                      {job.state}
-                    </span>
-                  </td>
-                  <td className="px-4 py-2.5">
-                    <code className="text-xs bg-gray-100 dark:bg-gray-700 px-1.5 py-0.5 rounded text-gray-700 dark:text-gray-200">
-                      {job.type}
-                    </code>
-                    <div className="text-[10px] text-gray-400 dark:text-gray-500 mt-0.5">{job.id}</div>
-                  </td>
-                  <td className="px-4 py-2.5 text-xs text-gray-500 dark:text-gray-400">
-                    {formatDate(job.createdAt)}
-                  </td>
-                  <td className="px-4 py-2.5 text-xs text-gray-500 dark:text-gray-400">
-                    {job.attempts} / {job.maxAttempts}
-                  </td>
-                  <td className="px-4 py-2.5 text-xs text-gray-500 dark:text-gray-400 max-w-[320px]">
-                    {lastErrorPreview(job)}
-                  </td>
-                  <td className="px-4 py-2.5">
-                    <div className="flex justify-end gap-2">
-                      {job.state === "failed" && (
-                        <button
-                          onClick={() => handleRetry(job)}
-                          disabled={retryingId === job.id}
-                          aria-label={`Retry job ${job.id}`}
-                          className="inline-flex items-center gap-1 px-2 py-1 text-xs rounded bg-blue-50 text-blue-700 hover:bg-blue-100 disabled:opacity-60"
-                        >
-                          <RefreshCw className="w-3.5 h-3.5" />
-                          Retry
-                        </button>
-                      )}
-                      {job.state === "queued" && (
-                        <button
-                          onClick={() => handleCancel(job)}
-                          disabled={cancelingId === job.id}
-                          aria-label={`Cancel job ${job.id}`}
-                          className="inline-flex items-center gap-1 px-2 py-1 text-xs rounded bg-red-50 text-red-700 hover:bg-red-100 disabled:opacity-60"
-                        >
-                          <XCircle className="w-3.5 h-3.5" />
-                          Cancel
-                        </button>
-                      )}
-                    </div>
-                  </td>
+        <div>
+          <div className="border rounded-lg overflow-hidden">
+            <table className="w-full text-sm">
+              <thead className="bg-gray-50 dark:bg-gray-800 border-b">
+                <tr>
+                  <th className="text-left px-4 py-2 font-medium text-gray-600 dark:text-gray-300">State</th>
+                  <th className="text-left px-4 py-2 font-medium text-gray-600 dark:text-gray-300">Type</th>
+                  <th className="text-left px-4 py-2 font-medium text-gray-600 dark:text-gray-300">Created</th>
+                  <th className="text-left px-4 py-2 font-medium text-gray-600 dark:text-gray-300">Attempts</th>
+                  <th className="text-left px-4 py-2 font-medium text-gray-600 dark:text-gray-300">Last Error</th>
+                  <th className="text-right px-4 py-2 font-medium text-gray-600 dark:text-gray-300">Actions</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {jobs.items.map((job) => (
+                  <tr key={job.id} className="border-b last:border-0 hover:bg-gray-50 dark:hover:bg-gray-800 dark:bg-gray-800">
+                    <td className="px-4 py-2.5">
+                      <span
+                        className={cn(
+                          "inline-block px-2 py-0.5 rounded-full text-[10px] font-medium",
+                          stateBadgeClass(job.state),
+                        )}
+                      >
+                        {job.state}
+                      </span>
+                    </td>
+                    <td className="px-4 py-2.5">
+                      <code className="text-xs bg-gray-100 dark:bg-gray-700 px-1.5 py-0.5 rounded text-gray-700 dark:text-gray-200">
+                        {job.type}
+                      </code>
+                      <div className="text-[10px] text-gray-400 dark:text-gray-500 mt-0.5">{job.id}</div>
+                    </td>
+                    <td className="px-4 py-2.5 text-xs text-gray-500 dark:text-gray-400">
+                      {formatDate(job.createdAt)}
+                    </td>
+                    <td className="px-4 py-2.5 text-xs text-gray-500 dark:text-gray-400">
+                      {job.attempts} / {job.maxAttempts}
+                    </td>
+                    <td className="px-4 py-2.5 text-xs text-gray-500 dark:text-gray-400 max-w-[320px]">
+                      {lastErrorPreview(job)}
+                    </td>
+                    <td className="px-4 py-2.5">
+                      <div className="flex justify-end gap-2">
+                        <button
+                          onClick={() => setSelectedJobId((current) => (current === job.id ? null : job.id))}
+                          aria-label={`${selectedJobId === job.id ? "Hide" : "View"} runs for job ${job.id}`}
+                          className="inline-flex items-center gap-1 px-2 py-1 text-xs rounded bg-gray-50 text-gray-700 hover:bg-gray-100 dark:bg-gray-700 dark:text-gray-200 dark:hover:bg-gray-600"
+                        >
+                          {selectedJobId === job.id ? "Hide Runs" : "View Runs"}
+                        </button>
+                        {job.state === "failed" && (
+                          <button
+                            onClick={() => handleRetry(job)}
+                            disabled={retryingId === job.id}
+                            aria-label={`Retry job ${job.id}`}
+                            className="inline-flex items-center gap-1 px-2 py-1 text-xs rounded bg-blue-50 text-blue-700 hover:bg-blue-100 disabled:opacity-60"
+                          >
+                            <RefreshCw className="w-3.5 h-3.5" />
+                            Retry
+                          </button>
+                        )}
+                        {job.state === "queued" && (
+                          <button
+                            onClick={() => handleCancel(job)}
+                            disabled={cancelingId === job.id}
+                            aria-label={`Cancel job ${job.id}`}
+                            className="inline-flex items-center gap-1 px-2 py-1 text-xs rounded bg-red-50 text-red-700 hover:bg-red-100 disabled:opacity-60"
+                          >
+                            <XCircle className="w-3.5 h-3.5" />
+                            Cancel
+                          </button>
+                        )}
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          {selectedJob ? (
+            <JobRuns key={selectedJob.id} job={selectedJob} onClose={() => setSelectedJobId(null)} />
+          ) : null}
         </div>
       ) : null}
-
     </div>
   );
 }

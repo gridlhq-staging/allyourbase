@@ -84,6 +84,26 @@ type mockDeliveryStore struct {
 	pruneOlderThan time.Duration
 	pruneResult    int64
 	pruneErr       error
+	listCalls      int
+	lastWebhookID  string
+	lastPage       int
+	lastPerPage    int
+	lastFailedOnly bool
+}
+
+type mockWebhookDispatcher struct {
+	replayCalled     bool
+	replayWebhookID  string
+	replayDeliveryID string
+	replayResult     *Delivery
+	replayErr        error
+}
+
+func (m *mockWebhookDispatcher) Replay(_ context.Context, webhookID, deliveryID string) (*Delivery, error) {
+	m.replayCalled = true
+	m.replayWebhookID = webhookID
+	m.replayDeliveryID = deliveryID
+	return m.replayResult, m.replayErr
 }
 
 func newMockDeliveryStore() *mockDeliveryStore {
@@ -97,10 +117,15 @@ func (m *mockDeliveryStore) RecordDelivery(_ context.Context, d *Delivery) error
 	return nil
 }
 
-func (m *mockDeliveryStore) ListDeliveries(_ context.Context, webhookID string, page, perPage int) ([]Delivery, int, error) {
+func (m *mockDeliveryStore) ListDeliveries(_ context.Context, webhookID string, page, perPage int, failedOnly bool) ([]Delivery, int, error) {
+	m.listCalls++
+	m.lastWebhookID = webhookID
+	m.lastPage = page
+	m.lastPerPage = perPage
+	m.lastFailedOnly = failedOnly
 	var result []Delivery
 	for _, d := range m.deliveries {
-		if d.WebhookID == webhookID {
+		if d.WebhookID == webhookID && (!failedOnly || !d.Success) {
 			result = append(result, *d)
 		}
 	}
@@ -130,11 +155,12 @@ func (m *mockDeliveryStore) PruneDeliveries(_ context.Context, olderThan time.Du
 	return m.pruneResult, m.pruneErr
 }
 
-func testHandler() (*Handler, *mockWebhookStore, *mockDeliveryStore) {
+func testHandler() (*Handler, *mockWebhookStore, *mockDeliveryStore, *mockWebhookDispatcher) {
 	store := newMockStore()
 	ds := newMockDeliveryStore()
-	h := NewHandler(store, ds, testutil.DiscardLogger())
-	return h, store, ds
+	dispatcher := &mockWebhookDispatcher{}
+	h := NewHandler(store, ds, dispatcher, testutil.DiscardLogger())
+	return h, store, ds, dispatcher
 }
 
 func doHandlerRequest(t *testing.T, handler http.Handler, method, path string, body string) *httptest.ResponseRecorder {
@@ -153,7 +179,7 @@ func doHandlerRequest(t *testing.T, handler http.Handler, method, path string, b
 
 func TestCreateMissingURL(t *testing.T) {
 	t.Parallel()
-	h, _, _ := testHandler()
+	h, _, _, _ := testHandler()
 	w := doHandlerRequest(t, h.Routes(), "POST", "/", `{"events":["create"]}`)
 	testutil.Equal(t, http.StatusBadRequest, w.Code)
 	testutil.Contains(t, w.Body.String(), "url is required")
@@ -161,7 +187,7 @@ func TestCreateMissingURL(t *testing.T) {
 
 func TestCreateInvalidEvents(t *testing.T) {
 	t.Parallel()
-	h, _, _ := testHandler()
+	h, _, _, _ := testHandler()
 	w := doHandlerRequest(t, h.Routes(), "POST", "/", `{"url":"http://example.com","events":["invalid"]}`)
 	testutil.Equal(t, http.StatusBadRequest, w.Code)
 	testutil.Contains(t, w.Body.String(), "invalid event")
@@ -169,7 +195,7 @@ func TestCreateInvalidEvents(t *testing.T) {
 
 func TestCreateInvalidURL(t *testing.T) {
 	t.Parallel()
-	h, _, _ := testHandler()
+	h, _, _, _ := testHandler()
 	w := doHandlerRequest(t, h.Routes(), "POST", "/", `{"url":"not-a-url"}`)
 	testutil.Equal(t, http.StatusBadRequest, w.Code)
 	testutil.Contains(t, w.Body.String(), "url must be an absolute http or https URL")
@@ -177,7 +203,7 @@ func TestCreateInvalidURL(t *testing.T) {
 
 func TestCreateRejectsCredentialedURL(t *testing.T) {
 	t.Parallel()
-	h, _, _ := testHandler()
+	h, _, _, _ := testHandler()
 	w := doHandlerRequest(t, h.Routes(), "POST", "/", `{"url":"https://user:pass@example.com/hook"}`)
 	testutil.Equal(t, http.StatusBadRequest, w.Code)
 	testutil.Contains(t, w.Body.String(), "url must not include embedded credentials")
@@ -185,7 +211,7 @@ func TestCreateRejectsCredentialedURL(t *testing.T) {
 
 func TestCreateSuccess(t *testing.T) {
 	t.Parallel()
-	h, _, _ := testHandler()
+	h, _, _, _ := testHandler()
 	w := doHandlerRequest(t, h.Routes(), "POST", "/",
 		`{"url":"http://example.com/hook","secret":"mysecret","events":["create","update"]}`)
 	testutil.Equal(t, http.StatusCreated, w.Code)
@@ -198,21 +224,21 @@ func TestCreateSuccess(t *testing.T) {
 
 func TestGetNotFound(t *testing.T) {
 	t.Parallel()
-	h, _, _ := testHandler()
+	h, _, _, _ := testHandler()
 	w := doHandlerRequest(t, h.Routes(), "GET", "/nonexistent-id", "")
 	testutil.Equal(t, http.StatusNotFound, w.Code)
 }
 
 func TestDeleteNotFound(t *testing.T) {
 	t.Parallel()
-	h, _, _ := testHandler()
+	h, _, _, _ := testHandler()
 	w := doHandlerRequest(t, h.Routes(), "DELETE", "/nonexistent-id", "")
 	testutil.Equal(t, http.StatusNotFound, w.Code)
 }
 
 func TestSecretNeverInResponse(t *testing.T) {
 	t.Parallel()
-	h, _, _ := testHandler()
+	h, _, _, _ := testHandler()
 
 	// Create a webhook with a secret.
 	w := doHandlerRequest(t, h.Routes(), "POST", "/",
@@ -233,7 +259,7 @@ func TestSecretNeverInResponse(t *testing.T) {
 
 func TestCreateDefaultEvents(t *testing.T) {
 	t.Parallel()
-	h, _, _ := testHandler()
+	h, _, _, _ := testHandler()
 	w := doHandlerRequest(t, h.Routes(), "POST", "/", `{"url":"http://example.com/hook"}`)
 	testutil.Equal(t, http.StatusCreated, w.Code)
 
@@ -253,7 +279,7 @@ func TestCreateDefaultEvents(t *testing.T) {
 
 func TestCreateDisabled(t *testing.T) {
 	t.Parallel()
-	h, _, _ := testHandler()
+	h, _, _, _ := testHandler()
 	w := doHandlerRequest(t, h.Routes(), "POST", "/",
 		`{"url":"http://example.com/hook","enabled":false}`)
 	testutil.Equal(t, http.StatusCreated, w.Code)
@@ -265,7 +291,7 @@ func TestCreateDisabled(t *testing.T) {
 
 func TestGetSuccess(t *testing.T) {
 	t.Parallel()
-	h, _, _ := testHandler()
+	h, _, _, _ := testHandler()
 
 	// Create first.
 	w := doHandlerRequest(t, h.Routes(), "POST", "/",
@@ -286,7 +312,7 @@ func TestGetSuccess(t *testing.T) {
 
 func TestDeleteSuccess(t *testing.T) {
 	t.Parallel()
-	h, _, _ := testHandler()
+	h, _, _, _ := testHandler()
 
 	// Create first.
 	w := doHandlerRequest(t, h.Routes(), "POST", "/",
@@ -307,7 +333,7 @@ func TestDeleteSuccess(t *testing.T) {
 
 func TestListAfterCreate(t *testing.T) {
 	t.Parallel()
-	h, _, _ := testHandler()
+	h, _, _, _ := testHandler()
 
 	// Empty list.
 	w := doHandlerRequest(t, h.Routes(), "GET", "/", "")
@@ -337,7 +363,7 @@ func TestListAfterCreate(t *testing.T) {
 
 func TestUpdateSuccess(t *testing.T) {
 	t.Parallel()
-	h, _, _ := testHandler()
+	h, _, _, _ := testHandler()
 
 	// Create.
 	w := doHandlerRequest(t, h.Routes(), "POST", "/",
@@ -369,7 +395,7 @@ func TestUpdateSuccess(t *testing.T) {
 
 func TestUpdateNotFound(t *testing.T) {
 	t.Parallel()
-	h, _, _ := testHandler()
+	h, _, _, _ := testHandler()
 	w := doHandlerRequest(t, h.Routes(), "PATCH", "/nonexistent-id",
 		`{"url":"http://example.com/updated"}`)
 	testutil.Equal(t, http.StatusNotFound, w.Code)
@@ -377,7 +403,7 @@ func TestUpdateNotFound(t *testing.T) {
 
 func TestUpdateInvalidEvents(t *testing.T) {
 	t.Parallel()
-	h, _, _ := testHandler()
+	h, _, _, _ := testHandler()
 
 	// Create first.
 	w := doHandlerRequest(t, h.Routes(), "POST", "/",
@@ -396,7 +422,7 @@ func TestUpdateInvalidEvents(t *testing.T) {
 
 func TestUpdateInvalidURL(t *testing.T) {
 	t.Parallel()
-	h, _, _ := testHandler()
+	h, _, _, _ := testHandler()
 
 	w := doHandlerRequest(t, h.Routes(), "POST", "/", `{"url":"http://example.com/hook"}`)
 	testutil.Equal(t, http.StatusCreated, w.Code)
@@ -411,7 +437,7 @@ func TestUpdateInvalidURL(t *testing.T) {
 
 func TestUpdateRejectsCredentialedURL(t *testing.T) {
 	t.Parallel()
-	h, _, _ := testHandler()
+	h, _, _, _ := testHandler()
 
 	w := doHandlerRequest(t, h.Routes(), "POST", "/", `{"url":"http://example.com/hook"}`)
 	testutil.Equal(t, http.StatusCreated, w.Code)
@@ -426,7 +452,7 @@ func TestUpdateRejectsCredentialedURL(t *testing.T) {
 
 func TestUpdateClearEventsWithExplicitEmptyArray(t *testing.T) {
 	t.Parallel()
-	h, _, _ := testHandler()
+	h, _, _, _ := testHandler()
 
 	// Create with non-empty events so PATCH can explicitly clear them.
 	w := doHandlerRequest(t, h.Routes(), "POST", "/",
@@ -455,7 +481,7 @@ func TestUpdateClearEventsWithExplicitEmptyArray(t *testing.T) {
 
 func TestTestNotFound(t *testing.T) {
 	t.Parallel()
-	h, _, _ := testHandler()
+	h, _, _, _ := testHandler()
 	w := doHandlerRequest(t, h.Routes(), "POST", "/nonexistent-id/test", "")
 	testutil.Equal(t, http.StatusNotFound, w.Code)
 }
@@ -473,7 +499,7 @@ func TestTestSuccess(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	h, store, _ := testHandler()
+	h, store, _, _ := testHandler()
 	store.hooks["wh1"] = &Webhook{
 		ID:     "wh1",
 		URL:    srv.URL,
@@ -511,7 +537,7 @@ func TestTestNoSecret(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	h, store, _ := testHandler()
+	h, store, _, _ := testHandler()
 	store.hooks["wh1"] = &Webhook{ID: "wh1", URL: srv.URL}
 
 	w := doHandlerRequest(t, h.Routes(), "POST", "/wh1/test", "")
@@ -530,7 +556,7 @@ func TestTestTargetReturns500(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	h, store, _ := testHandler()
+	h, store, _, _ := testHandler()
 	store.hooks["wh1"] = &Webhook{ID: "wh1", URL: srv.URL}
 
 	w := doHandlerRequest(t, h.Routes(), "POST", "/wh1/test", "")
@@ -550,7 +576,7 @@ func TestTestConnectionRefused(t *testing.T) {
 	url := srv.URL
 	srv.Close()
 
-	h, store, _ := testHandler()
+	h, store, _, _ := testHandler()
 	store.hooks["wh1"] = &Webhook{ID: "wh1", URL: url}
 
 	w := doHandlerRequest(t, h.Routes(), "POST", "/wh1/test", "")
@@ -562,4 +588,80 @@ func TestTestConnectionRefused(t *testing.T) {
 	testutil.True(t, resp.Error != "", "error message should be present")
 	testutil.Contains(t, resp.Error, "connect")
 	testutil.True(t, resp.DurationMs >= 0, "durationMs should be non-negative")
+}
+
+func TestListDeliveriesForwardsFailedOnlyToStore(t *testing.T) {
+	t.Parallel()
+
+	h, store, ds, _ := testHandler()
+	store.hooks["wh1"] = &Webhook{ID: "wh1", URL: "https://example.com/hook", Enabled: true}
+	ds.deliveries["d1"] = &Delivery{ID: "d1", WebhookID: "wh1", Success: false}
+	ds.deliveries["d2"] = &Delivery{ID: "d2", WebhookID: "wh1", Success: true}
+
+	w := doHandlerRequest(t, h.Routes(), "GET", "/wh1/deliveries?failed_only=true&page=2&perPage=7", "")
+	testutil.Equal(t, http.StatusOK, w.Code)
+	testutil.Equal(t, 1, ds.listCalls)
+	testutil.Equal(t, "wh1", ds.lastWebhookID)
+	testutil.Equal(t, 2, ds.lastPage)
+	testutil.Equal(t, 7, ds.lastPerPage)
+	testutil.Equal(t, true, ds.lastFailedOnly)
+}
+
+func TestReplayDeliveryDelegatesToDispatcherForDisabledWebhook(t *testing.T) {
+	t.Parallel()
+
+	h, store, _, dispatcher := testHandler()
+	store.hooks["wh1"] = &Webhook{ID: "wh1", URL: "https://example.com/hook", Enabled: false}
+	dispatcher.replayResult = &Delivery{ID: "replay-1", WebhookID: "wh1", Attempt: 1}
+
+	w := doHandlerRequest(t, h.Routes(), "POST", "/wh1/deliveries/original-1/replay", "")
+	testutil.Equal(t, http.StatusOK, w.Code)
+	testutil.Equal(t, true, dispatcher.replayCalled)
+	testutil.Equal(t, "wh1", dispatcher.replayWebhookID)
+	testutil.Equal(t, "original-1", dispatcher.replayDeliveryID)
+
+	var got Delivery
+	testutil.NoError(t, json.NewDecoder(w.Body).Decode(&got))
+	testutil.Equal(t, "replay-1", got.ID)
+	testutil.Equal(t, 1, got.Attempt)
+}
+
+func TestReplayDeliveryMissingReturnsNotFound(t *testing.T) {
+	t.Parallel()
+
+	h, store, _, dispatcher := testHandler()
+	store.hooks["wh1"] = &Webhook{ID: "wh1", URL: "https://example.com/hook", Enabled: true}
+	dispatcher.replayErr = pgx.ErrNoRows
+
+	w := doHandlerRequest(t, h.Routes(), "POST", "/wh1/deliveries/missing/replay", "")
+	testutil.Equal(t, http.StatusNotFound, w.Code)
+	testutil.Contains(t, w.Body.String(), "delivery not found")
+	testutil.Equal(t, true, dispatcher.replayCalled)
+}
+
+func TestReplayDeliveryUnsafeDestinationReturnsBadRequest(t *testing.T) {
+	t.Parallel()
+
+	h, store, _, dispatcher := testHandler()
+	store.hooks["wh1"] = &Webhook{ID: "wh1", URL: "https://example.com/hook", Enabled: true}
+	dispatcher.replayErr = errUnsafeReplayDestination
+
+	w := doHandlerRequest(t, h.Routes(), "POST", "/wh1/deliveries/original-1/replay", "")
+	testutil.Equal(t, http.StatusBadRequest, w.Code)
+	testutil.Contains(t, w.Body.String(), "replay target resolves to a private or reserved destination")
+	testutil.Equal(t, true, dispatcher.replayCalled)
+}
+
+func TestReplayDeliveryWithoutDeliveryStoreReturnsServiceUnavailable(t *testing.T) {
+	t.Parallel()
+
+	store := newMockStore()
+	dispatcher := &mockWebhookDispatcher{}
+	h := NewHandler(store, nil, dispatcher, testutil.DiscardLogger())
+	store.hooks["wh1"] = &Webhook{ID: "wh1", URL: "https://example.com/hook", Enabled: true}
+
+	w := doHandlerRequest(t, h.Routes(), "POST", "/wh1/deliveries/original-1/replay", "")
+	testutil.Equal(t, http.StatusServiceUnavailable, w.Code)
+	testutil.Contains(t, w.Body.String(), "delivery history is unavailable")
+	testutil.Equal(t, false, dispatcher.replayCalled)
 }

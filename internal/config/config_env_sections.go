@@ -365,6 +365,9 @@ func applyJobsEnv(cfg *Config) error {
 	if err := envInt("AYB_JOBS_SCHEDULER_TICK_S", &cfg.Jobs.SchedulerTickS); err != nil {
 		return err
 	}
+	if err := envInt("AYB_JOBS_JOB_RUNS_RETENTION_DAYS", &cfg.Jobs.JobRunsRetentionDays); err != nil {
+		return err
+	}
 	return nil
 }
 

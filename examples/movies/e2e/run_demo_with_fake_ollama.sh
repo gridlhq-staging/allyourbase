@@ -47,8 +47,8 @@ fi
 cd "$SCRIPT_DIR/.."
 
 AYB_AUTH_ENABLED=true \
-AYB_AUTH_JWT_SECRET="movies-e2e-jwt-secret-minimum-32-bytes" \
-  "$REPO_ROOT/ayb" start --config "$SCRIPT_DIR/../ayb.toml" >/dev/null
+AYB_AUTH_JWT_SECRET="movies_demo_super_secret_key_32_chars" \
+"$REPO_ROOT/ayb" start --config "$SCRIPT_DIR/../ayb.toml" >/dev/null
 
 SERVER_READY=0
 for _ in $(seq 1 40); do

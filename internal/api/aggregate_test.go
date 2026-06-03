@@ -44,7 +44,8 @@ func aggregateTestSchema() *schema.SchemaCache {
 				PrimaryKey: []string{"id"},
 			},
 		},
-		Schemas: []string{"public"},
+		Schemas:   []string{"public"},
+		HasPgTrgm: true,
 	}
 }
 
@@ -279,6 +280,35 @@ func TestParseGroupColumnsWhitespace(t *testing.T) {
 	testutil.Equal(t, "active", cols[1])
 }
 
+func TestParseFacetColumnsDeduplicatesInRequestOrder(t *testing.T) {
+	t.Parallel()
+	sc := aggregateTestSchema()
+	tbl := sc.TableByName("products")
+	cols, err := parseFacetColumns(tbl, "category,active,category")
+	testutil.NoError(t, err)
+	testutil.SliceLen(t, cols, 2)
+	testutil.Equal(t, "category", cols[0])
+	testutil.Equal(t, "active", cols[1])
+}
+
+func TestParseFacetColumnsUnknownColumn(t *testing.T) {
+	t.Parallel()
+	sc := aggregateTestSchema()
+	tbl := sc.TableByName("products")
+	_, err := parseFacetColumns(tbl, "unknown")
+	testutil.Error(t, err)
+	testutil.Contains(t, err.Error(), "unknown column")
+}
+
+func TestParseFacetColumnsRejectsUnsupportedTypes(t *testing.T) {
+	t.Parallel()
+	sc := aggregateTestSchema()
+	tbl := sc.TableByName("products")
+	_, err := parseFacetColumns(tbl, "location")
+	testutil.Error(t, err)
+	testutil.Contains(t, err.Error(), "unsupported facet column")
+}
+
 // --- buildAggregate SQL tests ---
 
 func TestBuildAggregateBareCount(t *testing.T) {
@@ -427,6 +457,28 @@ func TestBuildAggregateWithFilterSpatialAndSearch(t *testing.T) {
 	testutil.Contains(t, q, `websearch_to_tsquery('simple', $6)`)
 }
 
+func TestBuildFacetCountQueriesUsesSharedPredicateAndArgs(t *testing.T) {
+	t.Parallel()
+	sc := aggregateTestSchema()
+	tbl := sc.TableByName("products")
+	opts := listOpts{
+		filterSQL:   `"category" = $1`,
+		filterArgs:  []any{"electronics"},
+		spatialSQL:  `ST_Intersects("location", ST_MakeEnvelope($2, $3, $4, $5, 4326))`,
+		spatialArgs: []any{-1.0, -2.0, 3.0, 4.0},
+		searchSQL:   `to_tsvector('simple', "name") @@ websearch_to_tsquery('simple', $6)`,
+		searchArgs:  []any{"widget"},
+		facetCols:   []string{"category"},
+	}
+	queries, args := buildFacetCountQueries(tbl, opts)
+	testutil.SliceLen(t, args, 6)
+	testutil.Equal(t, "electronics", args[0])
+	testutil.Equal(t, "widget", args[5])
+	testutil.Contains(t, queries["category"], `"category" = $1`)
+	testutil.Contains(t, queries["category"], `ST_Intersects("location", ST_MakeEnvelope($2, $3, $4, $5, 4326))`)
+	testutil.Contains(t, queries["category"], `websearch_to_tsquery('simple', $6)`)
+}
+
 // --- Handler-level aggregate validation tests ---
 
 func TestAggregateWithPageReturns400(t *testing.T) {
@@ -543,4 +595,86 @@ func TestAggregateEnabledWhenOnlyImportLimitOverridden(t *testing.T) {
 	w := doRequest(h, "GET", "/collections/products?aggregate=count", "")
 	// Aggregates stay enabled here; with no DB pool the request should fail at query time.
 	testutil.Equal(t, http.StatusInternalServerError, w.Code)
+}
+
+func TestAggregateSearchAllowsFuzzyWithNonEmptySearch(t *testing.T) {
+	t.Parallel()
+	h := testHandler(aggregateTestSchema())
+
+	tests := []struct {
+		name  string
+		query string
+	}{
+		{name: "fuzzy_true", query: "/collections/products?aggregate=count&search=widget&fuzzy=true"},
+		{name: "fuzzy_false", query: "/collections/products?aggregate=count&search=widget&fuzzy=false"},
+	}
+	for _, tc := range tests {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			w := doRequest(h, "GET", tc.query, "")
+			// aggregate parser accepts the request; no DB pool means query execution fails with 500.
+			testutil.Equal(t, http.StatusInternalServerError, w.Code)
+		})
+	}
+}
+
+func TestAggregateSearchRejectsFuzzyWithoutUsableSearch(t *testing.T) {
+	t.Parallel()
+	h := testHandler(aggregateTestSchema())
+
+	searchCases := []struct {
+		name  string
+		query string
+	}{
+		{name: "empty", query: "search="},
+		{name: "whitespace", query: "search=+++"},
+	}
+
+	for _, searchCase := range searchCases {
+		searchCase := searchCase
+		t.Run(searchCase.name, func(t *testing.T) {
+			t.Parallel()
+			url := "/collections/products?aggregate=count&" + searchCase.query + "&fuzzy=true"
+			w := doRequest(h, "GET", url, "")
+			testutil.Equal(t, http.StatusBadRequest, w.Code)
+			resp := decodeError(t, w)
+			testutil.Contains(t, strings.ToLower(resp.Message), "fuzzy")
+			testutil.Contains(t, strings.ToLower(resp.Message), "search")
+		})
+	}
+}
+
+func TestAggregateSearchRejectsInvalidFuzzyBoolean(t *testing.T) {
+	t.Parallel()
+	h := testHandler(aggregateTestSchema())
+
+	w := doRequest(h, "GET", "/collections/products?aggregate=count&search=widget&fuzzy=notabool", "")
+	testutil.Equal(t, http.StatusBadRequest, w.Code)
+	resp := decodeError(t, w)
+	testutil.Contains(t, strings.ToLower(resp.Message), "fuzzy")
+	testutil.Contains(t, strings.ToLower(resp.Message), "boolean")
+}
+
+func TestAggregateSearchRejectsFacetsAndTypoThreshold(t *testing.T) {
+	t.Parallel()
+	h := testHandler(aggregateTestSchema())
+
+	tests := []struct {
+		name string
+		url  string
+	}{
+		{name: "facets", url: "/collections/products?aggregate=count&search=widget&facets=category"},
+		{name: "typo_threshold_numeric", url: "/collections/products?aggregate=count&search=widget&typo_threshold=0.6"},
+	}
+	for _, tc := range tests {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			w := doRequest(h, "GET", tc.url, "")
+			testutil.Equal(t, http.StatusBadRequest, w.Code)
+			resp := decodeError(t, w)
+			testutil.Contains(t, resp.Message, "unsupported parameter")
+		})
+	}
 }

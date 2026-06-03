@@ -3,6 +3,7 @@ import type {
   WebhookRequest,
   WebhookTestResult,
   DeliveryListResponse,
+  WebhookDelivery,
 } from "./types";
 import {
   request,
@@ -41,13 +42,23 @@ export async function testWebhook(id: string): Promise<WebhookTestResult> {
 
 export async function listWebhookDeliveries(
   webhookId: string,
-  params: { page?: number; perPage?: number } = {},
+  params: { page?: number; perPage?: number; failedOnly?: boolean } = {},
 ): Promise<DeliveryListResponse> {
   const qs = new URLSearchParams();
   if (params.page) qs.set("page", String(params.page));
   if (params.perPage) qs.set("perPage", String(params.perPage));
+  if (params.failedOnly) qs.set("failed_only", "true");
   const suffix = qs.toString() ? `?${qs}` : "";
   return request(`/api/webhooks/${webhookId}/deliveries${suffix}`);
+}
+
+export async function replayDelivery(
+  webhookId: string,
+  deliveryId: string,
+): Promise<WebhookDelivery> {
+  return request(`/api/webhooks/${webhookId}/deliveries/${deliveryId}/replay`, {
+    method: "POST",
+  });
 }
 
 export async function deleteWebhook(id: string): Promise<void> {

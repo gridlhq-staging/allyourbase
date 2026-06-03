@@ -9,8 +9,12 @@ import {
   challengeEmailMFA,
   verifyEmailMFA,
   verifyBackupCode,
+  beginPasskeyChallenge,
+  verifyPasskeyChallenge,
 } from "../api";
-import { Loader2, Shield, Mail, Key } from "lucide-react";
+import { Loader2, Shield, Mail, Key, Fingerprint } from "lucide-react";
+import type { PublicKeyCredentialRequestOptionsJSON } from "../webauthn";
+import { createPasskeyAssertion } from "../webauthn";
 
 interface MFAChallengeProps {
   onVerified: (tokens: AuthTokens) => void;
@@ -25,12 +29,14 @@ type ChallengeState =
   | { kind: "error"; message: string }
   | { kind: "select-factor"; factors: MFAFactor[] }
   | { kind: "code-entry"; method: string; challengeId: string }
+  | { kind: "passkey-entry"; challengeId: string; options: PublicKeyCredentialRequestOptionsJSON }
   | { kind: "backup-entry" };
 
 const METHOD_LABELS: Record<string, string> = {
   totp: "Authenticator App",
   email: "Email",
   sms: "SMS",
+  webauthn: "Passkey",
 };
 
 const DEFAULT_CODE_EXPIRY_SECONDS = {
@@ -126,6 +132,10 @@ export function MFAChallenge({ onVerified, codeExpirySeconds = DEFAULT_CODE_EXPI
         await challengeSMSMFA();
         setChallengeExpiry(codeExpirySeconds.sms);
         setState({ kind: "code-entry", method: "sms", challengeId: "" });
+      } else if (factor.method === "webauthn") {
+        const res = await beginPasskeyChallenge();
+        setChallengeExpiry(null);
+        setState({ kind: "passkey-entry", challengeId: res.challenge_id, options: res.options });
       } else {
         setChallengeExpiry(null);
         setState({ kind: "error", message: `Unsupported MFA method: ${factor.method}` });
@@ -217,6 +227,23 @@ export function MFAChallenge({ onVerified, codeExpirySeconds = DEFAULT_CODE_EXPI
     }
   };
 
+  const handlePasskeyVerify = async () => {
+    if (state.kind !== "passkey-entry") {
+      return;
+    }
+    setVerifyError(null);
+    setVerifying(true);
+    try {
+      const assertionResponse = await createPasskeyAssertion(state.options);
+      const tokens = await verifyPasskeyChallenge(state.challengeId, assertionResponse);
+      onVerified(tokens);
+    } catch (error) {
+      setVerifyError(normalizeVerifyError(error));
+    } finally {
+      setVerifying(false);
+    }
+  };
+
   const handleUseBackup = () => {
     setCode("");
     setVerifyError(null);
@@ -259,6 +286,8 @@ export function MFAChallenge({ onVerified, codeExpirySeconds = DEFAULT_CODE_EXPI
                 <Shield className="w-5 h-5 text-blue-500" />
               ) : f.method === "email" ? (
                 <Mail className="w-5 h-5 text-blue-500" />
+              ) : f.method === "webauthn" ? (
+                <Fingerprint className="w-5 h-5 text-blue-500" />
               ) : (
                 <Key className="w-5 h-5 text-blue-500" />
               )}
@@ -267,6 +296,48 @@ export function MFAChallenge({ onVerified, codeExpirySeconds = DEFAULT_CODE_EXPI
               </span>
             </button>
           ))}
+        </div>
+      </div>
+    );
+  }
+
+  if (state.kind === "passkey-entry") {
+    return (
+      <div className="p-6 max-w-md mx-auto space-y-4">
+        <h2 className="text-lg font-semibold">Verify Your Identity</h2>
+        <p className="text-sm text-gray-600 dark:text-gray-300">
+          Use your enrolled passkey to complete MFA step-up.
+        </p>
+
+        {verifyError && (
+          <div className="px-4 py-2 bg-red-50 border border-red-200 rounded-lg text-red-800 text-sm">
+            {verifyError}
+          </div>
+        )}
+
+        <div className="space-y-3">
+          <button
+            type="button"
+            data-testid="passkey-verify-button"
+            onClick={handlePasskeyVerify}
+            disabled={verifying}
+            className="w-full px-4 py-2 text-sm bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50 flex items-center justify-center gap-2"
+          >
+            {verifying ? (
+              <>
+                <Loader2 className="w-4 h-4 animate-spin" />
+                Verifying...
+              </>
+            ) : (
+              "Verify with Passkey"
+            )}
+          </button>
+          <button
+            onClick={handleUseBackup}
+            className="w-full text-sm text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 dark:text-gray-200"
+          >
+            Use Backup Code
+          </button>
         </div>
       </div>
     );

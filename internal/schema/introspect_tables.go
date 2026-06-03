@@ -23,6 +23,14 @@ func loadPostGISRaster(ctx context.Context, pool *pgxpool.Pool) (bool, string, e
 	return loadPostGISExtensionStatus(ctx, pool, "postgis_raster")
 }
 
+func loadPgTrgm(ctx context.Context, pool *pgxpool.Pool) (bool, error) {
+	hasPgTrgm, _, err := loadPostGISExtensionStatus(ctx, pool, "pg_trgm")
+	if err != nil {
+		return false, err
+	}
+	return hasPgTrgm, nil
+}
+
 func loadPostGISExtensionStatus(ctx context.Context, querier extensionStatusQuerier, extensionName string) (bool, string, error) {
 	var version string
 	err := querier.QueryRow(ctx, `SELECT extversion FROM pg_extension WHERE extname = $1`, extensionName).Scan(&version)

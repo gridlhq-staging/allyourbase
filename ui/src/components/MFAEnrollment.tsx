@@ -1,6 +1,8 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import type { TOTPEnrollment as TOTPEnrollmentType, MFAFactor } from "../types";
 import {
+  createAnonymousSession,
+  linkEmail,
   enrollTOTP,
   confirmTOTPEnroll,
   enrollEmailMFA,
@@ -9,8 +11,11 @@ import {
   regenerateBackupCodes,
   getBackupCodeCount,
   getMFAFactors,
+  getAuthToken,
 } from "../api";
 import { Loader2, AlertCircle, Shield, Mail, Key } from "lucide-react";
+import { Passkeys } from "./Passkeys";
+import { readAALFromAuthToken, readIsAnonymousFromAuthToken } from "../webauthn";
 
 type EnrollStep =
   | { kind: "idle" }
@@ -24,6 +29,14 @@ const METHOD_LABELS: Record<string, string> = {
   email: "Email",
 };
 
+function buildMFABootstrapCredentials(): { email: string; password: string } {
+  const suffix = `${Date.now()}${Math.floor(Math.random() * 1_000_000)}`;
+  return {
+    email: `mfa-bootstrap-${suffix}@example.test`,
+    password: `MfaBootstrap!${suffix}`,
+  };
+}
+
 export function MFAEnrollment() {
   const [factors, setFactors] = useState<MFAFactor[]>([]);
   const [loading, setLoading] = useState(true);
@@ -33,11 +46,59 @@ export function MFAEnrollment() {
   const [backupCount, setBackupCount] = useState<number | null>(null);
   const [totpCode, setTotpCode] = useState("");
   const [emailCode, setEmailCode] = useState("");
+  const [currentAAL, setCurrentAAL] = useState<string | null>(() => readAALFromAuthToken(getAuthToken()));
+  const bootstrapPromiseRef = useRef<Promise<string | null> | null>(null);
 
-  const fetchData = useCallback(async () => {
+  const ensureAuthSession = useCallback(async (): Promise<string | null> => {
+    if (bootstrapPromiseRef.current) {
+      return bootstrapPromiseRef.current;
+    }
+
+    const bootstrapPromise = (async (): Promise<string | null> => {
+      let authToken = getAuthToken();
+      let isAnonymousToken = readIsAnonymousFromAuthToken(authToken);
+
+      if (authToken && isAnonymousToken === false) {
+        return authToken;
+      }
+
+      // Reuse an in-flight anonymous session when present; otherwise mint a
+      // fresh one so every MFA-only screen reaches a linkable user token.
+      if (!authToken || isAnonymousToken !== true) {
+        const anonymousTokens = await createAnonymousSession();
+        authToken = anonymousTokens.token;
+        if (anonymousTokens.user?.is_anonymous === false) {
+          return authToken;
+        }
+        isAnonymousToken = true;
+      }
+
+      const bootstrapCredentials = buildMFABootstrapCredentials();
+      const linkedTokens = await linkEmail(
+        bootstrapCredentials.email,
+        bootstrapCredentials.password,
+      );
+      return linkedTokens.token;
+    })();
+
+    bootstrapPromiseRef.current = bootstrapPromise;
+    try {
+      return await bootstrapPromise;
+    } finally {
+      bootstrapPromiseRef.current = null;
+    }
+  }, []);
+
+  const fetchData = useCallback(async (options?: { background?: boolean }) => {
+    const background = options?.background === true;
     try {
       setError(null);
-      setLoading(true);
+      if (!background) {
+        setLoading(true);
+      }
+      const authToken = await ensureAuthSession();
+      const tokenAAL = readAALFromAuthToken(authToken);
+      setCurrentAAL((previousAAL) => (previousAAL === "aal2" ? previousAAL : tokenAAL));
       const [factorsRes, countRes] = await Promise.all([
         getMFAFactors(),
         getBackupCodeCount().catch(() => ({ remaining: 0 })),
@@ -49,9 +110,11 @@ export function MFAEnrollment() {
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to load MFA data");
     } finally {
-      setLoading(false);
+      if (!background) {
+        setLoading(false);
+      }
     }
-  }, []);
+  }, [ensureAuthSession]);
 
   useEffect(() => {
     fetchData();
@@ -75,7 +138,7 @@ export function MFAEnrollment() {
       setSuccess("TOTP MFA enrolled successfully");
       setStep({ kind: "idle" });
       setTotpCode("");
-      fetchData();
+      void fetchData();
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to confirm TOTP enrollment");
     }
@@ -100,7 +163,7 @@ export function MFAEnrollment() {
       setSuccess("Email MFA enrolled successfully");
       setStep({ kind: "idle" });
       setEmailCode("");
-      fetchData();
+      void fetchData();
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to confirm email MFA enrollment");
     }
@@ -134,7 +197,15 @@ export function MFAEnrollment() {
 
   return (
     <div className="p-6 max-w-2xl mx-auto space-y-6">
-      <h2 className="text-lg font-semibold">Multi-Factor Authentication</h2>
+      <div className="flex items-center justify-between gap-4 flex-wrap">
+        <h2 className="text-lg font-semibold">Multi-Factor Authentication</h2>
+        <div
+          data-testid="aal-level-indicator"
+          className="px-3 py-1 text-xs font-medium rounded-full bg-blue-50 text-blue-700 border border-blue-200"
+        >
+          Session AAL: {(currentAAL ?? "aal1").toUpperCase()}
+        </div>
+      </div>
 
       {error && (
         <div className="px-4 py-2 bg-red-50 border border-red-200 rounded-lg text-red-800 text-sm">
@@ -223,6 +294,14 @@ export function MFAEnrollment() {
                 )}
               </div>
             </div>
+          )}
+
+          {step.kind === "idle" && (
+            <Passkeys
+              factors={factors}
+              onChanged={() => fetchData({ background: true })}
+              onPasskeyRegistered={() => setCurrentAAL("aal2")}
+            />
           )}
 
           {/* TOTP enrollment form */}

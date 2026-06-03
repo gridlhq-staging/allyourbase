@@ -1,3 +1,4 @@
+// Package cli Stub summary for /Users/stuart/parallel_development/allyourbase_dev/jun02_pm_2_demos_green_browser_standards/allyourbase_dev/internal/cli/demo_server.go.
 package cli
 
 import (
@@ -5,17 +6,20 @@ import (
 	"encoding/hex"
 	"fmt"
 	"io"
+	"io/fs"
 	"net/http"
 	"net/url"
 	"os"
 	"os/exec"
 	"strings"
 	"time"
+
+	"github.com/allyourbase/ayb/examples"
 )
 
 // ensureDemoServer returns the configured server URL and starts an auth-enabled
 // local AYB server when one is not already running.
-func ensureDemoServer() (string, bool, error) {
+func ensureDemoServer(demoName string) (string, bool, error) {
 	base := serverURL()
 	client := &http.Client{Timeout: 2 * time.Second}
 
@@ -39,8 +43,12 @@ func ensureDemoServer() (string, bool, error) {
 		return "", false, fmt.Errorf("generating demo auth secret: %w", err)
 	}
 
-	startCmd := exec.Command(aybBin, "start")
-	startCmd.Env = append(os.Environ(), "AYB_AUTH_ENABLED=true", "AYB_AUTH_JWT_SECRET="+jwtSecret)
+	startCmd, cleanup, err := demoServerStartCommand(aybBin, demoName)
+	if err != nil {
+		return "", false, err
+	}
+	defer cleanup()
+	startCmd.Env = demoServerStartEnv(jwtSecret)
 	startCmd.Stdout = io.Discard
 	var startErr strings.Builder
 	startCmd.Stderr = &startErr
@@ -53,6 +61,55 @@ func ensureDemoServer() (string, bool, error) {
 		return "", false, fmt.Errorf("failed to start AYB server: %w", err)
 	}
 	return base, true, nil
+}
+
+func demoServerStartCommand(aybBin, demoName string) (*exec.Cmd, func(), error) {
+	if demoName != "movies" {
+		return exec.Command(aybBin, "start"), func() {}, nil
+	}
+	configPath, cleanup, err := materializeEmbeddedDemoConfig(demoName)
+	if err != nil {
+		return nil, nil, err
+	}
+	return exec.Command(aybBin, "start", "--config", configPath), cleanup, nil
+}
+
+func materializeEmbeddedDemoConfig(demoName string) (string, func(), error) {
+	data, err := fs.ReadFile(examples.FS, demoName+"/ayb.toml")
+	if err != nil {
+		return "", nil, fmt.Errorf("reading embedded %s/ayb.toml: %w", demoName, err)
+	}
+	file, err := os.CreateTemp("", "ayb-demo-"+demoName+"-*.toml")
+	if err != nil {
+		return "", nil, fmt.Errorf("creating demo config: %w", err)
+	}
+	cleanup := func() {
+		_ = os.Remove(file.Name())
+	}
+	if _, err := file.Write(data); err != nil {
+		_ = file.Close()
+		cleanup()
+		return "", nil, fmt.Errorf("writing demo config: %w", err)
+	}
+	if err := file.Chmod(0o600); err != nil {
+		_ = file.Close()
+		cleanup()
+		return "", nil, fmt.Errorf("hardening demo config permissions: %w", err)
+	}
+	if err := file.Close(); err != nil {
+		cleanup()
+		return "", nil, fmt.Errorf("closing demo config: %w", err)
+	}
+	return file.Name(), cleanup, nil
+}
+
+func demoServerStartEnv(jwtSecret string) []string {
+	return append(
+		os.Environ(),
+		"AYB_AUTH_ENABLED=true",
+		"AYB_AUTH_JWT_SECRET="+jwtSecret,
+		"AYB_AUTH_ANONYMOUS_AUTH_ENABLED=true",
+	)
 }
 
 func resolveDemoJWTSecret() (string, error) {

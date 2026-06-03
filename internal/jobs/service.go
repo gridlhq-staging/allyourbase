@@ -136,6 +136,7 @@ func (s *Service) pollAndProcess(ctx context.Context, workerID string) {
 	s.mu.RLock()
 	handler, ok := s.handlers[job.Type]
 	s.mu.RUnlock()
+	startedAt := time.Now().UTC()
 
 	// Use a separate context for handler execution so that in-flight jobs
 	// can finish their DB operations during graceful shutdown. The poll loop's
@@ -161,6 +162,16 @@ func (s *Service) pollAndProcess(ctx context.Context, workerID string) {
 
 	// Stop lease renewal before updating final state.
 	renewCancel()
+	finishedAt := time.Now().UTC()
+	runDuration := finishedAt.Sub(startedAt)
+	if runDuration < 0 {
+		runDuration = 0
+	}
+	runTiming := RunTiming{
+		StartedAt:  startedAt,
+		FinishedAt: finishedAt,
+		DurationMs: int(runDuration / time.Millisecond),
+	}
 
 	// If the handler context expired (ShutdownTimeout) but the handler did not
 	// propagate the cancellation error, treat the job as timed-out rather than
@@ -182,7 +193,7 @@ func (s *Service) pollAndProcess(ctx context.Context, workerID string) {
 
 	if jobErr != nil {
 		backoff := ComputeBackoff(job.Attempts)
-		_, failErr := s.store.Fail(persistCtx, job.ID, jobErr.Error(), backoff)
+		_, failErr := s.store.Fail(persistCtx, job.ID, jobErr.Error(), backoff, runTiming)
 		if failErr != nil {
 			s.logger.Error("failed to record job failure",
 				"job_id", job.ID, "error", failErr)
@@ -193,7 +204,7 @@ func (s *Service) pollAndProcess(ctx context.Context, workerID string) {
 		return
 	}
 
-	_, completeErr := s.store.Complete(persistCtx, job.ID)
+	_, completeErr := s.store.Complete(persistCtx, job.ID, runTiming)
 	if completeErr != nil {
 		s.logger.Error("failed to complete job",
 			"job_id", job.ID, "error", completeErr)

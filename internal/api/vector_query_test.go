@@ -258,6 +258,53 @@ func TestHandleList_NearestEmptyVector(t *testing.T) {
 	testutil.Contains(t, resp.Message, "must not be empty")
 }
 
+func TestHandleList_NearestRejectsUnsupportedSearchParams(t *testing.T) {
+	t.Parallel()
+	h := testHandler(vectorSchemaCache())
+
+	tests := []string{"fuzzy", "facets", "typo_threshold"}
+	for _, param := range tests {
+		t.Run(param, func(t *testing.T) {
+			t.Parallel()
+			w := doRequest(h, "GET", "/collections/documents?nearest=[0.1,0.2,0.3]&"+param+"=true", "")
+			testutil.Equal(t, http.StatusBadRequest, w.Code)
+			resp := decodeError(t, w)
+			testutil.Contains(t, resp.Message, "unsupported parameter")
+			testutil.Contains(t, resp.Message, param)
+		})
+	}
+}
+
+func TestHandleList_NearestRejectsUnsupportedSearchParamsWithBlankSearch(t *testing.T) {
+	t.Parallel()
+	h := testHandler(vectorSchemaCache())
+
+	searchCases := []struct {
+		name  string
+		query string
+	}{
+		{name: "empty", query: "search="},
+		{name: "whitespace", query: "search=+++"},
+	}
+	params := []string{"fuzzy", "facets", "typo_threshold"}
+
+	for _, searchCase := range searchCases {
+		searchCase := searchCase
+		for _, param := range params {
+			param := param
+			t.Run(searchCase.name+"_"+param, func(t *testing.T) {
+				t.Parallel()
+				url := "/collections/documents?nearest=[0.1,0.2,0.3]&" + searchCase.query + "&" + param + "=true"
+				w := doRequest(h, "GET", url, "")
+				testutil.Equal(t, http.StatusBadRequest, w.Code)
+				resp := decodeError(t, w)
+				testutil.Contains(t, resp.Message, "unsupported parameter")
+				testutil.Contains(t, resp.Message, param)
+			})
+		}
+	}
+}
+
 // TestHandleList_NearestValidParams verifies that valid nearest params get past
 // validation. Without a real DB pool the query will fail, but we verify the
 // code path reaches the DB call (returns 500 "internal error", not 400).

@@ -139,6 +139,7 @@ type AuthConfig struct {
 	EmailMFAEnabled        bool                     `toml:"email_mfa_enabled"`
 	AnonymousAuthEnabled   bool                     `toml:"anonymous_auth_enabled"`
 	TOTPEnabled            bool                     `toml:"totp_enabled"`
+	WebAuthnEnabled        bool                     `toml:"webauthn_enabled"`
 	EncryptionKey          string                   `toml:"encryption_key"`
 	SMSEnabled             bool                     `toml:"sms_enabled"`
 	SMSProvider            string                   `toml:"sms_provider"`

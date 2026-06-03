@@ -117,7 +117,7 @@ func (s *Server) registerAPIWebhookRoutes(r chi.Router) {
 		return
 	}
 	whStore := webhooks.NewStore(s.pool)
-	whHandler := webhooks.NewHandler(whStore, whStore, s.logger)
+	whHandler := webhooks.NewHandler(whStore, whStore, s.webhookDispatcher, s.logger)
 	r.Route("/webhooks", func(r chi.Router) {
 		r.Use(s.requireAdminToken)
 		r.Mount("/", whHandler.Routes())

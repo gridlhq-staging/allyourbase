@@ -1,5 +1,5 @@
 /**
- * @module Stub summary for /Users/stuart/parallel_development/allyourbase_dev/mar26_pm_1_managed_pg_release_and_staging_promotion/allyourbase_dev/ui/browser-tests-unmocked/fixtures/realtime.ts.
+ * @module Stub summary for /Users/stuart/parallel_development/allyourbase_dev/may31_pm_2_arm64_postgres_asset_rebuild/allyourbase_dev/ui/browser-tests-unmocked/fixtures/realtime.ts.
  */
 import type { Page } from "@playwright/test";
 
@@ -316,7 +316,7 @@ export async function createApiKeyForUser(
   keyName: string,
   scope: string = "*",
 ): Promise<{ key: string }> {
-  const res = await request.post("/api/admin/api-keys", {
+  const requestBody = {
     headers: {
       Authorization: `Bearer ${adminToken}`,
       "Content-Type": "application/json",
@@ -326,7 +326,13 @@ export async function createApiKeyForUser(
       name: keyName,
       scope,
     },
-  });
+  };
+  let res = await request.post("/api/admin/api-keys", requestBody);
+  if (res.status() === 404) {
+    // Some local route stacks expose this admin collection only on the
+    // trailing-slash path; retry once so smoke coverage remains portable.
+    res = await request.post("/api/admin/api-keys/", requestBody);
+  }
   if (!res.ok()) {
     throw new Error(`Failed to create API key ${keyName}: ${res.status()} ${res.statusText()}`);
   }

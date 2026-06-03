@@ -63,6 +63,7 @@ const NAV_ITEMS: Omit<CommandItem, "id">[] = [
   { label: "Realtime Inspector", section: "Navigation", icon: <Activity className={ICON_CLS} />, action: { kind: "view", view: "realtime-inspector" } },
   { label: "Security Advisor", section: "Navigation", icon: <Shield className={ICON_CLS} />, action: { kind: "view", view: "security-advisor" } },
   { label: "Performance Advisor", section: "Navigation", icon: <Gauge className={ICON_CLS} />, action: { kind: "view", view: "performance-advisor" } },
+  { label: "MFA Management", section: "Navigation", icon: <Shield className={ICON_CLS} />, action: { kind: "view", view: "mfa-management" } },
 ];
 
 function buildItems(tables: Table[]): CommandItem[] {

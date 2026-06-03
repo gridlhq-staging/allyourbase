@@ -52,6 +52,7 @@ function createAuthClient() {
       signInAnonymously: vi.fn(async () => ({ token: "t3", refreshToken: "r3", user: { id: "guest", isAnonymous: true } })),
         requestMagicLink: vi.fn(async () => magicLinkRequestFixture),
         confirmMagicLink: vi.fn(async () => magicLinkConfirmSuccessFixture),
+      signInWithPasskey: vi.fn(async () => ({ token: "tp", refreshToken: "rp", user: { id: "u-passkey", email: "passkey@example.com" } })),
       linkEmail: vi.fn(async () => ({ token: "t4", refreshToken: "r4", user: { id: "u2", email: "next@example.com" } })),
       signInWithOAuth: vi.fn(async () => ({ token: "t5", refreshToken: "r5", user: { id: "u3", email: "oauth@example.com" } })),
       logout: vi.fn(async () => {}),
@@ -72,6 +73,40 @@ function createAuthClient() {
       waitForSessionRestore,
     };
   }
+
+function createLegacyClientWithoutPasskey() {
+  let listener: AuthStateListener | null = null;
+  const unsub = vi.fn();
+  const client: AYBClientLike = {
+    token: "legacy-token",
+    refreshToken: "legacy-refresh",
+    onAuthStateChange: (cb) => {
+      listener = cb;
+      return unsub;
+    },
+    auth: {
+      login: vi.fn(async () => ({ token: "t2", refreshToken: "r2", user: { id: "u1", email: "u@example.com" } })),
+      register: vi.fn(async () => ({ token: "t2", refreshToken: "r2", user: { id: "u1", email: "u@example.com" } })),
+      signInAnonymously: vi.fn(async () => ({ token: "t3", refreshToken: "r3", user: { id: "guest", isAnonymous: true } })),
+      requestMagicLink: vi.fn(async () => magicLinkRequestFixture),
+      confirmMagicLink: vi.fn(async () => magicLinkConfirmSuccessFixture),
+      linkEmail: vi.fn(async () => ({ token: "t4", refreshToken: "r4", user: { id: "u2", email: "next@example.com" } })),
+      signInWithOAuth: vi.fn(async () => ({ token: "t5", refreshToken: "r5", user: { id: "u3", email: "oauth@example.com" } })),
+      logout: vi.fn(async () => {}),
+      refresh: vi.fn(async () => ({ token: "t6", refreshToken: "r6", user: { id: "u4" } })),
+      me: vi.fn(async () => ({ id: "u1", email: "u@example.com" })),
+    },
+    records: {
+      list: vi.fn(async () => ({ items: [], page: 1, perPage: 20, totalItems: 0, totalPages: 0 })),
+    },
+    realtime: { subscribe: vi.fn(() => () => {}) },
+  };
+
+  return {
+    client,
+    emit: (event: Parameters<AuthStateListener>[0], session: Parameters<AuthStateListener>[1]) => listener?.(event, session),
+  };
+}
 
 describe("useAuth", () => {
   it("loads current user, reacts to auth events, unsubscribes on unmount", async () => {
@@ -172,6 +207,77 @@ describe("useAuth", () => {
 
     expect(client.auth.confirmMagicLink).toHaveBeenCalledWith("magic-link-token");
     expect(client.auth.me).toHaveBeenCalledTimes(2);
+  });
+
+  it("delegates signInWithPasskey and reloads the current user after session issuance", async () => {
+    const { client } = createAuthClient();
+    const wrapper = ({ children }: { children: React.ReactNode }) => <AYBProvider client={client}>{children}</AYBProvider>;
+    const { result } = renderHook(() => useAuth(), { wrapper });
+
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    await act(async () => {
+      await result.current.signInWithPasskey("passkey@example.com");
+    });
+
+    expect(client.auth.signInWithPasskey).toHaveBeenCalledWith("passkey@example.com");
+    expect(client.auth.me).toHaveBeenCalledTimes(2);
+  });
+
+  it("preserves auth object binding for passkey sign-in", async () => {
+    const { client } = createAuthClient();
+    const auth = client.auth as typeof client.auth & {
+      signInWithPasskeyCalledWithBoundThis?: boolean;
+    };
+    auth.signInWithPasskey = vi.fn(async function (
+      this: typeof auth,
+      email: string,
+    ) {
+      this.signInWithPasskeyCalledWithBoundThis = true;
+      return {
+        token: "tp",
+        refreshToken: "rp",
+        user: { id: "u-passkey", email },
+      };
+    });
+    const wrapper = ({ children }: { children: React.ReactNode }) => <AYBProvider client={client}>{children}</AYBProvider>;
+    const { result } = renderHook(() => useAuth(), { wrapper });
+
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    await act(async () => {
+      await result.current.signInWithPasskey("bound-passkey@example.com");
+    });
+
+    expect(auth.signInWithPasskeyCalledWithBoundThis).toBe(true);
+    expect(client.auth.me).toHaveBeenCalledTimes(2);
+  });
+
+  it("delegates anonymous sign-in and reloads the current user after session issuance", async () => {
+    const { client } = createAuthClient();
+    const wrapper = ({ children }: { children: React.ReactNode }) => <AYBProvider client={client}>{children}</AYBProvider>;
+    const { result } = renderHook(() => useAuth(), { wrapper });
+
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    await act(async () => {
+      await result.current.signInAnonymously();
+    });
+
+    expect(client.auth.signInAnonymously).toHaveBeenCalledTimes(1);
+    expect(client.auth.me).toHaveBeenCalledTimes(2);
+  });
+
+  it("keeps legacy AYBClientLike consumers compatible and throws only when passkey login is invoked", async () => {
+    const { client } = createLegacyClientWithoutPasskey();
+    const wrapper = ({ children }: { children: React.ReactNode }) => <AYBProvider client={client}>{children}</AYBProvider>;
+    const { result } = renderHook(() => useAuth(), { wrapper });
+
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    await expect(result.current.signInWithPasskey("legacy@example.com")).rejects.toThrow(
+      "Passkey sign-in is not available for this client",
+    );
   });
 
   it("delegates stage1 auth methods through client.auth", async () => {

@@ -184,6 +184,59 @@ func TestHybridSearch_MutualExclusionWithSemanticQuery(t *testing.T) {
 	testutil.Contains(t, strings.ToLower(resp.Message), "cannot combine")
 }
 
+func TestHybridSearch_RejectsUnsupportedSearchParams(t *testing.T) {
+	t.Parallel()
+	embedFn := func(_ context.Context, _ []string) ([][]float64, error) {
+		return [][]float64{{0.1, 0.2, 0.3}}, nil
+	}
+	h := testHandlerForHybrid(hybridSchemaCache(), embedFn)
+
+	tests := []string{"fuzzy", "facets", "typo_threshold"}
+	for _, param := range tests {
+		t.Run(param, func(t *testing.T) {
+			t.Parallel()
+			w := doRequest(h, "GET", "/collections/articles?search=hello&semantic=true&"+param+"=true", "")
+			testutil.Equal(t, http.StatusBadRequest, w.Code)
+			resp := decodeError(t, w)
+			testutil.Contains(t, strings.ToLower(resp.Message), "unsupported parameter")
+			testutil.Contains(t, resp.Message, param)
+		})
+	}
+}
+
+func TestHybridSearch_RejectsUnsupportedSearchParamsWithBlankSearch(t *testing.T) {
+	t.Parallel()
+	embedFn := func(_ context.Context, _ []string) ([][]float64, error) {
+		return [][]float64{{0.1, 0.2, 0.3}}, nil
+	}
+	h := testHandlerForHybrid(hybridSchemaCache(), embedFn)
+
+	searchCases := []struct {
+		name  string
+		query string
+	}{
+		{name: "empty", query: "search="},
+		{name: "whitespace", query: "search=+++"},
+	}
+	params := []string{"fuzzy", "facets", "typo_threshold"}
+
+	for _, searchCase := range searchCases {
+		searchCase := searchCase
+		for _, param := range params {
+			param := param
+			t.Run(searchCase.name+"_"+param, func(t *testing.T) {
+				t.Parallel()
+				url := "/collections/articles?" + searchCase.query + "&semantic=true&" + param + "=true"
+				w := doRequest(h, "GET", url, "")
+				testutil.Equal(t, http.StatusBadRequest, w.Code)
+				resp := decodeError(t, w)
+				testutil.Contains(t, strings.ToLower(resp.Message), "unsupported parameter")
+				testutil.Contains(t, resp.Message, param)
+			})
+		}
+	}
+}
+
 func TestHybridSearch_SemanticFalseIsRegularFTS(t *testing.T) {
 	t.Parallel()
 	h := testHandler(hybridSchemaCache())

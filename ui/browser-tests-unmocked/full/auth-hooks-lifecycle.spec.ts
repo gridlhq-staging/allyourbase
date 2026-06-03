@@ -53,28 +53,14 @@ test.describe("Auth Hooks Lifecycle (Full E2E)", () => {
       await expect(page.getByText(label, { exact: true })).toBeVisible({ timeout: 3000 });
     }
 
-    // Cross-check: each hook must show "Not configured" or its function reference
-    // All hooks display one of these two states — assert both are present as a set
-    const notConfiguredCount = HOOK_LABELS.filter(
-      (label) => !hookConfig[HOOK_KEY_MAP[label]],
-    ).length;
-    const configuredCount = HOOK_LABELS.length - notConfiguredCount;
-
-    // Verify at least the expected count of "Not configured" labels appear
-    const notConfiguredLocators = page.getByText("Not configured");
-    await expect(notConfiguredLocators.first()).toBeVisible({ timeout: 3000 });
-    await expect(notConfiguredLocators).toHaveCount(notConfiguredCount, { timeout: 3000 });
-
-    // Verify configured hooks show their function references
-    const configuredLabels = HOOK_LABELS.filter(
-      (label) => !!hookConfig[HOOK_KEY_MAP[label]],
-    );
-    for (const label of configuredLabels) {
-      const funcRef = hookConfig[HOOK_KEY_MAP[label]];
-      await expect(page.getByText(funcRef)).toBeVisible({ timeout: 3000 });
+    // Cross-check each hook slot by its stable key to prevent false positives where
+    // aggregate "Not configured" counts pass while values are rendered on the wrong row.
+    for (const label of HOOK_LABELS) {
+      const hookKey = HOOK_KEY_MAP[label];
+      const expectedValue = hookConfig[hookKey] || "Not configured";
+      await expect(page.getByTestId(`auth-hook-value-${hookKey}`)).toHaveText(expectedValue, {
+        timeout: 3000,
+      });
     }
-
-    // Summary assertion: total hook slots match
-    expect(notConfiguredCount + configuredCount).toBe(6);
   });
 });

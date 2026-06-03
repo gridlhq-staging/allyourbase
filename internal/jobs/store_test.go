@@ -13,9 +13,16 @@ import (
 	"github.com/allyourbase/ayb/internal/jobs"
 	"github.com/allyourbase/ayb/internal/migrations"
 	"github.com/allyourbase/ayb/internal/testutil"
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 var sharedPG *testutil.PGContainer
+
+type runHistoryRow struct {
+	attempt int
+	status  string
+	errText *string
+}
 
 func TestMain(m *testing.M) {
 	ctx := context.Background()
@@ -41,6 +48,57 @@ func setupDB(t *testing.T) *jobs.Store {
 	testutil.NoError(t, err)
 
 	return jobs.NewStore(sharedPG.Pool)
+}
+
+func loadRunHistory(t *testing.T, ctx context.Context, jobID string) []runHistoryRow {
+	t.Helper()
+	rows, err := sharedPG.Pool.Query(ctx,
+		`SELECT attempt, status, error
+		 FROM _ayb_job_runs
+		 WHERE job_id = $1
+		 ORDER BY attempt`,
+		jobID,
+	)
+	testutil.NoError(t, err)
+	defer rows.Close()
+
+	var history []runHistoryRow
+	for rows.Next() {
+		var row runHistoryRow
+		err = rows.Scan(&row.attempt, &row.status, &row.errText)
+		testutil.NoError(t, err)
+		history = append(history, row)
+	}
+	testutil.NoError(t, rows.Err())
+	return history
+}
+
+func runTiming(startedAt time.Time, duration time.Duration) jobs.RunTiming {
+	finishedAt := startedAt.Add(duration)
+	return jobs.RunTiming{
+		StartedAt:  startedAt,
+		FinishedAt: finishedAt,
+		DurationMs: int(duration / time.Millisecond),
+	}
+}
+
+func newSingleConnectionPool(t *testing.T, ctx context.Context) *pgxpool.Pool {
+	t.Helper()
+	poolCfg, err := pgxpool.ParseConfig(sharedPG.ConnString)
+	testutil.NoError(t, err)
+	poolCfg.MaxConns = 1
+	poolCfg.MinConns = 0
+
+	oneConnPool, err := pgxpool.NewWithConfig(ctx, poolCfg)
+	testutil.NoError(t, err)
+
+	// Prime the pool before short per-test deadlines so assertions measure
+	// ListRuns behavior rather than first-connection startup latency.
+	warmupCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	testutil.NoError(t, oneConnPool.Ping(warmupCtx))
+
+	return oneConnPool
 }
 
 // --- State Machine Tests ---
@@ -69,7 +127,7 @@ func TestEnqueueClaimComplete(t *testing.T) {
 	testutil.Equal(t, "worker-1", *claimed.WorkerID)
 
 	// Complete
-	completed, err := store.Complete(ctx, claimed.ID)
+	completed, err := store.Complete(ctx, claimed.ID, runTiming(time.Now().UTC(), 120*time.Millisecond))
 	testutil.NoError(t, err)
 	testutil.Equal(t, jobs.StateCompleted, completed.State)
 	testutil.NotNil(t, completed.CompletedAt)
@@ -90,11 +148,20 @@ func TestEnqueueClaimFailRetry(t *testing.T) {
 	testutil.Equal(t, job.ID, claimed.ID)
 	testutil.Equal(t, 1, claimed.Attempts)
 
-	failed, err := store.Fail(ctx, claimed.ID, "attempt 1 error", 1*time.Second)
+	failed, err := store.Fail(ctx, claimed.ID, "attempt 1 error", 1*time.Second, runTiming(time.Now().UTC(), 110*time.Millisecond))
 	testutil.NoError(t, err)
 	testutil.Equal(t, jobs.StateQueued, failed.State) // re-queued for retry
 	testutil.NotNil(t, failed.LastError)
 	testutil.Equal(t, "attempt 1 error", *failed.LastError)
+
+	firstCycleHistory := loadRunHistory(t, ctx, job.ID)
+	testutil.Equal(t, 1, len(firstCycleHistory))
+	if len(firstCycleHistory) == 1 {
+		testutil.Equal(t, 1, firstCycleHistory[0].attempt)
+		testutil.Equal(t, "failed", firstCycleHistory[0].status)
+		testutil.NotNil(t, firstCycleHistory[0].errText)
+		testutil.Equal(t, "attempt 1 error", *firstCycleHistory[0].errText)
+	}
 
 	// Force the retry window open without waiting on a full 1s SQL interval.
 	_, err = sharedPG.Pool.Exec(ctx, `UPDATE _ayb_jobs SET run_at = NOW() WHERE id = $1`, claimed.ID)
@@ -106,9 +173,22 @@ func TestEnqueueClaimFailRetry(t *testing.T) {
 	testutil.NotNil(t, claimed2)
 	testutil.Equal(t, 2, claimed2.Attempts)
 
-	failed2, err := store.Fail(ctx, claimed2.ID, "attempt 2 error", 1*time.Second)
+	failed2, err := store.Fail(ctx, claimed2.ID, "attempt 2 error", 1*time.Second, runTiming(time.Now().UTC(), 130*time.Millisecond))
 	testutil.NoError(t, err)
 	testutil.Equal(t, jobs.StateQueued, failed2.State)
+
+	secondCycleHistory := loadRunHistory(t, ctx, job.ID)
+	testutil.Equal(t, 2, len(secondCycleHistory))
+	if len(secondCycleHistory) == 2 {
+		testutil.Equal(t, 1, secondCycleHistory[0].attempt)
+		testutil.Equal(t, "failed", secondCycleHistory[0].status)
+		testutil.NotNil(t, secondCycleHistory[0].errText)
+		testutil.Equal(t, "attempt 1 error", *secondCycleHistory[0].errText)
+		testutil.Equal(t, 2, secondCycleHistory[1].attempt)
+		testutil.Equal(t, "failed", secondCycleHistory[1].status)
+		testutil.NotNil(t, secondCycleHistory[1].errText)
+		testutil.Equal(t, "attempt 2 error", *secondCycleHistory[1].errText)
+	}
 
 	// Force the retry window open without waiting on a full 1s SQL interval.
 	_, err = sharedPG.Pool.Exec(ctx, `UPDATE _ayb_jobs SET run_at = NOW() WHERE id = $1`, claimed2.ID)
@@ -120,10 +200,27 @@ func TestEnqueueClaimFailRetry(t *testing.T) {
 	testutil.NotNil(t, claimed3)
 	testutil.Equal(t, 3, claimed3.Attempts)
 
-	failed3, err := store.Fail(ctx, claimed3.ID, "attempt 3 terminal", 1*time.Second)
+	failed3, err := store.Fail(ctx, claimed3.ID, "attempt 3 terminal", 1*time.Second, runTiming(time.Now().UTC(), 125*time.Millisecond))
 	testutil.NoError(t, err)
 	testutil.Equal(t, jobs.StateFailed, failed3.State) // terminal
 	testutil.Equal(t, "attempt 3 terminal", *failed3.LastError)
+
+	thirdCycleHistory := loadRunHistory(t, ctx, job.ID)
+	testutil.Equal(t, 3, len(thirdCycleHistory))
+	if len(thirdCycleHistory) == 3 {
+		testutil.Equal(t, 1, thirdCycleHistory[0].attempt)
+		testutil.Equal(t, "failed", thirdCycleHistory[0].status)
+		testutil.NotNil(t, thirdCycleHistory[0].errText)
+		testutil.Equal(t, "attempt 1 error", *thirdCycleHistory[0].errText)
+		testutil.Equal(t, 2, thirdCycleHistory[1].attempt)
+		testutil.Equal(t, "failed", thirdCycleHistory[1].status)
+		testutil.NotNil(t, thirdCycleHistory[1].errText)
+		testutil.Equal(t, "attempt 2 error", *thirdCycleHistory[1].errText)
+		testutil.Equal(t, 3, thirdCycleHistory[2].attempt)
+		testutil.Equal(t, "failed", thirdCycleHistory[2].status)
+		testutil.NotNil(t, thirdCycleHistory[2].errText)
+		testutil.Equal(t, "attempt 3 terminal", *thirdCycleHistory[2].errText)
+	}
 }
 
 func TestEnqueueCancel(t *testing.T) {
@@ -164,7 +261,7 @@ func TestRetryNow(t *testing.T) {
 	claimed, err := store.Claim(ctx, "w1", 5*time.Minute)
 	testutil.NoError(t, err)
 
-	_, err = store.Fail(ctx, claimed.ID, "failed", 0)
+	_, err = store.Fail(ctx, claimed.ID, "failed", 0, runTiming(time.Now().UTC(), 90*time.Millisecond))
 	testutil.NoError(t, err)
 
 	// Verify it's failed.
@@ -177,6 +274,24 @@ func TestRetryNow(t *testing.T) {
 	testutil.NoError(t, err)
 	testutil.Equal(t, jobs.StateQueued, retried.State)
 	testutil.Equal(t, 0, retried.Attempts)
+
+	retriedClaimed, err := store.Claim(ctx, "w1", 5*time.Minute)
+	testutil.NoError(t, err)
+	testutil.NotNil(t, retriedClaimed)
+	testutil.Equal(t, 1, retriedClaimed.Attempts)
+
+	_, err = store.Fail(ctx, retriedClaimed.ID, "failed again", 0, runTiming(time.Now().UTC(), 95*time.Millisecond))
+	testutil.NoError(t, err)
+
+	var runAttemptHistory string
+	err = sharedPG.Pool.QueryRow(ctx,
+		`SELECT COALESCE(string_agg(attempt::text, ',' ORDER BY attempt), '')
+		 FROM _ayb_job_runs
+		 WHERE job_id = $1`,
+		job.ID,
+	).Scan(&runAttemptHistory)
+	testutil.NoError(t, err)
+	testutil.Equal(t, "1,2", runAttemptHistory)
 }
 
 // --- Concurrency Tests ---
@@ -251,6 +366,26 @@ func TestRecoverStalledJobs(t *testing.T) {
 	testutil.NoError(t, err)
 	testutil.NotNil(t, reClaimed)
 	testutil.Equal(t, job.ID, reClaimed.ID)
+	testutil.Equal(t, 2, reClaimed.Attempts)
+
+	recoveredAttemptFailed, err := store.Fail(
+		ctx,
+		reClaimed.ID,
+		"post-recovery failure",
+		1*time.Second,
+		runTiming(time.Now().UTC(), 95*time.Millisecond),
+	)
+	testutil.NoError(t, err)
+	testutil.Equal(t, jobs.StateQueued, recoveredAttemptFailed.State)
+
+	history := loadRunHistory(t, ctx, job.ID)
+	testutil.Equal(t, 1, len(history))
+	if len(history) == 1 {
+		testutil.Equal(t, 2, history[0].attempt)
+		testutil.Equal(t, "failed", history[0].status)
+		testutil.NotNil(t, history[0].errText)
+		testutil.Equal(t, "post-recovery failure", *history[0].errText)
+	}
 }
 
 // --- Idempotency Tests ---
@@ -520,4 +655,38 @@ func TestMaxAttemptsCheckConstraint(t *testing.T) {
 	_, err := sharedPG.Pool.Exec(ctx,
 		`INSERT INTO _ayb_jobs (type, max_attempts) VALUES ('test', 0)`)
 	testutil.NotNil(t, err)
+}
+
+func TestListRunsExistingJobNoRowsSingleConnectionPool(t *testing.T) {
+	setupDB(t)
+	ctx := context.Background()
+
+	job, err := jobs.NewStore(sharedPG.Pool).Enqueue(ctx, "single_conn_existing", nil, jobs.EnqueueOpts{})
+	testutil.NoError(t, err)
+
+	oneConnPool := newSingleConnectionPool(t, ctx)
+	defer oneConnPool.Close()
+
+	store := jobs.NewStore(oneConnPool)
+	timeoutCtx, cancel := context.WithTimeout(ctx, 250*time.Millisecond)
+	defer cancel()
+
+	runs, err := store.ListRuns(timeoutCtx, job.ID)
+	testutil.NoError(t, err)
+	testutil.Equal(t, 0, len(runs))
+}
+
+func TestListRunsMissingJobSingleConnectionPoolReturnsNotFound(t *testing.T) {
+	setupDB(t)
+	ctx := context.Background()
+
+	oneConnPool := newSingleConnectionPool(t, ctx)
+	defer oneConnPool.Close()
+
+	store := jobs.NewStore(oneConnPool)
+	timeoutCtx, cancel := context.WithTimeout(ctx, 250*time.Millisecond)
+	defer cancel()
+
+	_, err := store.ListRuns(timeoutCtx, "00000000-0000-0000-0000-000000000000")
+	testutil.ErrorContains(t, err, "not found")
 }

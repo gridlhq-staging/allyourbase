@@ -29,6 +29,7 @@ vi.mock("@allyourbase/react", () => {
       onSubmit,
       onOAuthProvider,
       onAnonymous,
+      onPasskey,
       onRequestMagicLink,
       onUpgradeAnonymous,
     }: {
@@ -42,13 +43,14 @@ vi.mock("@allyourbase/react", () => {
       registerToggleLabel?: string;
       loginToggleLabel?: string;
       oauthProviders?: string[];
-      methods: { password: boolean; oauth: boolean; anonymous: boolean; canUpgradeAnonymous: boolean; magicLink?: boolean };
+      methods: { password: boolean; oauth: boolean; anonymous: boolean; canUpgradeAnonymous: boolean; magicLink?: boolean; passkey?: boolean };
       onEmailChange: (value: string) => void;
       onPasswordChange: (value: string) => void;
       onModeChange?: (mode: "login" | "register") => void;
       onSubmit: () => Promise<void>;
       onOAuthProvider?: (provider: string) => Promise<void>;
       onAnonymous?: () => Promise<void>;
+      onPasskey?: (email: string) => Promise<void>;
       onRequestMagicLink?: (email: string) => Promise<void>;
       onUpgradeAnonymous?: () => Promise<void>;
     }) => (
@@ -71,6 +73,9 @@ vi.mock("@allyourbase/react", () => {
         )}
         {methods.magicLink && onRequestMagicLink && (
           <button type="button" onClick={() => void onRequestMagicLink(email)}>Email me a magic link</button>
+        )}
+        {methods.passkey && onPasskey && (
+          <button type="button" onClick={() => void onPasskey(email)}>Sign in with a passkey</button>
         )}
         {methods.canUpgradeAnonymous && onUpgradeAnonymous && (
           <button type="button" onClick={() => void onUpgradeAnonymous()}>Upgrade Account</button>
@@ -102,6 +107,7 @@ describe("AuthForm", () => {
   const register = vi.fn();
 
   const signInAnonymously = vi.fn();
+  const signInWithPasskey = vi.fn();
   const signInWithOAuth = vi.fn();
   const requestMagicLink = vi.fn();
   const linkEmail = vi.fn();
@@ -117,6 +123,7 @@ describe("AuthForm", () => {
       login,
       register,
       signInAnonymously,
+      signInWithPasskey,
       requestMagicLink,
       confirmMagicLink: vi.fn(),
       linkEmail,
@@ -210,5 +217,19 @@ describe("AuthForm", () => {
     fireEvent.change(screen.getByLabelText("Email"), { target: { value: "magic@test.com" } });
     fireEvent.click(screen.getByRole("button", { name: "Email me a magic link" }));
     await waitFor(() => expect(requestMagicLink).toHaveBeenCalledWith("magic@test.com"));
+  });
+
+  it("renders a passkey CTA wired to signInWithPasskey and preserves auth side effects", async () => {
+    signInWithPasskey.mockResolvedValue(undefined);
+    const onAuth = vi.fn();
+    render(<AuthForm onAuth={onAuth} />);
+
+    fireEvent.change(screen.getByLabelText("Email"), { target: { value: "passkey@test.com" } });
+    fireEvent.click(screen.getByRole("button", { name: "Sign in with a passkey" }));
+
+    await waitFor(() => expect(signInWithPasskey).toHaveBeenCalledWith("passkey@test.com"));
+    expect(mockPersistTokens).toHaveBeenCalledWith("passkey@test.com");
+    expect(mockClearAnonymousBootstrapOptOut).toHaveBeenCalledOnce();
+    expect(onAuth).toHaveBeenCalledWith("passkey@test.com");
   });
 });

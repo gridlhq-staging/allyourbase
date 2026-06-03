@@ -3,6 +3,7 @@ import {
   expect,
   probeEndpoint,
   seedJob,
+  seedJobRuns,
   cleanupJobsByType,
   waitForDashboard,
 } from "../fixtures";
@@ -33,8 +34,14 @@ test.describe("Jobs Management (Full E2E)", () => {
     const failedJobType = `jobs_full_failed_${runId}`;
     const queuedJobType = `jobs_full_queued_${runId}`;
     const failedError = `lifecycle-failure-${runId}`;
+    const seededRunError = `seeded-run-error-${runId}`;
+    const seededRunDurationMs = 4321;
+    const seededRunStartedAt = "2026-05-31T23:59:55Z";
+    const seededRunFinishedAt = "2026-06-01T00:00:00Z";
+    const seededRunStartedAtPreviousAttempt = "2026-05-31T23:59:50Z";
+    const seededRunFinishedAtPreviousAttempt = "2026-05-31T23:59:52Z";
 
-    await seedJob(request, adminToken, {
+    const seededFailedJob = await seedJob(request, adminToken, {
       type: failedJobType,
       state: "failed",
       attempts: 2,
@@ -43,6 +50,28 @@ test.describe("Jobs Management (Full E2E)", () => {
       payload: { source: "jobs-lifecycle" },
     });
     seededJobTypes.push(failedJobType);
+
+    await seedJobRuns(request, adminToken, {
+      jobId: seededFailedJob.id,
+      runs: [
+        {
+          attempt: 2,
+          status: "failed",
+          durationMs: seededRunDurationMs,
+          error: seededRunError,
+          startedAt: seededRunStartedAt,
+          finishedAt: seededRunFinishedAt,
+        },
+        {
+          attempt: 1,
+          status: "failed",
+          durationMs: 2000,
+          error: "first-seeded-run-error",
+          startedAt: seededRunStartedAtPreviousAttempt,
+          finishedAt: seededRunFinishedAtPreviousAttempt,
+        },
+      ],
+    });
 
     await seedJob(request, adminToken, {
       type: queuedJobType,
@@ -70,6 +99,28 @@ test.describe("Jobs Management (Full E2E)", () => {
     await expect(failedRow).toContainText("failed");
     await expect(failedRow).toContainText(failedError);
     await expect(failedRow.getByRole("button", { name: /Retry/i })).toBeVisible();
+    await failedRow.getByRole("button", { name: /View Runs/i }).click();
+    const runHistoryHeading = page.getByRole("heading", {
+      name: `Run history for job ${seededFailedJob.id}`,
+    });
+    await expect(runHistoryHeading).toBeVisible({ timeout: 5000 });
+    await expect(
+      page
+        .getByRole("row")
+        .filter({ hasText: "2" })
+        .filter({ hasText: "failed" })
+        .filter({ hasText: `${seededRunDurationMs} ms` })
+        .filter({ hasText: seededRunError }),
+    ).toHaveCount(1, { timeout: 5000 });
+    await expect(
+      page
+        .getByRole("row")
+        .filter({ hasText: "1" })
+        .filter({ hasText: "failed" })
+        .filter({ hasText: "2000 ms" })
+        .filter({ hasText: "first-seeded-run-error" }),
+    ).toHaveCount(1, { timeout: 5000 });
+    await page.getByRole("button", { name: /Close run history/i }).click();
 
     // Retry the failed job
     await failedRow.getByRole("button", { name: /Retry/i }).click();

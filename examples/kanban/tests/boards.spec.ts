@@ -91,10 +91,10 @@ test.describe("Boards", () => {
 
   test("boards persist after page reload", async ({ page }) => {
     await createBoard(page, "Persistent Board");
-    await expect(page.getByText("Persistent Board")).toBeVisible();
+    await expect(page.getByText("Persistent Board").first()).toBeVisible();
 
     await page.reload();
-    await expect(page.getByText("Persistent Board")).toBeVisible({ timeout: 5000 });
+    await expect(page.getByText("Persistent Board").first()).toBeVisible({ timeout: 5000 });
   });
 
   test("board shows creation date", async ({ page }) => {

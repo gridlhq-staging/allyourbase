@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"errors"
 	"log/slog"
 	"net/http"
@@ -26,7 +27,10 @@ import (
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 )
 
-var newWebhookDispatcher = func(store webhooks.WebhookLister, logger *slog.Logger) webhookDispatcher {
+var newWebhookDispatcher = func(store interface {
+	ListEnabled(ctx context.Context) ([]webhooks.Webhook, error)
+	Get(ctx context.Context, id string) (*webhooks.Webhook, error)
+}, logger *slog.Logger) webhookDispatcher {
 	return webhooks.NewDispatcher(store, logger)
 }
 

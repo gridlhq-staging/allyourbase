@@ -4,6 +4,7 @@ export interface AuthSettings {
   email_mfa_enabled: boolean;
   anonymous_auth_enabled: boolean;
   totp_enabled: boolean;
+  webauthn_enabled: boolean;
 }
 
 export interface OAuthProviderInfo {
@@ -67,4 +68,5 @@ export interface MFAFactor {
   label: string;
   phone?: string;
   email?: string;
+  display_name?: string;
 }

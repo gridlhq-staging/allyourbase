@@ -10,7 +10,7 @@
  * optimistic-update dedup race in the votes 'create' branch.
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, act, waitFor, fireEvent } from "@testing-library/react";
+import { render, screen, act, waitFor, fireEvent, within } from "@testing-library/react";
 import App from "../src/App";
 import { ayb } from "../src/lib/ayb";
 import type { RealtimeEvent } from "../src/hooks/useRealtime";
@@ -105,6 +105,15 @@ function rec<T>(obj: T): Record<string, unknown> {
   return obj as unknown as Record<string, unknown>;
 }
 
+function pollCard(question: string) {
+  const heading = screen.getByText(question);
+  const card = heading.closest('[data-testid="poll-card"]');
+  if (!(card instanceof HTMLElement)) {
+    throw new Error(`poll card not found for question: ${question}`);
+  }
+  return within(card);
+}
+
 // ── Tests ─────────────────────────────────────────────────────────────────────
 
 describe("App handleRealtime", () => {
@@ -128,6 +137,7 @@ describe("App handleRealtime", () => {
       login: vi.fn(),
       register: vi.fn(),
       signInAnonymously: vi.fn(),
+      signInWithPasskey: vi.fn(),
       requestMagicLink: vi.fn(),
       confirmMagicLink: vi.fn(),
       linkEmail: vi.fn(),
@@ -145,6 +155,19 @@ describe("App handleRealtime", () => {
       capturedRealtimeCallback = cb;
       return vi.fn();
     });
+  });
+
+  it("hydrates bootstrap polls that arrive without embedded options", async () => {
+    mockGraphQLQuery.mockResolvedValueOnce({ polls: [POLL] });
+    mockList
+      .mockResolvedValueOnce({ items: [], page: 1, perPage: 500, totalItems: 0, totalPages: 0 })
+      .mockResolvedValueOnce({ items: [OPT_A, OPT_B], page: 1, perPage: 500, totalItems: 2, totalPages: 1 });
+
+    render(<App />);
+
+    await screen.findByText("Best language?");
+    expect(await pollCard(POLL.question).findByRole("button", { name: /TypeScript/ })).toBeInTheDocument();
+    expect(pollCard(POLL.question).getByRole("button", { name: /Go/ })).toBeInTheDocument();
   });
 
   // ── polls table ──────────────────────────────────────────────────────────
@@ -296,11 +319,11 @@ describe("App handleRealtime", () => {
 
     await fire({ action: "create", table: "polls", record: rec(POLL) });
     await fire({ action: "create", table: "poll_options", record: rec(OPT_A) });
-    await screen.findByText("0 total votes");
+    await pollCard(POLL.question).findByText("0 total votes");
 
     await fire({ action: "create", table: "votes", record: rec(vote("v1", "user-other", "opt-a")) });
 
-    expect(await screen.findByText("1 total vote")).toBeInTheDocument();
+    expect(await pollCard(POLL.question).findByText("1 total vote")).toBeInTheDocument();
   });
 
   it("vote create event deduplicates against optimistic update (same user_id → no double-count)", async () => {
@@ -314,19 +337,19 @@ describe("App handleRealtime", () => {
 
     await fire({ action: "create", table: "polls", record: rec(POLL) });
     await fire({ action: "create", table: "poll_options", record: rec(OPT_A) });
-    await screen.findByText("0 total votes");
+    await pollCard(POLL.question).findByText("0 total votes");
 
     // Simulate the optimistic local copy (id="v-local").
     await fire({ action: "create", table: "votes", record: rec(vote("v-local", "user-current", "opt-a")) });
-    expect(await screen.findByText("1 total vote")).toBeInTheDocument();
+    expect(await pollCard(POLL.question).findByText("1 total vote")).toBeInTheDocument();
 
     // SSE 'create' arrives — same user, server-assigned id.
     await fire({ action: "create", table: "votes", record: rec(vote("v-server", "user-current", "opt-a")) });
 
     // Positive assertion first: count is still 1.
-    expect(screen.getByText("1 total vote")).toBeInTheDocument();
+    expect(pollCard(POLL.question).getByText("1 total vote")).toBeInTheDocument();
     // Negative constraint: "2 total votes" must never appear.
-    expect(screen.queryByText("2 total votes")).not.toBeInTheDocument();
+    expect(pollCard(POLL.question).queryByText("2 total votes")).not.toBeInTheDocument();
   });
 
   it("vote update event moves a vote from one option to another", async () => {
@@ -336,12 +359,12 @@ describe("App handleRealtime", () => {
     await fire({ action: "create", table: "polls", record: rec(POLL) });
     await fire({ action: "create", table: "poll_options", record: rec(OPT_A) });
     await fire({ action: "create", table: "poll_options", record: rec(OPT_B) });
-    await screen.findByText("0 total votes");
+    await pollCard(POLL.question).findByText("0 total votes");
 
     // User casts vote for TypeScript (opt-a).
     const initialVote = vote("v1", "user-other", "opt-a");
     await fire({ action: "create", table: "votes", record: rec(initialVote) });
-    await screen.findByText("1 total vote");
+    await pollCard(POLL.question).findByText("1 total vote");
 
     // User changes vote to Go (opt-b) — SSE fires 'update' with same id but new option_id.
     await fire({ action: "update", table: "votes", record: rec({ ...initialVote, option_id: "opt-b" }) });
@@ -352,7 +375,7 @@ describe("App handleRealtime", () => {
     });
     expect(screen.getByRole("button", { name: /Go/ }).textContent).toContain("1 vote");
     // Total stays at 1 — it's a change, not a new vote.
-    expect(screen.getByText("1 total vote")).toBeInTheDocument();
+    expect(pollCard(POLL.question).getByText("1 total vote")).toBeInTheDocument();
   });
 
   it("vote delete event removes the vote from the count", async () => {
@@ -361,16 +384,16 @@ describe("App handleRealtime", () => {
 
     await fire({ action: "create", table: "polls", record: rec(POLL) });
     await fire({ action: "create", table: "poll_options", record: rec(OPT_A) });
-    await screen.findByText("0 total votes");
+    await pollCard(POLL.question).findByText("0 total votes");
 
     const v = vote("v1", "user-other", "opt-a");
     await fire({ action: "create", table: "votes", record: rec(v) });
-    await screen.findByText("1 total vote");
+    await pollCard(POLL.question).findByText("1 total vote");
 
     await fire({ action: "delete", table: "votes", record: rec(v) });
 
     await waitFor(() =>
-      expect(screen.getByText("0 total votes")).toBeInTheDocument(),
+      expect(pollCard(POLL.question).getByText("0 total votes")).toBeInTheDocument(),
     );
   });
 

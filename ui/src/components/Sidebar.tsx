@@ -53,6 +53,7 @@ import {
   AlertTriangle,
   LifeBuoy,
   Building2,
+  Search,
 } from "lucide-react";
 import { cn } from "../lib/utils";
 
@@ -86,6 +87,7 @@ const SIDEBAR_NAV_SECTIONS: SidebarNavSection[] = [
       { view: "sql-editor", label: "SQL Editor", icon: Code },
       { view: "functions", label: "Functions", icon: Zap },
       { view: "rls", label: "RLS Policies", icon: Shield },
+      { view: "search", label: "Search", icon: Search },
       { view: "matviews", label: "Matviews", icon: Layers },
       { view: "schema-designer", label: "Schema Designer", icon: Columns3, testId: "nav-schema-designer" },
       { view: "fdw", label: "FDW", icon: Cable },

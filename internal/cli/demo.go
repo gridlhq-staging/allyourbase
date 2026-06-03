@@ -122,7 +122,7 @@ func runDemo(cmd *cobra.Command, args []string) error {
 
 	// Step 1: Ensure AYB server is running
 	sp.Start("Connecting to AYB server...")
-	baseURL, weStarted, err := ensureDemoServer()
+	baseURL, weStarted, err := ensureDemoServer(name)
 	if err != nil {
 		sp.Fail()
 		return err

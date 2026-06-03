@@ -16,6 +16,7 @@ import type {
   OAuthClientCreateResponse,
   OAuthClientRotateSecretResponse,
   JobListResponse,
+  JobRunListResponse,
   JobResponse,
   QueueStats,
   ScheduleListResponse,
@@ -277,15 +278,19 @@ export async function listJobs(params: {
 }
 
 export async function getJob(id: string): Promise<JobResponse> {
-  return request(`/api/admin/jobs/${id}`);
+  return request(`/api/admin/jobs/${encodeURIComponent(id)}`);
+}
+
+export async function listJobRuns(id: string): Promise<JobRunListResponse> {
+  return request(`/api/admin/jobs/${encodeURIComponent(id)}/runs`);
 }
 
 export async function retryJob(id: string): Promise<JobResponse> {
-  return request(`/api/admin/jobs/${id}/retry`, { method: "POST" });
+  return request(`/api/admin/jobs/${encodeURIComponent(id)}/retry`, { method: "POST" });
 }
 
 export async function cancelJob(id: string): Promise<JobResponse> {
-  return request(`/api/admin/jobs/${id}/cancel`, { method: "POST" });
+  return request(`/api/admin/jobs/${encodeURIComponent(id)}/cancel`, { method: "POST" });
 }
 
 export async function getQueueStats(): Promise<QueueStats> {

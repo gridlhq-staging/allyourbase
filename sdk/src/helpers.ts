@@ -4,6 +4,8 @@ import type {
   RealtimeEvent,
   StorageObject,
   User,
+  WebAuthnLoginBeginResponse,
+  WebAuthnMFAChallengeResponse,
 } from "./types";
 
 export function normalizeAuthResponse(value: AuthResponse): AuthResponse {
@@ -27,6 +29,34 @@ export function normalizeMagicLinkConfirmResponse(
     };
   }
   return normalizeAuthResponse(value as AuthResponse);
+}
+
+export function normalizeWebAuthnLoginBeginResponse(
+  value: unknown,
+): WebAuthnLoginBeginResponse {
+  const source = toRecord(value);
+  const optionsSource = asRecord(source.options) ?? {};
+  return {
+    challengeId: String(source.challengeId ?? source.challenge_id ?? ""),
+    options: {
+      ...optionsSource,
+      challenge: String(optionsSource.challenge ?? ""),
+    } as WebAuthnLoginBeginResponse["options"],
+  };
+}
+
+export function normalizeWebAuthnMFAChallengeResponse(
+  value: unknown,
+): WebAuthnMFAChallengeResponse {
+  const source = toRecord(value);
+  const optionsSource = asRecord(source.options) ?? {};
+  return {
+    challengeId: String(source.challengeId ?? source.challenge_id ?? ""),
+    options: {
+      ...optionsSource,
+      challenge: String(optionsSource.challenge ?? ""),
+    } as WebAuthnMFAChallengeResponse["options"],
+  };
 }
 
 export function normalizeUser(value: User): User {

@@ -29,6 +29,7 @@ function makeSettings(overrides: Partial<AuthSettingsType> = {}): AuthSettingsTy
     email_mfa_enabled: false,
     anonymous_auth_enabled: false,
     totp_enabled: false,
+    webauthn_enabled: false,
     ...overrides,
   };
 }

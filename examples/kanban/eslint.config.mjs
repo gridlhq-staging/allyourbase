@@ -18,10 +18,12 @@ export default [
       "playwright/no-eval": "error",
 
       // Ban raw CSS/XPath locators — use getByRole/getByText/getByLabel.
-      "playwright/no-raw-locators": "error",
+      "playwright/no-raw-locators": ["error", {
+        allowed: ["[data-rfd-droppable-id]"],
+      }],
 
       // Prefer native locators.
-      "playwright/prefer-native-locators": "warn",
+      "playwright/prefer-native-locators": "error",
 
       // Ban deprecated page.$() API.
       "playwright/no-element-handle": "error",
@@ -38,6 +40,14 @@ export default [
       // Ban API calls, waitForTimeout, dispatchEvent, setExtraHTTPHeaders in specs.
       "no-restricted-syntax": [
         "error",
+        {
+          selector: "MemberExpression[object.name='request']",
+          message: "API calls not allowed in spec files. Move to helpers.ts.",
+        },
+        {
+          selector: "MemberExpression[property.name='evaluate']",
+          message: "page.evaluate() not allowed in spec files.",
+        },
         {
           selector: "CallExpression[callee.property.name='waitForTimeout']",
           message: "Use assertion timeout instead of waitForTimeout.",

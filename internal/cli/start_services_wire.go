@@ -289,7 +289,12 @@ func wireJobsPushTenantBackupAndBranch(args wireServicesArgs, phase *wireService
 
 		wireJobDomainHandlers(args.ctx, phase.srv, phase.state.jobSvc, args.logger)
 
-		if err := phase.state.jobSvc.RegisterDefaultSchedulesWithAuditRetention(args.ctx, args.cfg.Audit.RetentionDays, args.cfg.Logging.RequestLogRetentionDays); err != nil {
+		if err := phase.state.jobSvc.RegisterDefaultSchedulesWithAuditRetention(
+			args.ctx,
+			args.cfg.Audit.RetentionDays,
+			args.cfg.Jobs.JobRunsRetentionDays,
+			args.cfg.Logging.RequestLogRetentionDays,
+		); err != nil {
 			args.logger.Error("failed to register default job schedules", "error", err)
 		}
 		wireAuthMaintenanceJobs(args.ctx, phase.state.jobSvc, args.core.authSvc, args.logger)

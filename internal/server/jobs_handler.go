@@ -13,6 +13,7 @@ import (
 type jobAdmin interface {
 	List(ctx context.Context, state, jobType string, limit, offset int) ([]jobs.Job, error)
 	Get(ctx context.Context, jobID string) (*jobs.Job, error)
+	ListRuns(ctx context.Context, jobID string) ([]jobs.JobRun, error)
 	RetryNow(ctx context.Context, jobID string) (*jobs.Job, error)
 	Cancel(ctx context.Context, jobID string) (*jobs.Job, error)
 	Stats(ctx context.Context) (*jobs.QueueStats, error)
@@ -28,6 +29,11 @@ type jobAdmin interface {
 type jobListResponse struct {
 	Items []jobs.Job `json:"items"`
 	Count int        `json:"count"` // number of items returned (page size, not total)
+}
+
+type jobRunListResponse struct {
+	Items []jobs.JobRun `json:"items"`
+	Count int           `json:"count"` // number of items returned
 }
 
 type scheduleListResponse struct {

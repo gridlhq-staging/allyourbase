@@ -7,9 +7,10 @@ import { defineConfig } from "@playwright/test";
 const ENV = process.env.PLAYWRIGHT_ENV || "local";
 const BLOCKED_PRODUCTION_ORIGIN = "https://install.allyourbase.io";
 const BASE_URLS = {
-  // Use the IPv4 loopback explicitly so Playwright API requests do not
-  // resolve localhost to ::1 on machines where AYB is only listening on IPv4.
-  local: "http://127.0.0.1:8090",
+  // WebAuthn requires the browser origin to match the RP origin AYB derives
+  // from server.PublicBaseURL(). The browser targets start AYB with
+  // --host 0.0.0.0 so the derived public origin normalizes to localhost.
+  local: "http://localhost:8090",
   staging: "https://staging.allyourbase.io",
 };
 

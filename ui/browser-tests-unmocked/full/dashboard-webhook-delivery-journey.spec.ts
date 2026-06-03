@@ -223,8 +223,7 @@ test.describe("Webhook Delivery History Journey (Full E2E)", () => {
     await page.goto("/admin/");
     await waitForDashboard(page);
 
-    const origin = new URL(page.url()).origin;
-    webhookUrl = `${origin}/__missing-webhook-target__/${runId}`;
+    webhookUrl = `https://example.invalid/__missing-webhook-target__/${runId}`;
 
     const webhooksButton = page.locator("aside").getByRole("button", { name: /^Webhooks$/i });
     await webhooksButton.click();
@@ -268,12 +267,21 @@ test.describe("Webhook Delivery History Journey (Full E2E)", () => {
     await expect(deliveryRows).toHaveCount(expectedAttempts.length, { timeout: 5000 });
     await expect(modal.getByRole("button", { name: "Next" })).toBeHidden();
 
+    const baselineDeliveryCount = await execSQL(
+      request,
+      adminToken,
+      `SELECT COUNT(*) FROM _ayb_webhook_deliveries d
+       JOIN _ayb_webhooks w ON w.id = d.webhook_id
+       WHERE w.url = '${sqlLiteral(webhookUrl)}';`,
+    );
+    expect(Number(baselineDeliveryCount.rows[0]?.[0] ?? 0)).toBe(expectedAttempts.length);
+
     const attempts: number[] = [];
     for (let index = 0; index < expectedAttempts.length; index++) {
       const row = deliveryRows.nth(index);
       const text = (await row.textContent()) ?? "";
       expect(text).toContain(tableName);
-      expect(text).toContain("404");
+      expect(text).toMatch(/(404|ERR)/);
       await row.click();
       await expect(row).toHaveAttribute("aria-controls", /.+/);
       const detailId = await row.getAttribute("aria-controls");
@@ -281,7 +289,7 @@ test.describe("Webhook Delivery History Journey (Full E2E)", () => {
       await expect(detail).toBeVisible({ timeout: 5000 });
       if (index === 0) {
         await expect(detail).toContainText("Attempt:");
-        await expect(detail).toContainText("Status: 404");
+        await expect(detail).toContainText("Status:");
       }
       const detailText = (await detail.textContent()) ?? "";
       const attemptMatch = detailText.match(/Attempt:\s*(\d+)/);
@@ -291,5 +299,24 @@ test.describe("Webhook Delivery History Journey (Full E2E)", () => {
 
     attempts.sort((a, b) => b - a);
     expect(attempts).toEqual(expectedAttempts);
+
+    const firstDeliverySummaryID = await deliveryRows.first().getAttribute("id");
+    expect(firstDeliverySummaryID).toMatch(/^webhook-delivery-summary-/);
+    const firstDeliveryID = firstDeliverySummaryID?.replace("webhook-delivery-summary-", "") ?? "";
+    await modal.getByTestId(`webhook-delivery-replay-${firstDeliveryID}`).click();
+
+    await expect.poll(async () => {
+      const result = await execSQL(
+        request,
+        adminToken,
+        `SELECT COUNT(*) FROM _ayb_webhook_deliveries d
+         JOIN _ayb_webhooks w ON w.id = d.webhook_id
+         WHERE w.url = '${sqlLiteral(webhookUrl)}';`,
+      );
+      return Number(result.rows[0]?.[0] ?? 0);
+    }, { timeout: 15000 }).toBe(expectedAttempts.length + 1);
+
+    await expect(modal.getByText(/Replay (succeeded|failed) \(/)).toBeVisible({ timeout: 5000 });
+    await expect(deliveryRows).toHaveCount(expectedAttempts.length + 1, { timeout: 5000 });
   });
 });

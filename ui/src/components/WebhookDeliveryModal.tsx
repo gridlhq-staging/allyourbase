@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import type { WebhookResponse, WebhookDelivery } from "../types";
-import { listWebhookDeliveries } from "../api";
+import { listWebhookDeliveries, replayDelivery } from "../api";
 import {
   X,
   Loader2,
@@ -11,6 +11,7 @@ import {
   ChevronRight,
 } from "lucide-react";
 import { cn } from "../lib/utils";
+import { useAppToast } from "./ToastProvider";
 
 export interface DeliveryHistoryModalProps {
   webhook: WebhookResponse;
@@ -22,18 +23,23 @@ export function DeliveryHistoryModal({ webhook, onClose }: DeliveryHistoryModalP
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [page, setPage] = useState(1);
+  const [failedOnly, setFailedOnly] = useState(false);
   const [totalPages, setTotalPages] = useState(0);
   const [totalItems, setTotalItems] = useState(0);
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [replayingID, setReplayingID] = useState<string | null>(null);
+  const [replayResults, setReplayResults] = useState<Record<string, WebhookDelivery>>({});
+  const { addToast } = useAppToast();
 
   const fetchDeliveries = useCallback(
-    async (p: number) => {
+    async (p: number, onlyFailed: boolean) => {
       setLoading(true);
       setError(null);
       try {
         const res = await listWebhookDeliveries(webhook.id, {
           page: p,
           perPage: 20,
+          failedOnly: onlyFailed,
         });
         setDeliveries(res.items);
         setTotalPages(res.totalPages);
@@ -48,12 +54,38 @@ export function DeliveryHistoryModal({ webhook, onClose }: DeliveryHistoryModalP
   );
 
   useEffect(() => {
-    fetchDeliveries(page);
-  }, [fetchDeliveries, page]);
+    fetchDeliveries(page, failedOnly);
+  }, [failedOnly, fetchDeliveries, page]);
+
+  const handleReplay = async (delivery: WebhookDelivery) => {
+    setReplayingID(delivery.id);
+    try {
+      const replayed = await replayDelivery(webhook.id, delivery.id);
+      setReplayResults((prev) => ({ ...prev, [delivery.id]: replayed }));
+      if (replayed.success) {
+        addToast("success", `Replay succeeded (${replayed.statusCode} in ${replayed.durationMs}ms)`);
+      } else {
+        addToast("error", replayed.error || `Replay failed (${replayed.statusCode || "ERR"})`);
+      }
+      await fetchDeliveries(page, failedOnly);
+    } catch (e) {
+      addToast("error", e instanceof Error ? e.message : "Replay failed");
+    } finally {
+      setReplayingID(null);
+    }
+  };
 
   const formatTime = (iso: string) => {
     const d = new Date(iso);
     return d.toLocaleString();
+  };
+
+  const replaySummary = (deliveryID: string) => {
+    const replayed = replayResults[deliveryID];
+    if (!replayed) {
+      return null;
+    }
+    return replayed.success ? `Replay succeeded (${replayed.statusCode})` : `Replay failed (${replayed.statusCode || "ERR"})`;
   };
 
   return (
@@ -83,6 +115,34 @@ export function DeliveryHistoryModal({ webhook, onClose }: DeliveryHistoryModalP
         </div>
 
         <div className="flex-1 overflow-auto p-4">
+          <div className="mb-3 flex items-center justify-end">
+            <button
+              type="button"
+              aria-pressed={failedOnly}
+              onClick={() => {
+                setExpandedId(null);
+                setPage(1);
+                setFailedOnly((prev) => !prev);
+              }}
+              // This test id gives the browser and unit suites a stable hook for
+              // the dead-letter filter without relying on label layout details.
+              data-testid="webhook-delivery-failed-only-toggle"
+              className={cn(
+                "rounded border px-2.5 py-1 text-xs font-medium transition-colors",
+                failedOnly
+                  ? "border-red-200 bg-red-50 text-red-700"
+                  : "border-gray-200 text-gray-600 hover:bg-gray-50 dark:border-gray-700 dark:text-gray-300 dark:hover:bg-gray-800",
+              )}
+            >
+              Failed only
+            </button>
+          </div>
+          <p
+            data-testid="webhook-delivery-replay-contract-copy"
+            className="mb-3 text-xs text-gray-500 dark:text-gray-400"
+          >
+            Replay sends the recorded request body, which may already be truncated.
+          </p>
           {loading ? (
             <div className="flex items-center justify-center h-32 text-gray-500 dark:text-gray-400">
               <Loader2 className="w-5 h-5 animate-spin mr-2" />
@@ -102,53 +162,83 @@ export function DeliveryHistoryModal({ webhook, onClose }: DeliveryHistoryModalP
               {deliveries.map((del) => {
                 const summaryId = `webhook-delivery-summary-${del.id}`;
                 const detailId = `webhook-delivery-detail-${del.id}`;
+                const replayLabel = replaySummary(del.id);
                 return (
                   <div key={del.id} className="border rounded">
-                    <button
-                      id={summaryId}
-                      aria-expanded={expandedId === del.id}
-                      aria-controls={detailId}
-                      onClick={() =>
-                        setExpandedId(expandedId === del.id ? null : del.id)
-                      }
-                      className="w-full flex items-center gap-2 px-3 py-2 text-left hover:bg-gray-50 dark:hover:bg-gray-800 dark:bg-gray-800 text-sm"
-                    >
-                      {del.success ? (
-                        <CheckCircle2 className="w-4 h-4 text-green-500 shrink-0" />
-                      ) : (
-                        <XCircle className="w-4 h-4 text-red-500 shrink-0" />
-                      )}
-                      <span className="font-mono text-xs">
-                        {del.statusCode || "ERR"}
-                      </span>
-                      <span
-                        className={cn(
-                          "px-1.5 py-0.5 rounded text-[10px] font-medium",
-                          del.eventAction === "create" &&
-                            "bg-green-100 text-green-700",
-                          del.eventAction === "update" &&
-                            "bg-blue-100 text-blue-700",
-                          del.eventAction === "delete" &&
-                            "bg-red-100 text-red-700",
-                          del.eventAction === "test" &&
-                            "bg-amber-100 text-amber-700",
-                        )}
+                    <div className="flex items-stretch">
+                      <button
+                        id={summaryId}
+                        aria-expanded={expandedId === del.id}
+                        aria-controls={detailId}
+                        onClick={() =>
+                          setExpandedId(expandedId === del.id ? null : del.id)
+                        }
+                        className="flex-1 flex items-center gap-2 px-3 py-2 text-left hover:bg-gray-50 dark:hover:bg-gray-800 dark:bg-gray-800 text-sm"
                       >
-                        {del.eventAction}
-                      </span>
-                      <span className="text-gray-500 dark:text-gray-400 text-xs">
-                        {del.eventTable}
-                      </span>
-                      <span className="ml-auto text-gray-500 dark:text-gray-400 text-xs flex items-center gap-2">
-                        <span>{del.durationMs}ms</span>
-                        <span>{formatTime(del.deliveredAt)}</span>
-                        {expandedId === del.id ? (
-                          <ChevronDown className="w-3 h-3" />
+                        {del.success ? (
+                          <CheckCircle2 className="w-4 h-4 text-green-500 shrink-0" />
                         ) : (
-                          <ChevronRight className="w-3 h-3" />
+                          <XCircle className="w-4 h-4 text-red-500 shrink-0" />
                         )}
-                      </span>
-                    </button>
+                        <span className="font-mono text-xs">
+                          {del.statusCode || "ERR"}
+                        </span>
+                        <span
+                          className={cn(
+                            "px-1.5 py-0.5 rounded text-[10px] font-medium",
+                            del.eventAction === "create" &&
+                              "bg-green-100 text-green-700",
+                            del.eventAction === "update" &&
+                              "bg-blue-100 text-blue-700",
+                            del.eventAction === "delete" &&
+                              "bg-red-100 text-red-700",
+                            del.eventAction === "test" &&
+                              "bg-amber-100 text-amber-700",
+                          )}
+                        >
+                          {del.eventAction}
+                        </span>
+                        <span className="text-gray-500 dark:text-gray-400 text-xs">
+                          {del.eventTable}
+                        </span>
+                        <span className="ml-auto text-gray-500 dark:text-gray-400 text-xs flex items-center gap-2">
+                          <span>{del.durationMs}ms</span>
+                          <span>{formatTime(del.deliveredAt)}</span>
+                          {expandedId === del.id ? (
+                            <ChevronDown className="w-3 h-3" />
+                          ) : (
+                            <ChevronRight className="w-3 h-3" />
+                          )}
+                        </span>
+                      </button>
+                      <div className="flex shrink-0 items-center gap-2 px-3">
+                        {replayLabel && (
+                          <span className="text-[10px] font-medium text-gray-500 dark:text-gray-400">
+                            {replayLabel}
+                          </span>
+                        )}
+                        {!del.success && (
+                          <button
+                            type="button"
+                            onClick={() => handleReplay(del)}
+                            disabled={replayingID === del.id}
+                            // This test id anchors replay behavior checks without
+                            // coupling tests to row order or icon-only controls.
+                            data-testid={`webhook-delivery-replay-${del.id}`}
+                            className="rounded border border-gray-200 px-2 py-1 text-xs font-medium text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-gray-700 dark:text-gray-200 dark:hover:bg-gray-800"
+                          >
+                            {replayingID === del.id ? (
+                              <span className="inline-flex items-center gap-1">
+                                <Loader2 className="h-3 w-3 animate-spin" />
+                                Replaying...
+                              </span>
+                            ) : (
+                              "Replay"
+                            )}
+                          </button>
+                        )}
+                      </div>
+                    </div>
                     {expandedId === del.id && (
                       <div
                         id={detailId}

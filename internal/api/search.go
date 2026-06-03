@@ -53,7 +53,7 @@ func textColumns(tbl *schema.Table) []string {
 //   - rankSQL: the ORDER BY expression, e.g. `ts_rank(to_tsvector('simple', ...), websearch_to_tsquery('simple', $4))`
 //   - args: the query parameter values (just the search term)
 //   - error: if no searchable text columns exist
-func buildSearchSQL(tbl *schema.Table, searchTerm string, argOffset int) (whereSQL, rankSQL string, args []any, err error) {
+func buildSearchSQL(tbl *schema.Table, searchTerm string, argOffset int, fuzzy bool) (whereSQL, rankSQL string, args []any, err error) {
 	cols := textColumns(tbl)
 	if len(cols) == 0 {
 		return "", "", nil, fmt.Errorf("table %q has no text columns to search", tbl.Name)
@@ -66,13 +66,39 @@ func buildSearchSQL(tbl *schema.Table, searchTerm string, argOffset int) (whereS
 	}
 	docExpr := strings.Join(parts, " || ' ' || ")
 
+	args = []any{searchTerm}
 	paramRef := fmt.Sprintf("$%d", argOffset)
 	tsvector := fmt.Sprintf("to_tsvector('simple', %s)", docExpr)
 	tsquery := fmt.Sprintf("websearch_to_tsquery('simple', %s)", paramRef)
 
 	whereSQL = fmt.Sprintf("%s @@ %s", tsvector, tsquery)
 	rankSQL = fmt.Sprintf("ts_rank(%s, %s)", tsvector, tsquery)
-	args = []any{searchTerm}
+	if fuzzy {
+		trigramPredicates := make([]string, 0, len(cols))
+		trigramRanks := make([]string, 0, len(cols))
+		tokenPredicates := make([]string, 0, len(strings.Fields(searchTerm)))
+		for _, col := range cols {
+			columnExpr := fmt.Sprintf("coalesce(%s, '')", sqlutil.QuoteIdent(col))
+			trigramPredicates = append(trigramPredicates, fmt.Sprintf("similarity(%s, %s) > 0.2", columnExpr, paramRef))
+			trigramRanks = append(trigramRanks, fmt.Sprintf("similarity(%s, %s)", columnExpr, paramRef))
+		}
+		for _, token := range strings.Fields(searchTerm) {
+			tokenParam := fmt.Sprintf("$%d", argOffset+len(args))
+			args = append(args, token)
+			tokenMatch := make([]string, 0, len(cols))
+			for _, col := range cols {
+				columnExpr := fmt.Sprintf("coalesce(%s, '')", sqlutil.QuoteIdent(col))
+				tokenMatch = append(tokenMatch, fmt.Sprintf("strict_word_similarity(lower(%s), lower(%s)) >= 0.2", tokenParam, columnExpr))
+			}
+			tokenPredicates = append(tokenPredicates, fmt.Sprintf("(%s)", strings.Join(tokenMatch, " OR ")))
+		}
+		fuzzyMatchSQL := fmt.Sprintf("(%s)", strings.Join(trigramPredicates, " OR "))
+		if len(tokenPredicates) > 0 {
+			fuzzyMatchSQL = fmt.Sprintf("(%s AND %s)", fuzzyMatchSQL, strings.Join(tokenPredicates, " AND "))
+		}
+		whereSQL = fmt.Sprintf("(%s OR %s)", whereSQL, fuzzyMatchSQL)
+		rankSQL = fmt.Sprintf("GREATEST(%s, %s)", rankSQL, strings.Join(trigramRanks, ", "))
+	}
 
 	return whereSQL, rankSQL, args, nil
 }

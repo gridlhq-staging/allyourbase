@@ -51,6 +51,7 @@ func defaultAuthConfig() AuthConfig {
 		RateLimitAuth:        "10/min",
 		MinPasswordLength:    8,   // NIST SP 800-63B recommended minimum
 		MagicLinkDuration:    600, // 10 minutes
+		WebAuthnEnabled:      true,
 		SMSProvider:          "log",
 		SMSCodeLength:        6,
 		SMSCodeExpiry:        300, // 5 minutes
@@ -159,13 +160,14 @@ func defaultTelemetryConfig() TelemetryConfig {
 
 func defaultJobsConfig() JobsConfig {
 	return JobsConfig{
-		Enabled:           false,
-		WorkerConcurrency: 4,
-		PollIntervalMs:    1000,
-		LeaseDurationS:    300,
-		MaxRetriesDefault: 3,
-		SchedulerEnabled:  true,
-		SchedulerTickS:    15,
+		Enabled:              false,
+		WorkerConcurrency:    4,
+		PollIntervalMs:       1000,
+		LeaseDurationS:       300,
+		MaxRetriesDefault:    3,
+		SchedulerEnabled:     true,
+		SchedulerTickS:       15,
+		JobRunsRetentionDays: 90,
 	}
 }
 

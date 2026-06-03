@@ -112,6 +112,9 @@ describe("App search", () => {
     expect(screen.getByText("1999")).toBeInTheDocument();
     expect(screen.getByText("Inception")).toBeInTheDocument();
     expect(screen.getByText("2010")).toBeInTheDocument();
+    expect(screen.getByTestId("search-result-row-inception")).toBeInTheDocument();
+    expect(screen.getByTestId("search-result-title-inception")).toHaveTextContent("Inception");
+    expect(screen.getByTestId("search-result-year-inception")).toHaveTextContent("2010");
   });
 
   it("shows an error when search fails", async () => {

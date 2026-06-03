@@ -17,6 +17,12 @@ export function uniqueEmail(): string {
 
 export const TEST_PASSWORD = "testpassword123";
 const ANONYMOUS_BOOTSTRAP_OPTOUT_KEY = "ayb_anonymous_bootstrap_optout";
+const SEED_IN_PROGRESS_KEY = "ayb_kanban_seed_in_progress";
+
+type BlockedRequestGate = {
+  wasBlocked: () => boolean;
+  release: () => void;
+};
 
 /** Demo account credentials. */
 export const DEMO_ACCOUNTS = [
@@ -60,20 +66,46 @@ export async function ensureAuthFormVisible(page: Page): Promise<void> {
 export async function waitForAnonymousBoardShell(page: Page): Promise<void> {
   await page.goto("/");
   const deadline = Date.now() + 45000;
+  const boardShell = page.getByText("Your Boards");
+  const signInButton = page.getByRole("button", { name: "Sign In" });
 
   while (Date.now() < deadline) {
-    if (await page.getByText("Your Boards").isVisible().catch(() => false)) {
-      await expect(page.getByText("Your Boards")).toBeVisible({ timeout: 1000 });
+    const remaining = Math.max(deadline - Date.now(), 1);
+    const state = await expect
+      .poll(async () => {
+        if (await boardShell.isVisible().catch(() => false)) {
+          return "board";
+        }
+        if (await signInButton.isVisible().catch(() => false)) {
+          return "signin";
+        }
+        return "pending";
+      }, {
+        timeout: Math.min(remaining, 3000),
+        intervals: [100, 250, 500, 1000],
+      })
+      .not.toBe("pending")
+      .then(async () => {
+        if (await boardShell.isVisible().catch(() => false)) {
+          return "board";
+        }
+        if (await signInButton.isVisible().catch(() => false)) {
+          return "signin";
+        }
+        return "pending";
+      })
+      .catch(() => "pending");
+
+    if (state === "board") {
+      await expect(boardShell).toBeVisible({ timeout: 1000 });
       return;
     }
-    if (await page.getByRole("button", { name: "Sign In" }).isVisible().catch(() => false)) {
+    if (state === "signin") {
       await page.reload();
-    } else {
-      await page.waitForTimeout(1000);
     }
   }
 
-  await expect(page.getByText("Your Boards")).toBeVisible({ timeout: 1000 });
+  await expect(boardShell).toBeVisible({ timeout: 1000 });
 }
 
 /** Login with a demo account by clicking it to fill credentials, then signing in. */
@@ -208,6 +240,174 @@ export async function ownedBoardId(page: Page): Promise<string | null> {
     const owned = data.items.find((b) => b.user_id === me.id);
     return owned ? owned.id : null;
   });
+}
+
+/** Simulate a partial starter-board seed by keeping the marker and deleting the Done starter card. */
+export async function simulateInterruptedSeedMissingDoneCard(
+  page: Page,
+  boardId: string,
+): Promise<void> {
+  await page.evaluate(async ({ seedMarkerKey, targetBoardId }) => {
+    const token = sessionStorage.getItem("ayb_token");
+    if (!token) {
+      throw new Error("simulateInterruptedSeedMissingDoneCard: no auth token in sessionStorage");
+    }
+    const headers = { Authorization: `Bearer ${token}` };
+
+    const meRes = await fetch("/api/auth/me", { headers });
+    if (!meRes.ok) {
+      throw new Error(
+        `simulateInterruptedSeedMissingDoneCard: /api/auth/me failed (${meRes.status})`,
+      );
+    }
+    const me = (await meRes.json()) as { id: string };
+
+    localStorage.setItem(seedMarkerKey, me.id);
+
+    const columnsFilter = encodeURIComponent(`board_id='${targetBoardId}'`);
+    const columnsRes = await fetch(
+      `/api/collections/columns?filter=${columnsFilter}&perPage=100`,
+      { headers },
+    );
+    if (!columnsRes.ok) {
+      throw new Error(
+        `simulateInterruptedSeedMissingDoneCard: columns list failed (${columnsRes.status})`,
+      );
+    }
+    const columns = (await columnsRes.json()) as {
+      items: { id: string; title: string }[];
+    };
+    const doneColumn = columns.items.find((col) => col.title === "Done");
+    if (!doneColumn) {
+      throw new Error("simulateInterruptedSeedMissingDoneCard: missing seeded Done column");
+    }
+
+    const cardsFilter = encodeURIComponent(`column_id='${doneColumn.id}'`);
+    const cardsRes = await fetch(
+      `/api/collections/cards?filter=${cardsFilter}&perPage=100`,
+      { headers },
+    );
+    if (!cardsRes.ok) {
+      throw new Error(
+        `simulateInterruptedSeedMissingDoneCard: cards list failed (${cardsRes.status})`,
+      );
+    }
+    const cards = (await cardsRes.json()) as {
+      items: { id: string; title: string }[];
+    };
+    const shipCard = cards.items.find((card) => card.title === "Ship something");
+    if (!shipCard) {
+      throw new Error(
+        "simulateInterruptedSeedMissingDoneCard: missing expected starter card to delete",
+      );
+    }
+
+    const deleteRes = await fetch(`/api/collections/cards/${shipCard.id}`, {
+      method: "DELETE",
+      headers,
+    });
+    if (!deleteRes.ok) {
+      throw new Error(
+        `simulateInterruptedSeedMissingDoneCard: delete card failed (${deleteRes.status})`,
+      );
+    }
+  }, { seedMarkerKey: SEED_IN_PROGRESS_KEY, targetBoardId: boardId });
+}
+
+/** Read the sample-board seed marker from localStorage. */
+export async function seedInProgressMarker(page: Page): Promise<string | null> {
+  return page.evaluate((seedMarkerKey) => {
+    return localStorage.getItem(seedMarkerKey);
+  }, SEED_IN_PROGRESS_KEY);
+}
+
+/** Install a mocked authenticated board API and return a reader for the columns filter it receives. */
+export async function installEscapedBoardApiMock(
+  page: Page,
+  boardId: string,
+  boardTitle: string,
+): Promise<() => string | null> {
+  let capturedColumnsFilter: string | null = null;
+
+  await page.addInitScript(() => {
+    sessionStorage.setItem("ayb_token", "test-token");
+    sessionStorage.setItem("ayb_refresh_token", "test-refresh");
+    localStorage.setItem("ayb_email", "security-test@example.com");
+    localStorage.setItem("ayb_anonymous_bootstrap_optout", "1");
+  });
+  await page.route("**/api/auth/me", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        id: "user-security-test",
+        email: "security-test@example.com",
+      }),
+    });
+  });
+  await page.route("**/api/collections/boards**", async (route, request) => {
+    if (request.method() !== "GET") {
+      await route.continue();
+      return;
+    }
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        items: [
+          {
+            id: boardId,
+            title: boardTitle,
+            created_at: new Date().toISOString(),
+            user_id: "test-user",
+          },
+        ],
+        page: 1,
+        perPage: 20,
+        totalItems: 1,
+        totalPages: 1,
+      }),
+    });
+  });
+  await page.route("**/api/collections/columns**", async (route, request) => {
+    capturedColumnsFilter = new URL(request.url()).searchParams.get("filter");
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        items: [],
+        page: 1,
+        perPage: 100,
+        totalItems: 0,
+        totalPages: 0,
+      }),
+    });
+  });
+
+  return () => capturedColumnsFilter;
+}
+
+/** Delay the first column-create request until the test releases it. */
+export async function blockFirstColumnCreate(page: Page): Promise<BlockedRequestGate> {
+  let releaseBlockedRequest = () => {
+    throw new Error("expected first column create request to be blocked before release");
+  };
+  let blockedFirstCreate = false;
+
+  await page.route("**/api/collections/columns", async (route, request) => {
+    if (!blockedFirstCreate && request.method() === "POST") {
+      blockedFirstCreate = true;
+      await new Promise<void>((resolve) => {
+        releaseBlockedRequest = resolve;
+      });
+    }
+    await route.continue();
+  });
+
+  return {
+    wasBlocked: () => blockedFirstCreate,
+    release: () => releaseBlockedRequest(),
+  };
 }
 
 /** Add a card to a column. */

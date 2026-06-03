@@ -56,7 +56,15 @@ function CopyButton({ value }: { value: string }) {
 const OAUTH_PROVIDERS: ("github" | "google")[] = ["github", "google"];
 
 export default function AuthForm({ onAuth }: Props) {
-  const { login, register, loading, signInWithOAuth, signInAnonymously, requestMagicLink } = useAuth();
+  const {
+    login,
+    register,
+    loading,
+    signInWithOAuth,
+    signInAnonymously,
+    signInWithPasskey,
+    requestMagicLink,
+  } = useAuth();
   const [mode, setMode] = useState<"login" | "register">("login");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -111,6 +119,20 @@ export default function AuthForm({ onAuth }: Props) {
     }
   }
 
+  async function handlePasskeySignIn(value: string) {
+    setError("");
+    setNotice("");
+    try {
+      await signInWithPasskey(value);
+      setNotice("Passkey sign-in successful.");
+      persistTokens(value);
+      clearAnonymousBootstrapOptOut();
+      onAuth(value);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Passkey sign-in failed");
+    }
+  }
+
   function fillAccount(acct: { email: string; password: string }) {
     setEmail(acct.email);
     setPassword(acct.password);
@@ -120,13 +142,20 @@ export default function AuthForm({ onAuth }: Props) {
   return (
     <div className="min-h-screen flex items-center justify-center p-4">
       <div className="bg-gray-900 border border-gray-700 rounded-xl p-6 w-full max-w-sm shadow-2xl">
-        <h1 className="text-2xl font-bold mb-1">Live Polls</h1>
+        <h1 className="text-2xl font-bold mb-1">Sign in to Live Polls</h1>
         <p className="text-gray-400 text-sm mb-6">
           {mode === "register" ? "Create your account" : "Sign in to create and vote on polls"}
         </p>
 
         <AybLoginBar
-          methods={{ password: true, oauth: true, anonymous: true, canUpgradeAnonymous: false, magicLink: true }}
+          methods={{
+            password: true,
+            oauth: true,
+            anonymous: true,
+            canUpgradeAnonymous: false,
+            magicLink: true,
+            passkey: mode === "login",
+          }}
           loading={loading}
           mode={mode}
           registerToggleLabel="Register"
@@ -148,6 +177,7 @@ export default function AuthForm({ onAuth }: Props) {
           onOAuth={async () => {}}
           onAnonymous={handleAnonymous}
           onOAuthProvider={handleOAuthProvider}
+          onPasskey={handlePasskeySignIn}
           onRequestMagicLink={handleRequestMagicLink}
         />
         {notice && <p className="text-xs text-emerald-400 mt-3" role="status">{notice}</p>}

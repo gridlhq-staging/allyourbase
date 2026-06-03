@@ -173,6 +173,65 @@ describe("AybLoginBar", () => {
     expect(screen.queryByRole("button", { name: /magic link/i })).toBeNull();
   });
 
+  it("renders passkey CTA copy and calls onPasskey with the current email", () => {
+    const onPasskey = vi.fn(async () => {});
+    render(
+      <AybLoginBar
+        methods={{ password: true, oauth: false, anonymous: false, canUpgradeAnonymous: false, passkey: true }}
+        loading={false}
+        email="passkey@example.com"
+        password=""
+        error={null}
+        demoSuggestions={[]}
+        onEmailChange={() => {}}
+        onPasswordChange={() => {}}
+        onSubmit={async () => {}}
+        onOAuth={async () => {}}
+        onAnonymous={async () => {}}
+        onPasskey={onPasskey}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Sign in with a passkey" }));
+    expect(onPasskey).toHaveBeenCalledWith("passkey@example.com");
+  });
+
+  it("shows email input in passkey-only mode and enables passkey submit after email entry", () => {
+    const onPasskey = vi.fn(async () => {});
+
+    function PasskeyOnlyHarness() {
+      const [email, setEmail] = React.useState("");
+      return (
+        <AybLoginBar
+          methods={{ password: false, oauth: false, anonymous: false, canUpgradeAnonymous: false, passkey: true }}
+          loading={false}
+          email={email}
+          password=""
+          error={null}
+          demoSuggestions={[]}
+          onEmailChange={setEmail}
+          onPasswordChange={() => {}}
+          onSubmit={async () => {}}
+          onOAuth={async () => {}}
+          onAnonymous={async () => {}}
+          onPasskey={onPasskey}
+        />
+      );
+    }
+
+    render(<PasskeyOnlyHarness />);
+
+    const emailInput = screen.getByLabelText("Email");
+    const passkeyButton = screen.getByRole("button", { name: "Sign in with a passkey" });
+    expect(passkeyButton.getAttribute("disabled")).not.toBeNull();
+
+    fireEvent.change(emailInput, { target: { value: "passkey-only@example.com" } });
+    expect(passkeyButton.getAttribute("disabled")).toBeNull();
+
+    fireEvent.click(passkeyButton);
+    expect(onPasskey).toHaveBeenCalledWith("passkey-only@example.com");
+  });
+
   it("renders a clickable guest-upgrade button when canUpgradeAnonymous and calls onUpgradeAnonymous", async () => {
     const onUpgradeAnonymous = vi.fn(async () => {});
 

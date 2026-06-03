@@ -137,40 +137,47 @@ func (s *Server) startDrainManager() {
 
 // Shutdown gracefully stops the server.
 func (s *Server) Shutdown(ctx context.Context) error {
+	if s.http == nil && s.requestLogger == nil {
+		return nil
+	}
+
 	timeout := time.Duration(s.cfg.Server.ShutdownTimeout) * time.Second
 	shutdownCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
 	s.logger.Info("shutting down server", "timeout", timeout)
 	if s.authRL != nil {
-		s.authRL.Stop()
+		stopServerRateLimiter(s.authRL)
 	}
 	if s.authSensitiveRL != nil {
-		s.authSensitiveRL.Stop()
+		stopServerRateLimiter(s.authSensitiveRL)
+	}
+	if s.authHandler != nil {
+		s.authHandler.StopRateLimiters()
 	}
 	if s.assistantRL != nil {
-		s.assistantRL.Stop()
+		stopServerRateLimiter(s.assistantRL)
 	}
 	if s.apiRL != nil {
-		s.apiRL.Stop()
+		stopServerRateLimiter(s.apiRL)
 	}
 	if s.apiAnonRL != nil {
-		s.apiAnonRL.Stop()
+		stopServerRateLimiter(s.apiAnonRL)
 	}
 	if s.appRL != nil {
-		s.appRL.Stop()
+		stopServerRateLimiter(s.appRL)
 	}
 	if s.adminRL != nil {
-		s.adminRL.Stop()
+		stopServerRateLimiter(s.adminRL)
 	}
 	if s.storageCDNPurgeAllRL != nil {
-		s.storageCDNPurgeAllRL.Stop()
+		stopServerRateLimiter(s.storageCDNPurgeAllRL)
 	}
 	if s.jobService != nil {
 		s.jobService.Stop()
 	}
 	if s.webhookDispatcher != nil {
-		s.webhookDispatcher.Close()
+		closeServerWebhookDispatcher(s.webhookDispatcher)
 	}
 	if s.storagePollerCancel != nil {
 		s.storagePollerCancel()
@@ -188,7 +195,9 @@ func (s *Server) Shutdown(ctx context.Context) error {
 			if s.http == nil {
 				return nil
 			}
-			return s.http.Shutdown(ctx)
+			err := s.http.Shutdown(ctx)
+			s.http = nil
+			return err
 		},
 		nil,
 	)
@@ -197,6 +206,7 @@ func (s *Server) Shutdown(ctx context.Context) error {
 			s.logger.Error("request logger shutdown error", "error", err)
 			shutdownErr = errors.Join(shutdownErr, err)
 		}
+		s.requestLogger = nil
 	}
 	if manager := s.currentDrainManager(); manager != nil {
 		manager.Stop()
@@ -242,4 +252,25 @@ func shutdownHTTPThenMetrics(ctx context.Context, shutdownHTTP func(context.Cont
 		}
 	}
 	return errors.Join(errs...)
+}
+
+func stopServerRateLimiter(rl interface{ Stop() }) {
+	recoverClosedChannelPanic(func() {
+		rl.Stop()
+	})
+}
+
+func closeServerWebhookDispatcher(dispatcher interface{ Close() }) {
+	recoverClosedChannelPanic(func() {
+		dispatcher.Close()
+	})
+}
+
+func recoverClosedChannelPanic(fn func()) {
+	defer func() {
+		if recovered := recover(); recovered != nil && fmt.Sprint(recovered) != "close of closed channel" {
+			panic(recovered)
+		}
+	}()
+	fn()
 }

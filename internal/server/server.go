@@ -146,6 +146,7 @@ type Server struct {
 
 type webhookDispatcher interface {
 	Enqueue(event *realtime.Event)
+	Replay(ctx context.Context, webhookID, deliveryID string) (*webhooks.Delivery, error)
 	SetDeliveryStore(ds webhooks.DeliveryStore)
 	StartPruner(interval, retention time.Duration)
 	Close()

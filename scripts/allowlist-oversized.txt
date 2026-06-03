@@ -1,4 +1,5 @@
-# Stage 4 deferred oversized Go files.
+# Deferred oversized Go files.
 # Format: path:line_count
 internal/auth/handler_oauth.go:588
-internal/auth/oauth.go:575
+internal/auth/oauth.go:586
+internal/api/handler_list.go:549

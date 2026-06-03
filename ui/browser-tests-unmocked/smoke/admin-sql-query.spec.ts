@@ -8,6 +8,8 @@ import { test, expect, waitForDashboard } from "../fixtures";
 
 test.describe("Smoke: Admin SQL Query", () => {
   test("admin can execute SQL query and view results", async ({ page }) => {
+    const seededValue = `sql-smoke-${Date.now()}`;
+
     // Step 1: Navigate to admin dashboard
     await page.goto("/admin/");
     await waitForDashboard(page);
@@ -19,8 +21,8 @@ test.describe("Smoke: Admin SQL Query", () => {
     const sqlInput = page.getByLabel("SQL query");
     await expect(sqlInput).toBeVisible({ timeout: 5000 });
 
-    // Step 4: Execute a simple query
-    await sqlInput.fill("SELECT 1 AS test_column;");
+    // Step 4: Execute a query with a distinctive seeded value
+    await sqlInput.fill(`SELECT '${seededValue}' AS seeded_value;`);
 
     // Step 5: Click Execute button
     const runButton = page.getByRole("button", { name: /^Execute$/i });
@@ -28,7 +30,7 @@ test.describe("Smoke: Admin SQL Query", () => {
     await runButton.click();
 
     // Step 6: Verify results appear
-    await expect(page.getByRole("columnheader", { name: /test_column/i })).toBeVisible({ timeout: 5000 });
-    await expect(page.getByRole("cell", { name: "1" })).toBeVisible();
+    await expect(page.getByRole("columnheader", { name: /seeded_value/i })).toBeVisible({ timeout: 5000 });
+    await expect(page.getByRole("cell", { name: seededValue, exact: true })).toBeVisible();
   });
 });

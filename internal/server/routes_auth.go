@@ -1,3 +1,4 @@
+// Package server Stub summary for /Users/stuart/parallel_development/allyourbase_dev/jun02_pm_3_auth_login_rate_limiting/allyourbase_dev/internal/server/routes_auth.go.
 package server
 
 import (
@@ -18,6 +19,7 @@ func (s *Server) registerAuthRoutes(r chi.Router) {
 	}
 
 	authHandler := auth.NewHandler(s.authSvc, s.logger)
+	authHandler.SetWebAuthnPublicBaseURL(s.cfg.PublicBaseURL())
 	s.removeUnconfiguredOIDCProviders(authHandler)
 	oidcEnabled := s.registerConfiguredOIDCProviders(authHandler)
 	s.configureSAMLProviders(authHandler)
@@ -146,6 +148,9 @@ func (s *Server) configureAuthCapabilities(authHandler *auth.Handler) {
 	if s.cfg.Auth.TOTPEnabled {
 		authHandler.SetTOTPEnabled(true)
 	}
+	if s.cfg.Auth.WebAuthnEnabled {
+		authHandler.SetWebAuthnEnabled(true)
+	}
 }
 
 func (s *Server) configureAuthRateLimiters() {
@@ -161,6 +166,11 @@ func (s *Server) configureAuthRateLimiters() {
 		authSensitiveLimit, authSensitiveWindow = parsedLimit, parsedWindow
 	}
 	s.authSensitiveRL = auth.NewRateLimiter(authSensitiveLimit, authSensitiveWindow)
+	if s.authHandler != nil {
+		// /login and /webauthn/login/* are enforced at the handler boundary so
+		// direct auth.Handler mounts and server mounts share one configured owner.
+		s.authHandler.SetLoginRateLimit(authSensitiveLimit, authSensitiveWindow)
+	}
 }
 
 func (s *Server) mountAuthRouteGroup(r chi.Router, authHandler *auth.Handler) {

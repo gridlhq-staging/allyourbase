@@ -715,4 +715,24 @@ func TestCursorListResponse_OmitEmptyNextCursor(t *testing.T) {
 	if _, ok := m["nextCursor"]; ok {
 		t.Fatal("expected nextCursor to be omitted when empty")
 	}
+	if _, ok := m["facets"]; ok {
+		t.Fatal("expected facets to be omitted when empty")
+	}
+}
+
+func TestCursorListResponse_WithFacets(t *testing.T) {
+	resp := CursorListResponse{
+		PerPage: 10,
+		Items:   []map[string]any{{"id": "1"}},
+		Facets: FacetCounts{
+			"status": []FacetValueCount{{Value: "published", Count: 2}},
+		},
+	}
+	data, err := json.Marshal(resp)
+	testutil.NoError(t, err)
+	var m map[string]any
+	testutil.NoError(t, json.Unmarshal(data, &m))
+	if _, ok := m["facets"]; !ok {
+		t.Fatal("expected facets in JSON when requested")
+	}
 }

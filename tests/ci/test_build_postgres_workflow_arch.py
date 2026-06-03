@@ -21,7 +21,7 @@ def load_build_job():
         workflow = yaml.safe_load(workflow_file)
     jobs = workflow.get("jobs", {})
     assert "build" in jobs, "Missing jobs.build block"
-    return jobs["build"]
+    return workflow, jobs["build"]
 
 
 def load_build_matrix_rows(build_job):
@@ -141,13 +141,54 @@ def assert_post_build_arch_verification_step(build_job):
     assert "exit 1" in verify_script, "Verify step must fail on architecture mismatch"
 
 
+def assert_workflow_permissions_are_scoped(workflow, build_job):
+    top_permissions = workflow.get("permissions", {})
+    assert top_permissions.get("contents") == "read", (
+        "Workflow default token must be contents:read so build job does not inherit write access"
+    )
+    assert "permissions" not in build_job, (
+        "Build job should inherit read-only default permissions rather than widening the token"
+    )
+
+    release_job = workflow.get("jobs", {}).get("release", {})
+    release_permissions = release_job.get("permissions", {})
+    assert release_permissions.get("contents") == "write", (
+        "Release job must be the only job that widens contents permission for publishing"
+    )
+
+
+def assert_pg_version_output_is_validated(build_job):
+    steps = build_job.get("steps", [])
+    version_step = next(
+        (step for step in steps if step.get("name") == "Set PG version"),
+        None,
+    )
+    assert version_step is not None, "Missing Set PG version step"
+
+    version_script = version_step.get("run", "")
+    assert 'candidate="${GITHUB_REF_NAME#pg-}"' in version_script, (
+        "Push-trigger version extraction must route through a validated candidate variable"
+    )
+    assert "candidate=\"${{ github.event.inputs.pg_version || '16' }}\"" in version_script, (
+        "workflow_dispatch version input must route through a validated candidate variable"
+    )
+    assert '[[ "$candidate" =~ ^[0-9]+$ ]]' in version_script, (
+        "pg_version must be restricted to numeric major-version tokens before writing workflow output"
+    )
+    assert "printf 'pg_version=%s\\n' \"$candidate\" >> \"$GITHUB_OUTPUT\"" in version_script, (
+        "Validated pg_version must be emitted with printf to avoid raw output injection"
+    )
+
+
 def main():
-    build_job = load_build_job()
+    workflow, build_job = load_build_job()
     matrix_rows = load_build_matrix_rows(build_job)
     assert_arm64_execution_path(matrix_rows)
     assert_darwin_amd64_execution_path(matrix_rows)
     assert_build_job_uses_per_row_runner_metadata(build_job)
     assert_post_build_arch_verification_step(build_job)
+    assert_workflow_permissions_are_scoped(workflow, build_job)
+    assert_pg_version_output_is_validated(build_job)
     print("PASS: build-postgres workflow architecture contract assertions passed")
 
 

@@ -115,6 +115,15 @@ min_password_length = 8
 # TOTP MFA (authenticator app).
 # When enabled, users can enroll TOTP as an MFA method using apps like Google Authenticator.
 # totp_enabled = false
+
+# WebAuthn MFA (passkeys / security keys).
+# When enabled, users can enroll WebAuthn credentials (passkeys, FIDO2 security keys) as an MFA method.
+# Default ON. Disable at startup via webauthn_enabled = false or env AYB_AUTH_WEBAUTHN_ENABLED=false,
+# or toggle it at runtime via PATCH /api/admin/auth-settings; must send full auth-settings payload
+# (omitted toggle fields are treated as false by that endpoint).
+# RP origin and RP ID are derived from server.public_base_url.
+webauthn_enabled = true
+
 # Optional explicit 32-byte encryption key (hex or base64). If unset, AYB derives one from auth.jwt_secret.
 # encryption_key = ""
 
@@ -407,6 +416,9 @@ scheduler_enabled = true
 
 # Scheduler scan/tick interval (seconds).
 scheduler_tick_s = 15
+
+# Remove completed job-run history older than this many days automatically.
+job_runs_retention_days = 90
 
 [audit]
 # Audit logging for create/update/delete API mutations.

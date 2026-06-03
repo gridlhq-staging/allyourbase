@@ -4,6 +4,7 @@ import (
 	"math"
 	"os"
 	"path/filepath"
+	"regexp"
 	"testing"
 	"time"
 
@@ -86,6 +87,7 @@ func TestDefault(t *testing.T) {
 	testutil.Equal(t, 30, cfg.Status.CheckIntervalSeconds)
 	testutil.Equal(t, 1000, cfg.Status.HistorySize)
 	testutil.Equal(t, true, cfg.Status.PublicEndpointEnabled)
+	testutil.Equal(t, 90, cfg.Jobs.JobRunsRetentionDays)
 
 	testutil.Equal(t, 12, cfg.EdgeFunctions.PoolSize)
 	testutil.Equal(t, 5000, cfg.EdgeFunctions.DefaultTimeoutMs)
@@ -181,6 +183,22 @@ func TestValidate(t *testing.T) {
 		{
 			name:   "port 65535 valid",
 			modify: func(c *Config) { c.Server.Port = 65535 },
+		},
+		{
+			name: "jobs retention days must be positive",
+			modify: func(c *Config) {
+				c.Jobs.Enabled = true
+				c.Jobs.JobRunsRetentionDays = 0
+			},
+			wantErr: "jobs.job_runs_retention_days must be positive",
+		},
+		{
+			name: "jobs retention days must be positive even when jobs disabled",
+			modify: func(c *Config) {
+				c.Jobs.Enabled = false
+				c.Jobs.JobRunsRetentionDays = 0
+			},
+			wantErr: "jobs.job_runs_retention_days must be positive",
 		},
 		{
 			name:    "max_conns zero",
@@ -1019,6 +1037,10 @@ func TestValidate(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			cfg := Default()
+			// TestValidate exercises many independent sections; disable the
+			// WebAuthn auth-enabled coupling here so unrelated cases can assert
+			// their own target validation errors.
+			cfg.Auth.WebAuthnEnabled = false
 			tt.modify(cfg)
 			err := cfg.Validate()
 			if tt.wantErr == "" {
@@ -1034,6 +1056,7 @@ func TestValidateLogDrainDefaults(t *testing.T) {
 	t.Parallel()
 
 	cfg := Default()
+	cfg.Auth.WebAuthnEnabled = false
 	cfg.Logging.Drains = []LogDrainConfig{{Type: "http", URL: "https://logs.example.com/ingest", BatchSize: 0, FlushIntervalSecs: 0}}
 
 	testutil.NoError(t, cfg.Validate())
@@ -1043,6 +1066,7 @@ func TestValidateLogDrainDefaults(t *testing.T) {
 
 func TestValidateLogDrainEnabledDefault(t *testing.T) {
 	cfg := Default()
+	cfg.Auth.WebAuthnEnabled = false
 	cfg.Logging.Drains = []LogDrainConfig{{Type: "http", URL: "https://logs.example.com/ingest"}}
 
 	testutil.NoError(t, cfg.Validate())
@@ -1057,6 +1081,7 @@ func boolPtr(v bool) *bool {
 func TestValidatePushFCMCredentialsJSON(t *testing.T) {
 	t.Parallel()
 	cfg := Default()
+	cfg.Auth.WebAuthnEnabled = false
 	cfg.Jobs.Enabled = true
 	cfg.Push.Enabled = true
 
@@ -1070,6 +1095,7 @@ func TestValidatePushFCMCredentialsJSON(t *testing.T) {
 func TestValidatePushFCMCredentialsInvalidJSON(t *testing.T) {
 	t.Parallel()
 	cfg := Default()
+	cfg.Auth.WebAuthnEnabled = false
 	cfg.Jobs.Enabled = true
 	cfg.Push.Enabled = true
 
@@ -2031,6 +2057,7 @@ func TestApplyEnvJobsConfig(t *testing.T) {
 	t.Setenv("AYB_JOBS_MAX_RETRIES_DEFAULT", "8")
 	t.Setenv("AYB_JOBS_SCHEDULER_ENABLED", "false")
 	t.Setenv("AYB_JOBS_SCHEDULER_TICK_S", "45")
+	t.Setenv("AYB_JOBS_JOB_RUNS_RETENTION_DAYS", "33")
 
 	cfg := Default()
 	err := applyEnv(cfg)
@@ -2043,6 +2070,7 @@ func TestApplyEnvJobsConfig(t *testing.T) {
 	testutil.Equal(t, 8, cfg.Jobs.MaxRetriesDefault)
 	testutil.False(t, cfg.Jobs.SchedulerEnabled)
 	testutil.Equal(t, 45, cfg.Jobs.SchedulerTickS)
+	testutil.Equal(t, 33, cfg.Jobs.JobRunsRetentionDays)
 }
 
 // --- GetValue / SetValue / IsValidKey tests ---
@@ -2142,6 +2170,7 @@ func TestGetValue(t *testing.T) {
 		{"audit.tables", "", false},
 		{"audit.all_tables", false, false},
 		{"audit.retention_days", 90, false},
+		{"jobs.job_runs_retention_days", 90, false},
 		{"unknown.key", nil, true},
 	}
 	for _, tt := range tests {
@@ -2324,6 +2353,8 @@ func TestSetValueJobsTypes(t *testing.T) {
 	testutil.NoError(t, SetValue(tomlPath, "jobs.worker_concurrency", "8"))
 	testutil.NoError(t, SetValue(tomlPath, "jobs.scheduler_enabled", "false"))
 	testutil.NoError(t, SetValue(tomlPath, "jobs.scheduler_tick_s", "30"))
+	testutil.NoError(t, SetValue(tomlPath, "jobs.job_runs_retention_days", "120"))
+	testutil.NoError(t, SetValue(tomlPath, "auth.webauthn_enabled", "false"))
 
 	cfg, err := Load(tomlPath, nil)
 	testutil.NoError(t, err)
@@ -2331,6 +2362,7 @@ func TestSetValueJobsTypes(t *testing.T) {
 	testutil.Equal(t, 8, cfg.Jobs.WorkerConcurrency)
 	testutil.False(t, cfg.Jobs.SchedulerEnabled, "jobs.scheduler_enabled should be TOML bool")
 	testutil.Equal(t, 30, cfg.Jobs.SchedulerTickS)
+	testutil.Equal(t, 120, cfg.Jobs.JobRunsRetentionDays)
 }
 
 func TestSetValueEdgeFunctionsAllowlist(t *testing.T) {
@@ -2537,6 +2569,7 @@ func TestDefaultTLSFields(t *testing.T) {
 
 func TestValidateTLSDomainAutoEnablesTLS(t *testing.T) {
 	cfg := Default()
+	cfg.Auth.WebAuthnEnabled = false
 	cfg.Server.TLSDomain = "api.myapp.com"
 	err := cfg.Validate()
 	testutil.NoError(t, err)
@@ -2553,6 +2586,7 @@ func TestValidateTLSEnabledRequiresDomain(t *testing.T) {
 
 func TestValidateTLSEnabledWithDomainIsValid(t *testing.T) {
 	cfg := Default()
+	cfg.Auth.WebAuthnEnabled = false
 	cfg.Server.TLSEnabled = true
 	cfg.Server.TLSDomain = "api.myapp.com"
 	err := cfg.Validate()
@@ -3068,12 +3102,14 @@ func TestApplyEnvTelemetrySampleRateInvalid(t *testing.T) {
 
 func TestValidateTelemetrySampleRateRejectsNaN(t *testing.T) {
 	cfg := Default()
+	cfg.Auth.WebAuthnEnabled = false
 	cfg.Telemetry.SampleRate = math.NaN()
 	testutil.ErrorContains(t, cfg.Validate(), "telemetry.sample_rate")
 }
 
 func TestValidateTelemetrySampleRateRejectsInf(t *testing.T) {
 	cfg := Default()
+	cfg.Auth.WebAuthnEnabled = false
 	cfg.Telemetry.SampleRate = math.Inf(1)
 	testutil.ErrorContains(t, cfg.Validate(), "telemetry.sample_rate")
 }
@@ -3464,4 +3500,79 @@ func TestDefaultSupportConfig(t *testing.T) {
 	testutil.Equal(t, false, cfg.Support.Enabled)
 	testutil.Equal(t, "", cfg.Support.InboundEmailDomain)
 	testutil.Equal(t, "", cfg.Support.WebhookSecret)
+}
+
+// --- Stage 3 red tests: webauthn_enabled config flag chain. ---
+// These tests lock the public flag contract for webauthn_enabled across
+// defaults, validation, env-var override, TOML round-trip, and GetValue.
+// webauthn_enabled is intentionally independent from auth.enabled so the
+// default config can keep passkeys pre-enabled for runtime toggling while
+// auth remains globally disabled by default.
+
+func TestWebAuthnConfigDefaults(t *testing.T) {
+	cfg := Default()
+	testutil.True(t, cfg.Auth.WebAuthnEnabled, "webauthn_enabled should default to true")
+}
+
+func TestWebAuthnConfigValidation_AllowsAuthDisabled(t *testing.T) {
+	cfg := Default()
+	cfg.Auth.WebAuthnEnabled = true
+	cfg.Auth.Enabled = false
+	err := cfg.Validate()
+	testutil.NoError(t, err)
+}
+
+func TestWebAuthnConfigEnvVarOverride(t *testing.T) {
+	t.Setenv("AYB_AUTH_ENABLED", "true")
+	t.Setenv("AYB_AUTH_JWT_SECRET", "this-is-a-secret-that-is-at-least-32-characters-long")
+	t.Setenv("AYB_AUTH_WEBAUTHN_ENABLED", "true")
+
+	cfg, err := Load("/nonexistent/ayb.toml", nil)
+	testutil.NoError(t, err)
+	testutil.True(t, cfg.Auth.WebAuthnEnabled, "webauthn_enabled should be true from env")
+}
+
+func TestWebAuthnConfigTOMLRoundTrip(t *testing.T) {
+	cfg := Default()
+	cfg.Auth.Enabled = true
+	cfg.Auth.JWTSecret = "this-is-a-secret-that-is-at-least-32-characters-long"
+	cfg.Auth.WebAuthnEnabled = true
+	s, err := cfg.ToTOML()
+	testutil.NoError(t, err)
+	// The serialized form must use the snake_case TOML key under [auth].
+	testutil.Contains(t, s, "webauthn_enabled = true")
+	parsed, err := ParseTOML([]byte(s))
+	testutil.NoError(t, err)
+	testutil.True(t, parsed.Auth.WebAuthnEnabled, "webauthn_enabled should round-trip through TOML")
+}
+
+func TestWebAuthnConfigGetValue(t *testing.T) {
+	cfg := Default()
+	v, err := GetValue(cfg, "auth.webauthn_enabled")
+	testutil.NoError(t, err)
+	testutil.Equal(t, true, v)
+	testutil.True(t, IsValidKey("auth.webauthn_enabled"), "auth.webauthn_enabled should be a valid key")
+}
+
+// Locks parity with auth.totp_enabled in boolCoercionKeys: SetValue must
+// accept the string "true" and write the TOML key as an unquoted bool.
+func TestSetValueWebAuthnEnabledBoolCoercion(t *testing.T) {
+	dir := t.TempDir()
+	tomlPath := filepath.Join(dir, "ayb.toml")
+
+	err := SetValue(tomlPath, "auth.webauthn_enabled", "true")
+	testutil.NoError(t, err)
+
+	data, err := os.ReadFile(tomlPath)
+	testutil.NoError(t, err)
+	testutil.Contains(t, string(data), "webauthn_enabled = true")
+}
+
+func TestDefaultTOMLWebAuthnRuntimeToggleDocsAvoidPartialPatchExample(t *testing.T) {
+	testutil.Contains(t, defaultTOML, "PATCH /api/admin/auth-settings")
+	testutil.Contains(t, defaultTOML, "must send full auth-settings payload")
+	testutil.Contains(t, defaultTOML, "omitted toggle fields are treated as false")
+
+	partialPatchExamplePattern := regexp.MustCompile(`\{\s*"webauthn_enabled"\s*:\s*true\s*\}`)
+	testutil.False(t, partialPatchExamplePattern.MatchString(defaultTOML), "defaultTOML must not document an unsafe partial PATCH body for auth settings")
 }

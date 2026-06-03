@@ -389,6 +389,116 @@ curl -X POST http://localhost:8090/api/auth/mfa/totp/verify \
 
 These settings are compatible with all major authenticator apps.
 
+## WebAuthn MFA (Passkeys / Security Keys)
+
+WebAuthn provides phishing-resistant multi-factor authentication using passkeys
+(platform authenticators such as Touch ID / Windows Hello) or roaming FIDO2
+security keys (YubiKey, Titan Key, etc.). It is a step-up MFA method only —
+first-factor passkey login is not yet supported.
+
+WebAuthn is **OFF by default**. The relying-party (RP) origin and RP ID are
+derived from `server.public_base_url`, so set that to the canonical HTTPS
+origin clients will see before enabling WebAuthn in production.
+
+### Enable
+
+Startup (TOML):
+
+```toml
+[auth]
+webauthn_enabled = true
+```
+
+Or env: `AYB_AUTH_WEBAUTHN_ENABLED=true`
+
+Runtime (admin API), without restarting the server:
+
+```bash
+curl -X PATCH http://localhost:8090/api/admin/auth-settings \
+  -H "Authorization: Bearer <admin_token>" \
+  -H "Content-Type: application/json" \
+  -d '{
+        "magic_link_enabled": false,
+        "email_mfa_enabled": false,
+        "anonymous_auth_enabled": false,
+        "totp_enabled": false,
+        "webauthn_enabled": true,
+        "sms_enabled": false
+      }'
+```
+
+`PATCH /api/admin/auth-settings` uses full-struct semantics — include every
+current toggle key in the body. Omitted booleans are treated as `false`.
+
+### Enrollment
+
+**Step 1 — Start enrollment:**
+
+```bash
+curl -X POST http://localhost:8090/api/auth/mfa/webauthn/enroll \
+  -H "Authorization: Bearer <token>"
+```
+
+**Response** (200 OK): a `PublicKeyCredentialCreationOptions` object plus a
+`challenge_id`. Pass the options to the browser's `navigator.credentials.create()`.
+
+**Step 2 — Confirm enrollment:**
+
+```bash
+curl -X POST http://localhost:8090/api/auth/mfa/webauthn/enroll/confirm \
+  -H "Authorization: Bearer <token>" \
+  -H "Content-Type: application/json" \
+  -d '{"challenge_id": "uuid", "attestation": { ...credential... }}'
+```
+
+The server verifies the attestation, persists the credential ID, COSE public
+key, and initial sign count on `_ayb_user_mfa`, and marks WebAuthn enrolled.
+
+### MFA login flow
+
+When a user with WebAuthn enrolled logs in, the login response returns the
+standard MFA-pending shape:
+
+```json
+{
+  "mfa_pending": true,
+  "mfa_token": "eyJhbG..."
+}
+```
+
+**Step 1 — Create challenge:**
+
+```bash
+curl -X POST http://localhost:8090/api/auth/mfa/webauthn/challenge \
+  -H "Authorization: Bearer <mfa_token>"
+```
+
+**Response:** `{"challenge_id": "uuid", "options": {...PublicKeyCredentialRequestOptions...}}`.
+Pass `options` to the browser's `navigator.credentials.get()`.
+
+**Step 2 — Verify assertion:**
+
+```bash
+curl -X POST http://localhost:8090/api/auth/mfa/webauthn/verify \
+  -H "Authorization: Bearer <mfa_token>" \
+  -H "Content-Type: application/json" \
+  -d '{"challenge_id": "uuid", "assertion": { ...credential... }}'
+```
+
+**Response** (200 OK): full access + refresh tokens with `aal: "aal2"` and
+AMR `[<first-factor>, "webauthn"]`. The new authenticator sign count is
+persisted atomically with the challenge consumption. If the authenticator
+reports a clone warning (sign count regression), the server responds 4xx
+**without** mutating the stored counter.
+
+### Security posture
+
+- Default OFF; enable only when `server.public_base_url` is correctly set.
+- RP origin / RP ID are server-controlled and not client-overridable.
+- Challenges are single-use and expire on the standard MFA-challenge TTL.
+- Cloned-authenticator detections are rejected as 4xx without state mutation,
+  so a legitimate authenticator can recover by re-enrolling.
+
 ## Email MFA
 
 Email MFA sends a one-time code to the user's email for step-up verification.

@@ -21,6 +21,9 @@ func (h *Handler) handleAggregate(w http.ResponseWriter, r *http.Request, tbl *s
 			return
 		}
 	}
+	if rejectUnsupportedSearchParams(w, q, []string{"facets", "typo_threshold"}) {
+		return
+	}
 
 	// Parse aggregate expressions.
 	exprs, err := parseAggregate(tbl, aggregateParam)

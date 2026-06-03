@@ -25,6 +25,7 @@ export default defineConfig({
         text: "Features",
         items: [
           { text: "REST API", link: "/guide/api-reference" },
+          { text: "Search", link: "/guide/search" },
           { text: "GraphQL", link: "/guide/graphql" },
           { text: "Authentication", link: "/guide/authentication" },
           { text: "OAuth Provider", link: "/guide/oauth-provider" },

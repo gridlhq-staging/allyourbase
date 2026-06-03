@@ -85,6 +85,9 @@ func validateTelemetryConfig(c *Config) error {
 
 // validateJobsConfig validates asynchronous job queue configuration including worker concurrency, polling intervals, and lease durations.
 func validateJobsConfig(c *Config) error {
+	if c.Jobs.JobRunsRetentionDays <= 0 {
+		return fmt.Errorf("jobs.job_runs_retention_days must be positive")
+	}
 	if !c.Jobs.Enabled {
 		return nil
 	}

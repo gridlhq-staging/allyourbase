@@ -221,6 +221,11 @@ export default function App() {
           }
           return next;
         });
+        for (const poll of bootstrapPolls) {
+          if ((poll.poll_options ?? []).length === 0) {
+            void hydratePollOptions(poll.id);
+          }
+        }
 
         const voteMap = buildVoteMap(bootstrapVotes);
         setVotesMap((prev) => {
@@ -236,7 +241,7 @@ export default function App() {
       }
     }
     void load();
-  }, [authed, user]);
+  }, [authed, user, hydratePollOptions]);
 
   const handleRealtime = useCallback((event: RealtimeEvent) => {
     const action = normalizeRealtimeAction(event.action);

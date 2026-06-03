@@ -8,6 +8,7 @@ import {
   cleanupAuthUser,
   ensureAuthSettings,
   overrideEmailMFACode,
+  promoteSessionToAAL2WithPasskey,
   promoteSessionToAAL2WithTOTP,
 } from "./auth";
 
@@ -93,6 +94,11 @@ export const test = base.extend<{
       password: string,
       totpSecret: string,
     ) => Promise<void>;
+    promoteSessionToAAL2WithPasskey: (
+      page: Page,
+      email: string,
+      password: string,
+    ) => Promise<void>;
   };
 }>({
   _browserSkipGuard: [
@@ -126,6 +132,12 @@ export const test = base.extend<{
         totpSecret: string,
       ) =>
         promoteSessionToAAL2WithTOTP(request, page, email, password, totpSecret),
+      promoteSessionToAAL2WithPasskey: (
+        page: Page,
+        email: string,
+        password: string,
+      ) =>
+        promoteSessionToAAL2WithPasskey(request, page, email, password),
     });
   },
 });

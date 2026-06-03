@@ -6,8 +6,11 @@ import {
   normalizeAuthResponse,
   normalizeMagicLinkConfirmResponse,
   normalizeUser,
+  normalizeWebAuthnLoginBeginResponse,
+  normalizeWebAuthnMFAChallengeResponse,
   openPopup,
 } from "./helpers";
+import { createPasskeyAssertion, createPasskeyAttestation } from "./webauthn";
 import type {
   AuthResponse,
   MagicLinkConfirmResponse,
@@ -15,6 +18,9 @@ import type {
   OAuthOptions,
   OAuthProvider,
   User,
+  WebAuthnEnrollBeginResponse,
+  WebAuthnLoginBeginResponse,
+  WebAuthnLoginFinishRequest,
 } from "./types";
 
 interface AuthClientRuntime {
@@ -82,6 +88,92 @@ export class AuthClient {
       return this.applySignedInSession(normalized);
     }
     return normalized;
+  }
+
+  /** Begin a first-factor WebAuthn login challenge for an email. */
+  async beginWebAuthnLogin(email: string): Promise<WebAuthnLoginBeginResponse> {
+    const response = await this.client.request<unknown>("/api/auth/webauthn/login/begin", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email }),
+    });
+    return normalizeWebAuthnLoginBeginResponse(response);
+  }
+
+  /** Verify a first-factor WebAuthn assertion and establish a signed-in session. */
+  async finishWebAuthnLogin(
+    challengeId: string,
+    assertionResponse: Record<string, unknown>,
+  ): Promise<AuthResponse> {
+    const payload: WebAuthnLoginFinishRequest = { challengeId, assertionResponse };
+    const response = await this.client.request<AuthResponse>("/api/auth/webauthn/login/finish", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        challenge_id: payload.challengeId,
+        assertion_response: payload.assertionResponse,
+      }),
+    });
+    return this.applySignedInSession(response);
+  }
+
+  /**
+   * Run the full browser WebAuthn first-factor login ceremony.
+   * This keeps browser assertion serialization in the SDK owner.
+   */
+  async signInWithPasskey(email: string): Promise<AuthResponse> {
+    const begin = await this.beginWebAuthnLogin(email);
+    const assertionResponse = await createPasskeyAssertion(begin.options);
+    return this.finishWebAuthnLogin(begin.challengeId, assertionResponse);
+  }
+
+  /**
+   * Enroll a WebAuthn passkey as a second factor for the currently signed-in user.
+   * Requires an active session (the regular session bearer is attached by client.request).
+   */
+  async enrollPasskey(displayName?: string): Promise<void> {
+    const creationOptions = await this.client.request<WebAuthnEnrollBeginResponse>(
+      "/api/auth/mfa/webauthn/enroll",
+      { method: "POST" },
+    );
+    const attestationResponse = await createPasskeyAttestation(creationOptions);
+    await this.client.request<void>("/api/auth/mfa/webauthn/enroll/confirm", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        display_name: displayName ?? "",
+        attestation_response: attestationResponse,
+      }),
+    });
+  }
+
+  /**
+   * Complete the second-factor WebAuthn verification for an mfa-pending session.
+   * The `mfaToken` is the short-lived token returned in a prior
+   * `{mfa_pending: true, mfa_token}` envelope; it is sent as the Authorization
+   * header for both /challenge and /verify, bypassing any current session token.
+   */
+  async verifyPasskey(mfaToken: string): Promise<AuthResponse> {
+    const mfaAuthHeader = { Authorization: `Bearer ${mfaToken}` };
+    const challengeRaw = await this.client.request<unknown>(
+      "/api/auth/mfa/webauthn/challenge",
+      { method: "POST", skipAuth: true, headers: mfaAuthHeader },
+    );
+    const challenge = normalizeWebAuthnMFAChallengeResponse(challengeRaw);
+    const assertionResponse = await createPasskeyAssertion(challenge.options);
+    const response = await this.client.request<AuthResponse>(
+      "/api/auth/mfa/webauthn/verify",
+      {
+        method: "POST",
+        skipAuth: true,
+        headers: { ...mfaAuthHeader, "Content-Type": "application/json" },
+        body: JSON.stringify({
+          challenge_id: challenge.challengeId,
+          assertion_response: assertionResponse,
+        }),
+      },
+    );
+    return this.applySignedInSession(response);
   }
 
   /** Convert an anonymous account to email/password auth. */

@@ -4,9 +4,21 @@ import { resolve } from "node:path";
 import { AYBClient } from "./client";
 import { AYBError } from "./errors";
 import { AYBClient as PublicAYBClient } from "./index";
-import type { AuthResponse as PublicAuthResponse, ListResponse as PublicListResponse, StorageObject as PublicStorageObject, User as PublicUser } from "./index";
+import type {
+  AuthResponse as PublicAuthResponse,
+  ListResponse as PublicListResponse,
+  StorageObject as PublicStorageObject,
+  User as PublicUser,
+  WebAuthnLoginBeginResponse as PublicWebAuthnLoginBeginResponse,
+} from "./index";
 import { mockFetchSequence } from "./test_utils/mockFetchSequence";
-import type { AuthResponse, ListResponse, StorageObject, User } from "./types";
+import type {
+  AuthResponse,
+  ListResponse,
+  StorageObject,
+  User,
+  WebAuthnLoginBeginResponse,
+} from "./types";
 
 function loadContractFixture(name: string): unknown {
   const fixturePath = resolve(__dirname, "../../tests/contract/fixtures/sdk_contract", name);
@@ -31,11 +43,13 @@ describe("SDK contract fixtures", () => {
     const assertListType = (_value: ListResponse<Record<string, unknown>>): void => {};
     const assertStorageType = (_value: StorageObject): void => {};
     const assertUserType = (_value: User): void => {};
+    const assertWebAuthnBeginType = (_value: WebAuthnLoginBeginResponse): void => {};
 
     assertAuthType({} as PublicAuthResponse);
     assertListType({} as PublicListResponse<Record<string, unknown>>);
     assertStorageType({} as PublicStorageObject);
     assertUserType({} as PublicUser);
+    assertWebAuthnBeginType({} as PublicWebAuthnLoginBeginResponse);
   });
 
   it("auth response fixture normalizes user aliases", async () => {
@@ -238,6 +252,39 @@ describe("SDK contract fixtures", () => {
     expect(response).toEqual({
       mfaPending: true,
       mfaToken: "mfa_pending_token_stage1",
+    });
+  });
+
+  it("first-factor webauthn begin response fixture normalizes challenge_id", async () => {
+    const fetchFn = mockFetchSequence([
+      {
+        status: 200,
+        body: {
+          challenge_id: "webauthn-challenge-stage3",
+          options: {
+            challenge: "Y2hhbGxlbmdl",
+            rpId: "example.com",
+            allowCredentials: [
+              {
+                id: "Y3JlZA",
+                type: "public-key",
+              },
+            ],
+          },
+        },
+      },
+    ]);
+
+    const client = new AYBClient("https://api.example.com", { fetch: fetchFn });
+    const response = await client.auth.beginWebAuthnLogin("dev@allyourbase.io");
+
+    expect(response).toEqual({
+      challengeId: "webauthn-challenge-stage3",
+      options: {
+        challenge: "Y2hhbGxlbmdl",
+        rpId: "example.com",
+        allowCredentials: [{ id: "Y3JlZA", type: "public-key" }],
+      },
     });
   });
 });

@@ -29,10 +29,14 @@ const (
 	billingUsageSyncJobType            = "billing_usage_sync"
 	billingUsageSyncScheduleName       = "billing_usage_sync"
 	auditLogRetentionDefaultDays       = 90
+	jobRunsRetentionDefaultDays        = 90
 	requestLogRetentionDefaultDays     = 7
 	moviesReembedJobType               = "movies_reembed"
 	moviesReembedScheduleName          = "movies_reembed_daily"
 	moviesReembedCronExpr              = "30 2 * * *"
+	jobRunsRetentionJobType            = "job_runs_retention"
+	jobRunsRetentionScheduleName       = "job_runs_retention_daily"
+	jobRunsRetentionCronExpr           = "0 7 * * *"
 
 	anonymousUserCleanupJobType      = "anonymous_user_cleanup"
 	anonymousUserCleanupScheduleName = "anonymous_user_cleanup_daily"
@@ -143,6 +147,7 @@ func RegisterBuiltinHandlers(svc *Service, pool *pgxpool.Pool, storageSvc *stora
 	svc.RegisterHandler("expired_auth_cleanup", ExpiredAuthCleanupHandler(pool, logger))
 	svc.RegisterHandler(resumableUploadCleanupJobType, ResumableUploadCleanupHandler(storageSvc, logger))
 	svc.RegisterHandler("audit_log_retention", AuditLogRetentionHandler(pool, auditLogRetentionDefaultDays, logger))
+	svc.RegisterHandler(jobRunsRetentionJobType, JobRunsRetentionHandler(pool, jobRunsRetentionDefaultDays, logger))
 	svc.RegisterHandler("request_log_retention", RequestLogRetentionHandler(pool, requestLogRetentionDefaultDays, logger))
 	RegisterMoviesReembedHandler(svc, pool, logger)
 

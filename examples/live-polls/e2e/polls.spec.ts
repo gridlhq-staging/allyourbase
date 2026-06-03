@@ -10,17 +10,17 @@ test.describe("Polls bootstrap network", () => {
   // Observe the very first authenticated bootstrap request, not a reload.
   test("issues graphql bootstrap request after auth", async ({ page }) => {
     const graphqlRequest = page.waitForRequest(
-      (request) =>
-        request.url().includes("/api/graphql") && request.method() === "POST",
+      (networkRequest) =>
+        networkRequest.url().includes("/api/graphql") && networkRequest.method() === "POST",
       { timeout: 20000 },
     );
     // registerUser drives a fresh auth from the anonymous shell; the bootstrap
     // useEffect in App.tsx fires once `authed` flips true. This proves that
     // path, not a subsequent page.reload() bootstrap.
     await registerUser(page);
-    const request = await graphqlRequest;
-    expect(request.url()).toContain("/api/graphql");
-    expect(request.method()).toBe("POST");
+    const networkRequest = await graphqlRequest;
+    expect(networkRequest.url()).toContain("/api/graphql");
+    expect(networkRequest.method()).toBe("POST");
   });
 });
 

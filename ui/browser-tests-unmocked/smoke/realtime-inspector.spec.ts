@@ -2,10 +2,6 @@ import {
   test,
   expect,
   waitForDashboard,
-  ensureUserByEmail,
-  cleanupUserByEmail,
-  cleanupApiKeyByName,
-  createApiKeyForUser,
   withRealtimeWsSubscription,
 } from "../fixtures";
 import type { Page, Response } from "@playwright/test";
@@ -89,53 +85,42 @@ test.describe("Smoke: Realtime Inspector", () => {
     await expect(page.getByRole("heading", { name: /Realtime Inspector/i })).toBeVisible();
   });
 
-  test("opens live realtime activity and returns to baseline after cleanup", async ({ page, request, adminToken }) => {
+  test("opens live realtime activity and returns to baseline after cleanup", async ({ page, adminToken }) => {
     await page.goto("/admin/");
     await waitForDashboard(page);
     await page.locator("aside").getByRole("button", { name: /Realtime Inspector/i }).click();
     await expect(page.getByRole("heading", { name: /Realtime Inspector/i })).toBeVisible({ timeout: 15_000 });
 
-    const runId = Date.now();
-    const wsUserEmail = `realtime-smoke-${runId}@example.test`;
-    const wsKeyName = `realtime-smoke-key-${runId}`;
-    const wsUser = await ensureUserByEmail(request, adminToken, wsUserEmail);
-    const wsKeyBody = await createApiKeyForUser(request, adminToken, wsUser.id, wsKeyName);
-
     const baseline = await readInspectorMetrics(page);
-    try {
-      await withRealtimeWsSubscription(page, page.url(), wsKeyBody.key, "users", async () => {
-        const withActivity = await waitForInspectorMetrics(
-          page,
-          "WebSocket activity to appear in inspector metrics",
-          (snapshot) =>
-            snapshot.ws >= baseline.ws + 1 &&
-            snapshot.total >= baseline.total + 1 &&
-            snapshot.usersTableSubscriptions >= baseline.usersTableSubscriptions + 1,
-        );
-
-        expect(withActivity.ws).toBeGreaterThanOrEqual(baseline.ws + 1);
-        expect(withActivity.total).toBeGreaterThanOrEqual(baseline.total + 1);
-        expect(withActivity.usersTableSubscriptions).toBeGreaterThanOrEqual(
-          baseline.usersTableSubscriptions + 1,
-        );
-      });
-
-      const afterCleanup = await waitForInspectorMetrics(
+    await withRealtimeWsSubscription(page, page.url(), adminToken, "users", async () => {
+      const withActivity = await waitForInspectorMetrics(
         page,
-        "WebSocket activity cleanup to return inspector metrics to baseline",
+        "WebSocket activity to appear in inspector metrics",
         (snapshot) =>
-          snapshot.ws === baseline.ws &&
-          snapshot.total === baseline.total &&
-          snapshot.usersTableSubscriptions === baseline.usersTableSubscriptions,
+          snapshot.ws >= baseline.ws + 1 &&
+          snapshot.total >= baseline.total + 1 &&
+          snapshot.usersTableSubscriptions >= baseline.usersTableSubscriptions + 1,
       );
 
-      expect(afterCleanup.ws).toBe(baseline.ws);
-      expect(afterCleanup.total).toBe(baseline.total);
-      expect(afterCleanup.usersTableSubscriptions).toBe(baseline.usersTableSubscriptions);
-    } finally {
-      await cleanupApiKeyByName(request, adminToken, wsKeyName).catch(() => {});
-      await cleanupUserByEmail(request, adminToken, wsUserEmail).catch(() => {});
-    }
+      expect(withActivity.ws).toBeGreaterThanOrEqual(baseline.ws + 1);
+      expect(withActivity.total).toBeGreaterThanOrEqual(baseline.total + 1);
+      expect(withActivity.usersTableSubscriptions).toBeGreaterThanOrEqual(
+        baseline.usersTableSubscriptions + 1,
+      );
+    });
+
+    const afterCleanup = await waitForInspectorMetrics(
+      page,
+      "WebSocket activity cleanup to return inspector metrics to baseline",
+      (snapshot) =>
+        snapshot.ws === baseline.ws &&
+        snapshot.total === baseline.total &&
+        snapshot.usersTableSubscriptions === baseline.usersTableSubscriptions,
+    );
+
+    expect(afterCleanup.ws).toBe(baseline.ws);
+    expect(afterCleanup.total).toBe(baseline.total);
+    expect(afterCleanup.usersTableSubscriptions).toBe(baseline.usersTableSubscriptions);
   });
 });
 

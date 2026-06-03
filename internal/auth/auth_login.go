@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"crypto/subtle"
+	"database/sql"
 	"encoding/base64"
 	"encoding/hex"
 	"errors"
@@ -24,7 +25,7 @@ import (
 
 // Login authenticates a user and returns the user, an access token, and a refresh token.
 func (s *Service) Login(ctx context.Context, email, password string) (*User, string, string, error) {
-	email = strings.ToLower(strings.TrimSpace(email))
+	email = normalizeAuthEmail(email)
 	ctx, span := otel.Tracer("ayb/auth").Start(ctx, "auth.login",
 		trace.WithAttributes(semconv.EnduserID(email)),
 	)
@@ -35,23 +36,21 @@ func (s *Service) Login(ctx context.Context, email, password string) (*User, str
 		return nil, "", "", err
 	}
 
-	var user User
-	var hash string
-	err := s.pool.QueryRow(ctx,
-		`SELECT id, COALESCE(email, ''), COALESCE(phone, ''), password_hash, is_anonymous, created_at, updated_at
-		 FROM _ayb_users WHERE LOWER(email) = $1`,
-		email,
-	).Scan(&user.ID, &user.Email, &user.Phone, &hash, &user.IsAnonymous, &user.CreatedAt, &user.UpdatedAt)
+	user, hash, err := s.lookupUserByNormalizedEmail(ctx, email)
 	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
+		if errors.Is(err, ErrInvalidCredentials) {
 			observability.RecordSpanError(span, ErrInvalidCredentials)
 			return nil, "", "", ErrInvalidCredentials
 		}
 		observability.RecordSpanError(span, err)
-		return nil, "", "", fmt.Errorf("querying user: %w", err)
+		return nil, "", "", err
+	}
+	if hash == nil {
+		observability.RecordSpanError(span, ErrInvalidCredentials)
+		return nil, "", "", ErrInvalidCredentials
 	}
 
-	ok, err := verifyPassword(hash, password)
+	ok, err := verifyPassword(*hash, password)
 	if err != nil {
 		observability.RecordSpanError(span, err)
 		return nil, "", "", fmt.Errorf("verifying password: %w", err)
@@ -63,7 +62,7 @@ func (s *Service) Login(ctx context.Context, email, password string) (*User, str
 
 	// Progressive re-hash: upgrade bcrypt/firebase-scrypt hashes to argon2id on successful login.
 	// Non-fatal: log the error but do not mark the span as failed — login still succeeds.
-	if isBcryptHash(hash) || strings.HasPrefix(hash, "$firebase-scrypt$") {
+	if isBcryptHash(*hash) || strings.HasPrefix(*hash, "$firebase-scrypt$") {
 		if err := s.upgradePasswordHash(ctx, user.ID, password); err != nil {
 			s.logger.Error("failed to upgrade password hash", "user_id", user.ID, "error", err)
 		}
@@ -76,20 +75,54 @@ func (s *Service) Login(ctx context.Context, email, password string) (*User, str
 		return nil, "", "", fmt.Errorf("checking MFA enrollment: %w", err)
 	}
 	if hasMFA {
-		pendingToken, err := s.generateMFAPendingTokenWithMethod(&user, "password")
+		pendingToken, err := s.generateMFAPendingTokenWithMethod(user, "password")
 		if err != nil {
 			observability.RecordSpanError(span, err)
 			return nil, "", "", fmt.Errorf("generating MFA pending token: %w", err)
 		}
-		return &user, pendingToken, "", nil
+		return user, pendingToken, "", nil
 	}
 
-	userOut, accessToken, refreshToken, err := s.issueTokens(ctx, &user)
+	userOut, accessToken, refreshToken, err := s.issueTokens(ctx, user)
 	if err != nil {
 		observability.RecordSpanError(span, err)
 		return nil, "", "", err
 	}
 	return userOut, accessToken, refreshToken, nil
+}
+
+func normalizeAuthEmail(email string) string {
+	return strings.ToLower(strings.TrimSpace(email))
+}
+
+// lookupUserByNormalizedEmail resolves an auth user by a normalized email and
+// returns ErrInvalidCredentials when no such account exists.
+func (s *Service) lookupUserByNormalizedEmail(ctx context.Context, normalizedEmail string) (*User, *string, error) {
+	if normalizedEmail == "" {
+		return nil, nil, ErrInvalidCredentials
+	}
+
+	var (
+		user User
+		hash sql.NullString
+	)
+	err := s.pool.QueryRow(ctx,
+		`SELECT id, COALESCE(email, ''), COALESCE(phone, ''), password_hash, is_anonymous, created_at, updated_at
+		 FROM _ayb_users
+		 WHERE LOWER(email) = $1`,
+		normalizedEmail,
+	).Scan(&user.ID, &user.Email, &user.Phone, &hash, &user.IsAnonymous, &user.CreatedAt, &user.UpdatedAt)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, nil, ErrInvalidCredentials
+		}
+		return nil, nil, fmt.Errorf("querying user by normalized email: %w", err)
+	}
+
+	if !hash.Valid {
+		return &user, nil, nil
+	}
+	return &user, &hash.String, nil
 }
 
 // RefreshToken validates a refresh token, rotates it, and returns the user

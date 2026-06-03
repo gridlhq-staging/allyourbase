@@ -240,3 +240,48 @@ func TestStoreCreateDefaults(t *testing.T) {
 	testutil.Equal(t, "", got.Secret) // default empty
 	testutil.True(t, got.Enabled)
 }
+
+func TestStoreListDeliveriesFailedOnlyFiltersItemsAndTotals(t *testing.T) {
+	ctx := context.Background()
+	resetAndMigrate(t, ctx)
+
+	store := webhooks.NewStore(sharedPG.Pool)
+	hook := &webhooks.Webhook{
+		URL:     "https://example.com/hook",
+		Events:  []string{"create"},
+		Tables:  []string{"posts"},
+		Enabled: true,
+	}
+	testutil.NoError(t, store.Create(ctx, hook))
+
+	seeded := []webhooks.Delivery{
+		{WebhookID: hook.ID, EventAction: "create", EventTable: "posts", Success: false, StatusCode: 500, Attempt: 1, DurationMs: 12, Error: "first failure", RequestBody: `{"i":1}`},
+		{WebhookID: hook.ID, EventAction: "create", EventTable: "posts", Success: true, StatusCode: 200, Attempt: 1, DurationMs: 8, RequestBody: `{"i":2}`},
+		{WebhookID: hook.ID, EventAction: "update", EventTable: "posts", Success: false, StatusCode: 502, Attempt: 1, DurationMs: 11, Error: "second failure", RequestBody: `{"i":3}`},
+		{WebhookID: hook.ID, EventAction: "delete", EventTable: "posts", Success: false, StatusCode: 503, Attempt: 1, DurationMs: 15, Error: "third failure", RequestBody: `{"i":4}`},
+		{WebhookID: hook.ID, EventAction: "update", EventTable: "posts", Success: true, StatusCode: 204, Attempt: 1, DurationMs: 6, RequestBody: `{"i":5}`},
+	}
+	for i := range seeded {
+		del := seeded[i]
+		testutil.NoError(t, store.RecordDelivery(ctx, &del))
+	}
+
+	allItems, allTotal, err := store.ListDeliveries(ctx, hook.ID, 1, 2, false)
+	testutil.NoError(t, err)
+	testutil.Equal(t, 5, allTotal)
+	testutil.Equal(t, 2, len(allItems))
+
+	failedPageOne, failedTotal, err := store.ListDeliveries(ctx, hook.ID, 1, 2, true)
+	testutil.NoError(t, err)
+	testutil.Equal(t, 3, failedTotal)
+	testutil.Equal(t, 2, len(failedPageOne))
+	for i := range failedPageOne {
+		testutil.False(t, failedPageOne[i].Success)
+	}
+
+	failedPageTwo, failedTotalTwo, err := store.ListDeliveries(ctx, hook.ID, 2, 2, true)
+	testutil.NoError(t, err)
+	testutil.Equal(t, 3, failedTotalTwo)
+	testutil.Equal(t, 1, len(failedPageTwo))
+	testutil.False(t, failedPageTwo[0].Success)
+}

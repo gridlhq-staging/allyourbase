@@ -33,6 +33,9 @@ interface TableBrowserGridProps {
   onDelete: (row: Record<string, unknown>) => void;
   page: number;
   setPage: React.Dispatch<React.SetStateAction<number>>;
+  enableSorting?: boolean;
+  enableRowClick?: boolean;
+  enablePagination?: boolean;
 }
 
 export function TableBrowserGrid({
@@ -54,6 +57,9 @@ export function TableBrowserGrid({
   onDelete,
   page,
   setPage,
+  enableSorting = true,
+  enableRowClick = true,
+  enablePagination = true,
 }: TableBrowserGridProps) {
   const extraColCount =
     (showCheckboxes ? 1 : 0) +
@@ -84,8 +90,8 @@ export function TableBrowserGrid({
               {columns.map((col) => (
                 <th
                   key={col.name}
-                  onClick={() => toggleSort(col.name)}
-                  className="px-4 py-2 text-left font-medium text-gray-600 dark:text-gray-300 border-b border-gray-200 dark:border-gray-700 cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-800 whitespace-nowrap select-none"
+                  onClick={enableSorting ? () => toggleSort(col.name) : undefined}
+                  className={`px-4 py-2 text-left font-medium text-gray-600 dark:text-gray-300 border-b border-gray-200 dark:border-gray-700 whitespace-nowrap select-none ${enableSorting ? "cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-800" : "cursor-default"}`}
                 >
                   <span className="inline-flex items-center gap-1">
                     {col.name}
@@ -146,8 +152,8 @@ export function TableBrowserGrid({
               return (
                 <tr
                   key={i}
-                  onClick={() => onRowClick(row)}
-                  className={`border-b border-gray-200 dark:border-gray-800 hover:bg-blue-50 dark:hover:bg-blue-950/40 cursor-pointer group ${isSelected ? "bg-blue-50 dark:bg-blue-950/40" : ""}`}
+                  onClick={enableRowClick ? () => onRowClick(row) : undefined}
+                  className={`border-b border-gray-200 dark:border-gray-800 group ${enableRowClick ? "hover:bg-blue-50 dark:hover:bg-blue-950/40 cursor-pointer" : "cursor-default"} ${isSelected ? "bg-blue-50 dark:bg-blue-950/40" : ""}`}
                 >
                   {showCheckboxes && (
                     <td className="px-2 py-2 whitespace-nowrap">
@@ -220,8 +226,8 @@ export function TableBrowserGrid({
           </span>
           <div className="flex items-center gap-2">
             <button
-              onClick={() => setPage((p) => Math.max(1, p - 1))}
-              disabled={page <= 1}
+              onClick={() => enablePagination && setPage((p) => Math.max(1, p - 1))}
+              disabled={!enablePagination || page <= 1}
               aria-label="Previous page"
               className="p-1 rounded hover:bg-gray-200 dark:hover:bg-gray-700 disabled:opacity-30"
             >
@@ -231,8 +237,8 @@ export function TableBrowserGrid({
               {page} / {data.totalPages || 1}
             </span>
             <button
-              onClick={() => setPage((p) => Math.min(data.totalPages, p + 1))}
-              disabled={page >= data.totalPages}
+              onClick={() => enablePagination && setPage((p) => Math.min(data.totalPages, p + 1))}
+              disabled={!enablePagination || page >= data.totalPages}
               aria-label="Next page"
               className="p-1 rounded hover:bg-gray-200 dark:hover:bg-gray-700 disabled:opacity-30"
             >

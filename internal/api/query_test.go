@@ -437,6 +437,32 @@ func TestBuildListWithFilterSpatialAndSearch(t *testing.T) {
 	testutil.SliceLen(t, countArgs, 6)
 }
 
+func TestBuildListAndFacetQueriesSharePredicateArgs(t *testing.T) {
+	t.Parallel()
+	tbl := testTable()
+
+	opts := listOpts{
+		page:        1,
+		perPage:     10,
+		filterSQL:   `"status" = $1`,
+		filterArgs:  []any{"published"},
+		spatialSQL:  `ST_Intersects("location", ST_MakeEnvelope($2, $3, $4, $5, 4326))`,
+		spatialArgs: []any{-1.0, -2.0, 3.0, 4.0},
+		searchSQL:   `to_tsvector('simple', coalesce("name", '')) @@ websearch_to_tsquery('simple', $6)`,
+		searchArgs:  []any{"hello"},
+		facetCols:   []string{"status"},
+	}
+	_, _, countQ, countArgs := buildList(tbl, opts)
+	facetQueries, facetArgs := buildFacetCountQueries(tbl, opts)
+
+	testutil.Contains(t, countQ, `"status" = $1`)
+	testutil.Contains(t, facetQueries["status"], `"status" = $1`)
+	testutil.SliceLen(t, countArgs, 6)
+	testutil.SliceLen(t, facetArgs, 6)
+	testutil.Equal(t, countArgs[0], facetArgs[0])
+	testutil.Equal(t, countArgs[5], facetArgs[5])
+}
+
 func TestBuildListSkipTotal(t *testing.T) {
 	t.Parallel()
 	tbl := testTable()

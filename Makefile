@@ -21,6 +21,8 @@ LOAD_AUTH_RATE_LIMIT_DEFAULT := 10000
 LOAD_API_RATE_LIMIT_DEFAULT := 10000/min
 LOAD_API_ANON_RATE_LIMIT_DEFAULT := 10000/min
 BROWSER_AUTH_ENABLED_DEFAULT := true
+BROWSER_LOCAL_BASE_URL := http://localhost:8090
+BROWSER_LOCAL_AYB_START_COMMAND := ./ayb start --foreground --host 0.0.0.0
 LOAD_ADMIN_STATUS_K6_COMMAND := $(LOAD_K6_BIN) run --vus $${K6_VUS:-$(LOAD_DEFAULT_VUS)} --iterations $${K6_ITERATIONS:-$(LOAD_DEFAULT_ITERATIONS)} $(LOAD_ADMIN_STATUS_SCENARIO)
 LOAD_AUTH_REQUEST_PATH_K6_COMMAND := $(LOAD_K6_BIN) run --vus $${K6_VUS:-$(LOAD_DEFAULT_VUS)} --iterations $${K6_ITERATIONS:-$(LOAD_DEFAULT_ITERATIONS)} $(LOAD_AUTH_REQUEST_PATH_SCENARIO)
 LOAD_DATA_PATH_K6_COMMAND := $(LOAD_K6_BIN) run --vus $${K6_VUS:-$(LOAD_DEFAULT_VUS)} --iterations $${K6_ITERATIONS:-$(LOAD_DEFAULT_ITERATIONS)} $(LOAD_DATA_PATH_SCENARIO)
@@ -208,13 +210,13 @@ test-demo-smoke: ## Run demo smoke tests only — schema apply, tables, RLS, CRU
 	go run ./internal/testutil/cmd/testpg -- go tool gotestsum --format testdox -- -tags=integration -count=1 -run TestDemoSmoke ./internal/e2e/
 
 test-smoke: build ## Run Playwright smoke tests — 8 critical paths, ~5 min (builds + starts server)
-	@bash -lc '$(BROWSER_EXPORT_AUTH_ENV); bash scripts/run-with-ayb.sh "cd ui && npm run test:browser -- --project=smoke"'
+	@bash -lc '$(BROWSER_EXPORT_AUTH_ENV); export PLAYWRIGHT_BASE_URL="$${PLAYWRIGHT_BASE_URL:-$(BROWSER_LOCAL_BASE_URL)}"; export AYB_START_COMMAND="$${AYB_START_COMMAND:-$(BROWSER_LOCAL_AYB_START_COMMAND)}"; bash scripts/run-with-ayb.sh "cd ui && npm run test:browser -- --project=smoke"'
 
 test-browser-full: build ## Run Playwright full browser suite, ~15 min (builds + starts server)
-	@bash -lc '$(BROWSER_EXPORT_AUTH_ENV); bash scripts/run-with-ayb.sh "cd ui && npm run test:browser -- --project=full"'
+	@bash -lc '$(BROWSER_EXPORT_AUTH_ENV); export PLAYWRIGHT_BASE_URL="$${PLAYWRIGHT_BASE_URL:-$(BROWSER_LOCAL_BASE_URL)}"; export AYB_START_COMMAND="$${AYB_START_COMMAND:-$(BROWSER_LOCAL_AYB_START_COMMAND)}"; bash scripts/run-with-ayb.sh "cd ui && npm run test:browser -- --project=full"'
 
 test-e2e: build ## Run all Playwright tests — smoke + full (builds + starts server)
-	@bash -lc '$(BROWSER_EXPORT_AUTH_ENV); bash scripts/run-with-ayb.sh "cd ui && npm run test:browser"'
+	@bash -lc '$(BROWSER_EXPORT_AUTH_ENV); export PLAYWRIGHT_BASE_URL="$${PLAYWRIGHT_BASE_URL:-$(BROWSER_LOCAL_BASE_URL)}"; export AYB_START_COMMAND="$${AYB_START_COMMAND:-$(BROWSER_LOCAL_AYB_START_COMMAND)}"; bash scripts/run-with-ayb.sh "cd ui && npm run test:browser"'
 
 test-sdk-integration: build ## Run the SDK integration suite against a live AYB — auth + storage (builds + starts server)
 	cd sdk && npm ci
@@ -312,7 +314,7 @@ test-all: test test-integration test-sdk test-ui ## Run all fast tests: Go unit 
 
 test-full: test-all test-e2e ## Run every automated test: unit + integration + SDK + UI + all browser tests (~1.5 hrs)
 
-test-demo-e2e: build ## Run demo app E2E tests — Playwright suites for kanban + live-polls (starts demo, runs tests, stops)
+test-demo-e2e: build ## Run demo app E2E tests — Playwright suites for kanban + live-polls + movies (starts demo, runs tests, stops)
 	@cd _dev/manual_smoke_tests && AYB_BIN=$(CURDIR)/ayb bash 18_demo_e2e.test.sh
 
 test-demo-e2e-all: build ## Run cross-demo Playwright smoke — kanban + live-polls + movies in one suite

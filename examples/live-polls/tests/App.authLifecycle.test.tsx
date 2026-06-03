@@ -65,6 +65,7 @@ const mockGraphQLQuery = vi.mocked(ayb.graphql.query);
 describe("App auth lifecycle", () => {
   const logout = vi.fn();
   const signInAnonymously = vi.fn();
+  const signInWithPasskey = vi.fn();
 
   beforeEach(() => {
     vi.clearAllMocks();
@@ -78,6 +79,7 @@ describe("App auth lifecycle", () => {
       login: vi.fn(),
       register: vi.fn(),
       signInAnonymously,
+      signInWithPasskey,
       requestMagicLink: vi.fn(),
       confirmMagicLink: vi.fn(),
       linkEmail: vi.fn(),
@@ -184,6 +186,7 @@ describe("App auth lifecycle", () => {
       login: vi.fn(),
       register: vi.fn(),
       signInAnonymously,
+      signInWithPasskey,
       requestMagicLink: vi.fn(),
       confirmMagicLink: vi.fn(),
       linkEmail: vi.fn(),
@@ -220,6 +223,7 @@ describe("App auth lifecycle", () => {
       login: vi.fn(),
       register: vi.fn(),
       signInAnonymously: vi.fn(),
+      signInWithPasskey: vi.fn(),
       requestMagicLink: vi.fn(),
       confirmMagicLink: vi.fn(),
       linkEmail: vi.fn(),
@@ -245,6 +249,7 @@ describe("App auth lifecycle", () => {
       login: vi.fn(),
       register: vi.fn(),
       signInAnonymously: vi.fn(),
+      signInWithPasskey: vi.fn(),
       requestMagicLink: vi.fn(),
       confirmMagicLink: vi.fn(),
       linkEmail: vi.fn(),

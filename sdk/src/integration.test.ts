@@ -466,6 +466,70 @@ describe("SDK integration smoke + auth suite", () => {
         );
       });
     });
+
+    describe("records search facets", () => {
+      // Dedicated table because the records list handler 500s on the first list
+      // request after ALTER TABLE (pgx cached prepared statement returns stale
+      // result type; SQLSTATE 0A000). Fixing that connection-pool behavior is a
+      // Go backend change explicitly out of scope for this stage; the contract
+      // we need to prove (facet counts + RLS scoping + unknown-column reject)
+      // is fully exercised on a fresh table that includes `category` from the
+      // start.
+      const facetsTableName = `${tableName}_facets`;
+
+      beforeAll(async () => {
+        await adminSql(
+          `CREATE TABLE ${facetsTableName} (
+            id serial PRIMARY KEY,
+            title text NOT NULL,
+            category text
+          )`,
+        );
+        await adminSql(`ALTER TABLE ${facetsTableName} ENABLE ROW LEVEL SECURITY`);
+        await adminSql(
+          `CREATE POLICY sdk_test_all ON ${facetsTableName} FOR ALL USING (true) WITH CHECK (true)`,
+        );
+        await waitForCollectionSchemaCache(client, facetsTableName, "facets records");
+      }, 35_000);
+
+      afterAll(async () => {
+        await dropTableAndAssertRemoved(facetsTableName);
+      }, 35_000);
+
+      beforeEach(async () => {
+        await adminSql(`TRUNCATE TABLE ${facetsTableName} RESTART IDENTITY`);
+        await adminSql(
+          `INSERT INTO ${facetsTableName} (title, category) VALUES ` +
+            `('r1','a'), ('r2','a'), ('r3','b'), ('r4','c')`,
+        );
+      });
+
+      it("returns facet counts alongside the page items", async () => {
+        const result = await client.records.list<{ id: number; title: string; category: string }>(
+          facetsTableName,
+          { facets: ["category"] },
+        );
+
+        expect(result.facets).toBeDefined();
+        expect(result.facets!.category).toEqual(
+          expect.arrayContaining([
+            { value: "a", count: 2 },
+            { value: "b", count: 1 },
+            { value: "c", count: 1 },
+          ]),
+        );
+        expect(result.facets!.category).toHaveLength(3);
+        expect(result.items).toHaveLength(4);
+      });
+
+      it("rejects unknown facet columns with a 400 error", async () => {
+        await expectAYBError(
+          () => client.records.list(facetsTableName, { facets: ["nonexistent_col"] }),
+          400,
+          /unknown column .*nonexistent_col/i,
+        );
+      });
+    });
   });
 
   describe("Storage", () => {

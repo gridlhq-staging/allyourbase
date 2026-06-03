@@ -1,5 +1,11 @@
 import { test, expect } from "@playwright/test";
-import { waitForAnonymousBoardShell, ownedBoardCount, ownedBoardId } from "./helpers";
+import {
+  waitForAnonymousBoardShell,
+  ownedBoardCount,
+  ownedBoardId,
+  seedInProgressMarker,
+  simulateInterruptedSeedMissingDoneCard,
+} from "./helpers";
 
 /**
  * Stage 2: a fresh anonymous user (delivered by the anonymous-first entry
@@ -62,57 +68,7 @@ test.describe("Sample board seeding", () => {
 
     // Simulate an interrupted seed run after columns exist but before cards
     // finish writing: keep marker set and delete one seeded starter card.
-    await page.evaluate(async ({ targetBoardId }) => {
-      const token = sessionStorage.getItem("ayb_token");
-      if (!token) throw new Error("seed-repair test: no auth token in sessionStorage");
-      const headers = { Authorization: `Bearer ${token}` };
-
-      const meRes = await fetch("/api/auth/me", { headers });
-      if (!meRes.ok) throw new Error(`seed-repair test: /api/auth/me failed (${meRes.status})`);
-      const me = (await meRes.json()) as { id: string };
-
-      localStorage.setItem("ayb_kanban_seed_in_progress", me.id);
-
-      const columnsFilter = encodeURIComponent(`board_id='${targetBoardId}'`);
-      const columnsRes = await fetch(
-        `/api/collections/columns?filter=${columnsFilter}&perPage=100`,
-        { headers },
-      );
-      if (!columnsRes.ok) {
-        throw new Error(`seed-repair test: columns list failed (${columnsRes.status})`);
-      }
-      const columns = (await columnsRes.json()) as {
-        items: { id: string; title: string }[];
-      };
-      const doneColumn = columns.items.find((col) => col.title === "Done");
-      if (!doneColumn) {
-        throw new Error("seed-repair test: missing seeded Done column");
-      }
-
-      const cardsFilter = encodeURIComponent(`column_id='${doneColumn.id}'`);
-      const cardsRes = await fetch(
-        `/api/collections/cards?filter=${cardsFilter}&perPage=100`,
-        { headers },
-      );
-      if (!cardsRes.ok) {
-        throw new Error(`seed-repair test: cards list failed (${cardsRes.status})`);
-      }
-      const cards = (await cardsRes.json()) as {
-        items: { id: string; title: string }[];
-      };
-      const shipCard = cards.items.find((card) => card.title === "Ship something");
-      if (!shipCard) {
-        throw new Error("seed-repair test: missing expected starter card to delete");
-      }
-
-      const deleteRes = await fetch(`/api/collections/cards/${shipCard.id}`, {
-        method: "DELETE",
-        headers,
-      });
-      if (!deleteRes.ok) {
-        throw new Error(`seed-repair test: delete card failed (${deleteRes.status})`);
-      }
-    }, { targetBoardId: boardId });
+    await simulateInterruptedSeedMissingDoneCard(page, boardId);
 
     await page.reload();
     await waitForAnonymousBoardShell(page);
@@ -133,59 +89,7 @@ test.describe("Sample board seeding", () => {
     const boardId = await ownedBoardId(page);
     expect(boardId).not.toBeNull();
 
-    await page.evaluate(async ({ targetBoardId }) => {
-      const token = sessionStorage.getItem("ayb_token");
-      if (!token) throw new Error("seed-repair delete-failure test: no auth token in sessionStorage");
-      const headers = { Authorization: `Bearer ${token}` };
-
-      const meRes = await fetch("/api/auth/me", { headers });
-      if (!meRes.ok) {
-        throw new Error(`seed-repair delete-failure test: /api/auth/me failed (${meRes.status})`);
-      }
-      const me = (await meRes.json()) as { id: string };
-
-      localStorage.setItem("ayb_kanban_seed_in_progress", me.id);
-
-      const columnsFilter = encodeURIComponent(`board_id='${targetBoardId}'`);
-      const columnsRes = await fetch(
-        `/api/collections/columns?filter=${columnsFilter}&perPage=100`,
-        { headers },
-      );
-      if (!columnsRes.ok) {
-        throw new Error(`seed-repair delete-failure test: columns list failed (${columnsRes.status})`);
-      }
-      const columns = (await columnsRes.json()) as {
-        items: { id: string; title: string }[];
-      };
-      const doneColumn = columns.items.find((col) => col.title === "Done");
-      if (!doneColumn) {
-        throw new Error("seed-repair delete-failure test: missing seeded Done column");
-      }
-
-      const cardsFilter = encodeURIComponent(`column_id='${doneColumn.id}'`);
-      const cardsRes = await fetch(
-        `/api/collections/cards?filter=${cardsFilter}&perPage=100`,
-        { headers },
-      );
-      if (!cardsRes.ok) {
-        throw new Error(`seed-repair delete-failure test: cards list failed (${cardsRes.status})`);
-      }
-      const cards = (await cardsRes.json()) as {
-        items: { id: string; title: string }[];
-      };
-      const shipCard = cards.items.find((card) => card.title === "Ship something");
-      if (!shipCard) {
-        throw new Error("seed-repair delete-failure test: missing expected starter card to delete");
-      }
-
-      const deleteRes = await fetch(`/api/collections/cards/${shipCard.id}`, {
-        method: "DELETE",
-        headers,
-      });
-      if (!deleteRes.ok) {
-        throw new Error(`seed-repair delete-failure test: delete card failed (${deleteRes.status})`);
-      }
-    }, { targetBoardId: boardId });
+    await simulateInterruptedSeedMissingDoneCard(page, boardId);
 
     await page.route(`**/api/collections/boards/${boardId}`, async (route) => {
       if (route.request().method() === "DELETE") {
@@ -232,9 +136,7 @@ test.describe("Sample board seeding", () => {
     // single "My First Board" with fewer than three columns be misread as
     // an interrupted seed run and deleted by the repair path.
     await expect
-      .poll(() =>
-        page.evaluate(() => localStorage.getItem("ayb_kanban_seed_in_progress")),
-      )
+      .poll(() => seedInProgressMarker(page))
       .toBeNull();
   });
 });

@@ -1,6 +1,10 @@
 import { describe, it, expect, vi } from "vitest";
 import type { APIRequestContext, Page } from "@playwright/test";
-import { promoteSessionToAAL2WithTOTP, waitForFunctionLog } from "../../browser-tests-unmocked/fixtures";
+import {
+  promoteSessionToAAL2WithPasskey,
+  promoteSessionToAAL2WithTOTP,
+  waitForFunctionLog,
+} from "../../browser-tests-unmocked/fixtures";
 
 function okResponse(body: unknown) {
   return {
@@ -183,5 +187,54 @@ describe("browser-unmocked edge trigger fixture helpers", () => {
 
     expect(request.post).toHaveBeenCalledTimes(5);
     expect(page.evaluate).toHaveBeenCalledWith(expect.any(Function), "aal2-token-retry");
+  });
+
+  it("promoteSessionToAAL2WithPasskey stores upgraded token in localStorage", async () => {
+    const request = {
+      post: vi
+        .fn()
+        .mockImplementationOnce(async () => okResponse({ mfa_pending: true, mfa_token: "pending-passkey-token" }))
+        .mockImplementationOnce(async () => okResponse({
+          challenge_id: "webauthn-challenge-1",
+          options: { challenge: "Y2hhbGxlbmdl", allowCredentials: [] },
+        }))
+        .mockImplementationOnce(async () => okResponse({
+          token: "aal2-passkey-token",
+          refreshToken: "refresh-passkey",
+          user: { id: "u1", email: "mfa@example.com" },
+        })),
+    } as unknown as APIRequestContext;
+    const page = {
+      evaluate: vi
+        .fn()
+        .mockImplementationOnce(async () => ({ id: "assertion-1" }))
+        .mockImplementationOnce(async () => {}),
+    } as unknown as Page;
+
+    await promoteSessionToAAL2WithPasskey(
+      request,
+      page,
+      "mfa@example.com",
+      "password123",
+    );
+
+    expect(request.post).toHaveBeenNthCalledWith(1, "/api/auth/login", {
+      data: { email: "mfa@example.com", password: "password123" },
+    });
+    expect(request.post).toHaveBeenNthCalledWith(2, "/api/auth/mfa/webauthn/challenge", {
+      headers: { Authorization: "Bearer pending-passkey-token" },
+    });
+    expect(request.post).toHaveBeenNthCalledWith(3, "/api/auth/mfa/webauthn/verify", {
+      headers: { Authorization: "Bearer pending-passkey-token" },
+      data: {
+        challenge_id: "webauthn-challenge-1",
+        assertion_response: { id: "assertion-1" },
+      },
+    });
+    expect(page.evaluate).toHaveBeenNthCalledWith(
+      2,
+      expect.any(Function),
+      "aal2-passkey-token",
+    );
   });
 });

@@ -224,16 +224,18 @@ func TestWorkerRetriesFailedJob(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
+	const handlerLatency = 120 * time.Millisecond
 	var attempts atomic.Int32
 	svc.RegisterHandler("fail_then_pass", func(ctx context.Context, payload json.RawMessage) error {
 		n := attempts.Add(1)
+		time.Sleep(handlerLatency)
 		if n < 2 {
 			return fmt.Errorf("deliberate failure attempt %d", n)
 		}
 		return nil
 	})
 
-	_, err := svc.Enqueue(ctx, "fail_then_pass", nil, jobs.EnqueueOpts{MaxAttempts: 2})
+	job, err := svc.Enqueue(ctx, "fail_then_pass", nil, jobs.EnqueueOpts{MaxAttempts: 2})
 	testutil.NoError(t, err)
 
 	svc.Start(ctx)
@@ -256,6 +258,49 @@ func TestWorkerRetriesFailedJob(t *testing.T) {
 	all, err := svc.List(ctx, "completed", "", 10, 0)
 	testutil.NoError(t, err)
 	testutil.Equal(t, 1, len(all))
+
+	rows, err := sharedPG.Pool.Query(ctx,
+		`SELECT attempt, status, started_at, finished_at, duration_ms, error
+		 FROM _ayb_job_runs
+		 WHERE job_id = $1
+		 ORDER BY attempt`,
+		job.ID,
+	)
+	testutil.NoError(t, err)
+	defer rows.Close()
+
+	type runRow struct {
+		attempt    int
+		status     string
+		startedAt  time.Time
+		finishedAt time.Time
+		durationMs int
+		errText    *string
+	}
+	var history []runRow
+	for rows.Next() {
+		var row runRow
+		err = rows.Scan(&row.attempt, &row.status, &row.startedAt, &row.finishedAt, &row.durationMs, &row.errText)
+		testutil.NoError(t, err)
+		history = append(history, row)
+	}
+	testutil.NoError(t, rows.Err())
+	if len(history) != 2 {
+		t.Fatalf("expected 2 run-history rows for retry cycle, got %d", len(history))
+	}
+	testutil.Equal(t, 1, history[0].attempt)
+	testutil.Equal(t, "failed", history[0].status)
+	testutil.True(t, history[0].errText != nil, "failed run should persist error text")
+	testutil.Contains(t, *history[0].errText, "deliberate failure attempt 1")
+	testutil.True(t, !history[0].finishedAt.Before(history[0].startedAt), "finished_at should be >= started_at for attempt 1")
+	testutil.True(t, history[0].durationMs >= 90 && history[0].durationMs <= 450,
+		"attempt 1 duration_ms should stay near handler execution; got %d", history[0].durationMs)
+	testutil.Equal(t, 2, history[1].attempt)
+	testutil.Equal(t, "completed", history[1].status)
+	testutil.True(t, history[1].errText == nil, "completed run should not persist error text")
+	testutil.True(t, !history[1].finishedAt.Before(history[1].startedAt), "finished_at should be >= started_at for attempt 2")
+	testutil.True(t, history[1].durationMs >= 90 && history[1].durationMs <= 450,
+		"attempt 2 duration_ms should stay near handler execution; got %d", history[1].durationMs)
 }
 
 func TestWorkerTerminalFailure(t *testing.T) {
@@ -360,7 +405,9 @@ func TestWorkerPersistsCompletedTerminalFields(t *testing.T) {
 	defer cancel()
 
 	store := jobs.NewStore(sharedPG.Pool)
+	const handlerLatency = 140 * time.Millisecond
 	svc.RegisterHandler("persist_complete", func(ctx context.Context, payload json.RawMessage) error {
+		time.Sleep(handlerLatency)
 		return nil
 	})
 
@@ -379,6 +426,25 @@ func TestWorkerPersistsCompletedTerminalFields(t *testing.T) {
 			testutil.True(t, persisted.LastError == nil, "last_error should be nil")
 			testutil.True(t, persisted.LeaseUntil == nil, "lease_until should be cleared")
 			testutil.True(t, persisted.WorkerID == nil, "worker_id should be cleared")
+			var attempt int
+			var status string
+			var startedAt time.Time
+			var finishedAt time.Time
+			var durationMs int
+			var runErr *string
+			err = sharedPG.Pool.QueryRow(ctx,
+				`SELECT attempt, status, started_at, finished_at, duration_ms, error
+				 FROM _ayb_job_runs
+				 WHERE job_id = $1`,
+				job.ID,
+			).Scan(&attempt, &status, &startedAt, &finishedAt, &durationMs, &runErr)
+			testutil.NoError(t, err)
+			testutil.Equal(t, 1, attempt)
+			testutil.Equal(t, "completed", status)
+			testutil.True(t, !finishedAt.Before(startedAt), "finished_at should be >= started_at")
+			testutil.True(t, durationMs >= 110 && durationMs <= 500,
+				"duration_ms should stay near handler execution; got %d", durationMs)
+			testutil.True(t, runErr == nil, "completed run should not persist an error")
 			return
 		}
 		select {
@@ -400,7 +466,9 @@ func TestWorkerPersistsFailedTerminalFields(t *testing.T) {
 
 	store := jobs.NewStore(sharedPG.Pool)
 	const permanentErr = "terminal persistence failure"
+	const handlerLatency = 130 * time.Millisecond
 	svc.RegisterHandler("persist_fail", func(ctx context.Context, payload json.RawMessage) error {
+		time.Sleep(handlerLatency)
 		return fmt.Errorf(permanentErr)
 	})
 
@@ -420,6 +488,26 @@ func TestWorkerPersistsFailedTerminalFields(t *testing.T) {
 			testutil.Equal(t, permanentErr, *persisted.LastError)
 			testutil.True(t, persisted.LeaseUntil == nil, "lease_until should be cleared")
 			testutil.True(t, persisted.WorkerID == nil, "worker_id should be cleared")
+			var attempt int
+			var status string
+			var startedAt time.Time
+			var finishedAt time.Time
+			var durationMs int
+			var runErr *string
+			err = sharedPG.Pool.QueryRow(ctx,
+				`SELECT attempt, status, started_at, finished_at, duration_ms, error
+				 FROM _ayb_job_runs
+				 WHERE job_id = $1`,
+				job.ID,
+			).Scan(&attempt, &status, &startedAt, &finishedAt, &durationMs, &runErr)
+			testutil.NoError(t, err)
+			testutil.Equal(t, 1, attempt)
+			testutil.Equal(t, "failed", status)
+			testutil.True(t, !finishedAt.Before(startedAt), "finished_at should be >= started_at")
+			testutil.True(t, durationMs >= 100 && durationMs <= 500,
+				"duration_ms should stay near handler execution; got %d", durationMs)
+			testutil.NotNil(t, runErr)
+			testutil.Equal(t, permanentErr, *runErr)
 			return
 		}
 		select {
@@ -984,7 +1072,35 @@ func TestRegisterDefaultSchedules(t *testing.T) {
 	testutil.True(t, names["expired_resumable_upload_cleanup"], "missing expired_resumable_upload_cleanup")
 	testutil.True(t, names["audit_log_retention_daily"], "missing audit_log_retention_daily")
 	testutil.True(t, names["request_log_retention_daily"], "missing request_log_retention_daily")
+	testutil.True(t, names["job_runs_retention_daily"], "missing job_runs_retention_daily")
 	testutil.True(t, names["movies_reembed_daily"], "missing movies_reembed_daily")
+
+	var jobRunsRetentionSched *jobs.Schedule
+	for _, sched := range schedules {
+		if sched.Name == "job_runs_retention_daily" {
+			jobRunsRetentionSched = &sched
+			break
+		}
+	}
+	if jobRunsRetentionSched == nil {
+		t.Fatalf("missing job_runs_retention_daily")
+	}
+	testutil.Equal(t, "job_runs_retention", jobRunsRetentionSched.JobType)
+
+	var payload map[string]any
+	err = json.Unmarshal(jobRunsRetentionSched.Payload, &payload)
+	testutil.NoError(t, err)
+	value, ok := payload["retention_days"].(float64)
+	testutil.True(t, ok, "retention_days should be a number in payload")
+	testutil.Equal(t, float64(90), value)
+
+	jobRunsRetentionCount := 0
+	for _, sched := range schedules {
+		if sched.Name == "job_runs_retention_daily" {
+			jobRunsRetentionCount++
+		}
+	}
+	testutil.Equal(t, 1, jobRunsRetentionCount)
 
 	// Idempotent: running again should not error or create duplicates.
 	err = svc.RegisterDefaultSchedules(ctx)
@@ -993,13 +1109,21 @@ func TestRegisterDefaultSchedules(t *testing.T) {
 	schedules2, err := svc.ListSchedules(ctx)
 	testutil.NoError(t, err)
 	testutil.Equal(t, len(schedules), len(schedules2))
+
+	jobRunsRetentionCount = 0
+	for _, sched := range schedules2 {
+		if sched.Name == "job_runs_retention_daily" {
+			jobRunsRetentionCount++
+		}
+	}
+	testutil.Equal(t, 1, jobRunsRetentionCount)
 }
 
 func TestRegisterDefaultSchedulesUsesConfiguredRequestLogRetentionDays(t *testing.T) {
 	svc := setupService(t)
 	ctx := context.Background()
 
-	err := svc.RegisterDefaultSchedulesWithAuditRetention(ctx, 90, 42)
+	err := svc.RegisterDefaultSchedulesWithAuditRetention(ctx, 90, 90, 42)
 	testutil.NoError(t, err)
 
 	schedules, err := svc.ListSchedules(ctx)
@@ -1020,6 +1144,35 @@ func TestRegisterDefaultSchedulesUsesConfiguredRequestLogRetentionDays(t *testin
 	testutil.True(t, ok, "retention_days should be a number in payload")
 	testutil.Equal(t, float64(42), value)
 	testutil.Equal(t, "request_log_retention", requestLogSched.JobType)
+}
+
+func TestRegisterDefaultSchedulesUsesConfiguredJobRunsRetentionDays(t *testing.T) {
+	svc := setupService(t)
+	ctx := context.Background()
+
+	err := svc.RegisterDefaultSchedulesWithAuditRetention(ctx, 90, 45)
+	testutil.NoError(t, err)
+
+	schedules, err := svc.ListSchedules(ctx)
+	testutil.NoError(t, err)
+	var jobRunsRetentionSched *jobs.Schedule
+	for _, sched := range schedules {
+		if sched.Name == "job_runs_retention_daily" {
+			jobRunsRetentionSched = &sched
+			break
+		}
+	}
+	if jobRunsRetentionSched == nil {
+		t.Fatalf("missing job_runs_retention_daily")
+	}
+	testutil.Equal(t, "job_runs_retention", jobRunsRetentionSched.JobType)
+
+	var payload map[string]any
+	err = json.Unmarshal(jobRunsRetentionSched.Payload, &payload)
+	testutil.NoError(t, err)
+	value, ok := payload["retention_days"].(float64)
+	testutil.True(t, ok, "retention_days should be a number in payload")
+	testutil.Equal(t, float64(45), value)
 }
 
 func TestRegisterProviderTokenRefreshSchedule(t *testing.T) {

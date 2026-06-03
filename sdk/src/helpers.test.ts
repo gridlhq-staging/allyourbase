@@ -7,6 +7,7 @@ import {
   normalizeMagicLinkConfirmResponse,
   normalizeRealtimeEvent,
   normalizeStorageListResponse,
+  normalizeWebAuthnLoginBeginResponse,
   normalizeUser,
 } from "./helpers";
 
@@ -99,6 +100,24 @@ describe("sdk helpers", () => {
     expect(normalized).toEqual({
       mfaPending: true,
       mfaToken: "pending-token",
+    });
+  });
+
+  it("normalizes first-factor webauthn begin response", () => {
+    const normalized = normalizeWebAuthnLoginBeginResponse({
+      challenge_id: "challenge-1",
+      options: {
+        challenge: "Zm9v",
+        rpId: "example.com",
+      },
+    } as unknown);
+
+    expect(normalized).toEqual({
+      challengeId: "challenge-1",
+      options: {
+        challenge: "Zm9v",
+        rpId: "example.com",
+      },
     });
   });
 

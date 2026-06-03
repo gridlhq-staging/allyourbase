@@ -19,7 +19,7 @@ const (
 
 // constructs a SQL query for full-text search that ranks rows by relevance, optionally combining with a filter condition, and limits results to the specified count.
 func buildFTSHybridQuery(tbl *schema.Table, searchTerm string, limit int, filterSQL string, filterArgs []any) (string, []any, error) {
-	searchSQL, rankSQL, searchArgs, err := buildSearchSQL(tbl, searchTerm, len(filterArgs)+1)
+	searchSQL, rankSQL, searchArgs, err := buildSearchSQL(tbl, searchTerm, len(filterArgs)+1, false)
 	if err != nil {
 		return "", nil, err
 	}

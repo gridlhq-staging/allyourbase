@@ -28,6 +28,10 @@ func BuildCache(ctx context.Context, pool *pgxpool.Pool) (*SchemaCache, error) {
 	if err != nil {
 		return nil, fmt.Errorf("loading postgis raster status: %w", err)
 	}
+	hasPgTrgm, err := loadPgTrgm(ctx, pool)
+	if err != nil {
+		return nil, fmt.Errorf("loading pg_trgm status: %w", err)
+	}
 
 	tables, schemas, err := loadTablesAndColumns(ctx, pool, enums, hasPostGIS)
 	if err != nil {
@@ -93,6 +97,7 @@ func BuildCache(ctx context.Context, pool *pgxpool.Pool) (*SchemaCache, error) {
 		PostGISRasterVersion: postGISRasterVersion,
 		PostGISExtensions:    postGISExtensions,
 		HasPgVector:          hasPgVector,
+		HasPgTrgm:            hasPgTrgm,
 		BuiltAt:              time.Now(),
 	}, nil
 }

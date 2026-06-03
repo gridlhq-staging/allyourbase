@@ -10,6 +10,7 @@ import {
   deleteWebhook,
   testWebhook,
   listWebhookDeliveries,
+  replayDelivery,
 } from "../../api";
 import type { WebhookResponse } from "../../types";
 
@@ -20,6 +21,7 @@ vi.mock("../../api", () => ({
   deleteWebhook: vi.fn(),
   testWebhook: vi.fn(),
   listWebhookDeliveries: vi.fn(),
+  replayDelivery: vi.fn(),
   ApiError: class extends Error {
     status: number;
     constructor(status: number, message: string) {
@@ -44,6 +46,7 @@ const mockUpdateWebhook = vi.mocked(updateWebhook);
 const mockDeleteWebhook = vi.mocked(deleteWebhook);
 const mockTestWebhook = vi.mocked(testWebhook);
 const mockListDeliveries = vi.mocked(listWebhookDeliveries);
+const mockReplayDelivery = vi.mocked(replayDelivery);
 let clipboardWriteText: ReturnType<typeof vi.spyOn>;
 
 function makeWebhook(
@@ -430,10 +433,190 @@ describe("Webhooks", () => {
 
     await waitFor(() => {
       expect(screen.getByText("Delivery History")).toBeInTheDocument();
-      expect(mockListDeliveries).toHaveBeenCalledWith("wh_1", {
+      expect(mockListDeliveries).toHaveBeenNthCalledWith(1, "wh_1", {
         page: 1,
         perPage: 20,
+        failedOnly: false,
       });
+    });
+  });
+
+  it("refetches deliveries with the failed-only filter enabled", async () => {
+    const user = userEvent.setup();
+    mockListWebhooks.mockResolvedValueOnce([makeWebhook()]);
+    mockListDeliveries
+      .mockResolvedValueOnce({
+        items: [
+          {
+            id: "del_1",
+            webhookId: "wh_1",
+            eventAction: "create",
+            eventTable: "posts",
+            success: false,
+            statusCode: 500,
+            attempt: 3,
+            durationMs: 42,
+            deliveredAt: "2026-02-09T10:00:00Z",
+          },
+        ],
+        page: 1,
+        perPage: 20,
+        totalItems: 1,
+        totalPages: 2,
+      })
+      .mockResolvedValueOnce({
+        items: [
+          {
+            id: "del_2",
+            webhookId: "wh_1",
+            eventAction: "create",
+            eventTable: "posts",
+            success: false,
+            statusCode: 500,
+            attempt: 4,
+            durationMs: 50,
+            deliveredAt: "2026-02-09T10:01:00Z",
+          },
+        ],
+        page: 2,
+        perPage: 20,
+        totalItems: 2,
+        totalPages: 2,
+      })
+      .mockResolvedValueOnce({
+        items: [
+          {
+            id: "del_1",
+            webhookId: "wh_1",
+            eventAction: "create",
+            eventTable: "posts",
+            success: false,
+            statusCode: 500,
+            attempt: 3,
+            durationMs: 42,
+            deliveredAt: "2026-02-09T10:00:00Z",
+          },
+        ],
+        page: 1,
+        perPage: 20,
+        totalItems: 1,
+        totalPages: 1,
+      });
+    renderWithProviders(<Webhooks />);
+
+    await waitFor(() => {
+      expect(screen.getByTitle("Delivery History")).toBeInTheDocument();
+    });
+    await user.click(screen.getByTitle("Delivery History"));
+
+    await waitFor(() => {
+      expect(mockListDeliveries).toHaveBeenNthCalledWith(1, "wh_1", {
+        page: 1,
+        perPage: 20,
+        failedOnly: false,
+      });
+    });
+
+    await user.click(screen.getByRole("button", { name: "Next" }));
+    await waitFor(() => {
+      expect(mockListDeliveries).toHaveBeenNthCalledWith(2, "wh_1", {
+        page: 2,
+        perPage: 20,
+        failedOnly: false,
+      });
+      expect(screen.getByText("2 / 2")).toBeInTheDocument();
+    });
+
+    await user.click(screen.getByTestId("webhook-delivery-failed-only-toggle"));
+
+    await waitFor(() => {
+      expect(mockListDeliveries).toHaveBeenNthCalledWith(3, "wh_1", {
+        page: 1,
+        perPage: 20,
+        failedOnly: true,
+      });
+    });
+    expect(screen.getByTestId("webhook-delivery-failed-only-toggle")).toHaveAttribute("aria-pressed", "true");
+  });
+
+  it("replays a failed delivery and renders the replay result state", async () => {
+    const user = userEvent.setup();
+    mockListWebhooks.mockResolvedValueOnce([makeWebhook()]);
+    mockListDeliveries
+      .mockResolvedValueOnce({
+        items: [
+          {
+            id: "del_1",
+            webhookId: "wh_1",
+            eventAction: "update",
+            eventTable: "posts",
+            success: false,
+            statusCode: 500,
+            attempt: 3,
+            durationMs: 250,
+            error: "server error",
+            deliveredAt: "2026-02-09T10:01:00Z",
+          },
+        ],
+        page: 1,
+        perPage: 20,
+        totalItems: 1,
+        totalPages: 1,
+      })
+      .mockResolvedValueOnce({
+        items: [
+          {
+            id: "del_1",
+            webhookId: "wh_1",
+            eventAction: "update",
+            eventTable: "posts",
+            success: false,
+            statusCode: 500,
+            attempt: 3,
+            durationMs: 250,
+            error: "server error",
+            deliveredAt: "2026-02-09T10:01:00Z",
+          },
+        ],
+        page: 1,
+        perPage: 20,
+        totalItems: 1,
+        totalPages: 1,
+      });
+    mockReplayDelivery.mockResolvedValueOnce({
+      id: "del_2",
+      webhookId: "wh_1",
+      eventAction: "update",
+      eventTable: "posts",
+      success: true,
+      statusCode: 202,
+      attempt: 1,
+      durationMs: 19,
+      deliveredAt: "2026-02-09T10:02:00Z",
+    });
+    renderWithProviders(<Webhooks />);
+
+    await waitFor(() => {
+      expect(screen.getByTitle("Delivery History")).toBeInTheDocument();
+    });
+    await user.click(screen.getByTitle("Delivery History"));
+
+    await waitFor(() => {
+      expect(screen.getByTestId("webhook-delivery-replay-del_1")).toBeInTheDocument();
+    });
+    await user.click(screen.getByTestId("webhook-delivery-replay-del_1"));
+
+    await waitFor(() => {
+      expect(mockReplayDelivery).toHaveBeenCalledWith("wh_1", "del_1");
+      expect(mockListDeliveries).toHaveBeenNthCalledWith(2, "wh_1", {
+        page: 1,
+        perPage: 20,
+        failedOnly: false,
+      });
+      expect(screen.getByText("Replay succeeded (202)")).toBeInTheDocument();
+      expect(
+        screen.getByText("Replay sends the recorded request body, which may already be truncated."),
+      ).toBeInTheDocument();
     });
   });
 

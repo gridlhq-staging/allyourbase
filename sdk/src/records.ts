@@ -41,6 +41,13 @@ export class RecordsClient {
     if (params?.fields) qs.set("fields", params.fields);
     if (params?.expand) qs.set("expand", params.expand);
     if (params?.skipTotal) qs.set("skipTotal", "true");
+    if (params?.fuzzy === true) qs.set("fuzzy", "true");
+    if (params?.facets?.length) qs.set("facets", params.facets.join(","));
+    if (params?.semantic === true) qs.set("semantic", "true");
+    if (params?.semanticQuery) qs.set("semantic_query", params.semanticQuery);
+    if (params?.nearest) qs.set("nearest", JSON.stringify(params.nearest));
+    if (params?.vectorColumn) qs.set("vector_column", params.vectorColumn);
+    if (params?.distance) qs.set("distance", params.distance);
     const suffix = qs.toString() ? `?${qs}` : "";
     return this.client.request(`/api/collections/${safeCollection}${suffix}`);
   }

@@ -3,6 +3,8 @@ import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MFAEnrollment } from "../MFAEnrollment";
 import {
+  createAnonymousSession,
+  linkEmail,
   enrollTOTP,
   confirmTOTPEnroll,
   enrollEmailMFA,
@@ -11,10 +13,13 @@ import {
   regenerateBackupCodes,
   getBackupCodeCount,
   getMFAFactors,
+  getAuthToken,
 } from "../../api";
 import type { TOTPEnrollment, MFAFactor } from "../../types";
 
 vi.mock("../../api", () => ({
+  createAnonymousSession: vi.fn(),
+  linkEmail: vi.fn(),
   enrollTOTP: vi.fn(),
   confirmTOTPEnroll: vi.fn(),
   enrollEmailMFA: vi.fn(),
@@ -23,9 +28,12 @@ vi.mock("../../api", () => ({
   regenerateBackupCodes: vi.fn(),
   getBackupCodeCount: vi.fn(),
   getMFAFactors: vi.fn(),
+  getAuthToken: vi.fn(),
 }));
 
 const mockEnrollTOTP = vi.mocked(enrollTOTP);
+const mockCreateAnonymousSession = vi.mocked(createAnonymousSession);
+const mockLinkEmail = vi.mocked(linkEmail);
 const mockConfirmTOTPEnroll = vi.mocked(confirmTOTPEnroll);
 const mockEnrollEmailMFA = vi.mocked(enrollEmailMFA);
 const mockConfirmEmailMFAEnroll = vi.mocked(confirmEmailMFAEnroll);
@@ -33,6 +41,7 @@ const mockGenerateBackupCodes = vi.mocked(generateBackupCodes);
 const mockRegenerateBackupCodes = vi.mocked(regenerateBackupCodes);
 const mockGetBackupCodeCount = vi.mocked(getBackupCodeCount);
 const mockGetMFAFactors = vi.mocked(getMFAFactors);
+const mockGetAuthToken = vi.mocked(getAuthToken);
 
 const TOTP_ENROLLMENT: TOTPEnrollment = {
   factor_id: "factor-123",
@@ -56,8 +65,16 @@ const BACKUP_CODES = [
 describe("MFAEnrollment", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockCreateAnonymousSession.mockResolvedValue({
+      token: "anon-token",
+      user: { is_anonymous: true },
+    } as Awaited<ReturnType<typeof createAnonymousSession>>);
+    mockLinkEmail.mockResolvedValue({
+      token: "linked-token",
+    } as Awaited<ReturnType<typeof linkEmail>>);
     mockGetMFAFactors.mockResolvedValue({ factors: [] });
     mockGetBackupCodeCount.mockResolvedValue({ remaining: 0 });
+    mockGetAuthToken.mockReturnValue(null);
   });
 
   it("renders heading and shows no enrolled factors initially", async () => {

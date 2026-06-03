@@ -39,6 +39,7 @@ import { SAMLConfig } from "./SAMLConfig";
 import { CustomDomains } from "./CustomDomains";
 import { Sites } from "./Sites";
 import { Extensions } from "./Extensions";
+import { Search } from "./Search";
 import { VectorIndexes } from "./VectorIndexes";
 import { LogDrains } from "./LogDrains";
 import { StatsOverview } from "./StatsOverview";
@@ -175,6 +176,8 @@ function renderAdminContent(
       return <CustomDomains />;
     case "extensions":
       return <Extensions />;
+    case "search":
+      return <Search schema={schema} />;
     case "vector-indexes":
       return <VectorIndexes />;
     case "log-drains":

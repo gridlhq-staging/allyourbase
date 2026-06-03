@@ -19,6 +19,7 @@ import (
 
 	"github.com/allyourbase/ayb/internal/auth"
 	"github.com/allyourbase/ayb/internal/config"
+	"github.com/allyourbase/ayb/internal/migrations"
 	"github.com/allyourbase/ayb/internal/schema"
 	"github.com/allyourbase/ayb/internal/server"
 	"github.com/allyourbase/ayb/internal/testutil"
@@ -30,6 +31,17 @@ func TestMain(m *testing.M) {
 	ctx := context.Background()
 	pg, cleanup := testutil.StartPostgresForTestMain(ctx)
 	sharedPG = pg
+
+	runner := migrations.NewRunner(sharedPG.Pool, testutil.DiscardLogger())
+	if err := runner.Bootstrap(ctx); err != nil {
+		cleanup()
+		panic(fmt.Sprintf("bootstrap migrations: %v", err))
+	}
+	if _, err := runner.Run(ctx); err != nil {
+		cleanup()
+		panic(fmt.Sprintf("run migrations: %v", err))
+	}
+
 	code := m.Run()
 	cleanup()
 	os.Exit(code)
@@ -42,6 +54,16 @@ func resetAndSeedDB(t *testing.T, ctx context.Context) {
 	_, err := sharedPG.Pool.Exec(ctx, "DROP SCHEMA public CASCADE; CREATE SCHEMA public")
 	if err != nil {
 		t.Fatalf("resetting schema: %v", err)
+	}
+
+	// Re-apply shared migrations after schema reset so integration tests validate
+	// runtime capabilities (including pg_trgm) via the canonical setup path.
+	runner := migrations.NewRunner(sharedPG.Pool, testutil.DiscardLogger())
+	if err := runner.Bootstrap(ctx); err != nil {
+		t.Fatalf("bootstrapping migrations after schema reset: %v", err)
+	}
+	if _, err := runner.Run(ctx); err != nil {
+		t.Fatalf("running migrations after schema reset: %v", err)
 	}
 
 	_, err = sharedPG.Pool.Exec(ctx, `
@@ -100,6 +122,14 @@ func setupTestServerWithLogger(t *testing.T, ctx context.Context, logger *slog.L
 func doRequest(t *testing.T, srv *server.Server, method, path string, body any) *httptest.ResponseRecorder {
 	t.Helper()
 	return doRequestWithClaims(t, srv, method, path, body, nil)
+}
+
+func pgTrgmInstalled(t *testing.T, ctx context.Context, pg *testutil.PGContainer) bool {
+	t.Helper()
+	var installed bool
+	err := pg.Pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM pg_extension WHERE extname = 'pg_trgm')`).Scan(&installed)
+	testutil.NoError(t, err)
+	return installed
 }
 
 // doRequestWithClaims performs an HTTP request with JWT claims injected into the
@@ -723,6 +753,43 @@ func TestSearchWithFilter(t *testing.T) {
 	}
 }
 
+func TestSearchWithFilterFacetsMatchesReturnedScope(t *testing.T) {
+	ctx := context.Background()
+	srv, _ := setupTestServer(t, ctx)
+
+	w := doRequest(t, srv, "GET", "/api/collections/posts/?search=post&filter=status%3D'published'&facets=status,author_id", nil)
+	testutil.StatusCode(t, http.StatusOK, w.Code)
+
+	body := parseJSON(t, w)
+	items := jsonItems(t, body)
+	testutil.Equal(t, 2, len(items))
+
+	facetsRaw, ok := body["facets"].(map[string]any)
+	testutil.True(t, ok, "expected facets object")
+	statusRaw, ok := facetsRaw["status"].([]any)
+	testutil.True(t, ok, "expected status facet bucket")
+	testutil.Equal(t, 1, len(statusRaw))
+	statusBucket := statusRaw[0].(map[string]any)
+	testutil.Equal(t, "published", jsonStr(t, statusBucket["value"]))
+	testutil.Equal(t, 2.0, jsonNum(t, statusBucket["count"]))
+
+	authorRaw, ok := facetsRaw["author_id"].([]any)
+	testutil.True(t, ok, "expected author_id facet bucket")
+	testutil.Equal(t, 2, len(authorRaw))
+}
+
+func TestListResponseOmitsFacetsWhenNotRequested(t *testing.T) {
+	ctx := context.Background()
+	srv, _ := setupTestServer(t, ctx)
+
+	w := doRequest(t, srv, "GET", "/api/collections/posts/?search=post", nil)
+	testutil.StatusCode(t, http.StatusOK, w.Code)
+	body := parseJSON(t, w)
+	if _, ok := body["facets"]; ok {
+		t.Fatal("expected facets to be omitted when not requested")
+	}
+}
+
 func TestSearchWithPagination(t *testing.T) {
 	ctx := context.Background()
 	srv, _ := setupTestServer(t, ctx)
@@ -786,6 +853,96 @@ func TestSearchWhitespaceOnly(t *testing.T) {
 	body := parseJSON(t, w)
 	items := jsonItems(t, body)
 	testutil.Equal(t, 3, len(items)) // all posts returned
+}
+
+func TestSearchFuzzyTrueMatchesTypo(t *testing.T) {
+	ctx := context.Background()
+	srv, pg := setupTestServer(t, ctx)
+	if !pgTrgmInstalled(t, ctx, pg) {
+		t.Fatal("shared migration/setup path must install pg_trgm for fuzzy integration coverage")
+	}
+
+	w := doRequest(t, srv, "GET", "/api/collections/posts/?search=Frist+Post&fuzzy=true", nil)
+	testutil.StatusCode(t, http.StatusOK, w.Code)
+
+	body := parseJSON(t, w)
+	items := jsonItems(t, body)
+	testutil.Equal(t, 1, len(items))
+	testutil.Equal(t, "First Post", jsonStr(t, items[0]["title"]))
+}
+
+func TestSearchFuzzyFalseUsesExactSearch(t *testing.T) {
+	ctx := context.Background()
+	srv, _ := setupTestServer(t, ctx)
+
+	w := doRequest(t, srv, "GET", "/api/collections/posts/?search=Frist+Post&fuzzy=false", nil)
+	testutil.StatusCode(t, http.StatusOK, w.Code)
+
+	body := parseJSON(t, w)
+	items := jsonItems(t, body)
+	testutil.Equal(t, 0, len(items))
+}
+
+func TestSearchRejectsInvalidFuzzyParams(t *testing.T) {
+	ctx := context.Background()
+	srv, _ := setupTestServer(t, ctx)
+
+	tests := []struct {
+		name     string
+		url      string
+		contains string
+	}{
+		{
+			name:     "fuzzy_without_search",
+			url:      "/api/collections/posts/?fuzzy=true",
+			contains: "fuzzy",
+		},
+		{
+			name:     "fuzzy_invalid_boolean",
+			url:      "/api/collections/posts/?search=post&fuzzy=notabool",
+			contains: "boolean",
+		},
+		{
+			name:     "typo_threshold_numeric",
+			url:      "/api/collections/posts/?search=post&typo_threshold=0.5",
+			contains: "unsupported parameter",
+		},
+	}
+
+	for _, tc := range tests {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			w := doRequest(t, srv, "GET", tc.url, nil)
+			testutil.StatusCode(t, http.StatusBadRequest, w.Code)
+			body := parseJSON(t, w)
+			testutil.Contains(t, strings.ToLower(jsonStr(t, body["message"])), strings.ToLower(tc.contains))
+		})
+	}
+}
+
+func TestPGTrgmReadiness(t *testing.T) {
+	ctx := context.Background()
+	_, pg := setupTestServer(t, ctx)
+
+	var availableVersion string
+	err := pg.Pool.QueryRow(ctx, `SELECT default_version FROM pg_available_extensions WHERE name = 'pg_trgm'`).Scan(&availableVersion)
+	if err != nil {
+		t.Fatalf("pg_trgm unavailable from pg_available_extensions (binary/config mismatch): %v", err)
+	}
+	if strings.TrimSpace(availableVersion) == "" {
+		t.Fatal("pg_trgm available entry has empty default version (binary/config mismatch)")
+	}
+
+	if !pgTrgmInstalled(t, ctx, pg) {
+		t.Fatal("shared migration/setup path must install pg_trgm when extension is available")
+	}
+
+	var installedVersion string
+	err = pg.Pool.QueryRow(ctx, `SELECT extversion FROM pg_extension WHERE extname = 'pg_trgm'`).Scan(&installedVersion)
+	testutil.NoError(t, err)
+	if strings.TrimSpace(installedVersion) == "" {
+		t.Fatal("pg_trgm installed with empty extversion")
+	}
 }
 
 // --- Combined sort + filter + pagination ---
@@ -1418,6 +1575,69 @@ func TestAggregateWithFilter(t *testing.T) {
 	testutil.Equal(t, 3.0, jsonNum(t, results[0]["count"])) // 3 electronics
 }
 
+func TestAggregateSearchFuzzyBehavior(t *testing.T) {
+	ctx := context.Background()
+	srv, pg := setupAggregateTestServer(t, ctx)
+	if !pgTrgmInstalled(t, ctx, pg) {
+		t.Fatal("shared migration/setup path must install pg_trgm for fuzzy aggregate coverage")
+	}
+
+	t.Run("fuzzy_true_matches_typo", func(t *testing.T) {
+		w := doRequest(t, srv, "GET", "/api/collections/products/?aggregate=count&search=Doohike&fuzzy=true", nil)
+		testutil.StatusCode(t, http.StatusOK, w.Code)
+		body := parseJSON(t, w)
+		results := jsonResults(t, body)
+		testutil.Equal(t, 1, len(results))
+		testutil.Equal(t, 1.0, jsonNum(t, results[0]["count"]))
+	})
+
+	t.Run("fuzzy_false_does_not_match_typo", func(t *testing.T) {
+		w := doRequest(t, srv, "GET", "/api/collections/products/?aggregate=count&search=Doohike&fuzzy=false", nil)
+		testutil.StatusCode(t, http.StatusOK, w.Code)
+		body := parseJSON(t, w)
+		results := jsonResults(t, body)
+		testutil.Equal(t, 1, len(results))
+		testutil.Equal(t, 0.0, jsonNum(t, results[0]["count"]))
+	})
+}
+
+func TestAggregateSearchRejectsInvalidFuzzyParams(t *testing.T) {
+	ctx := context.Background()
+	srv, _ := setupAggregateTestServer(t, ctx)
+
+	tests := []struct {
+		name     string
+		url      string
+		contains string
+	}{
+		{
+			name:     "fuzzy_without_search",
+			url:      "/api/collections/products/?aggregate=count&fuzzy=true",
+			contains: "fuzzy",
+		},
+		{
+			name:     "fuzzy_invalid_boolean",
+			url:      "/api/collections/products/?aggregate=count&search=widget&fuzzy=notabool",
+			contains: "boolean",
+		},
+		{
+			name:     "typo_threshold_numeric",
+			url:      "/api/collections/products/?aggregate=count&search=widget&typo_threshold=0.5",
+			contains: "unsupported parameter",
+		},
+	}
+
+	for _, tc := range tests {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			w := doRequest(t, srv, "GET", tc.url, nil)
+			testutil.StatusCode(t, http.StatusBadRequest, w.Code)
+			body := parseJSON(t, w)
+			testutil.Contains(t, strings.ToLower(jsonStr(t, body["message"])), strings.ToLower(tc.contains))
+		})
+	}
+}
+
 func TestAggregateMinMax(t *testing.T) {
 	ctx := context.Background()
 	srv, _ := setupAggregateTestServer(t, ctx)
@@ -1692,6 +1912,18 @@ func TestCursorPaginationWithSearch(t *testing.T) {
 	// "Item" matches all 30 items.
 	if len(allTitles) != 30 {
 		t.Fatalf("expected 30 search results, got %d: %v", len(allTitles), allTitles)
+	}
+}
+
+func TestCursorPaginationIncludesFacetsWhenRequested(t *testing.T) {
+	ctx := context.Background()
+	srv := setupCursorTestServer(t, ctx)
+
+	w := doRequest(t, srv, "GET", "/api/collections/items/?cursor=&perPage=5&sort=id&facets=category", nil)
+	testutil.StatusCode(t, http.StatusOK, w.Code)
+	body := parseJSON(t, w)
+	if _, ok := body["facets"]; !ok {
+		t.Fatal("expected cursor response to include facets when requested")
 	}
 }
 

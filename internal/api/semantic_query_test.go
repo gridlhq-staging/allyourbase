@@ -86,6 +86,59 @@ func TestSemanticQuery_InvalidVectorColumn(t *testing.T) {
 	testutil.Contains(t, resp.Message, "not a vector column")
 }
 
+func TestSemanticQuery_RejectsUnsupportedSearchParams(t *testing.T) {
+	t.Parallel()
+	embedFn := func(_ context.Context, _ []string) ([][]float64, error) {
+		return [][]float64{{0.1, 0.2, 0.3}}, nil
+	}
+	h := testHandlerWithEmbedder(vectorSchemaCache(), embedFn)
+
+	tests := []string{"fuzzy", "facets", "typo_threshold"}
+	for _, param := range tests {
+		t.Run(param, func(t *testing.T) {
+			t.Parallel()
+			w := doRequest(h, "GET", "/collections/documents?semantic_query=hello&"+param+"=true", "")
+			testutil.Equal(t, http.StatusBadRequest, w.Code)
+			resp := decodeError(t, w)
+			testutil.Contains(t, resp.Message, "unsupported parameter")
+			testutil.Contains(t, resp.Message, param)
+		})
+	}
+}
+
+func TestSemanticQuery_RejectsUnsupportedSearchParamsWithBlankSearch(t *testing.T) {
+	t.Parallel()
+	embedFn := func(_ context.Context, _ []string) ([][]float64, error) {
+		return [][]float64{{0.1, 0.2, 0.3}}, nil
+	}
+	h := testHandlerWithEmbedder(vectorSchemaCache(), embedFn)
+
+	searchCases := []struct {
+		name  string
+		query string
+	}{
+		{name: "empty", query: "search="},
+		{name: "whitespace", query: "search=+++"},
+	}
+	params := []string{"fuzzy", "facets", "typo_threshold"}
+
+	for _, searchCase := range searchCases {
+		searchCase := searchCase
+		for _, param := range params {
+			param := param
+			t.Run(searchCase.name+"_"+param, func(t *testing.T) {
+				t.Parallel()
+				url := "/collections/documents?semantic_query=hello&" + searchCase.query + "&" + param + "=true"
+				w := doRequest(h, "GET", url, "")
+				testutil.Equal(t, http.StatusBadRequest, w.Code)
+				resp := decodeError(t, w)
+				testutil.Contains(t, resp.Message, "unsupported parameter")
+				testutil.Contains(t, resp.Message, param)
+			})
+		}
+	}
+}
+
 func TestSemanticQuery_AmbiguousVectorColumn(t *testing.T) {
 	t.Parallel()
 	embedFn := func(_ context.Context, _ []string) ([][]float64, error) {

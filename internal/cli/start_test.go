@@ -10,6 +10,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sync"
 
 	"github.com/caddyserver/certmagic"
@@ -254,6 +255,14 @@ func TestWireAuthMaintenanceJobs_SkipsWhenAuthServiceMissing(t *testing.T) {
 	testutil.False(t, providerScheduleRegistered)
 	testutil.False(t, anonymousHandlerRegistered)
 	testutil.False(t, anonymousScheduleRegistered)
+}
+
+func TestWireJobsPushTenantBackupAndBranch_ForwardsJobRunsRetentionDaysToDefaultScheduleRegistration(t *testing.T) {
+	data, err := os.ReadFile("start_services_wire.go")
+	testutil.NoError(t, err)
+
+	pattern := regexp.MustCompile(`(?s)RegisterDefaultSchedulesWithAuditRetention\(\s*args\.ctx,\s*args\.cfg\.Audit\.RetentionDays,\s*args\.cfg\.Jobs\.JobRunsRetentionDays,\s*args\.cfg\.Logging\.RequestLogRetentionDays,\s*\)`)
+	testutil.True(t, pattern.Match(data), "wireJobsPushTenantBackupAndBranch must pass args.cfg.Jobs.JobRunsRetentionDays into RegisterDefaultSchedulesWithAuditRetention")
 }
 
 // --- portError ---

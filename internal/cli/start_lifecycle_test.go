@@ -430,6 +430,20 @@ func TestResolveDemoJWTSecretGeneratesRandomHexWhenUnset(t *testing.T) {
 	testutil.NoError(t, decodeErr)
 }
 
+func TestDemoServerStartEnvEnablesAnonymousAuth(t *testing.T) {
+	env := demoServerStartEnv("demo-secret-that-is-at-least-32-bytes")
+	values := map[string]string{}
+	for _, item := range env {
+		if key, value, ok := strings.Cut(item, "="); ok {
+			values[key] = value
+		}
+	}
+
+	testutil.Equal(t, "true", values["AYB_AUTH_ENABLED"])
+	testutil.Equal(t, "demo-secret-that-is-at-least-32-bytes", values["AYB_AUTH_JWT_SECRET"])
+	testutil.Equal(t, "true", values["AYB_AUTH_ANONYMOUS_AUTH_ENABLED"])
+}
+
 func TestWritePasswordResetResultFileWritesPassword(t *testing.T) {
 	prepareAYBHome(t)
 

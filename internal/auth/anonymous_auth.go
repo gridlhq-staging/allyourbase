@@ -24,6 +24,13 @@ const DefaultAnonymousRateLimit = 30
 
 const anonymousRateLimitWindow = time.Hour
 
+// DefaultLoginRateLimit is the default password and first-factor WebAuthn login
+// limit per IP per hour. It is intentionally handler-scoped so the broader
+// server-level auth limiter can keep covering the full sensitive auth group.
+const DefaultLoginRateLimit = 30
+
+const loginRateLimitWindow = time.Hour
+
 // Sentinel errors for anonymous auth.
 var (
 	ErrNotAnonymous      = errors.New("account is not anonymous")
@@ -59,6 +66,44 @@ func (h *Handler) anonymousRateLimitMiddleware(next http.Handler) http.Handler {
 		}
 		h.anonymousRateLimiter.Middleware(next).ServeHTTP(w, r)
 	})
+}
+
+// SetLoginRateLimit sets the login endpoint limit per window. Non-positive
+// values select the secure default: 30 attempts per client IP per hour.
+func (h *Handler) SetLoginRateLimit(limit int, window time.Duration) {
+	if limit <= 0 {
+		limit = DefaultLoginRateLimit
+	}
+	if window <= 0 {
+		window = loginRateLimitWindow
+	}
+	if h.loginRateLimiter != nil {
+		h.loginRateLimiter.Stop()
+	}
+	h.loginRateLimiter = NewRateLimiter(limit, window)
+}
+
+func (h *Handler) loginRateLimitMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if h.loginRateLimiter == nil {
+			next.ServeHTTP(w, r)
+			return
+		}
+		h.loginRateLimiter.Middleware(next).ServeHTTP(w, r)
+	})
+}
+
+// StopRateLimiters releases handler-owned limiter goroutines. It is safe to
+// call multiple times and lets server shutdown clean up handler-scoped defaults.
+func (h *Handler) StopRateLimiters() {
+	if h.anonymousRateLimiter != nil {
+		h.anonymousRateLimiter.Stop()
+		h.anonymousRateLimiter = nil
+	}
+	if h.loginRateLimiter != nil {
+		h.loginRateLimiter.Stop()
+		h.loginRateLimiter = nil
+	}
 }
 
 // CreateAnonymousUser inserts a user with is_anonymous=true, null email/password,

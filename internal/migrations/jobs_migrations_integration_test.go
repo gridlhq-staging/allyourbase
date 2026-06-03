@@ -40,6 +40,16 @@ func TestJobsMigrationsConstraintsAndUniqueness(t *testing.T) {
 	testutil.NoError(t, err)
 	testutil.True(t, schedulesExists, "_ayb_job_schedules table should exist")
 
+	var jobRunsExists bool
+	err = sharedPG.Pool.QueryRow(ctx,
+		`SELECT EXISTS(
+			SELECT 1 FROM information_schema.tables
+			WHERE table_name = '_ayb_job_runs'
+		)`).
+		Scan(&jobRunsExists)
+	testutil.NoError(t, err)
+	testutil.True(t, jobRunsExists, "_ayb_job_runs table should exist")
+
 	var scheduleID string
 	err = sharedPG.Pool.QueryRow(ctx,
 		`INSERT INTO _ayb_job_schedules (name, job_type, cron_expr)
@@ -96,6 +106,40 @@ func TestJobsMigrationsConstraintsAndUniqueness(t *testing.T) {
 		scheduleID,
 	).Scan(&linkedJobID)
 	testutil.NoError(t, err)
+
+	_, err = sharedPG.Pool.Exec(ctx,
+		`INSERT INTO _ayb_job_runs (job_id, attempt, status, started_at, finished_at, duration_ms)
+		 VALUES ('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 1, 'failed', NOW(), NOW(), 0)`,
+	)
+	testutil.True(t, err != nil, "unknown job_id should violate FK")
+
+	_, err = sharedPG.Pool.Exec(ctx,
+		`INSERT INTO _ayb_job_runs (job_id, attempt, status, started_at, finished_at, duration_ms, error)
+		 VALUES ($1, 1, 'failed', NOW(), NOW(), 15, 'attempt 1 failed')`,
+		linkedJobID,
+	)
+	testutil.NoError(t, err)
+
+	_, err = sharedPG.Pool.Exec(ctx,
+		`INSERT INTO _ayb_job_runs (job_id, attempt, status, started_at, finished_at, duration_ms)
+		 VALUES ($1, 1, 'failed', NOW(), NOW(), 20)`,
+		linkedJobID,
+	)
+	testutil.True(t, err != nil, "duplicate (job_id, attempt) should be rejected")
+
+	_, err = sharedPG.Pool.Exec(ctx,
+		`INSERT INTO _ayb_job_runs (job_id, attempt, status, started_at, finished_at, duration_ms)
+		 VALUES ($1, 2, 'mystery_state', NOW(), NOW(), 20)`,
+		linkedJobID,
+	)
+	testutil.True(t, err != nil, "invalid job run status should be rejected")
+
+	_, err = sharedPG.Pool.Exec(ctx,
+		`INSERT INTO _ayb_job_runs (job_id, attempt, status, started_at, finished_at, duration_ms)
+		 VALUES ($1, 3, 'failed', NOW(), NOW(), -1)`,
+		linkedJobID,
+	)
+	testutil.True(t, err != nil, "negative duration_ms should be rejected")
 
 	_, err = sharedPG.Pool.Exec(ctx,
 		`DELETE FROM _ayb_job_schedules WHERE id = $1`,
@@ -196,4 +240,29 @@ func TestJobsMigrationsIndexes(t *testing.T) {
 	testutil.NoError(t, err)
 	testutil.Contains(t, idempotencyPredicate, "idempotency_key")
 	testutil.Contains(t, idempotencyPredicate, "IS NOT NULL")
+
+	var jobRunIndexKeys string
+	err = sharedPG.Pool.QueryRow(ctx,
+		`SELECT string_agg(a.attname, ',' ORDER BY k.ordinality)
+		 FROM pg_class i
+		 JOIN pg_index ix ON ix.indexrelid = i.oid
+		 JOIN pg_class t ON t.oid = ix.indrelid
+		 JOIN pg_namespace n ON n.oid = t.relnamespace
+		 JOIN unnest(ix.indkey) WITH ORDINALITY AS k(attnum, ordinality) ON TRUE
+		 JOIN pg_attribute a ON a.attrelid = t.oid AND a.attnum = k.attnum
+		 WHERE n.nspname = 'public'
+		   AND t.relname = '_ayb_job_runs'
+		   AND i.relname = 'idx_ayb_job_runs_job_started_desc'`,
+	).Scan(&jobRunIndexKeys)
+	testutil.NoError(t, err)
+	testutil.Equal(t, "job_id,started_at", jobRunIndexKeys)
+
+	var jobRunIndexDef string
+	err = sharedPG.Pool.QueryRow(ctx,
+		`SELECT pg_get_indexdef(i.oid)
+		 FROM pg_class i
+		 WHERE i.relname = 'idx_ayb_job_runs_job_started_desc'`,
+	).Scan(&jobRunIndexDef)
+	testutil.NoError(t, err)
+	testutil.Contains(t, jobRunIndexDef, "USING btree (job_id, started_at DESC)")
 }

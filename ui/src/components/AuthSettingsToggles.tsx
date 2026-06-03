@@ -2,6 +2,7 @@ import type { AuthSettings as AuthSettingsType } from "../types";
 
 const TOGGLE_FIELDS: { key: keyof AuthSettingsType; label: string }[] = [
   { key: "totp_enabled", label: "TOTP MFA" },
+  { key: "webauthn_enabled", label: "Passkeys / WebAuthn" },
   { key: "anonymous_auth_enabled", label: "Anonymous Auth" },
   { key: "email_mfa_enabled", label: "Email MFA" },
   { key: "sms_enabled", label: "SMS Auth" },

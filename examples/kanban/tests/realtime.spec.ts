@@ -1,11 +1,13 @@
 import { test, expect, type Browser, type Page, type BrowserContext } from "@playwright/test";
 import {
+  blockFirstColumnCreate,
   registerUser,
   loginUser,
   createBoard,
   openBoard,
   addColumn,
   addCard,
+  installEscapedBoardApiMock,
   uniqueName,
 } from "./helpers";
 
@@ -37,62 +39,7 @@ test.describe("Realtime WS", () => {
     const page = await context.newPage();
     const boardId = String.raw`board-\demo's`;
     const boardTitle = uniqueName("EscapedBoard");
-    let capturedColumnsFilter: string | null = null;
-
-    await page.addInitScript(() => {
-      sessionStorage.setItem("ayb_token", "test-token");
-      sessionStorage.setItem("ayb_refresh_token", "test-refresh");
-      localStorage.setItem("ayb_email", "security-test@example.com");
-      localStorage.setItem("ayb_anonymous_bootstrap_optout", "1");
-    });
-    await page.route("**/api/auth/me", async (route) => {
-      await route.fulfill({
-        status: 200,
-        contentType: "application/json",
-        body: JSON.stringify({
-          id: "user-security-test",
-          email: "security-test@example.com",
-        }),
-      });
-    });
-    await page.route("**/api/collections/boards**", async (route, request) => {
-      if (request.method() !== "GET") {
-        await route.continue();
-        return;
-      }
-      await route.fulfill({
-        status: 200,
-        contentType: "application/json",
-        body: JSON.stringify({
-          items: [
-            {
-              id: boardId,
-              title: boardTitle,
-              created_at: new Date().toISOString(),
-              user_id: "test-user",
-            },
-          ],
-          page: 1,
-          perPage: 20,
-          totalItems: 1,
-          totalPages: 1,
-        }),
-      });
-    });
-    await page.route("**/api/collections/columns**", async (route, request) => {
-      capturedColumnsFilter = new URL(request.url()).searchParams.get("filter");
-      await route.fulfill({
-        status: 200,
-        contentType: "application/json",
-        body: JSON.stringify({
-          items: [],
-          page: 1,
-          perPage: 100,
-          totalItems: 0,
-          totalPages: 0,
-        }),
-      });
-    });
+    const capturedColumnsFilter = await installEscapedBoardApiMock(page, boardId, boardTitle);
 
     await page.goto("/");
     await expect(page.getByText("Your Boards")).toBeVisible({ timeout: 10000 });
@@ -100,7 +47,7 @@ test.describe("Realtime WS", () => {
     await page.getByText(boardTitle).first().click();
 
     await expect
-      .poll(() => capturedColumnsFilter, { timeout: 10000 })
+      .poll(() => capturedColumnsFilter(), { timeout: 10000 })
       .toBe(`board_id='board-\\\\demo\\'s'`);
 
     await context.close();
@@ -171,27 +118,14 @@ test.describe("Realtime WS", () => {
 
   test("local column create preserves remote columns that arrive while the request is in flight", async ({ browser }) => {
     const { context, page1, page2 } = await setupTwoTabs(browser, uniqueName("ColumnRace"));
-    let releaseLocalCreate = () => {
-      throw new Error("expected page1 local create request to be blocked");
-    };
-    let blockedFirstCreate = false;
-
-    await page1.route("**/api/collections/columns", async (route, request) => {
-      if (!blockedFirstCreate && request.method() === "POST") {
-        blockedFirstCreate = true;
-        await new Promise<void>((resolve) => {
-          releaseLocalCreate = resolve;
-        });
-      }
-      await route.continue();
-    });
+    const localCreateGate = await blockFirstColumnCreate(page1);
 
     await page1.getByPlaceholder("+ Add column...").fill("Local Column");
     await page1.getByRole("button", { name: "Add Column" }).click();
     await addColumn(page2, "Remote Column");
     await expect(page1.getByText("Remote Column")).toBeVisible({ timeout: 10000 });
-    await expect.poll(() => blockedFirstCreate).toBe(true);
-    releaseLocalCreate();
+    await expect.poll(localCreateGate.wasBlocked).toBe(true);
+    localCreateGate.release();
 
     await expect(page1.getByText("Local Column")).toBeVisible({ timeout: 10000 });
     await expect(page1.getByText("Remote Column")).toHaveCount(1);

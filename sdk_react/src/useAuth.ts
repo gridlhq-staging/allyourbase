@@ -109,7 +109,20 @@ export function useAuth(): UseAuthResult {
 
   const signInAnonymously = useCallback(async () => {
     await client.auth.signInAnonymously();
-  }, [client]);
+    await loadMe();
+  }, [client, loadMe]);
+
+  const signInWithPasskey = useCallback(
+    async (email: string) => {
+      const signInWithPasskeyRequest = client.auth.signInWithPasskey;
+      if (!signInWithPasskeyRequest) {
+        throw new Error("Passkey sign-in is not available for this client");
+      }
+      await signInWithPasskeyRequest.call(client.auth, email);
+      await loadMe();
+    },
+    [client, loadMe],
+  );
 
   const requestMagicLink = useCallback(
     async (email: string) => {
@@ -162,6 +175,7 @@ export function useAuth(): UseAuthResult {
     login,
     register,
     signInAnonymously,
+    signInWithPasskey,
     requestMagicLink,
     confirmMagicLink,
     linkEmail,

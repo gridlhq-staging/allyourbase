@@ -1,8 +1,9 @@
-// Package webhooks Handler serves HTTP CRUD endpoints for webhooks and delivery log inspection.
+// Package webhooks Stub summary for /Users/stuart/parallel_development/allyourbase_dev/may31_pm_7_webhook_replay_deadletter/allyourbase_dev/internal/webhooks/handler.go.
 package webhooks
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"io"
@@ -46,14 +47,19 @@ func toResponse(w *Webhook) webhookResponse {
 
 // Handler serves webhook CRUD HTTP endpoints.
 type Handler struct {
-	store     WebhookStore
-	deliveryS DeliveryStore
-	logger    *slog.Logger
+	store      WebhookStore
+	deliveryS  DeliveryStore
+	dispatcher webhookDispatcher
+	logger     *slog.Logger
+}
+
+type webhookDispatcher interface {
+	Replay(ctx context.Context, webhookID, deliveryID string) (*Delivery, error)
 }
 
 // NewHandler creates a new webhook handler.
-func NewHandler(store WebhookStore, deliveryStore DeliveryStore, logger *slog.Logger) *Handler {
-	return &Handler{store: store, deliveryS: deliveryStore, logger: logger}
+func NewHandler(store WebhookStore, deliveryStore DeliveryStore, dispatcher webhookDispatcher, logger *slog.Logger) *Handler {
+	return &Handler{store: store, deliveryS: deliveryStore, dispatcher: dispatcher, logger: logger}
 }
 
 // Routes returns a chi.Router with webhook CRUD endpoints.
@@ -67,6 +73,7 @@ func (h *Handler) Routes() chi.Router {
 	r.Post("/{id}/test", h.handleTest)
 	r.Get("/{id}/deliveries", h.handleListDeliveries)
 	r.Get("/{id}/deliveries/{deliveryId}", h.handleGetDelivery)
+	r.Post("/{id}/deliveries/{deliveryId}/replay", h.handleReplayDelivery)
 	return r
 }
 
@@ -333,6 +340,14 @@ func (h *Handler) requireDeliveryStore(w http.ResponseWriter) bool {
 	return false
 }
 
+func (h *Handler) requireDispatcher(w http.ResponseWriter) bool {
+	if h.dispatcher != nil {
+		return true
+	}
+	httputil.WriteError(w, http.StatusServiceUnavailable, "webhook replay is unavailable")
+	return false
+}
+
 type deliveryListResponse struct {
 	Items      []Delivery `json:"items"`
 	Page       int        `json:"page"`
@@ -363,8 +378,9 @@ func (h *Handler) handleListDeliveries(w http.ResponseWriter, r *http.Request) {
 	if perPage > 100 {
 		perPage = 100
 	}
+	failedOnly, _ := strconv.ParseBool(r.URL.Query().Get("failed_only"))
 
-	items, total, err := h.deliveryS.ListDeliveries(r.Context(), webhookID, page, perPage)
+	items, total, err := h.deliveryS.ListDeliveries(r.Context(), webhookID, page, perPage, failedOnly)
 	if err != nil {
 		h.logger.Error("list deliveries", "error", err)
 		httputil.WriteError(w, http.StatusInternalServerError, "internal error")
@@ -404,4 +420,35 @@ func (h *Handler) handleGetDelivery(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	httputil.WriteJSON(w, http.StatusOK, del)
+}
+
+func (h *Handler) handleReplayDelivery(w http.ResponseWriter, r *http.Request) {
+	if !h.requireDeliveryStore(w) {
+		return
+	}
+	if !h.requireDispatcher(w) {
+		return
+	}
+
+	webhookID := chi.URLParam(r, "id")
+	deliveryID := chi.URLParam(r, "deliveryId")
+	if _, ok := h.getWebhookOr404(w, r, webhookID); !ok {
+		return
+	}
+
+	replayed, err := h.dispatcher.Replay(r.Context(), webhookID, deliveryID)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			httputil.WriteError(w, http.StatusNotFound, "delivery not found")
+			return
+		}
+		if errors.Is(err, errUnsafeReplayDestination) {
+			httputil.WriteError(w, http.StatusBadRequest, "replay target resolves to a private or reserved destination")
+			return
+		}
+		h.logger.Error("replay delivery", "error", err, "webhookID", webhookID, "deliveryID", deliveryID)
+		httputil.WriteError(w, http.StatusInternalServerError, "internal error")
+		return
+	}
+	httputil.WriteJSON(w, http.StatusOK, replayed)
 }

@@ -21,7 +21,7 @@ export default [
       "playwright/no-raw-locators": "error",
 
       // Prefer native locators.
-      "playwright/prefer-native-locators": "warn",
+      "playwright/prefer-native-locators": "error",
 
       // Ban deprecated page.$() API.
       "playwright/no-element-handle": "error",
@@ -41,6 +41,14 @@ export default [
       "no-restricted-syntax": [
         "error",
         {
+          selector: "MemberExpression[object.name='request']",
+          message: "Do not use the request fixture in spec files — move API calls to helpers.ts.",
+        },
+        {
+          selector: "MemberExpression[property.name='evaluate']",
+          message: "page.evaluate() not allowed in spec files.",
+        },
+        {
           selector: "CallExpression[callee.property.name='waitForTimeout']",
           message: "Use assertion timeout instead of waitForTimeout.",
         },
@@ -51,10 +59,6 @@ export default [
         {
           selector: "CallExpression[callee.property.name='setExtraHTTPHeaders']",
           message: "Do not set HTTP headers — users can't do this in the UI.",
-        },
-        {
-          selector: "CallExpression[callee.object.name='request']",
-          message: "Do not use the request fixture in spec files — move API calls to helpers.ts.",
         },
       ],
 

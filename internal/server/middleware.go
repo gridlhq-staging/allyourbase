@@ -145,7 +145,7 @@ func authRouteRateLimitMiddleware(general, sensitive *auth.RateLimiter) func(htt
 
 func isSensitiveAuthPath(path string) bool {
 	switch path {
-	case "/api/auth/login", "/api/auth/register", "/api/auth/magic-link", "/api/auth/sms", "/api/auth/sms/confirm":
+	case "/api/auth/register", "/api/auth/magic-link", "/api/auth/sms", "/api/auth/sms/confirm":
 		return true
 	}
 	if strings.HasPrefix(path, "/api/auth/mfa/") && strings.HasSuffix(path, "/verify") {

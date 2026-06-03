@@ -108,6 +108,42 @@ func TestRunMigrationsIdempotent(t *testing.T) {
 	testutil.True(t, applied1 >= 1, "first run should apply migrations")
 }
 
+func TestPGTrgmMigration(t *testing.T) {
+	ctx := context.Background()
+	resetDB(t, ctx)
+
+	runner := migrations.NewRunner(sharedPG.Pool, testutil.DiscardLogger())
+	err := runner.Bootstrap(ctx)
+	testutil.NoError(t, err)
+
+	_, err = runner.Run(ctx)
+	testutil.NoError(t, err)
+
+	var available bool
+	err = sharedPG.Pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM pg_available_extensions WHERE name = 'pg_trgm')`).Scan(&available)
+	testutil.NoError(t, err)
+	if !available {
+		t.Skip("pg_trgm extension is not available in this postgres image")
+	}
+
+	var installedVersion string
+	err = sharedPG.Pool.QueryRow(ctx, `SELECT extversion FROM pg_extension WHERE extname = 'pg_trgm'`).Scan(&installedVersion)
+	if err == sql.ErrNoRows {
+		t.Fatalf("expected pg_trgm extension to be installed after migrations when available")
+	}
+	testutil.NoError(t, err)
+	testutil.True(t, installedVersion != "", "pg_trgm extversion should not be empty")
+
+	appliedSecondRun, err := runner.Run(ctx)
+	testutil.NoError(t, err)
+	testutil.Equal(t, 0, appliedSecondRun)
+
+	var installedCount int
+	err = sharedPG.Pool.QueryRow(ctx, `SELECT COUNT(*) FROM pg_extension WHERE extname = 'pg_trgm'`).Scan(&installedCount)
+	testutil.NoError(t, err)
+	testutil.Equal(t, 1, installedCount)
+}
+
 func TestAppsTableMigration(t *testing.T) {
 	ctx := context.Background()
 	resetDB(t, ctx)

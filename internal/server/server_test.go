@@ -1273,6 +1273,8 @@ func TestAllSensitiveAuthPathsUseStricterLimit(t *testing.T) {
 		"/api/auth/magic-link",
 		"/api/auth/sms",
 		"/api/auth/sms/confirm",
+		"/api/auth/webauthn/login/begin",
+		"/api/auth/webauthn/login/finish",
 		"/api/auth/mfa/totp/verify",
 		"/api/auth/mfa/sms/verify",
 		"/api/auth/mfa/email/verify",
@@ -1293,6 +1295,39 @@ func TestAllSensitiveAuthPathsUseStricterLimit(t *testing.T) {
 			testutil.Equal(t, "1", w.Header().Get("X-RateLimit-Limit"))
 		})
 	}
+}
+
+func TestWebAuthnFirstFactorAuthRateLimited(t *testing.T) {
+	t.Parallel()
+
+	secret := "test-secret-that-is-at-least-32-chars!!"
+	cfg := config.Default()
+	cfg.Auth.Enabled = true
+	cfg.Auth.JWTSecret = secret
+	cfg.Auth.RateLimit = 100
+	cfg.Auth.RateLimitAuth = "1/min"
+
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	ch := schema.NewCacheHolder(nil, logger)
+	authSvc := auth.NewService(nil, secret, time.Hour, 7*24*time.Hour, 8, logger)
+	srv := server.New(cfg, logger, ch, nil, authSvc, nil)
+
+	reqBody := `{"email":"rate-limit-webauthn@example.com"}`
+	firstReq := httptest.NewRequest(http.MethodPost, "/api/auth/webauthn/login/begin", strings.NewReader(reqBody))
+	firstReq.Header.Set("Content-Type", "application/json")
+	firstReq.RemoteAddr = "198.51.100.77:4567"
+	firstResp := httptest.NewRecorder()
+	srv.Router().ServeHTTP(firstResp, firstReq)
+	testutil.True(t, firstResp.Code != http.StatusTooManyRequests, "first sensitive auth request should not be throttled")
+
+	secondReq := httptest.NewRequest(http.MethodPost, "/api/auth/webauthn/login/begin", strings.NewReader(reqBody))
+	secondReq.Header.Set("Content-Type", "application/json")
+	secondReq.RemoteAddr = "198.51.100.77:4567"
+	secondResp := httptest.NewRecorder()
+	srv.Router().ServeHTTP(secondResp, secondReq)
+
+	testutil.StatusCode(t, http.StatusTooManyRequests, secondResp.Code)
+	testutil.True(t, strings.TrimSpace(secondResp.Header().Get("Retry-After")) != "", "rate-limited response must include Retry-After header")
 }
 
 func TestHealthEndpointBypassesIPAllowlist(t *testing.T) {

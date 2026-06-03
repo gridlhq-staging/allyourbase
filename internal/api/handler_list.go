@@ -1,3 +1,4 @@
+// Package api Stub summary for /Users/stuart/parallel_development/allyourbase_dev/jun01_pm_4_search_dashboard_playground/allyourbase_dev/internal/api/handler_list.go.
 package api
 
 import (
@@ -11,108 +12,6 @@ import (
 	"github.com/allyourbase/ayb/internal/schema"
 	"github.com/jackc/pgx/v5"
 )
-
-// filterSearchResult holds parsed filter and search SQL fragments.
-type filterSearchResult struct {
-	filterSQL  string
-	filterArgs []any
-	searchSQL  string
-	searchRank string
-	searchArgs []any
-}
-
-// filterSpatialResult holds parsed filter and spatial SQL fragments.
-type filterSpatialResult struct {
-	filterSQL   string
-	filterArgs  []any
-	spatialSQL  string
-	spatialArgs []any
-}
-
-// parseFilterParam validates and parses the filter query parameter.
-// On validation failure it writes the error response and returns false.
-func (h *Handler) parseFilterParam(w http.ResponseWriter, tbl *schema.Table, q url.Values) (string, []any, bool) {
-	filterStr := q.Get("filter")
-	if filterStr == "" {
-		return "", nil, true
-	}
-	if len(filterStr) > maxFilterLen {
-		writeErrorWithDoc(w, http.StatusBadRequest, "filter expression too long", docURL("/guide/api-reference#filter-syntax"))
-		return "", nil, false
-	}
-	if h.fieldEncryptor != nil {
-		if err := h.fieldEncryptor.ValidateFilter(tbl.Name, filterStr); err != nil {
-			writeErrorWithDoc(w, http.StatusBadRequest, "invalid filter: "+err.Error(), docURL("/guide/api-reference#filter-syntax"))
-			return "", nil, false
-		}
-	}
-	sql, args, err := parseFilter(tbl, filterStr)
-	if err != nil {
-		writeErrorWithDoc(w, http.StatusBadRequest, "invalid filter: "+err.Error(), docURL("/guide/api-reference#filter-syntax"))
-		return "", nil, false
-	}
-	return sql, args, true
-}
-
-// parseFilterAndSpatial validates and parses filter and spatial query parameters.
-// On validation failure it writes the error response and returns false.
-func (h *Handler) parseFilterAndSpatial(w http.ResponseWriter, tbl *schema.Table, q url.Values) (filterSpatialResult, bool) {
-	var res filterSpatialResult
-	var (
-		ok  bool
-		err error
-	)
-	res.filterSQL, res.filterArgs, ok = h.parseFilterParam(w, tbl, q)
-	if !ok {
-		return res, false
-	}
-
-	sc := h.schema.Get()
-	res.spatialSQL, res.spatialArgs, err = parseSpatialParams(tbl, q, sc, len(res.filterArgs)+1)
-	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
-		return res, false
-	}
-
-	return res, true
-}
-
-// parseSearchParam validates and parses the search query parameter into full-text
-// search SQL fragments. argOffset controls the starting $N placeholder index.
-// On validation failure it writes the error response and returns false.
-func (h *Handler) parseSearchParam(w http.ResponseWriter, tbl *schema.Table, q url.Values, argOffset int) (searchSQL, searchRank string, searchArgs []any, ok bool) {
-	searchStr := strings.TrimSpace(q.Get("search"))
-	if searchStr == "" {
-		return "", "", nil, true
-	}
-	if len(searchStr) > maxSearchLen {
-		writeErrorWithDoc(w, http.StatusBadRequest, "search term too long", docURL("/guide/api-reference#full-text-search"))
-		return "", "", nil, false
-	}
-	var err error
-	searchSQL, searchRank, searchArgs, err = buildSearchSQL(tbl, searchStr, argOffset)
-	if err != nil {
-		writeErrorWithDoc(w, http.StatusBadRequest, "search not supported: "+err.Error(), docURL("/guide/api-reference#full-text-search"))
-		return "", "", nil, false
-	}
-	return searchSQL, searchRank, searchArgs, true
-}
-
-// parseFilterAndSearch validates and parses filter and search query parameters.
-// On validation failure it writes the error response and returns false.
-func (h *Handler) parseFilterAndSearch(w http.ResponseWriter, tbl *schema.Table, q url.Values) (filterSearchResult, bool) {
-	var res filterSearchResult
-	var ok bool
-	res.filterSQL, res.filterArgs, ok = h.parseFilterParam(w, tbl, q)
-	if !ok {
-		return res, false
-	}
-	res.searchSQL, res.searchRank, res.searchArgs, ok = h.parseSearchParam(w, tbl, q, len(res.filterArgs)+1)
-	if !ok {
-		return res, false
-	}
-	return res, true
-}
 
 // applyPagination parses page, perPage, and skipTotal from query parameters,
 // clamping values to safe ranges. Returns an error if cursor and page are
@@ -198,6 +97,11 @@ func (h *Handler) handleList(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	facetCols, err := parseFacetColumns(tbl, q.Get("facets"))
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
 
 	baseOpts := listOpts{
 		table:       tbl,
@@ -210,6 +114,7 @@ func (h *Handler) handleList(w http.ResponseWriter, r *http.Request) {
 		searchSQL:   searchSQL,
 		searchRank:  searchRank,
 		searchArgs:  searchArgs,
+		facetCols:   facetCols,
 	}
 
 	sc := h.schema.Get()
@@ -260,6 +165,11 @@ func (h *Handler) dispatchVectorPaths(w http.ResponseWriter, r *http.Request, tb
 		writeError(w, http.StatusBadRequest, "cannot combine semantic=true with nearest or semantic_query")
 		return true
 	}
+	if semanticFlag {
+		if rejectUnsupportedSearchParams(w, q, unsupportedVectorSearchParams) {
+			return true
+		}
+	}
 	if semanticFlag && searchStr != "" {
 		if len(searchStr) > maxSearchLen {
 			writeErrorWithDoc(w, http.StatusBadRequest, "search term too long", docURL("/guide/api-reference#full-text-search"))
@@ -269,10 +179,16 @@ func (h *Handler) dispatchVectorPaths(w http.ResponseWriter, r *http.Request, tb
 		return true
 	}
 	if nearestRaw != "" {
+		if rejectUnsupportedSearchParams(w, q, unsupportedVectorSearchParams) {
+			return true
+		}
 		h.handleNearest(w, r, tbl, nearestRaw, q.Get("vector_column"), q.Get("distance"), perPage, filter.clause, filter.args)
 		return true
 	}
 	if semanticQuery != "" {
+		if rejectUnsupportedSearchParams(w, q, unsupportedVectorSearchParams) {
+			return true
+		}
 		h.handleSemanticQuery(w, r, tbl, semanticQuery, q.Get("vector_column"), q.Get("distance"), perPage, filter.clause, filter.args)
 		return true
 	}
@@ -328,6 +244,14 @@ func (h *Handler) handleOffsetList(w http.ResponseWriter, r *http.Request, tbl *
 	}
 	h.expandListItems(r, querier, tbl, items)
 
+	facets, err := executeFacetQueries(r.Context(), querier, tbl, opts)
+	if err != nil {
+		done(err)
+		h.logger.Error("facet count error", "error", err, "table", tbl.Name)
+		writeError(w, http.StatusInternalServerError, "internal error")
+		return
+	}
+
 	if err := done(nil); err != nil {
 		writeError(w, http.StatusInternalServerError, "internal error")
 		return
@@ -338,6 +262,7 @@ func (h *Handler) handleOffsetList(w http.ResponseWriter, r *http.Request, tbl *
 		TotalItems: totalItems,
 		TotalPages: totalPages,
 		Items:      items,
+		Facets:     facets,
 	})
 }
 
@@ -460,6 +385,14 @@ func (h *Handler) handleCursorList(
 	}
 	h.expandListItems(r, querier, tbl, items)
 
+	facets, err := executeFacetQueries(r.Context(), querier, tbl, opts)
+	if err != nil {
+		done(err)
+		h.logger.Error("facet count error", "error", err, "table", tbl.Name)
+		writeError(w, http.StatusInternalServerError, "internal error")
+		return
+	}
+
 	if err := done(nil); err != nil {
 		writeError(w, http.StatusInternalServerError, "internal error")
 		return
@@ -478,5 +411,6 @@ func (h *Handler) handleCursorList(
 		PerPage:    opts.perPage,
 		NextCursor: nextCursor,
 		Items:      items,
+		Facets:     facets,
 	})
 }

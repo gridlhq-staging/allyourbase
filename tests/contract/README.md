@@ -8,6 +8,19 @@ Contract tests validate that external OAuth provider APIs (Google, GitHub) match
 - **YES** testing external API contracts haven't changed
 - Catches breaking changes when providers update their APIs
 
+## Supabase parity tracker contracts
+
+Run these contracts whenever `_dev/competitive-research/SUPABASE-PARITY-TRACKER.md` or related parity wording changes:
+
+- `bash tests/contract/parity_tracker_citations.sh`
+  - Why: enforces the tracker citation token contract for `SHIPPED` rows.
+  - Ownership: canonical parser and shipped-row citation checks live in `extract_detailed_rows` + `validate_file` inside `tests/contract/parity_tracker_citations.sh`.
+- `bash tests/contract/parity_tracker_summary_math.sh`
+  - Why: enforces summary arithmetic and cross-doc parity-claim alignment.
+  - Ownership: this script sources `parity_tracker_citations.sh` and reuses `extract_detailed_rows` instead of duplicating markdown-table parsing logic.
+
+Use these as focused maintenance checks before closing parity tracker documentation edits.
+
 ## When to Run
 
 - ⏰ Weekly (automated via cron/GitHub Actions)

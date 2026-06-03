@@ -46,6 +46,7 @@ const ADMIN_VIEWS = [
   "saml",
   "custom-domains",
   "extensions",
+  "search",
   "vector-indexes",
   "log-drains",
   "stats",

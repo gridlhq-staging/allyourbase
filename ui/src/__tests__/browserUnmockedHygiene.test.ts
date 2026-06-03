@@ -83,6 +83,13 @@ describe("browser-unmocked test hygiene", () => {
     expect(barrel).toMatch(/export \*.*core/);
   });
 
+  it("virtual authenticator helper is exported from auth fixtures and top-level barrel", () => {
+    const authFixtures = readProjectFile("browser-tests-unmocked/fixtures/auth.ts");
+    const topLevelFixtures = readProjectFile("browser-tests-unmocked/fixtures.ts");
+    expect(authFixtures).toContain("export async function createVirtualAuthenticator(");
+    expect(topLevelFixtures).toContain('export * from "./fixtures/index"');
+  });
+
   it("accessibility smoke waits for sidebar admin navigation to activate before scanning", () => {
     const accessibilitySmoke = readProjectFile("browser-tests-unmocked/smoke/accessibility.spec.ts");
 
@@ -239,6 +246,15 @@ describe("browser-unmocked test hygiene", () => {
       expect(spec, `${specName} should exist in browser-tests-unmocked/full`).toBeDefined();
       expect(spec?.content).toContain("waitForDashboard");
     }
+  });
+
+  it("passkey lifecycle full spec exists and exercises shared auth fixture owners", () => {
+    const passkeySpec = readProjectFile("browser-tests-unmocked/full/auth-passkey-lifecycle.spec.ts");
+    expect(passkeySpec).toContain("test.step(");
+    expect(passkeySpec).toContain("getAuthSettingsUnavailableSkipReason");
+    expect(passkeySpec).toContain("mfaHelpers.ensureAuthSettings");
+    expect(passkeySpec).toContain("waitForDashboard");
+    expect(passkeySpec).toContain("createVirtualAuthenticator");
   });
 
   it("webhook browser specs avoid external network targets and keep explicit success assertions", () => {

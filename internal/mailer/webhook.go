@@ -33,9 +33,15 @@ func NewWebhookMailer(cfg WebhookConfig) *WebhookMailer {
 	if timeout == 0 {
 		timeout = 10 * time.Second
 	}
+	transport := http.DefaultTransport
+	if defaultTransport, ok := http.DefaultTransport.(*http.Transport); ok {
+		// Clone the process-wide default so webhook sends are isolated from
+		// other tests and callers that mutate/close the shared default transport.
+		transport = defaultTransport.Clone()
+	}
 	return &WebhookMailer{
 		cfg:    cfg,
-		client: &http.Client{Timeout: timeout},
+		client: &http.Client{Timeout: timeout, Transport: transport},
 	}
 }
 
@@ -49,6 +55,10 @@ type webhookPayload struct {
 
 // Send marshals the message to JSON and posts it to the configured webhook URL. If a secret is configured, it includes an HMAC-SHA256 signature in the X-AYB-Signature header. Returns an error if the request fails or the webhook returns a non-2xx status code.
 func (m *WebhookMailer) Send(ctx context.Context, msg *Message) error {
+	if msg == nil {
+		return fmt.Errorf("message is required")
+	}
+
 	payload, err := json.Marshal(webhookPayload{
 		To:      msg.To,
 		Subject: msg.Subject,
