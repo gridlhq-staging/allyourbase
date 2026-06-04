@@ -44,7 +44,7 @@ export class RecordsClient {
     if (params?.skipTotal) qs.set("skipTotal", "true");
     if (params?.fuzzy === true) qs.set("fuzzy", "true");
     if (params?.typoThreshold != null) qs.set("typo_threshold", String(params.typoThreshold));
-    if (params?.highlight) qs.set("highlight", params.highlight);
+    if (params?.highlight === true) qs.set("highlight", "true");
     if (params?.facets?.length) qs.set("facets", params.facets.join(","));
     if (params?.semantic === true) qs.set("semantic", "true");
     if (params?.semanticQuery) qs.set("semantic_query", params.semanticQuery);

@@ -1,7 +1,7 @@
 import { describe, it, expect, expectTypeOf, vi, beforeEach, afterEach } from "vitest";
 import { AYBClient } from "./client";
 import { AYBError } from "./errors";
-import type { RpcNotifyOption, RpcOptions, SearchHit } from "./index";
+import type { ListParams, RpcNotifyOption, RpcOptions, SearchHit } from "./index";
 import { mockFetchSequence } from "./test_utils/mockFetchSequence";
 
 // --- EventSource mock for realtime tests ---
@@ -994,18 +994,36 @@ describe("records params coverage", () => {
     expect(url2).not.toContain("typo_threshold");
   });
 
-  it("list encodes highlight column (omits when absent)", async () => {
+  it("list encodes highlight=true and omits false, absent, and legacy string values", async () => {
     const fetchFn = mockFetch(200, { items: [], page: 1, perPage: 20, totalItems: 0, totalPages: 0 });
     const client = new AYBClient("http://localhost:8090", { fetch: fetchFn });
-    await client.records.list("posts", { search: "hello", highlight: "title" });
+    await client.records.list("posts", { search: "hello", highlight: true });
     const url = (fetchFn as ReturnType<typeof vi.fn>).mock.calls[0][0] as string;
-    expect(url).toContain("highlight=title");
+    expect(url).toContain("highlight=true");
 
     const fetchFn2 = mockFetch(200, { items: [], page: 1, perPage: 20, totalItems: 0, totalPages: 0 });
     const client2 = new AYBClient("http://localhost:8090", { fetch: fetchFn2 });
-    await client2.records.list("posts", { search: "hello" });
+    await client2.records.list("posts", { search: "hello", highlight: false });
     const url2 = (fetchFn2 as ReturnType<typeof vi.fn>).mock.calls[0][0] as string;
     expect(url2).not.toContain("highlight");
+
+    const fetchFn3 = mockFetch(200, { items: [], page: 1, perPage: 20, totalItems: 0, totalPages: 0 });
+    const client3 = new AYBClient("http://localhost:8090", { fetch: fetchFn3 });
+    await client3.records.list("posts", { search: "hello" });
+    const url3 = (fetchFn3 as ReturnType<typeof vi.fn>).mock.calls[0][0] as string;
+    expect(url3).not.toContain("highlight");
+
+    const fetchFn4 = mockFetch(200, { items: [], page: 1, perPage: 20, totalItems: 0, totalPages: 0 });
+    const client4 = new AYBClient("http://localhost:8090", { fetch: fetchFn4 });
+    // Exercise stale JavaScript callers that bypass the TypeScript boolean contract.
+    const legacyHighlightValue = ["ti", "tle"].join("");
+    const legacyHighlightParams = {
+      search: "hello",
+      highlight: legacyHighlightValue,
+    } as unknown as ListParams;
+    await client4.records.list("posts", legacyHighlightParams);
+    const url4 = (fetchFn4 as ReturnType<typeof vi.fn>).mock.calls[0][0] as string;
+    expect(url4).not.toContain("highlight");
   });
 
   it("list exposes optional _highlight on the default item shape and via SearchHit<T>", async () => {
@@ -1017,7 +1035,7 @@ describe("records params coverage", () => {
       totalPages: 1,
     });
     const client = new AYBClient("http://localhost:8090", { fetch: fetchFn });
-    const result = await client.records.list("posts", { search: "hello", highlight: "title" });
+    const result = await client.records.list("posts", { search: "hello", highlight: true });
     expect(result.items[0]._highlight).toBe("<b>Hello</b> world");
 
     const fetchFn2 = mockFetch(200, {
@@ -1030,7 +1048,7 @@ describe("records params coverage", () => {
     const client2 = new AYBClient("http://localhost:8090", { fetch: fetchFn2 });
     const typed = await client2.records.list<SearchHit<{ id: string; title: string }>>(
       "posts",
-      { search: "hello", highlight: "title" },
+      { search: "hello", highlight: true },
     );
     expect(typed.items[0].title).toBe("Hello world");
     expect(typed.items[0]._highlight).toBe("<b>Hello</b> world");

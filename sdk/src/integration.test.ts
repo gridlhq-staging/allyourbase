@@ -4,6 +4,7 @@ import path from "node:path";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { AYBClient } from "./client";
 import type { RecordsFixture, SeedInput } from "./integration-helpers";
+import type { SearchHit } from "./types";
 import {
   AUTH_TEST_PASSWORD,
   BASE_URL,
@@ -478,6 +479,10 @@ describe("SDK integration smoke + auth suite", () => {
       // start.
       const facetsTableName = `${tableName}_facets`;
       type SearchFixture = { id: number; title: string; category: string };
+      type SearchListBody = {
+        items?: Array<SearchHit<SearchFixture>>;
+        message?: unknown;
+      };
       let pgTrgmInstalled = false;
       let searchFixtures: SearchFixture[] = [];
 
@@ -485,6 +490,25 @@ describe("SDK integration smoke + auth suite", () => {
         const fixture = searchFixtures.find((row) => row.title === title);
         expect(fixture).toBeDefined();
         return fixture!.id;
+      }
+
+      function expectHighlightedFixture(
+        item: SearchHit<SearchFixture> | undefined,
+        expectedTitle: string,
+      ): void {
+        expect(item).toBeDefined();
+        expect(item!.id).toBe(fixtureID(expectedTitle));
+        expect(item!.title).toBe(expectedTitle);
+        expect(item!._highlight).toBeTypeOf("string");
+        expect(item!._highlight!.trim().length).toBeGreaterThan(0);
+      }
+
+      function categoryCountsFrom(
+        result: { facets?: { category?: Array<{ value: unknown; count: number }> } },
+      ): Record<string, number> {
+        return Object.fromEntries(
+          (result.facets?.category ?? []).map(({ value, count }) => [String(value), count]),
+        );
       }
 
       beforeAll(async () => {
@@ -526,6 +550,56 @@ describe("SDK integration smoke + auth suite", () => {
         }));
       });
 
+      it("returns typed SearchHit _highlight snippets when highlight: true is enabled", async () => {
+        const result = await client.records.list<SearchHit<SearchFixture>>(facetsTableName, {
+          search: "banana",
+          highlight: true,
+          sort: "+id",
+        });
+
+        expect(result.items.map((item) => item.id)).toEqual([fixtureID("banana split")]);
+        expectHighlightedFixture(result.items[0], "banana split");
+      });
+
+      it("returns batch-seeded fuzzy facet matches with highlight payloads", async (ctx) => {
+        if (!pgTrgmInstalled) {
+          ctx.skip("pg_trgm extension not installed on test server — fuzzy search unavailable");
+        }
+
+        await adminSql(`TRUNCATE TABLE ${facetsTableName} RESTART IDENTITY`);
+        const created = await client.records.batch<SearchFixture>(facetsTableName, [
+          { method: "create", body: { title: "banana split", category: "dessert" } },
+          { method: "create", body: { title: "banna bread", category: "dessert" } },
+          { method: "create", body: { title: "apple pie", category: "fruit" } },
+          { method: "create", body: { title: "appel tart", category: "fruit" } },
+          { method: "create", body: { title: "celery sticks", category: "other" } },
+          { method: "create", body: { title: "carrot soup", category: "other" } },
+        ]);
+
+        expect(created.map((row) => row.status)).toEqual([201, 201, 201, 201, 201, 201]);
+        searchFixtures = created.map((row) => {
+          expect(row.body).toBeDefined();
+          return row.body!;
+        });
+
+        const result = await client.records.list<SearchHit<SearchFixture>>(facetsTableName, {
+          search: "banan",
+          fuzzy: true,
+          typoThreshold: 0.2,
+          facets: ["category"],
+          highlight: true,
+          sort: "+id",
+        });
+
+        expect(result.items.map((item) => item.id)).toEqual([
+          fixtureID("banana split"),
+          fixtureID("banna bread"),
+        ]);
+        expect(categoryCountsFrom(result)).toEqual({ dessert: 2 });
+        expectHighlightedFixture(result.items[0], "banana split");
+        expectHighlightedFixture(result.items[1], "banna bread");
+      });
+
       it("returns fuzzy typo matches when fuzzy: true is enabled", async (ctx) => {
         if (!pgTrgmInstalled) {
           ctx.skip("pg_trgm extension not installed on test server — fuzzy search unavailable");
@@ -547,14 +621,34 @@ describe("SDK integration smoke + auth suite", () => {
           facetsTableName,
           { facets: ["category"] },
         );
-        const categoryCounts = Object.fromEntries(
-          (result.facets?.category ?? []).map(({ value, count }) => [String(value), count]),
-        );
 
         expect(result.facets).toBeDefined();
-        expect(categoryCounts).toEqual({ dessert: 2, fruit: 2, other: 2 });
+        expect(categoryCountsFrom(result)).toEqual({ dessert: 2, fruit: 2, other: 2 });
         expect(result.facets!.category).toHaveLength(3);
         expect(result.items).toHaveLength(6);
+      });
+
+      it("honors the raw HTTP boolean highlight contract", async () => {
+        const trueURL = new URL(`${BASE_URL}/api/collections/${facetsTableName}`);
+        trueURL.searchParams.set("search", "banana");
+        trueURL.searchParams.set("highlight", "true");
+        const trueResponse = await fetch(trueURL, {
+          headers: { Authorization: `Bearer ${client.token}` },
+        });
+        expect(trueResponse.status).toBe(200);
+        const trueBody = (await trueResponse.json()) as SearchListBody;
+        expect(trueBody.items?.map((item) => item.id)).toEqual([fixtureID("banana split")]);
+        expectHighlightedFixture(trueBody.items?.[0], "banana split");
+
+        const fieldURL = new URL(`${BASE_URL}/api/collections/${facetsTableName}`);
+        fieldURL.searchParams.set("search", "banana");
+        fieldURL.searchParams.set("highlight", "title");
+        const fieldResponse = await fetch(fieldURL, {
+          headers: { Authorization: `Bearer ${client.token}` },
+        });
+        expect(fieldResponse.status).toBe(400);
+        const fieldBody = (await fieldResponse.json()) as SearchListBody;
+        expect(fieldBody.message).toBe("highlight parameter must be a boolean");
       });
 
       it("rejects unknown facet columns with a 400 error", async () => {

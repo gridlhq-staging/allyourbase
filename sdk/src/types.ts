@@ -50,7 +50,7 @@ export interface ListParams {
   skipTotal?: boolean;
   fuzzy?: boolean;
   typoThreshold?: number;
-  highlight?: string;
+  highlight?: boolean;
   facets?: string[];
   semantic?: boolean;
   semanticQuery?: string;

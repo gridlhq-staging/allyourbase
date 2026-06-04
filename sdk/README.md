@@ -35,7 +35,7 @@ const search = await ayb.records.list<SearchHit<{ id: string; title: string }>>(
     search: "postgres",
     fuzzy: true,
     typoThreshold: 0.3,
-    highlight: "title",
+    highlight: true,
     facets: ["published"],
   },
 );
@@ -49,6 +49,9 @@ const me = await ayb.auth.me();
 await ayb.auth.signInWithPasskey("user@example.com");
 await ayb.auth.enrollPasskey("Primary passkey");
 ```
+
+`highlight` is a boolean toggle that asks the backend to return `_highlight`
+snippets on matching items. `typoThreshold` is only accepted when `fuzzy: true`.
 
 ## API Reference
 
@@ -83,7 +86,7 @@ const search = await ayb.records.list<SearchHit<Post>>("posts", {
   search: "postgres database",
   fuzzy: true,
   typoThreshold: 0.3,
-  highlight: "title",
+  highlight: true,
   facets: ["status", "category"],
 });
 // search.items[0]._highlight is present when the backend returns a highlight.
@@ -117,6 +120,10 @@ const updated = await ayb.records.update<Post>("posts", "abc123", {
 // Delete
 await ayb.records.delete("posts", "abc123");
 ```
+
+`highlight` mirrors the REST API's boolean query param: pass `true` to request
+`_highlight` snippets, and omit it otherwise. `typoThreshold` requires
+`fuzzy: true`.
 
 ### Auth
 

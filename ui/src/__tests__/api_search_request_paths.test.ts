@@ -54,6 +54,58 @@ describe("api_search request paths", () => {
     );
   });
 
+  it("serializes highlight only for full-text search requests", async () => {
+    fetchMock
+      .mockResolvedValueOnce(
+        jsonResponse({
+          page: 1,
+          perPage: 20,
+          totalItems: 1,
+          totalPages: 1,
+          items: [{ id: "row-1", _highlight: "<b>Postgres</b>" }],
+        }),
+      )
+      .mockResolvedValueOnce(
+        jsonResponse({
+          page: 1,
+          perPage: 20,
+          totalItems: 0,
+          totalPages: 0,
+          items: [],
+        }),
+      )
+      .mockResolvedValueOnce(
+        jsonResponse({
+          page: 1,
+          perPage: 20,
+          totalItems: 0,
+          totalPages: 0,
+          items: [],
+        }),
+      );
+
+    await listSearchPlaygroundRecords("posts", {
+      search: "postgres",
+      highlight: true,
+    });
+    await listSearchPlaygroundRecords("posts", {
+      search: "   ",
+      highlight: true,
+    });
+    await listSearchPlaygroundRecords("posts", {
+      filter: "status='published'",
+      highlight: true,
+    });
+
+    const [searchPath] = fetchMock.mock.calls[0] as [string];
+    const [blankSearchPath] = fetchMock.mock.calls[1] as [string];
+    const [filterOnlyPath] = fetchMock.mock.calls[2] as [string];
+
+    expect(new URL(searchPath, "http://localhost").searchParams.get("highlight")).toBe("true");
+    expect(new URL(blankSearchPath, "http://localhost").searchParams.has("highlight")).toBe(false);
+    expect(new URL(filterOnlyPath, "http://localhost").searchParams.has("highlight")).toBe(false);
+  });
+
   it("omits fuzzy when search is empty even if fuzzy=false is provided", async () => {
     fetchMock.mockResolvedValueOnce(
       jsonResponse({

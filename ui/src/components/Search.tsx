@@ -16,6 +16,28 @@ const FACETABLE_JSON_TYPES = new Set(["string", "number", "integer", "boolean"])
 const NON_FACETABLE_TYPE_PATTERNS = ["json", "vector", "geometry", "geography", "raster"];
 const FILTER_IDENTIFIER_PATTERN = /^[A-Za-z_][A-Za-z0-9_.]*$/;
 const FILTER_IDENTIFIER_KEYWORDS = new Set(["AND", "OR", "IN", "TRUE", "FALSE", "NULL"]);
+const SEARCH_HIGHLIGHT_START = "<b>";
+const SEARCH_HIGHLIGHT_END = "</b>";
+const SEARCH_HIGHLIGHT_RESPONSE_FIELD = "_highlight";
+const SEARCH_HIGHLIGHT_ENTITY_PATTERN = /&(?:#\d+|#x[\da-fA-F]+|[a-zA-Z][\da-zA-Z]+);/g;
+const SEARCH_HIGHLIGHT_NAMED_ENTITIES: Record<string, string> = {
+  amp: "&",
+  apos: "'",
+  gt: ">",
+  lt: "<",
+  quot: '"',
+};
+const MAX_UNICODE_CODE_POINT = 0x10ffff;
+
+interface HighlightFragment {
+  text: string;
+  emphasized: boolean;
+}
+
+interface HighlightSnippet {
+  rowIndex: number;
+  fragments: HighlightFragment[];
+}
 
 function toCollectionKey(table: Pick<Table, "schema" | "name">): string {
   return table.schema === "public" ? table.name : `${table.schema}.${table.name}`;
@@ -96,6 +118,141 @@ function selectedFacetPanels(
     .filter((panel): panel is { column: string; buckets: FacetCounts[string] } => panel !== null);
 }
 
+function decodeSearchHighlightEntity(entity: string): string {
+  const body = entity.slice(1, -1);
+  if (body.startsWith("#x") || body.startsWith("#X")) {
+    const codePoint = Number.parseInt(body.slice(2), 16);
+    return decodeSearchHighlightCodePoint(codePoint, entity);
+  }
+  if (body.startsWith("#")) {
+    const codePoint = Number.parseInt(body.slice(1), 10);
+    return decodeSearchHighlightCodePoint(codePoint, entity);
+  }
+  return SEARCH_HIGHLIGHT_NAMED_ENTITIES[body] ?? entity;
+}
+
+function decodeSearchHighlightCodePoint(codePoint: number, fallback: string): string {
+  if (!Number.isFinite(codePoint) || codePoint < 0 || codePoint > MAX_UNICODE_CODE_POINT) {
+    return fallback;
+  }
+  return String.fromCodePoint(codePoint);
+}
+
+function decodeSearchHighlightText(text: string): string {
+  return text.replace(SEARCH_HIGHLIGHT_ENTITY_PATTERN, decodeSearchHighlightEntity);
+}
+
+function parseHighlightFragments(snippet: string): HighlightFragment[] {
+  const fragments: HighlightFragment[] = [];
+  let cursor = 0;
+
+  while (cursor < snippet.length) {
+    const start = snippet.indexOf(SEARCH_HIGHLIGHT_START, cursor);
+    if (start === -1) {
+      fragments.push({ text: decodeSearchHighlightText(snippet.slice(cursor)), emphasized: false });
+      break;
+    }
+
+    const end = snippet.indexOf(SEARCH_HIGHLIGHT_END, start + SEARCH_HIGHLIGHT_START.length);
+    if (end === -1) {
+      fragments.push({ text: decodeSearchHighlightText(snippet.slice(cursor)), emphasized: false });
+      break;
+    }
+
+    if (start > cursor) {
+      fragments.push({ text: decodeSearchHighlightText(snippet.slice(cursor, start)), emphasized: false });
+    }
+    fragments.push({
+      text: decodeSearchHighlightText(snippet.slice(start + SEARCH_HIGHLIGHT_START.length, end)),
+      emphasized: true,
+    });
+    cursor = end + SEARCH_HIGHLIGHT_END.length;
+  }
+
+  return fragments.filter((fragment) => fragment.text !== "");
+}
+
+function searchHighlightSnippets(data: ListResponse | null): HighlightSnippet[] {
+  if (!data) {
+    return [];
+  }
+  return data.items.flatMap((row, rowIndex) => {
+    const highlight = row[SEARCH_HIGHLIGHT_RESPONSE_FIELD];
+    if (typeof highlight !== "string" || highlight.trim() === "") {
+      return [];
+    }
+    const fragments = parseHighlightFragments(highlight);
+    if (fragments.length === 0) {
+      return [];
+    }
+    return [{ rowIndex, fragments }];
+  });
+}
+
+function removeSearchHighlightField(row: Record<string, unknown>): Record<string, unknown> {
+  const plainRow: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(row)) {
+    if (key !== SEARCH_HIGHLIGHT_RESPONSE_FIELD) {
+      plainRow[key] = value;
+    }
+  }
+  return plainRow;
+}
+
+function gridDataWithoutSearchHighlights(
+  data: ListResponse | null,
+  stripHighlights: boolean,
+): ListResponse | null {
+  if (!data || !stripHighlights) {
+    return data;
+  }
+  return {
+    ...data,
+    items: data.items.map(removeSearchHighlightField),
+  };
+}
+
+function SearchHighlightResults({ snippets }: { snippets: HighlightSnippet[] }) {
+  if (snippets.length === 0) {
+    return null;
+  }
+
+  return (
+    <section
+      aria-label="Highlighted matches"
+      data-testid="search-highlight-results"
+      className="mb-4 rounded-lg border border-yellow-200 bg-yellow-50 p-3 text-sm text-gray-800 dark:border-yellow-700/70 dark:bg-yellow-950/30 dark:text-yellow-50"
+    >
+      <h2 className="text-sm font-medium">Highlighted matches</h2>
+      <ol className="mt-2 space-y-2">
+        {snippets.map((snippet) => (
+          <li
+            key={snippet.rowIndex}
+            data-testid={`search-highlight-snippet-${snippet.rowIndex}`}
+            className="text-xs leading-5"
+          >
+            <span className="font-medium text-gray-600 dark:text-yellow-100">
+              Result {snippet.rowIndex + 1}:{" "}
+            </span>
+            {snippet.fragments.map((fragment, fragmentIndex) =>
+              fragment.emphasized ? (
+                <mark
+                  key={`${snippet.rowIndex}-${fragmentIndex}`}
+                  className="rounded bg-yellow-200 px-0.5 text-gray-950 dark:bg-yellow-300"
+                >
+                  {fragment.text}
+                </mark>
+              ) : (
+                <span key={`${snippet.rowIndex}-${fragmentIndex}`}>{fragment.text}</span>
+              ),
+            )}
+          </li>
+        ))}
+      </ol>
+    </section>
+  );
+}
+
 interface SearchProps {
   schema: SchemaCache;
 }
@@ -120,6 +277,7 @@ export function Search({ schema }: SearchProps) {
   const [appliedFilter, setAppliedFilter] = useState("");
   const [selectedFacetColumns, setSelectedFacetColumns] = useState<string[]>([]);
   const [fuzzy, setFuzzy] = useState(false);
+  const [showHighlightedMatches, setShowHighlightedMatches] = useState(true);
   const [perPage, setPerPage] = useState(DEFAULT_PER_PAGE);
   const fetchRunRef = useRef(0);
 
@@ -154,6 +312,23 @@ export function Search({ schema }: SearchProps) {
     () => selectedFacetPanels(selectedFacetColumns, data?.facets),
     [selectedFacetColumns, data?.facets],
   );
+  const hasAppliedSearch = appliedSearch !== "";
+  const selectedTableHasHighlightColumn = useMemo(
+    () =>
+      selectedTable?.columns.some((column) => column.name === SEARCH_HIGHLIGHT_RESPONSE_FIELD) ??
+      false,
+    [selectedTable],
+  );
+  const shouldRequestHighlights =
+    hasAppliedSearch && showHighlightedMatches && !selectedTableHasHighlightColumn;
+  const highlightSnippets = useMemo(
+    () => (shouldRequestHighlights ? searchHighlightSnippets(data) : []),
+    [data, shouldRequestHighlights],
+  );
+  const gridData = useMemo(
+    () => gridDataWithoutSearchHighlights(data, shouldRequestHighlights),
+    [data, shouldRequestHighlights],
+  );
 
   const handleSubmit = useCallback(() => {
     setAppliedSearch(search.trim());
@@ -168,6 +343,7 @@ export function Search({ schema }: SearchProps) {
     setAppliedFilter("");
     setSelectedFacetColumns([]);
     setFuzzy(false);
+    setShowHighlightedMatches(true);
     setPerPage(DEFAULT_PER_PAGE);
   }, []);
 
@@ -216,6 +392,7 @@ export function Search({ schema }: SearchProps) {
       const response = await listSearchPlaygroundRecords(toCollectionKey(selectedTable), {
         search: appliedSearch || undefined,
         fuzzy,
+        highlight: shouldRequestHighlights || undefined,
         filter: appliedFilter || undefined,
         facets: selectedFacetColumns.length > 0 ? selectedFacetColumns : undefined,
         perPage,
@@ -233,7 +410,15 @@ export function Search({ schema }: SearchProps) {
         setLoading(false);
       }
     }
-  }, [selectedTable, appliedSearch, fuzzy, appliedFilter, selectedFacetColumns, perPage]);
+  }, [
+    selectedTable,
+    appliedSearch,
+    fuzzy,
+    shouldRequestHighlights,
+    appliedFilter,
+    selectedFacetColumns,
+    perPage,
+  ]);
 
   useEffect(() => {
     fetchData();
@@ -337,6 +522,16 @@ export function Search({ schema }: SearchProps) {
             aria-label="Use fuzzy matching"
           />
           Use fuzzy matching
+        </label>
+
+        <label className="inline-flex items-center gap-2 text-sm text-gray-700 dark:text-gray-200">
+          <input
+            type="checkbox"
+            checked={showHighlightedMatches}
+            onChange={(event) => setShowHighlightedMatches(event.target.checked)}
+            aria-label="Show highlighted matches"
+          />
+          Show highlighted matches
         </label>
 
         <button
@@ -444,6 +639,8 @@ export function Search({ schema }: SearchProps) {
         </div>
       )}
 
+      <SearchHighlightResults snippets={highlightSnippets} />
+
       <div className="border rounded-lg overflow-hidden bg-white dark:bg-gray-900 flex-1 min-h-0">
         {data?.items.length === 0 && !loading && (appliedSearch || appliedFilter) ? (
           <div className="px-4 py-8 text-center text-gray-500 dark:text-gray-400">
@@ -454,7 +651,7 @@ export function Search({ schema }: SearchProps) {
           </div>
         ) : (
           <TableBrowserGrid
-            data={data}
+            data={gridData}
             loading={loading}
             columns={selectedTable?.columns ?? []}
             expandColumns={[]}

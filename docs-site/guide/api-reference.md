@@ -1,5 +1,5 @@
 # REST API Reference
-<!-- audited 2026-03-20 -->
+<!-- audited 2026-06-04 -->
 
 AYB auto-generates REST endpoints for every table in your PostgreSQL database.
 
@@ -146,11 +146,31 @@ curl "http://localhost:8090/api/collections/posts?search=postgres&filter=status=
 
 `fuzzy` requires a non-empty `search` value, must be `true` or `false`, and returns `400` for invalid combinations.
 
-`typo_threshold` is not supported on collection list endpoints and returns `400 Bad Request` when provided.
+`typo_threshold` tunes fuzzy matching, must be a number between `0` and `1`,
+and is only accepted when `fuzzy=true`. `typo_threshold` is not supported on collection list endpoints and returns `400 Bad Request` when provided.
+
+`highlight=true` asks AYB to return `_highlight` snippets on matching rows. The
+source text is HTML-escaped before AYB wraps matched terms in `<b>` and
+`</b>`.
 
 `facets=column_a,column_b` requests per-column facet counts in the same list response. Requested columns must exist on the target table.
 
 Unsupported query-mode combinations return `400` (for example `semantic=true` with `nearest` or `semantic_query`).
+
+When `highlight=true`, matching items can include an additional `_highlight`
+field:
+
+```json
+{
+  "items": [
+    {
+      "id": 1,
+      "title": "Hello",
+      "_highlight": "<b>Hello</b>"
+    }
+  ]
+}
+```
 
 When `facets` is requested, list responses include an additional `facets` object:
 

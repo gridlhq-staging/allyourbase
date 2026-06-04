@@ -1,4 +1,4 @@
-<!-- audited 2026-06-03 -->
+<!-- audited 2026-06-04 -->
 # Search
 
 AYB's collection list endpoints support full-text search, typo-tolerant fuzzy matching, filters, and facet counts on the same request path. This guide covers the shipped non-vector collection search workflow. For the canonical query-parameter table and response field reference, see [REST API Reference](/guide/api-reference).
@@ -23,6 +23,8 @@ The non-vector search surface is:
 
 - `search=<text>` for PostgreSQL full-text search
 - `fuzzy=true` for `pg_trgm` typo tolerance
+- `typo_threshold=<0..1>` to tune fuzzy matching when `fuzzy=true`
+- `highlight=true` to request `_highlight` snippets on matching rows
 - `filter=<expr>` for safe predicate narrowing
 - `facets=col_a,col_b` for facet buckets in the same response
 
@@ -54,6 +56,31 @@ curl -s "http://127.0.0.1:8090/api/collections/posts?search=postres&fuzzy=true" 
 ```
 
 If `pg_trgm` is unavailable, AYB fails closed with a `400` and an explanatory message. `fuzzy` requires `search`, and invalid `fuzzy` values are rejected. The [REST API Reference](/guide/api-reference) owns the parameter boundary details.
+
+`typo_threshold` tunes the trigram threshold AYB uses for fuzzy matches. It
+must be a number between `0` and `1`, and the backend rejects it unless
+`fuzzy=true` is also present.
+
+## Highlighting
+
+`highlight=true` asks AYB to return a `_highlight` field on matching items. AYB
+HTML-escapes the source text before `ts_headline` inserts `<b>` and `</b>`, so
+the only HTML the server adds is those bold tags around matched terms.
+
+```bash
+curl -s "http://127.0.0.1:8090/api/collections/posts?search=postgres&highlight=true" \
+  -H "Authorization: Bearer $AYB_TOKEN" | jq '.items[0]._highlight'
+```
+
+Example item shape:
+
+```json
+{
+  "id": 1,
+  "title": "Postgres guide",
+  "_highlight": "<b>Postgres</b> guide"
+}
+```
 
 ## Facets
 
@@ -130,12 +157,15 @@ const ayb = new AYBClient("http://127.0.0.1:8090");
 const response = await ayb.records.list("posts", {
   search: "postgres",
   fuzzy: true,
+  typoThreshold: 0.3,
+  highlight: true,
   filter: "status='published'",
   facets: ["status", "category"],
   perPage: 10,
 });
 
 console.log(response.items);
+console.log(response.items[0]?._highlight);
 console.log(response.facets?.status);
 ```
 

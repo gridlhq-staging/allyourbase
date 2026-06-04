@@ -192,4 +192,83 @@ test.describe("Search Playground Journey (Full E2E)", () => {
     await expect(page.getByText(draft, { exact: true })).toBeHidden();
     await expect(page.getByText(outsideSearch, { exact: true })).toBeHidden();
   });
+
+  test("highlight snippets render emphasized match terms from the real backend", async ({
+    page,
+    request,
+    adminToken,
+  }, testInfo) => {
+    const runID = buildParallelSafeRunID(testInfo);
+    tableName = `search_highlight_${runID}`;
+
+    await execSQL(
+      request,
+      adminToken,
+      `
+        DROP TABLE IF EXISTS ${tableName};
+        CREATE TABLE ${tableName} (
+          id BIGSERIAL PRIMARY KEY,
+          description TEXT NOT NULL,
+          category TEXT NOT NULL
+        );
+      `,
+    );
+
+    const matchTerm = "Xylophone";
+    const matchRow = `${matchTerm} orchestral demo ${runID}`;
+    const controlRow = `Drumkit percussion demo ${runID}`;
+
+    await seedRecord(request, adminToken, tableName, {
+      description: matchRow,
+      category: "music",
+    });
+    await seedRecord(request, adminToken, tableName, {
+      description: controlRow,
+      category: "music",
+    });
+
+    await page.goto("/admin/");
+    await waitForDashboard(page);
+
+    const searchNavControl = page.locator("aside").getByText("Search", { exact: true }).first();
+    await expect(searchNavControl).toBeVisible({ timeout: 10000 });
+    await searchNavControl.click();
+
+    await expect(page.getByRole("heading", { name: "Search" })).toBeVisible({ timeout: 10000 });
+    await page.getByLabel("Collection").selectOption(tableName);
+    await expect(page.getByText(matchRow, { exact: true })).toBeVisible({ timeout: 10000 });
+
+    const highlightToggle = page.getByLabel("Show highlighted matches");
+    await expect(highlightToggle).toBeChecked();
+
+    await page.getByLabel("Search query").fill(matchTerm);
+    await page.getByRole("main").getByRole("button", { name: /^Search$/i }).click();
+
+    const highlightSection = page.getByTestId("search-highlight-results");
+    await expect(highlightSection).toBeVisible({ timeout: 10000 });
+
+    const firstSnippet = page.getByTestId("search-highlight-snippet-0");
+    await expect(firstSnippet).toBeVisible();
+    await expect(firstSnippet).toContainText(matchTerm);
+
+    const emphasizedMark = firstSnippet.getByRole("mark");
+    await expect(emphasizedMark).toBeVisible();
+    await expect(emphasizedMark).toHaveText(matchTerm);
+
+    await expect(firstSnippet).not.toContainText(controlRow);
+    await expect(firstSnippet).not.toContainText("Drumkit");
+    await expect(firstSnippet).not.toContainText("percussion demo");
+
+    // Highlight-mode search must also filter the rendered Search result set: the
+    // non-matching control row should be removed from the grid below the snippet
+    // section, and no second highlight snippet should survive for it. Without
+    // these guards, the snippet-local assertions above would still pass if the
+    // backend stopped filtering rows but happened to return the matched row's
+    // snippet first.
+    await expect(page.getByText(controlRow, { exact: true })).toBeHidden();
+    await expect(page.getByTestId("search-highlight-snippet-1")).toHaveCount(0);
+
+    await highlightToggle.setChecked(false);
+    await expect(highlightSection).toBeHidden();
+  });
 });

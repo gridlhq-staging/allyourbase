@@ -11,6 +11,7 @@ function readSDKFile(relativePath: string): string {
 describe("0.2.0 release metadata", () => {
   it("publishes the package metadata as 0.2.0 without changing package shape", () => {
     const manifest = JSON.parse(readSDKFile("package.json")) as {
+      name: string;
       version: string;
       main: string;
       module: string;
@@ -20,6 +21,7 @@ describe("0.2.0 release metadata", () => {
       scripts: Record<string, string>;
     };
 
+    expect(manifest.name).toBe("@allyourbase/js");
     expect(manifest.version).toBe("0.2.0");
     expect(manifest.main).toBe("dist/index.cjs");
     expect(manifest.module).toBe("dist/index.js");
@@ -46,7 +48,9 @@ describe("0.2.0 release metadata", () => {
     expect(changelog).toContain("search");
     expect(changelog).toContain("fuzzy");
     expect(changelog).toContain("typoThreshold");
-    expect(changelog).toContain("highlight");
+    expect(changelog).toContain("boolean `highlight`");
+    expect(changelog).toContain("highlight: true");
+    expect(changelog).toContain("_highlight");
     expect(changelog).toContain("facets");
     expect(changelog).toContain("semantic");
     expect(changelog).toContain("semanticQuery");
@@ -61,6 +65,7 @@ describe("0.2.0 release metadata", () => {
 
     expect(readme).toContain("SearchHit");
     expect(readme).toContain("ayb.records.list<SearchHit");
+    expect(readme).toContain("_highlight");
     expect(readme).toContain("signInWithPasskey");
     expect(readme).toContain("beginWebAuthnLogin");
     expect(readme).toContain("finishWebAuthnLogin");

@@ -267,6 +267,204 @@ describe("Search", () => {
     });
   });
 
+  it("requests and shows highlighted matches for applied full-text searches by default", async () => {
+    mockListSearchPlaygroundRecords
+      .mockResolvedValueOnce({
+        page: 1,
+        perPage: 20,
+        totalItems: 0,
+        totalPages: 0,
+        items: [],
+      })
+      .mockResolvedValue({
+        page: 1,
+        perPage: 20,
+        totalItems: 1,
+        totalPages: 1,
+        items: [{ id: "row-1", title: "Alpha story", _highlight: "<b>Alpha</b> story" }],
+      });
+
+    renderWithProviders(
+      <Search schema={makeSchema({ "public.posts": { schema: "public", name: "posts" } })} />,
+    );
+
+    const user = userEvent.setup();
+    await user.type(screen.getByRole("textbox", { name: "Search query" }), "alpha");
+    await user.click(screen.getByRole("button", { name: "Search" }));
+
+    await waitFor(() => {
+      expect(mockListSearchPlaygroundRecords).toHaveBeenLastCalledWith(
+        "posts",
+        expect.objectContaining({ search: "alpha", highlight: true }),
+      );
+    });
+
+    expect(screen.getByRole("checkbox", { name: "Show highlighted matches" })).toBeChecked();
+    const strip = await screen.findByTestId("search-highlight-results");
+    const snippet = within(strip).getByTestId("search-highlight-snippet-0");
+    expect(snippet.textContent).toBe("Result 1: Alpha story");
+    expect(snippet.querySelector("mark")?.textContent).toBe("Alpha");
+  });
+
+  it("hides the Search-owned snippet surface when highlighted matches are toggled off", async () => {
+    mockListSearchPlaygroundRecords
+      .mockResolvedValueOnce({
+        page: 1,
+        perPage: 20,
+        totalItems: 0,
+        totalPages: 0,
+        items: [],
+      })
+      .mockResolvedValue({
+        page: 1,
+        perPage: 20,
+        totalItems: 1,
+        totalPages: 1,
+        items: [{ id: "row-1", title: "Alpha story", _highlight: "<b>Alpha</b> story" }],
+      });
+
+    renderWithProviders(
+      <Search schema={makeSchema({ "public.posts": { schema: "public", name: "posts" } })} />,
+    );
+
+    const user = userEvent.setup();
+    await user.type(screen.getByRole("textbox", { name: "Search query" }), "alpha");
+    await user.click(screen.getByRole("button", { name: "Search" }));
+    await screen.findByTestId("search-highlight-results");
+
+    await user.click(screen.getByRole("checkbox", { name: "Show highlighted matches" }));
+
+    expect(screen.queryByTestId("search-highlight-results")).not.toBeInTheDocument();
+  });
+
+  it("suppresses blank highlight snippets when the backend returns only empty markup", async () => {
+    mockListSearchPlaygroundRecords
+      .mockResolvedValueOnce({
+        page: 1,
+        perPage: 20,
+        totalItems: 0,
+        totalPages: 0,
+        items: [],
+      })
+      .mockResolvedValue({
+        page: 1,
+        perPage: 20,
+        totalItems: 1,
+        totalPages: 1,
+        items: [{ id: "row-1", title: "Alpha story", _highlight: "<b></b>" }],
+      });
+
+    renderWithProviders(
+      <Search schema={makeSchema({ "public.posts": { schema: "public", name: "posts" } })} />,
+    );
+
+    const user = userEvent.setup();
+    await user.type(screen.getByRole("textbox", { name: "Search query" }), "alpha");
+    await user.click(screen.getByRole("button", { name: "Search" }));
+
+    await waitFor(() => {
+      expect(mockListSearchPlaygroundRecords).toHaveBeenLastCalledWith(
+        "posts",
+        expect.objectContaining({ search: "alpha", highlight: true }),
+      );
+    });
+
+    expect(screen.queryByTestId("search-highlight-results")).not.toBeInTheDocument();
+    expect(screen.getByText("Alpha story")).toBeInTheDocument();
+  });
+
+  it("renders only literal b highlight markers as emphasis and leaves hostile markup inert", async () => {
+    mockListSearchPlaygroundRecords
+      .mockResolvedValueOnce({
+        page: 1,
+        perPage: 20,
+        totalItems: 0,
+        totalPages: 0,
+        items: [],
+      })
+      .mockResolvedValue({
+        page: 1,
+        perPage: 20,
+        totalItems: 1,
+        totalPages: 1,
+        items: [
+          {
+            id: "row-1",
+            title: "Hostile",
+            _highlight:
+              "Safe <b>match</b> &lt;script&gt;alert(1)&lt;/script&gt; &amp; &lt;img src=x onerror=alert(2)&gt; &lt;b onclick=&#34;alert(3)&#34;&gt;bad&lt;/b&gt;",
+          },
+        ],
+      });
+
+    renderWithProviders(
+      <Search schema={makeSchema({ "public.posts": { schema: "public", name: "posts" } })} />,
+    );
+
+    const user = userEvent.setup();
+    await user.type(screen.getByRole("textbox", { name: "Search query" }), "match");
+    await user.click(screen.getByRole("button", { name: "Search" }));
+
+    const snippet = await screen.findByTestId("search-highlight-snippet-0");
+    expect(snippet.querySelectorAll("mark")).toHaveLength(1);
+    expect(snippet.querySelector("mark")?.textContent).toBe("match");
+    expect(snippet.querySelector("script")).toBeNull();
+    expect(snippet.querySelector("img")).toBeNull();
+    expect(snippet.textContent).toContain("<script>alert(1)</script>");
+    expect(snippet.textContent).toContain("&");
+    expect(snippet.textContent).toContain("<img src=x onerror=alert(2)>");
+    expect(snippet.textContent).toContain('<b onclick="alert(3)">bad</b>');
+  });
+
+  it("does not request generated highlights or consume real _highlight columns", async () => {
+    mockListSearchPlaygroundRecords
+      .mockResolvedValueOnce({
+        page: 1,
+        perPage: 20,
+        totalItems: 0,
+        totalPages: 0,
+        items: [],
+      })
+      .mockResolvedValue({
+        page: 1,
+        perPage: 20,
+        totalItems: 1,
+        totalPages: 1,
+        items: [{ id: "row-1", title: "Alpha story", _highlight: "owner column value" }],
+      });
+
+    renderWithProviders(
+      <Search
+        schema={makeSchema({
+          "public.posts": {
+            schema: "public",
+            name: "posts",
+            columns: [
+              makeColumn({ name: "id", position: 1, type: "uuid", isPrimaryKey: true }),
+              makeColumn({ name: "title", position: 2 }),
+              makeColumn({ name: "_highlight", position: 3 }),
+            ],
+          },
+        })}
+      />,
+    );
+
+    const user = userEvent.setup();
+    await user.type(screen.getByRole("textbox", { name: "Search query" }), "alpha");
+    await user.click(screen.getByRole("button", { name: "Search" }));
+
+    await waitFor(() => {
+      expect(mockListSearchPlaygroundRecords).toHaveBeenLastCalledWith(
+        "posts",
+        expect.objectContaining({ search: "alpha", highlight: undefined }),
+      );
+    });
+
+    expect(screen.queryByTestId("search-highlight-results")).not.toBeInTheDocument();
+    expect(screen.getByRole("columnheader", { name: "_highlight" })).toBeInTheDocument();
+    expect(screen.getByText("owner column value")).toBeInTheDocument();
+  });
+
   it("keeps draft filter local until submit", async () => {
     mockListSearchPlaygroundRecords.mockResolvedValue({
       page: 1,

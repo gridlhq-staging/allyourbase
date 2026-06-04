@@ -1,4 +1,4 @@
-<!-- audited 2026-06-03 -->
+<!-- audited 2026-06-04 -->
 
 # Migrating from Algolia
 
@@ -13,9 +13,11 @@ For the canonical AYB search behavior, examples, response shape, and RLS notes, 
 | Index records | PostgreSQL table rows exposed through `GET /api/collections/{table}` |
 | Query text | `search=<text>` on the collection list endpoint |
 | Typo tolerance | `fuzzy=true` with a non-empty `search` value, backed by PostgreSQL `pg_trgm` |
+| Typo-threshold tuning | `typoThreshold` in the JS SDK / `typo_threshold` in REST when `fuzzy=true` |
 | Facets | `facets=column_a,column_b` for scalar column buckets in the list response |
 | Filters | `filter=<expr>` using AYB's safe filter syntax |
-| SDK search request | `ayb.records.list("table", { search, fuzzy, filter, facets })` |
+| Highlight snippets | `highlight=true` returns `_highlight` in matching result items |
+| SDK search request | `ayb.records.list("table", { search, fuzzy, typoThreshold, highlight, filter, facets })` |
 | Result hits | `items` in the list response |
 | Facet counts | `facets.<column>[]` buckets in the list response |
 
@@ -45,16 +47,21 @@ const ayb = new AYBClient("http://127.0.0.1:8090");
 const results = await ayb.records.list("products", {
   search: "keyboard",
   fuzzy: true,
+  typoThreshold: 0.3,
+  highlight: true,
   filter: "status='active'",
   facets: ["brand", "category"],
   perPage: 20,
 });
 
 console.log(results.items);
+console.log(results.items[0]?._highlight);
 console.log(results.facets?.brand);
 ```
 
-The SDK forwards the same parameter names as the REST API. Facets are returned under the optional `facets` response field, keyed by column name.
+The SDK forwards the same parameter names as the REST API. `highlight` is a
+boolean toggle, and `typoThreshold` is only accepted when `fuzzy: true`. Facets
+are returned under the optional `facets` response field, keyed by column name.
 
 ## Moving your data
 
@@ -71,15 +78,17 @@ This lane does not ship `ayb migrate algolia`, a dedicated Algolia importer, ind
 
 AYB's shipped PostgreSQL search path is useful when your application can use database-owned search, filters, facets, and RLS-scoped counts from one API. It is not an Algolia feature clone.
 
-The following are not part of this lane:
+AYB already ships typo-threshold tuning on fuzzy search plus `_highlight`
+snippets when you request `highlight=true`. The remaining gaps are:
 
-- no `typo_threshold` knob; collection list requests that send `typo_threshold` are rejected
 - no synonym-management story
-- no highlighting or snippeting response fields
+- no Algolia-specific relevance-control translation
+- no hosted index operations separate from PostgreSQL
 - no dedicated Algolia importer automation
-- no vector-search or hybrid-search expansion beyond the existing [AI and Vector Search](/guide/ai-vector) APIs
 
-Use Algolia when you still need Algolia-specific ranking controls, synonym operations, highlighting/snippeting, or hosted search operations that are separate from your PostgreSQL data path.
+Use Algolia when you still need Algolia-specific ranking controls, synonym
+operations, or hosted search operations that are separate from your PostgreSQL
+data path.
 
 ## Related guides
 
