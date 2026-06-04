@@ -93,22 +93,77 @@ func TestBuildSearchSQL(t *testing.T) {
 	t.Parallel()
 	tbl := searchableTable()
 
-	whereSQL, rankSQL, args, err := buildSearchSQL(tbl, "hello world", 1, false)
+	search, err := buildSearchSQL(tbl, "hello world", 1, defaultSearchOptions(false))
 	testutil.NoError(t, err)
-	testutil.SliceLen(t, args, 1)
-	testutil.Equal(t, "hello world", args[0].(string))
+	testutil.SliceLen(t, search.args, 1)
+	testutil.Equal(t, "hello world", search.args[0].(string))
 
 	// WHERE should contain tsvector @@ tsquery
-	testutil.Contains(t, whereSQL, "to_tsvector('simple'")
-	testutil.Contains(t, whereSQL, "websearch_to_tsquery('simple', $1)")
-	testutil.Contains(t, whereSQL, "@@")
-	testutil.Contains(t, whereSQL, `coalesce("title", '')`)
-	testutil.Contains(t, whereSQL, `coalesce("body", '')`)
-	testutil.Contains(t, whereSQL, `coalesce("status", '')`)
+	testutil.Contains(t, search.whereSQL, "to_tsvector('simple'")
+	testutil.Contains(t, search.whereSQL, "websearch_to_tsquery('simple', $1)")
+	testutil.Contains(t, search.whereSQL, "@@")
+	testutil.Contains(t, search.whereSQL, `coalesce("title", '')`)
+	testutil.Contains(t, search.whereSQL, `coalesce("body", '')`)
+	testutil.Contains(t, search.whereSQL, `coalesce("status", '')`)
 
 	// Rank should use ts_rank
-	testutil.Contains(t, rankSQL, "ts_rank(")
-	testutil.Contains(t, rankSQL, "websearch_to_tsquery('simple', $1)")
+	testutil.Contains(t, search.rankSQL, "ts_rank(")
+	testutil.Contains(t, search.rankSQL, "websearch_to_tsquery('simple', $1)")
+	testutil.Equal(t, "", search.highlightSelect)
+	testutil.Equal(t, "", search.highlightAlias)
+}
+
+func TestBuildSearchSQLWithHighlightUsesCanonicalDocument(t *testing.T) {
+	t.Parallel()
+	tbl := searchableTable()
+
+	search, err := buildSearchSQL(tbl, "hello", 1, searchOptions{
+		highlight:     true,
+		typoThreshold: defaultTypoThreshold,
+	})
+	testutil.NoError(t, err)
+
+	docExpr := `coalesce("title", '') || ' ' || coalesce("body", '') || ' ' || coalesce("status", '')`
+	tsquery := "websearch_to_tsquery('simple', $1)"
+	testutil.Contains(t, search.whereSQL, "to_tsvector('simple', "+docExpr+") @@ "+tsquery)
+	testutil.Contains(t, search.rankSQL, "ts_rank(to_tsvector('simple', "+docExpr+"), "+tsquery+")")
+	testutil.Contains(t, search.highlightSelect, "CASE WHEN to_tsvector('simple', "+docExpr+") @@ "+tsquery)
+	escapedDocExpr := "replace(replace(replace(" + docExpr + ", '&', '&amp;'), '<', '&lt;'), '>', '&gt;')"
+	testutil.Contains(t, search.highlightSelect, "ts_headline('simple', "+escapedDocExpr+", "+tsquery+", 'StartSel=<b>,StopSel=</b>')")
+	testutil.Contains(t, search.highlightSelect, "ELSE "+escapedDocExpr)
+	testutil.Contains(t, search.highlightSelect, `AS "`+searchHighlightSQLAlias+`"`)
+	testutil.Equal(t, searchHighlightSQLAlias, search.highlightAlias)
+}
+
+func TestBuildSearchSQLWithHighlightAvoidsSchemaAliasCollision(t *testing.T) {
+	t.Parallel()
+	tbl := searchableTable()
+	tbl.Columns = append(tbl.Columns,
+		&schema.Column{Name: "__search_highlight", Position: 5, TypeName: "text"},
+		&schema.Column{Name: searchHighlightSQLAlias, Position: 6, TypeName: "text"},
+	)
+
+	search, err := buildSearchSQL(tbl, "hello", 1, searchOptions{
+		highlight:     true,
+		typoThreshold: defaultTypoThreshold,
+	})
+	testutil.NoError(t, err)
+
+	testutil.Equal(t, searchHighlightSQLAlias+"_1", search.highlightAlias)
+	testutil.Contains(t, search.highlightSelect, `AS "`+searchHighlightSQLAlias+`_1"`)
+}
+
+func TestBuildSearchSQLWithHighlightRejectsResponseFieldCollision(t *testing.T) {
+	t.Parallel()
+	tbl := searchableTable()
+	tbl.Columns = append(tbl.Columns, &schema.Column{Name: searchHighlightResponseField, Position: 8, TypeName: "text"})
+
+	_, err := buildSearchSQL(tbl, "hello", 1, searchOptions{
+		highlight:     true,
+		typoThreshold: defaultTypoThreshold,
+	})
+	testutil.Error(t, err)
+	testutil.Contains(t, err.Error(), `highlight cannot be used on table "posts" because it has a "_highlight" column`)
 }
 
 func TestBuildSearchSQLWithOffset(t *testing.T) {
@@ -116,18 +171,18 @@ func TestBuildSearchSQLWithOffset(t *testing.T) {
 	tbl := searchableTable()
 
 	// Simulate filter already using $1, $2
-	whereSQL, rankSQL, args, err := buildSearchSQL(tbl, "test", 3, false)
+	search, err := buildSearchSQL(tbl, "test", 3, defaultSearchOptions(false))
 	testutil.NoError(t, err)
-	testutil.SliceLen(t, args, 1)
-	testutil.Contains(t, whereSQL, "$3")
-	testutil.Contains(t, rankSQL, "$3")
+	testutil.SliceLen(t, search.args, 1)
+	testutil.Contains(t, search.whereSQL, "$3")
+	testutil.Contains(t, search.rankSQL, "$3")
 
 	// Must NOT contain $1 or $2 — those belong to the filter.
-	if strings.Contains(whereSQL, "$1") || strings.Contains(whereSQL, "$2") {
-		t.Errorf("whereSQL should only use $3, got: %s", whereSQL)
+	if strings.Contains(search.whereSQL, "$1") || strings.Contains(search.whereSQL, "$2") {
+		t.Errorf("whereSQL should only use $3, got: %s", search.whereSQL)
 	}
-	if strings.Contains(rankSQL, "$1") || strings.Contains(rankSQL, "$2") {
-		t.Errorf("rankSQL should only use $3, got: %s", rankSQL)
+	if strings.Contains(search.rankSQL, "$1") || strings.Contains(search.rankSQL, "$2") {
+		t.Errorf("rankSQL should only use $3, got: %s", search.rankSQL)
 	}
 }
 
@@ -137,19 +192,19 @@ func TestBuildSearchSQLEmptyTerm(t *testing.T) {
 
 	// Empty search term should still produce valid SQL (handler guards against this,
 	// but buildSearchSQL itself should not panic or produce broken SQL).
-	whereSQL, rankSQL, args, err := buildSearchSQL(tbl, "", 1, false)
+	search, err := buildSearchSQL(tbl, "", 1, defaultSearchOptions(false))
 	testutil.NoError(t, err)
-	testutil.SliceLen(t, args, 1)
-	testutil.Equal(t, "", args[0].(string))
-	testutil.Contains(t, whereSQL, "@@")
-	testutil.Contains(t, rankSQL, "ts_rank(")
+	testutil.SliceLen(t, search.args, 1)
+	testutil.Equal(t, "", search.args[0].(string))
+	testutil.Contains(t, search.whereSQL, "@@")
+	testutil.Contains(t, search.rankSQL, "ts_rank(")
 }
 
 func TestBuildSearchSQLNoTextColumns(t *testing.T) {
 	t.Parallel()
 	tbl := noTextTable()
 
-	_, _, _, err := buildSearchSQL(tbl, "hello", 1, false)
+	_, err := buildSearchSQL(tbl, "hello", 1, defaultSearchOptions(false))
 	testutil.NotNil(t, err)
 	testutil.Contains(t, err.Error(), "no text columns")
 }
@@ -158,23 +213,44 @@ func TestBuildSearchSQLWithFuzzy(t *testing.T) {
 	t.Parallel()
 	tbl := searchableTable()
 
-	whereSQL, rankSQL, args, err := buildSearchSQL(tbl, "helo wrld", 2, true)
+	search, err := buildSearchSQL(tbl, "helo wrld", 2, defaultSearchOptions(true))
 	testutil.NoError(t, err)
-	testutil.SliceLen(t, args, 3)
-	testutil.Equal(t, "helo wrld", args[0].(string))
-	testutil.Equal(t, "helo", args[1].(string))
-	testutil.Equal(t, "wrld", args[2].(string))
-	testutil.Contains(t, whereSQL, "websearch_to_tsquery('simple', $2)")
-	testutil.Contains(t, whereSQL, `similarity(coalesce("title", ''), $2) > 0.2`)
-	testutil.Contains(t, whereSQL, `similarity(coalesce("body", ''), $2) > 0.2`)
-	testutil.Contains(t, whereSQL, `similarity(coalesce("status", ''), $2) > 0.2`)
-	testutil.Contains(t, whereSQL, `strict_word_similarity(lower($3), lower(coalesce("title", ''))) >= 0.2`)
-	testutil.Contains(t, whereSQL, `strict_word_similarity(lower($4), lower(coalesce("title", ''))) >= 0.2`)
-	testutil.Contains(t, whereSQL, "AND")
-	testutil.Contains(t, rankSQL, "GREATEST(")
-	testutil.Contains(t, rankSQL, `similarity(coalesce("title", ''), $2)`)
-	testutil.Contains(t, rankSQL, `similarity(coalesce("body", ''), $2)`)
-	testutil.Contains(t, rankSQL, `similarity(coalesce("status", ''), $2)`)
+	testutil.SliceLen(t, search.args, 3)
+	testutil.Equal(t, "helo wrld", search.args[0].(string))
+	testutil.Equal(t, "helo", search.args[1].(string))
+	testutil.Equal(t, "wrld", search.args[2].(string))
+	testutil.Contains(t, search.whereSQL, "websearch_to_tsquery('simple', $2)")
+	testutil.Contains(t, search.whereSQL, `similarity(coalesce("title", ''), $2) > 0.2`)
+	testutil.Contains(t, search.whereSQL, `similarity(coalesce("body", ''), $2) > 0.2`)
+	testutil.Contains(t, search.whereSQL, `similarity(coalesce("status", ''), $2) > 0.2`)
+	testutil.Contains(t, search.whereSQL, `strict_word_similarity(lower($3), lower(coalesce("title", ''))) >= 0.2`)
+	testutil.Contains(t, search.whereSQL, `strict_word_similarity(lower($4), lower(coalesce("title", ''))) >= 0.2`)
+	testutil.Contains(t, search.whereSQL, "AND")
+	testutil.Contains(t, search.rankSQL, "GREATEST(")
+	testutil.Contains(t, search.rankSQL, `similarity(coalesce("title", ''), $2)`)
+	testutil.Contains(t, search.rankSQL, `similarity(coalesce("body", ''), $2)`)
+	testutil.Contains(t, search.rankSQL, `similarity(coalesce("status", ''), $2)`)
+}
+
+func TestBuildSearchSQLWithFuzzyTypoThreshold(t *testing.T) {
+	t.Parallel()
+	tbl := searchableTable()
+
+	search, err := buildSearchSQL(tbl, "helo wrld", 2, searchOptions{
+		fuzzy:         true,
+		typoThreshold: 0.1,
+	})
+	testutil.NoError(t, err)
+	testutil.SliceLen(t, search.args, 3)
+	testutil.Contains(t, search.whereSQL, `similarity(coalesce("title", ''), $2) > 0.1`)
+	testutil.Contains(t, search.whereSQL, `similarity(coalesce("body", ''), $2) > 0.1`)
+	testutil.Contains(t, search.whereSQL, `similarity(coalesce("status", ''), $2) > 0.1`)
+	testutil.Contains(t, search.whereSQL, `strict_word_similarity(lower($3), lower(coalesce("title", ''))) >= 0.1`)
+	testutil.Contains(t, search.whereSQL, `strict_word_similarity(lower($4), lower(coalesce("title", ''))) >= 0.1`)
+	if strings.Contains(search.whereSQL, "> 0.2") || strings.Contains(search.whereSQL, ">= 0.2") {
+		t.Fatalf("expected caller-provided fuzzy threshold, got whereSQL: %s", search.whereSQL)
+	}
+	testutil.Contains(t, search.rankSQL, `similarity(coalesce("title", ''), $2)`)
 }
 
 func TestBuildListWithSearch(t *testing.T) {
@@ -290,25 +366,25 @@ func TestParseSearchParamAllowsFuzzyWithNonEmptySearch(t *testing.T) {
 				"fuzzy":  []string{tc.fuzzy},
 			}
 
-			whereSQL, rankSQL, args, ok := h.parseSearchParam(w, tbl, q, 1)
+			search, ok := h.parseSearchParam(w, tbl, q, 1)
 			testutil.Equal(t, true, ok)
 			testutil.Equal(t, http.StatusOK, w.Code)
-			testutil.Contains(t, whereSQL, "websearch_to_tsquery")
+			testutil.Contains(t, search.searchSQL, "websearch_to_tsquery")
 			if tc.wantFuzzy {
-				testutil.SliceLen(t, args, 2)
-				testutil.Equal(t, "post", args[0].(string))
-				testutil.Equal(t, "post", args[1].(string))
-				testutil.Contains(t, whereSQL, "similarity(")
-				testutil.Contains(t, whereSQL, "strict_word_similarity(")
-				testutil.Contains(t, rankSQL, "similarity(")
+				testutil.SliceLen(t, search.searchArgs, 2)
+				testutil.Equal(t, "post", search.searchArgs[0].(string))
+				testutil.Equal(t, "post", search.searchArgs[1].(string))
+				testutil.Contains(t, search.searchSQL, "similarity(")
+				testutil.Contains(t, search.searchSQL, "strict_word_similarity(")
+				testutil.Contains(t, search.searchRank, "similarity(")
 			} else {
-				testutil.SliceLen(t, args, 1)
-				testutil.Equal(t, "post", args[0].(string))
-				if strings.Contains(whereSQL, "similarity(") {
-					t.Fatalf("expected exact search SQL for fuzzy=false, got: %s", whereSQL)
+				testutil.SliceLen(t, search.searchArgs, 1)
+				testutil.Equal(t, "post", search.searchArgs[0].(string))
+				if strings.Contains(search.searchSQL, "similarity(") {
+					t.Fatalf("expected exact search SQL for fuzzy=false, got: %s", search.searchSQL)
 				}
-				if strings.Contains(rankSQL, "similarity(") {
-					t.Fatalf("expected exact rank SQL for fuzzy=false, got: %s", rankSQL)
+				if strings.Contains(search.searchRank, "similarity(") {
+					t.Fatalf("expected exact rank SQL for fuzzy=false, got: %s", search.searchRank)
 				}
 			}
 		})
@@ -326,7 +402,7 @@ func TestParseSearchParamRejectsFuzzyWhenPgTrgmUnavailable(t *testing.T) {
 		"fuzzy":  []string{"true"},
 	}
 
-	_, _, _, ok := h.parseSearchParam(w, tbl, q, 1)
+	_, ok := h.parseSearchParam(w, tbl, q, 1)
 	testutil.Equal(t, false, ok)
 	testutil.Equal(t, http.StatusBadRequest, w.Code)
 	testutil.Contains(t, strings.ToLower(w.Body.String()), "pg_trgm")
@@ -344,7 +420,7 @@ func TestParseSearchParamRejectsInvalidFuzzyBoolean(t *testing.T) {
 		"fuzzy":  []string{"notabool"},
 	}
 
-	_, _, _, ok := h.parseSearchParam(w, tbl, q, 1)
+	_, ok := h.parseSearchParam(w, tbl, q, 1)
 	testutil.Equal(t, false, ok)
 	testutil.Equal(t, http.StatusBadRequest, w.Code)
 	testutil.Contains(t, strings.ToLower(w.Body.String()), "fuzzy")
@@ -373,7 +449,7 @@ func TestParseSearchParamRejectsFuzzyWithoutUsableSearch(t *testing.T) {
 				"fuzzy":  []string{"true"},
 			}
 
-			_, _, _, ok := h.parseSearchParam(w, tbl, q, 1)
+			_, ok := h.parseSearchParam(w, tbl, q, 1)
 			testutil.Equal(t, false, ok)
 			testutil.Equal(t, http.StatusBadRequest, w.Code)
 			testutil.Contains(t, strings.ToLower(w.Body.String()), "fuzzy")
@@ -382,20 +458,159 @@ func TestParseSearchParamRejectsFuzzyWithoutUsableSearch(t *testing.T) {
 	}
 }
 
-func TestParseSearchParamRejectsTypoThreshold(t *testing.T) {
+func TestParseSearchParamTypoThreshold(t *testing.T) {
 	t.Parallel()
-	h := NewHandler(nil, testCacheHolder(&schema.SchemaCache{}), nil, nil, nil, nil)
+	h := NewHandler(nil, testCacheHolder(&schema.SchemaCache{HasPgTrgm: true}), nil, nil, nil, nil)
 	tbl := searchableTable()
 
-	w := httptest.NewRecorder()
-	q := url.Values{
-		"search":         []string{"post"},
-		"typo_threshold": []string{"0.42"},
+	tests := []struct {
+		name        string
+		query       url.Values
+		wantOK      bool
+		wantSnippet string
+	}{
+		{
+			name: "omitted_threshold_uses_default",
+			query: url.Values{
+				"search": []string{"post"},
+				"fuzzy":  []string{"true"},
+			},
+			wantOK:      true,
+			wantSnippet: "> 0.2",
+		},
+		{
+			name: "fuzzy_true_with_threshold_succeeds",
+			query: url.Values{
+				"search":         []string{"post"},
+				"fuzzy":          []string{"true"},
+				"typo_threshold": []string{"0.1"},
+			},
+			wantOK:      true,
+			wantSnippet: "> 0.1",
+		},
+		{
+			name: "threshold_without_fuzzy_fails",
+			query: url.Values{
+				"search":         []string{"post"},
+				"typo_threshold": []string{"0.1"},
+			},
+			wantOK:      false,
+			wantSnippet: "fuzzy",
+		},
+		{
+			name: "threshold_not_number_fails",
+			query: url.Values{
+				"search":         []string{"post"},
+				"fuzzy":          []string{"true"},
+				"typo_threshold": []string{"not-a-number"},
+			},
+			wantOK:      false,
+			wantSnippet: "typo_threshold",
+		},
+		{
+			name: "threshold_below_zero_fails",
+			query: url.Values{
+				"search":         []string{"post"},
+				"fuzzy":          []string{"true"},
+				"typo_threshold": []string{"-0.01"},
+			},
+			wantOK:      false,
+			wantSnippet: "typo_threshold",
+		},
+		{
+			name: "threshold_above_one_fails",
+			query: url.Values{
+				"search":         []string{"post"},
+				"fuzzy":          []string{"true"},
+				"typo_threshold": []string{"1.01"},
+			},
+			wantOK:      false,
+			wantSnippet: "typo_threshold",
+		},
 	}
-	_, _, _, ok := h.parseSearchParam(w, tbl, q, 1)
-	testutil.Equal(t, false, ok)
-	testutil.Equal(t, http.StatusBadRequest, w.Code)
-	testutil.Contains(t, w.Body.String(), "unsupported parameter")
+	for _, tc := range tests {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			w := httptest.NewRecorder()
+
+			search, ok := h.parseSearchParam(w, tbl, tc.query, 1)
+			testutil.Equal(t, tc.wantOK, ok)
+			if tc.wantOK {
+				testutil.Equal(t, http.StatusOK, w.Code)
+				testutil.Contains(t, search.searchSQL, tc.wantSnippet)
+				return
+			}
+			testutil.Equal(t, http.StatusBadRequest, w.Code)
+			testutil.Contains(t, strings.ToLower(w.Body.String()), strings.ToLower(tc.wantSnippet))
+		})
+	}
+}
+
+func TestParseSearchParamHighlight(t *testing.T) {
+	t.Parallel()
+	h := NewHandler(nil, testCacheHolder(&schema.SchemaCache{HasPgTrgm: true}), nil, nil, nil, nil)
+	tbl := searchableTable()
+
+	tests := []struct {
+		name          string
+		query         url.Values
+		wantOK        bool
+		wantHighlight bool
+		wantSnippet   string
+	}{
+		{
+			name: "highlight_true",
+			query: url.Values{
+				"search":    []string{"post"},
+				"highlight": []string{"true"},
+			},
+			wantOK:        true,
+			wantHighlight: true,
+			wantSnippet:   "ts_headline",
+		},
+		{
+			name: "highlight_false",
+			query: url.Values{
+				"search":    []string{"post"},
+				"highlight": []string{"false"},
+			},
+			wantOK:        true,
+			wantHighlight: false,
+		},
+		{
+			name: "highlight_invalid_boolean",
+			query: url.Values{
+				"search":    []string{"post"},
+				"highlight": []string{"sometimes"},
+			},
+			wantOK:      false,
+			wantSnippet: "highlight",
+		},
+	}
+	for _, tc := range tests {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			w := httptest.NewRecorder()
+
+			search, ok := h.parseSearchParam(w, tbl, tc.query, 1)
+			testutil.Equal(t, tc.wantOK, ok)
+			if !tc.wantOK {
+				testutil.Equal(t, http.StatusBadRequest, w.Code)
+				testutil.Contains(t, strings.ToLower(w.Body.String()), strings.ToLower(tc.wantSnippet))
+				return
+			}
+			testutil.Equal(t, http.StatusOK, w.Code)
+			if tc.wantHighlight {
+				testutil.Contains(t, search.highlightSelect, tc.wantSnippet)
+				testutil.Equal(t, searchHighlightSQLAlias, search.highlightAlias)
+				return
+			}
+			testutil.Equal(t, "", search.highlightSelect)
+			testutil.Equal(t, "", search.highlightAlias)
+		})
+	}
 }
 
 func TestHandleList_AllowsFacetsOnNonVectorPath(t *testing.T) {

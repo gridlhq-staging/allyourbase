@@ -21,7 +21,7 @@ func (h *Handler) handleAggregate(w http.ResponseWriter, r *http.Request, tbl *s
 			return
 		}
 	}
-	if rejectUnsupportedSearchParams(w, q, []string{"facets", "typo_threshold"}) {
+	if rejectUnsupportedSearchParams(w, q, []string{"facets", "typo_threshold", "highlight"}) {
 		return
 	}
 
@@ -43,7 +43,7 @@ func (h *Handler) handleAggregate(w http.ResponseWriter, r *http.Request, tbl *s
 		return
 	}
 
-	searchSQL, searchRank, searchArgs, ok := h.parseSearchParam(w, tbl, q, len(fs.filterArgs)+len(fs.spatialArgs)+1)
+	search, ok := h.parseSearchParam(w, tbl, q, len(fs.filterArgs)+len(fs.spatialArgs)+1)
 	if !ok {
 		return
 	}
@@ -53,9 +53,9 @@ func (h *Handler) handleAggregate(w http.ResponseWriter, r *http.Request, tbl *s
 		filterArgs:  fs.filterArgs,
 		spatialSQL:  fs.spatialSQL,
 		spatialArgs: fs.spatialArgs,
-		searchSQL:   searchSQL,
-		searchRank:  searchRank,
-		searchArgs:  searchArgs,
+		searchSQL:   search.searchSQL,
+		searchRank:  search.searchRank,
+		searchArgs:  search.searchArgs,
 	}
 
 	aggQuery, aggArgs, err := buildAggregate(tbl, exprs, opts, groupCols)

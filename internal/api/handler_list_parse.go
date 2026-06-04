@@ -2,8 +2,10 @@ package api
 
 import (
 	"fmt"
+	"math"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 
 	"github.com/allyourbase/ayb/internal/schema"
@@ -11,11 +13,17 @@ import (
 
 // filterSearchResult holds parsed filter and search SQL fragments.
 type filterSearchResult struct {
+	searchParamResult
 	filterSQL  string
 	filterArgs []any
-	searchSQL  string
-	searchRank string
-	searchArgs []any
+}
+
+type searchParamResult struct {
+	searchSQL       string
+	searchRank      string
+	searchArgs      []any
+	highlightSelect string
+	highlightAlias  string
 }
 
 // filterSpatialResult holds parsed filter and spatial SQL fragments.
@@ -26,9 +34,9 @@ type filterSpatialResult struct {
 	spatialArgs []any
 }
 
-var unsupportedSearchParams = []string{"typo_threshold"}
+var unsupportedVectorSearchParams = []string{"fuzzy", "facets", "typo_threshold", "highlight"}
 
-var unsupportedVectorSearchParams = []string{"fuzzy", "facets", "typo_threshold"}
+const typoThresholdParam = "typo_threshold"
 
 func findUnsupportedSearchParam(q url.Values, unsupportedParams []string) string {
 	for _, param := range unsupportedParams {
@@ -62,6 +70,35 @@ func parseFuzzyParam(q url.Values, searchStr string) (bool, error) {
 		return false, nil
 	default:
 		return false, fmt.Errorf("fuzzy parameter must be a boolean")
+	}
+}
+
+func parseTypoThresholdParam(q url.Values, fuzzy bool) (float64, error) {
+	if !q.Has(typoThresholdParam) {
+		return defaultTypoThreshold, nil
+	}
+	if !fuzzy {
+		return 0, fmt.Errorf("%s requires fuzzy=true", typoThresholdParam)
+	}
+
+	threshold, err := strconv.ParseFloat(strings.TrimSpace(q.Get(typoThresholdParam)), 64)
+	if err != nil || math.IsNaN(threshold) || math.IsInf(threshold, 0) || threshold < 0 || threshold > 1 {
+		return 0, fmt.Errorf("%s must be a number between 0 and 1", typoThresholdParam)
+	}
+	return threshold, nil
+}
+
+func parseHighlightParam(q url.Values) (bool, error) {
+	if !q.Has("highlight") {
+		return false, nil
+	}
+	switch strings.ToLower(strings.TrimSpace(q.Get("highlight"))) {
+	case "true":
+		return true, nil
+	case "false":
+		return false, nil
+	default:
+		return false, fmt.Errorf("highlight parameter must be a boolean")
 	}
 }
 
@@ -120,33 +157,50 @@ func (h *Handler) parseFilterAndSpatial(w http.ResponseWriter, tbl *schema.Table
 // parseSearchParam validates and parses the search query parameter into full-text
 // search SQL fragments. argOffset controls the starting $N placeholder index.
 // On validation failure it writes the error response and returns false.
-func (h *Handler) parseSearchParam(w http.ResponseWriter, tbl *schema.Table, q url.Values, argOffset int) (searchSQL, searchRank string, searchArgs []any, ok bool) {
-	if rejectUnsupportedSearchParams(w, q, unsupportedSearchParams) {
-		return "", "", nil, false
-	}
+func (h *Handler) parseSearchParam(w http.ResponseWriter, tbl *schema.Table, q url.Values, argOffset int) (searchParamResult, bool) {
+	var res searchParamResult
 	searchStr := strings.TrimSpace(q.Get("search"))
 	fuzzy, err := parseFuzzyParam(q, searchStr)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
-		return "", "", nil, false
+		return res, false
+	}
+	typoThreshold, err := parseTypoThresholdParam(q, fuzzy)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return res, false
+	}
+	highlight, err := parseHighlightParam(q)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return res, false
 	}
 	if fuzzy && !hasPgTrgm(h.schema.Get()) {
 		writeError(w, http.StatusBadRequest, "fuzzy search is unavailable because pg_trgm is not installed")
-		return "", "", nil, false
+		return res, false
 	}
 	if searchStr == "" {
-		return "", "", nil, true
+		return res, true
 	}
 	if len(searchStr) > maxSearchLen {
 		writeErrorWithDoc(w, http.StatusBadRequest, "search term too long", docURL("/guide/api-reference#full-text-search"))
-		return "", "", nil, false
+		return res, false
 	}
-	searchSQL, searchRank, searchArgs, err = buildSearchSQL(tbl, searchStr, argOffset, fuzzy)
+	search, err := buildSearchSQL(tbl, searchStr, argOffset, searchOptions{
+		fuzzy:         fuzzy,
+		typoThreshold: typoThreshold,
+		highlight:     highlight,
+	})
 	if err != nil {
 		writeErrorWithDoc(w, http.StatusBadRequest, "search not supported: "+err.Error(), docURL("/guide/api-reference#full-text-search"))
-		return "", "", nil, false
+		return res, false
 	}
-	return searchSQL, searchRank, searchArgs, true
+	res.searchSQL = search.whereSQL
+	res.searchRank = search.rankSQL
+	res.searchArgs = search.args
+	res.highlightSelect = search.highlightSelect
+	res.highlightAlias = search.highlightAlias
+	return res, true
 }
 
 // parseFilterAndSearch validates and parses filter and search query parameters.
@@ -158,9 +212,10 @@ func (h *Handler) parseFilterAndSearch(w http.ResponseWriter, tbl *schema.Table,
 	if !ok {
 		return res, false
 	}
-	res.searchSQL, res.searchRank, res.searchArgs, ok = h.parseSearchParam(w, tbl, q, len(res.filterArgs)+1)
+	search, ok := h.parseSearchParam(w, tbl, q, len(res.filterArgs)+1)
 	if !ok {
 		return res, false
 	}
+	res.searchParamResult = search
 	return res, true
 }

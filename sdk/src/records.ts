@@ -7,6 +7,7 @@ import type {
   GetParams,
   ListParams,
   ListResponse,
+  SearchHit,
 } from "./types";
 import { encodePathSegment } from "./helpers";
 
@@ -27,7 +28,7 @@ export class RecordsClient {
    * @param params - Optional filtering, pagination, and response options
    * @returns Promise resolving to paginated records and metadata
    */
-  async list<T = Record<string, unknown>>(
+  async list<T = SearchHit>(
     collection: string,
     params?: ListParams,
   ): Promise<ListResponse<T>> {
@@ -42,6 +43,8 @@ export class RecordsClient {
     if (params?.expand) qs.set("expand", params.expand);
     if (params?.skipTotal) qs.set("skipTotal", "true");
     if (params?.fuzzy === true) qs.set("fuzzy", "true");
+    if (params?.typoThreshold != null) qs.set("typo_threshold", String(params.typoThreshold));
+    if (params?.highlight) qs.set("highlight", params.highlight);
     if (params?.facets?.length) qs.set("facets", params.facets.join(","));
     if (params?.semantic === true) qs.set("semantic", "true");
     if (params?.semanticQuery) qs.set("semantic_query", params.semanticQuery);

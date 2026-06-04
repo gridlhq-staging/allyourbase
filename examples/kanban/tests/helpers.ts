@@ -18,6 +18,7 @@ export function uniqueEmail(): string {
 export const TEST_PASSWORD = "testpassword123";
 const ANONYMOUS_BOOTSTRAP_OPTOUT_KEY = "ayb_anonymous_bootstrap_optout";
 const SEED_IN_PROGRESS_KEY = "ayb_kanban_seed_in_progress";
+type OwnedBoardProjection = "count" | "first-id";
 
 type BlockedRequestGate = {
   wasBlocked: () => boolean;
@@ -154,8 +155,13 @@ export async function createBoard(
   page: Page,
   title: string,
 ): Promise<void> {
-  await page.getByPlaceholder("New board name...").fill(title);
-  await page.getByRole("button", { name: "Create" }).click();
+  const titleInput = page.getByPlaceholder("New board name...");
+  const createButton = page.getByRole("button", { name: "Create" });
+
+  await titleInput.fill(title);
+  await expect(titleInput).toHaveValue(title);
+  await expect(createButton).toBeEnabled();
+  await createButton.click();
   // Use .first() — collaborative model means other users' boards are visible,
   // so duplicate titles from other workers may exist.
   await expect(page.getByText(title).first()).toBeVisible();
@@ -181,6 +187,50 @@ export async function addColumn(
 }
 
 /**
+ * Query the current user's owned boards through the API instead of the DOM.
+ *
+ * The kanban demo intentionally exposes every board in the shared list via RLS,
+ * so DOM-level board counts are polluted by other workers. Keeping the auth +
+ * filter logic in one helper avoids drift between count/id callers.
+ */
+async function readOwnedBoardProjection(
+  page: Page,
+  projection: OwnedBoardProjection,
+): Promise<number | string | null> {
+  return page.evaluate(async (mode) => {
+    const quoteCollectionFilterLiteral = (value: string) =>
+      `'${value.replace(/\\/g, "\\\\").replace(/'/g, "\\'")}'`;
+    const token = sessionStorage.getItem("ayb_token");
+    if (!token) {
+      throw new Error("readOwnedBoardProjection: no auth token in sessionStorage");
+    }
+    const headers = { Authorization: `Bearer ${token}` };
+
+    const meRes = await fetch("/api/auth/me", { headers });
+    if (!meRes.ok) {
+      throw new Error(`readOwnedBoardProjection: /api/auth/me failed (${meRes.status})`);
+    }
+    const me = (await meRes.json()) as { id: string };
+
+    const filter = encodeURIComponent(`user_id=${quoteCollectionFilterLiteral(me.id)}`);
+    const boardsRes = await fetch(
+      `/api/collections/boards?filter=${filter}&perPage=100`,
+      { headers },
+    );
+    if (!boardsRes.ok) {
+      throw new Error(`readOwnedBoardProjection: boards list failed (${boardsRes.status})`);
+    }
+    const data = (await boardsRes.json()) as { items: { id: string; user_id: string }[] };
+    const ownedBoards = data.items.filter((board) => board.user_id === me.id);
+
+    if (mode === "count") {
+      return ownedBoards.length;
+    }
+    return ownedBoards[0]?.id ?? null;
+  }, projection);
+}
+
+/**
  * Count boards owned by the currently-authenticated user.
  *
  * `boards_select USING (true)` (schema.sql) makes every board globally
@@ -191,55 +241,20 @@ export async function addColumn(
  * lint-banned from raw API calls; helpers are exempt.
  */
 export async function ownedBoardCount(page: Page): Promise<number> {
-  return page.evaluate(async () => {
-    const quoteFilterLiteral = (value: string) =>
-      `'${value.replace(/\\/g, "\\\\").replace(/'/g, "\\'")}'`;
-    const token = sessionStorage.getItem("ayb_token");
-    if (!token) throw new Error("ownedBoardCount: no auth token in sessionStorage");
-    const headers = { Authorization: `Bearer ${token}` };
-
-    const meRes = await fetch("/api/auth/me", { headers });
-    if (!meRes.ok) throw new Error(`ownedBoardCount: /api/auth/me failed (${meRes.status})`);
-    const me = (await meRes.json()) as { id: string };
-
-    const filter = encodeURIComponent(`user_id=${quoteFilterLiteral(me.id)}`);
-    const boardsRes = await fetch(
-      `/api/collections/boards?filter=${filter}&perPage=100`,
-      { headers },
-    );
-    if (!boardsRes.ok) {
-      throw new Error(`ownedBoardCount: boards list failed (${boardsRes.status})`);
-    }
-    const data = (await boardsRes.json()) as { items: { user_id: string }[] };
-    return data.items.filter((b) => b.user_id === me.id).length;
-  });
+  const ownedBoardCount = await readOwnedBoardProjection(page, "count");
+  if (typeof ownedBoardCount !== "number") {
+    throw new Error(`ownedBoardCount: expected numeric board count, got ${typeof ownedBoardCount}`);
+  }
+  return ownedBoardCount;
 }
 
 /** Get the board ID of the first board owned by the current user. */
 export async function ownedBoardId(page: Page): Promise<string | null> {
-  return page.evaluate(async () => {
-    const quoteFilterLiteral = (value: string) =>
-      `'${value.replace(/\\/g, "\\\\").replace(/'/g, "\\'")}'`;
-    const token = sessionStorage.getItem("ayb_token");
-    if (!token) throw new Error("ownedBoardId: no auth token in sessionStorage");
-    const headers = { Authorization: `Bearer ${token}` };
-
-    const meRes = await fetch("/api/auth/me", { headers });
-    if (!meRes.ok) throw new Error(`ownedBoardId: /api/auth/me failed (${meRes.status})`);
-    const me = (await meRes.json()) as { id: string };
-
-    const filter = encodeURIComponent(`user_id=${quoteFilterLiteral(me.id)}`);
-    const boardsRes = await fetch(
-      `/api/collections/boards?filter=${filter}&perPage=100`,
-      { headers },
-    );
-    if (!boardsRes.ok) {
-      throw new Error(`ownedBoardId: boards list failed (${boardsRes.status})`);
-    }
-    const data = (await boardsRes.json()) as { items: { id: string; user_id: string }[] };
-    const owned = data.items.find((b) => b.user_id === me.id);
-    return owned ? owned.id : null;
-  });
+  const ownedBoardId = await readOwnedBoardProjection(page, "first-id");
+  if (ownedBoardId !== null && typeof ownedBoardId !== "string") {
+    throw new Error(`ownedBoardId: expected string or null, got ${typeof ownedBoardId}`);
+  }
+  return ownedBoardId;
 }
 
 /** Simulate a partial starter-board seed by keeping the marker and deleting the Done starter card. */
@@ -248,6 +263,8 @@ export async function simulateInterruptedSeedMissingDoneCard(
   boardId: string,
 ): Promise<void> {
   await page.evaluate(async ({ seedMarkerKey, targetBoardId }) => {
+    const quoteCollectionFilterLiteral = (value: string) =>
+      `'${value.replace(/\\/g, "\\\\").replace(/'/g, "\\'")}'`;
     const token = sessionStorage.getItem("ayb_token");
     if (!token) {
       throw new Error("simulateInterruptedSeedMissingDoneCard: no auth token in sessionStorage");
@@ -264,7 +281,7 @@ export async function simulateInterruptedSeedMissingDoneCard(
 
     localStorage.setItem(seedMarkerKey, me.id);
 
-    const columnsFilter = encodeURIComponent(`board_id='${targetBoardId}'`);
+    const columnsFilter = encodeURIComponent(`board_id=${quoteCollectionFilterLiteral(targetBoardId)}`);
     const columnsRes = await fetch(
       `/api/collections/columns?filter=${columnsFilter}&perPage=100`,
       { headers },
@@ -282,7 +299,7 @@ export async function simulateInterruptedSeedMissingDoneCard(
       throw new Error("simulateInterruptedSeedMissingDoneCard: missing seeded Done column");
     }
 
-    const cardsFilter = encodeURIComponent(`column_id='${doneColumn.id}'`);
+    const cardsFilter = encodeURIComponent(`column_id=${quoteCollectionFilterLiteral(doneColumn.id)}`);
     const cardsRes = await fetch(
       `/api/collections/cards?filter=${cardsFilter}&perPage=100`,
       { headers },
@@ -311,7 +328,10 @@ export async function simulateInterruptedSeedMissingDoneCard(
         `simulateInterruptedSeedMissingDoneCard: delete card failed (${deleteRes.status})`,
       );
     }
-  }, { seedMarkerKey: SEED_IN_PROGRESS_KEY, targetBoardId: boardId });
+  }, {
+    seedMarkerKey: SEED_IN_PROGRESS_KEY,
+    targetBoardId: boardId,
+  });
 }
 
 /** Read the sample-board seed marker from localStorage. */
@@ -329,12 +349,12 @@ export async function installEscapedBoardApiMock(
 ): Promise<() => string | null> {
   let capturedColumnsFilter: string | null = null;
 
-  await page.addInitScript(() => {
+  await page.addInitScript((optOutKey) => {
     sessionStorage.setItem("ayb_token", "test-token");
     sessionStorage.setItem("ayb_refresh_token", "test-refresh");
     localStorage.setItem("ayb_email", "security-test@example.com");
-    localStorage.setItem("ayb_anonymous_bootstrap_optout", "1");
-  });
+    localStorage.setItem(optOutKey, "1");
+  }, ANONYMOUS_BOOTSTRAP_OPTOUT_KEY);
   await page.route("**/api/auth/me", async (route) => {
     await route.fulfill({
       status: 200,

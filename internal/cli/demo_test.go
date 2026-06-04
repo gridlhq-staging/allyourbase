@@ -244,6 +244,18 @@ func TestDemoValidArgsMatchRegistry(t *testing.T) {
 	}
 }
 
+func TestDemoLongLinksSearchGuides(t *testing.T) {
+	expected := []string{
+		"https://allyourbase.io/guide/search",
+		"https://allyourbase.io/guide/migrating-from-algolia",
+	}
+	for _, text := range expected {
+		if !strings.Contains(demoCmd.Long, text) {
+			t.Errorf("demo long help should link %q", text)
+		}
+	}
+}
+
 // TestEmbeddedSchemasUseCorrectRLSKey verifies all demo schemas reference
 // the 'ayb.user_id' session variable that the AYB server actually sets
 // (via SET LOCAL in internal/auth/rls.go). Any reference to 'request.jwt.sub'

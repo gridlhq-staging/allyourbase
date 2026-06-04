@@ -666,6 +666,7 @@ func TestAggregateSearchRejectsFacetsAndTypoThreshold(t *testing.T) {
 	}{
 		{name: "facets", url: "/collections/products?aggregate=count&search=widget&facets=category"},
 		{name: "typo_threshold_numeric", url: "/collections/products?aggregate=count&search=widget&typo_threshold=0.6"},
+		{name: "highlight", url: "/collections/products?aggregate=count&search=widget&highlight=true"},
 	}
 	for _, tc := range tests {
 		tc := tc

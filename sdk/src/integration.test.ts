@@ -18,6 +18,7 @@ import {
   getCachedAdminToken,
   makeUniqueAuthEmail,
   primeIntegrationSuite,
+  sqlStringLiteral,
   toCount,
   trackAuthUser,
   trackedAuthUserIDs,
@@ -467,7 +468,7 @@ describe("SDK integration smoke + auth suite", () => {
       });
     });
 
-    describe("records search facets", () => {
+    describe("records search (fuzzy + facets)", () => {
       // Dedicated table because the records list handler 500s on the first list
       // request after ALTER TABLE (pgx cached prepared statement returns stale
       // result type; SQLSTATE 0A000). Fixing that connection-pool behavior is a
@@ -476,6 +477,15 @@ describe("SDK integration smoke + auth suite", () => {
       // is fully exercised on a fresh table that includes `category` from the
       // start.
       const facetsTableName = `${tableName}_facets`;
+      type SearchFixture = { id: number; title: string; category: string };
+      let pgTrgmInstalled = false;
+      let searchFixtures: SearchFixture[] = [];
+
+      function fixtureID(title: string): number {
+        const fixture = searchFixtures.find((row) => row.title === title);
+        expect(fixture).toBeDefined();
+        return fixture!.id;
+      }
 
       beforeAll(async () => {
         await adminSql(
@@ -489,6 +499,10 @@ describe("SDK integration smoke + auth suite", () => {
         await adminSql(
           `CREATE POLICY sdk_test_all ON ${facetsTableName} FOR ALL USING (true) WITH CHECK (true)`,
         );
+        const extensionProbe = await adminSql(
+          `SELECT EXISTS(SELECT 1 FROM pg_extension WHERE extname = 'pg_trgm')`,
+        );
+        pgTrgmInstalled = extensionProbe.rows[0]?.[0] === true;
         await waitForCollectionSchemaCache(client, facetsTableName, "facets records");
       }, 35_000);
 
@@ -498,28 +512,49 @@ describe("SDK integration smoke + auth suite", () => {
 
       beforeEach(async () => {
         await adminSql(`TRUNCATE TABLE ${facetsTableName} RESTART IDENTITY`);
-        await adminSql(
+        const seeded = await adminSql(
           `INSERT INTO ${facetsTableName} (title, category) VALUES ` +
-            `('r1','a'), ('r2','a'), ('r3','b'), ('r4','c')`,
+            `('banana split','dessert'), ('banna bread','dessert'), ` +
+            `('apple pie','fruit'), ('appel tart','fruit'), ` +
+            `('celery sticks','other'), ('carrot soup','other') ` +
+            `RETURNING id, title, category`,
         );
+        searchFixtures = seeded.rows.map(([id, title, category]) => ({
+          id: Number(id),
+          title: String(title),
+          category: String(category),
+        }));
       });
 
-      it("returns facet counts alongside the page items", async () => {
+      it("returns fuzzy typo matches when fuzzy: true is enabled", async (ctx) => {
+        if (!pgTrgmInstalled) {
+          ctx.skip("pg_trgm extension not installed on test server — fuzzy search unavailable");
+        }
+
+        const result = await client.records.list<{ id: number; title: string; category: string }>(
+          facetsTableName,
+          { search: "banan", fuzzy: true },
+        );
+        const returnedIDs = new Set(result.items.map((item) => item.id));
+
+        expect(returnedIDs.has(fixtureID("banana split"))).toBe(true);
+        expect(returnedIDs.has(fixtureID("banna bread"))).toBe(true);
+        expect(returnedIDs.has(fixtureID("apple pie"))).toBe(false);
+      });
+
+      it("returns balanced facet counts alongside the page items", async () => {
         const result = await client.records.list<{ id: number; title: string; category: string }>(
           facetsTableName,
           { facets: ["category"] },
         );
+        const categoryCounts = Object.fromEntries(
+          (result.facets?.category ?? []).map(({ value, count }) => [String(value), count]),
+        );
 
         expect(result.facets).toBeDefined();
-        expect(result.facets!.category).toEqual(
-          expect.arrayContaining([
-            { value: "a", count: 2 },
-            { value: "b", count: 1 },
-            { value: "c", count: 1 },
-          ]),
-        );
+        expect(categoryCounts).toEqual({ dessert: 2, fruit: 2, other: 2 });
         expect(result.facets!.category).toHaveLength(3);
-        expect(result.items).toHaveLength(4);
+        expect(result.items).toHaveLength(6);
       });
 
       it("rejects unknown facet columns with a 400 error", async () => {
@@ -529,6 +564,148 @@ describe("SDK integration smoke + auth suite", () => {
           /unknown column .*nonexistent_col/i,
         );
       });
+    });
+  });
+
+  describe("auth webauthn MFA (HTTP contract)", () => {
+    let sessionToken = "";
+    let pendingToken = "";
+
+    async function expectErrorEnvelope(
+      response: Response,
+      status: number,
+      message?: string | RegExp,
+    ): Promise<void> {
+      expect(response.status).toBe(status);
+      const body = (await response.json()) as { code?: unknown; message?: unknown };
+      expect(body.code).toBe(status);
+      expect(typeof body.message).toBe("string");
+      if (typeof message === "string") {
+        expect(body.message).toBe(message);
+      } else if (message) {
+        expect(String(body.message)).toMatch(message);
+      }
+    }
+
+    beforeAll(async () => {
+      const enrollClient = createTestClient();
+      const enrollEmail = makeUniqueAuthEmail("webauthn-enroll");
+      const enrollRegistered = await enrollClient.auth.register(enrollEmail, AUTH_TEST_PASSWORD);
+      trackAuthUser(enrollRegistered.user.id);
+      sessionToken = enrollRegistered.token;
+
+      const pendingClient = createTestClient();
+      const pendingEmail = makeUniqueAuthEmail("webauthn-pending");
+      const pendingRegistered = await pendingClient.auth.register(pendingEmail, AUTH_TEST_PASSWORD);
+      trackAuthUser(pendingRegistered.user.id);
+
+      // A pending-MFA token only requires one enabled MFA row. Insert a minimal
+      // WebAuthn factor so password login returns mfa_pending and the malformed
+      // /verify request reaches WebAuthn handler validation instead of failing
+      // the auth gate first.
+      await adminSql(
+        `INSERT INTO _ayb_user_mfa (user_id, method, enabled, enrolled_at, webauthn_display_name)
+         VALUES (${sqlStringLiteral(pendingRegistered.user.id)}, 'webauthn', true, NOW(), 'sdk contract passkey')`,
+      );
+      await pendingClient.auth.logout();
+
+      const loginResponse = await fetch(`${BASE_URL}/api/auth/login`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: pendingEmail, password: AUTH_TEST_PASSWORD }),
+      });
+      expect(loginResponse.status).toBe(200);
+      const loginBody = (await loginResponse.json()) as {
+        mfa_pending?: unknown;
+        mfa_token?: unknown;
+      };
+      expect(loginBody.mfa_pending).toBe(true);
+      pendingToken = String(loginBody.mfa_token ?? "");
+      expect(pendingToken.length).toBeGreaterThan(0);
+    }, 60_000);
+
+    it("returns enroll options with challenge, rp.id, user.id, and pubKeyCredParams", async () => {
+      const response = await fetch(`${BASE_URL}/api/auth/mfa/webauthn/enroll`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${sessionToken}` },
+      });
+      expect(response.status).toBe(200);
+      const body = (await response.json()) as {
+        challenge?: unknown;
+        rp?: { id?: unknown };
+        user?: { id?: unknown };
+        pubKeyCredParams?: unknown[];
+      };
+
+      expect(typeof body.challenge).toBe("string");
+      expect(String(body.challenge ?? "").length).toBeGreaterThan(0);
+      expect(typeof body.rp?.id).toBe("string");
+      expect(String(body.rp?.id ?? "").length).toBeGreaterThan(0);
+      expect(typeof body.user?.id).toBe("string");
+      expect(String(body.user?.id ?? "").length).toBeGreaterThan(0);
+      expect(Array.isArray(body.pubKeyCredParams)).toBe(true);
+      expect((body.pubKeyCredParams ?? []).length).toBeGreaterThan(0);
+    });
+
+    it("rejects malformed enroll confirmations with the AYB error envelope", async () => {
+      const response = await fetch(`${BASE_URL}/api/auth/mfa/webauthn/enroll/confirm`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${sessionToken}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({}),
+      });
+
+      await expectErrorEnvelope(response, 400, "attestation_response is required");
+    });
+
+    it("requires an MFA-pending bearer for the WebAuthn challenge endpoint", async () => {
+      const missingAuth = await fetch(`${BASE_URL}/api/auth/mfa/webauthn/challenge`, {
+        method: "POST",
+      });
+      await expectErrorEnvelope(missingAuth, 401, "no MFA challenge pending");
+
+      const plainSession = await fetch(`${BASE_URL}/api/auth/mfa/webauthn/challenge`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${sessionToken}` },
+      });
+      await expectErrorEnvelope(plainSession, 401, "no MFA challenge pending");
+    });
+
+    it("requires an MFA-pending bearer for the WebAuthn verify endpoint", async () => {
+      const missingAuth = await fetch(`${BASE_URL}/api/auth/mfa/webauthn/verify`, {
+        method: "POST",
+      });
+      await expectErrorEnvelope(missingAuth, 401, "no MFA challenge pending");
+
+      const plainSession = await fetch(`${BASE_URL}/api/auth/mfa/webauthn/verify`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${sessionToken}` },
+      });
+      await expectErrorEnvelope(plainSession, 401, "no MFA challenge pending");
+    });
+
+    it("rejects malformed WebAuthn verify payloads with the AYB error envelope", async () => {
+      const missingChallenge = await fetch(`${BASE_URL}/api/auth/mfa/webauthn/verify`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${pendingToken}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ assertion: null }),
+      });
+      await expectErrorEnvelope(missingChallenge, 400, "challenge_id is required");
+
+      const missingAssertion = await fetch(`${BASE_URL}/api/auth/mfa/webauthn/verify`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${pendingToken}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ challenge_id: "sdk-contract-challenge" }),
+      });
+      await expectErrorEnvelope(missingAssertion, 400, "assertion_response is required");
     });
   });
 
@@ -545,7 +722,7 @@ describe("SDK integration smoke + auth suite", () => {
 
       // Create a public test bucket (admin-only endpoint).
       const adminToken = await getAdminToken();
-      const createRes = await fetch(`${BASE_URL}/api/storage/buckets`, {
+      const createRes = await fetch(`${BASE_URL}/api/storage/buckets/`, {
         method: "POST",
         headers: {
           Authorization: `Bearer ${adminToken}`,
@@ -570,7 +747,7 @@ describe("SDK integration smoke + auth suite", () => {
       expect(deleteRes.status).toBe(204);
 
       // Verify bucket no longer appears in list.
-      const listRes = await fetch(`${BASE_URL}/api/storage/buckets`, {
+      const listRes = await fetch(`${BASE_URL}/api/storage/buckets/`, {
         headers: { Authorization: `Bearer ${adminToken}` },
       });
       expect(listRes.ok).toBe(true);

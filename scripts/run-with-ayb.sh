@@ -8,23 +8,60 @@ fi
 
 readonly POST_HEALTH_COMMAND="$1"
 readonly AYB_DEFAULT_START_COMMAND="./ayb start --foreground"
+readonly AYB_DEFAULT_SERVER_HOST="localhost"
+readonly AYB_DEFAULT_SERVER_PORT="8090"
 readonly AYB_START_COMMAND="${AYB_START_COMMAND:-$AYB_DEFAULT_START_COMMAND}"
 readonly AYB_START_LOG="${AYB_START_LOG:-/tmp/ayb-e2e.log}"
-readonly AYB_HEALTH_URL="${AYB_HEALTH_URL:-http://localhost:8090/health}"
 readonly AYB_HEALTH_TIMEOUT_SECONDS="${AYB_HEALTH_TIMEOUT_SECONDS:-60}"
 readonly AYB_HEALTH_POLL_INTERVAL_SECONDS="${AYB_HEALTH_POLL_INTERVAL_SECONDS:-0.5}"
-readonly AYB_ADMIN_TOKEN_PATH="${AYB_ADMIN_TOKEN_PATH:-${HOME}/.ayb/admin-token}"
-ADMIN_TOKEN_BACKUP_PATH=""
-ADMIN_TOKEN_HAD_ORIGINAL=0
+readonly AYB_CANONICAL_ADMIN_TOKEN_PATH="${HOME}/.ayb/admin-token"
+readonly AYB_ADMIN_TOKEN_PATH="${AYB_ADMIN_TOKEN_PATH:-$AYB_CANONICAL_ADMIN_TOKEN_PATH}"
+CANONICAL_ADMIN_TOKEN_BACKUP_PATH=""
+CANONICAL_ADMIN_TOKEN_HAD_ORIGINAL=0
+
+derive_ayb_base_url() {
+  if [[ -n "${AYB_BASE_URL:-}" ]]; then
+    printf '%s\n' "${AYB_BASE_URL%/}"
+    return
+  fi
+
+  local host="${AYB_SERVER_HOST:-$AYB_DEFAULT_SERVER_HOST}"
+  local port="${AYB_SERVER_PORT:-$AYB_DEFAULT_SERVER_PORT}"
+  printf 'http://%s:%s\n' "$host" "$port"
+}
+
+base_url_from_health_url() {
+  local health_url="${1%/}"
+  printf '%s\n' "${health_url%/health}"
+}
+
+derive_ayb_health_url() {
+  if [[ -n "${AYB_HEALTH_URL:-}" ]]; then
+    printf '%s\n' "$AYB_HEALTH_URL"
+    return
+  fi
+
+  printf '%s/health\n' "$(derive_ayb_base_url)"
+}
+
+readonly AYB_HEALTH_URL="$(derive_ayb_health_url)"
+if [[ -z "${AYB_BASE_URL:-}" ]]; then
+  export AYB_BASE_URL
+  AYB_BASE_URL="$(base_url_from_health_url "$AYB_HEALTH_URL")"
+fi
 
 # Rate-limit overrides prevent load/browser tests from being throttled.
 export AYB_AUTH_RATE_LIMIT="${AYB_AUTH_RATE_LIMIT:-10000}"
 export AYB_AUTH_ANONYMOUS_RATE_LIMIT="${AYB_AUTH_ANONYMOUS_RATE_LIMIT:-10000}"
 export AYB_RATE_LIMIT_API="${AYB_RATE_LIMIT_API:-10000/min}"
 export AYB_RATE_LIMIT_API_ANONYMOUS="${AYB_RATE_LIMIT_API_ANONYMOUS:-10000/min}"
-if [[ -n "${AYB_AUTH_RATE_LIMIT_AUTH+x}" ]]; then
-  export AYB_AUTH_RATE_LIMIT_AUTH
-fi
+# Sensitive auth endpoints like /api/auth/register and WebAuthn login begin/finish
+# sit behind auth.rate_limit_auth, so unattended integration reruns must raise
+# that limiter too or later test files will trip the default 10/minute cap.
+export AYB_AUTH_RATE_LIMIT_AUTH="${AYB_AUTH_RATE_LIMIT_AUTH:-10000/min}"
+# The live SDK integration suite covers storage uploads/signing against the
+# local backend, so the harness enables storage unless a caller overrides it.
+export AYB_STORAGE_ENABLED="${AYB_STORAGE_ENABLED:-true}"
 
 # Auth remains opt-in for baseline load targets, but explicit auth-enabled
 # wrapper runs need a local JWT secret before AYB's config validation starts.
@@ -57,8 +94,8 @@ print_start_log_excerpt() {
   fi
 }
 
-remove_admin_token_file() {
-  rm -f "$AYB_ADMIN_TOKEN_PATH" 2>/dev/null || true
+remove_canonical_admin_token_file() {
+  rm -f "$AYB_CANONICAL_ADMIN_TOKEN_PATH" 2>/dev/null || true
 }
 
 report_startup_failure() {
@@ -68,29 +105,32 @@ report_startup_failure() {
 }
 
 admin_token_ready() {
-  [[ -n "${AYB_ADMIN_PASSWORD:-}" || -s "$AYB_ADMIN_TOKEN_PATH" ]]
+  [[ -n "${AYB_ADMIN_PASSWORD:-}" ||
+     -n "${AYB_ADMIN_TOKEN:-}" ||
+     -s "$AYB_ADMIN_TOKEN_PATH" ||
+     -s "$AYB_CANONICAL_ADMIN_TOKEN_PATH" ]]
 }
 
-prepare_admin_token_file() {
-  if [[ -f "$AYB_ADMIN_TOKEN_PATH" ]]; then
-    ADMIN_TOKEN_BACKUP_PATH="$(mktemp)"
-    cp "$AYB_ADMIN_TOKEN_PATH" "$ADMIN_TOKEN_BACKUP_PATH"
-    ADMIN_TOKEN_HAD_ORIGINAL=1
+prepare_canonical_admin_token_file() {
+  if [[ -f "$AYB_CANONICAL_ADMIN_TOKEN_PATH" ]]; then
+    CANONICAL_ADMIN_TOKEN_BACKUP_PATH="$(mktemp)"
+    cp "$AYB_CANONICAL_ADMIN_TOKEN_PATH" "$CANONICAL_ADMIN_TOKEN_BACKUP_PATH"
+    CANONICAL_ADMIN_TOKEN_HAD_ORIGINAL=1
   fi
 }
 
-# Restore the original admin-token file (or remove the test-generated one) so
-# the wrapped run never leaves behind stale credentials from the temporary AYB.
-restore_admin_token_if_needed() {
-  if (( ADMIN_TOKEN_HAD_ORIGINAL )); then
-    mkdir -p "$(dirname "$AYB_ADMIN_TOKEN_PATH")"
-    cp "$ADMIN_TOKEN_BACKUP_PATH" "$AYB_ADMIN_TOKEN_PATH"
+# Restore the canonical token file or remove the generated one; custom
+# AYB_ADMIN_TOKEN_PATH files are caller-owned credentials.
+restore_canonical_admin_token_if_needed() {
+  if (( CANONICAL_ADMIN_TOKEN_HAD_ORIGINAL )); then
+    mkdir -p "$(dirname "$AYB_CANONICAL_ADMIN_TOKEN_PATH")"
+    cp "$CANONICAL_ADMIN_TOKEN_BACKUP_PATH" "$AYB_CANONICAL_ADMIN_TOKEN_PATH"
   else
-    remove_admin_token_file
+    remove_canonical_admin_token_file
   fi
 
-  if [[ -n "$ADMIN_TOKEN_BACKUP_PATH" ]]; then
-    rm -f "$ADMIN_TOKEN_BACKUP_PATH" 2>/dev/null || true
+  if [[ -n "$CANONICAL_ADMIN_TOKEN_BACKUP_PATH" ]]; then
+    rm -f "$CANONICAL_ADMIN_TOKEN_BACKUP_PATH" 2>/dev/null || true
   fi
 }
 
@@ -152,13 +192,12 @@ wait_for_ayb_readiness() {
   done
 }
 
-# Always back up any pre-existing admin-token so cleanup can restore it.
-# When AYB_ADMIN_PASSWORD is unset, also remove the token file so AYB
-# generates a fresh password and writes a new one on startup.
+# Readiness includes admin-token material so SDK/load commands can authenticate
+# immediately after /health turns green.
 ensure_ayb_binary_if_needed
-prepare_admin_token_file
+prepare_canonical_admin_token_file
 if [[ -z "${AYB_ADMIN_PASSWORD:-}" ]]; then
-  remove_admin_token_file
+  remove_canonical_admin_token_file
 fi
 bash -lc "$AYB_START_COMMAND" > "$AYB_START_LOG" 2>&1 &
 AYB_PID=$!
@@ -166,7 +205,7 @@ AYB_PID=$!
 cleanup() {
   kill "$AYB_PID" 2>/dev/null || true
   wait "$AYB_PID" 2>/dev/null || true
-  restore_admin_token_if_needed
+  restore_canonical_admin_token_if_needed
 }
 trap cleanup EXIT
 

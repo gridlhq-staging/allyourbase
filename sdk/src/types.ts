@@ -17,6 +17,15 @@ export interface ListResponse<T = Record<string, unknown>> {
   facets?: FacetCounts;
 }
 
+/**
+ * Mixin that widens an item shape with the optional `_highlight` field the
+ * backend search path returns when callers pass the `highlight` query param.
+ * Used as the default item shape for `RecordsClient.list` so untyped callers
+ * see `_highlight` without a cast, and as an explicit wrapper for typed
+ * callers (e.g. `list<SearchHit<MyRow>>(...)`).
+ */
+export type SearchHit<T = Record<string, unknown>> = T & { _highlight?: string };
+
 /** Single GraphQL error payload item from the GraphQL `errors` envelope. */
 export interface GraphQLErrorItem {
   message: string;
@@ -40,6 +49,8 @@ export interface ListParams {
   expand?: string;
   skipTotal?: boolean;
   fuzzy?: boolean;
+  typoThreshold?: number;
+  highlight?: string;
   facets?: string[];
   semantic?: boolean;
   semanticQuery?: string;

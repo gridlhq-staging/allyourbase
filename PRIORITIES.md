@@ -1,12 +1,12 @@
 # Priorities
 
-**Last updated:** 2026-06-02
+**Last updated:** 2026-06-03
 
 This file is the single source of truth for priority ordering. For feature inventory see `_dev/FEATURES.md`, for execution phases see `_dev/PHASES.md`, for public roadmap see `ROADMAP.md`.
 
 ## Summary
 
-No P0 incidents are open. `v0.0.8-beta` remains cut and publicly validated on the no-overlay cold-machine path (release run `26720470396`, Docker run `26720814803`, Stage 4 runtime proof in `docs/live-state/20260531T235500Z_v008_beta_release_proof.md`), so the `MAY24-COLD-MACHINE-INITDB` pgmanager fallback fix is present in a released binary and `MAY31-ARM64-ASSET-REBUILD` is closed. The JUN01 search-led release-readiness wave has landed on `main`: search backend (full-text + `pg_trgm` fuzzy + hybrid reciprocal-rank-fusion), WebAuthn first-factor passkey login, `_ayb_job_runs` retention, dashboard search playground, and the JS SDK search + passkey helper surface are all shipped. Planning docs (`_dev/FEATURES.md`, `ROADMAP.md`) are reconciled against `origin/main` at `ec1f942d`, and the release-readiness closeout is advancing toward Stage 3 full regression. Near-term focus stays on realtime/load evidence depth, targeted cleanup in high-churn oversized files, and the still-pending operator org-rename decision (`griddlehq` → `AllyourbaseHQ`).
+No P0 incidents are open. `v0.0.9-beta` is now cut and publicly validated on the no-overlay cold-machine path (release run `26872377023` on `cbf54938`, GHCR multi-arch image `ghcr.io/griddlehq/allyourbase:0.0.9-beta` at digest `sha256:8a2409ec2436df5440cf7fc57a2364fc496c6e83ee3b6acc06a8a0c71a134390`, Stage 5 runtime proof in `docs/live-state/20260603T095244Z_v009_beta_release_proof.md`), superseding the `v0.0.8-beta` runtime cut while preserving its closure of `MAY24-COLD-MACHINE-INITDB` and `MAY31-ARM64-ASSET-REBUILD`. The JUN02 wave has landed on `main`: faceted search end-to-end via the JS SDK with RLS-scoped bucket counts, dashboard `Search` view + dedicated user guide, login + WebAuthn first-factor rate-limiting at the front door, and a green integrated demo gate across local + cross-demo Playwright. Planning docs (`PRIORITIES.md`, `ROADMAP.md`, `roadmap/implemented.md`) are reconciled against `origin/main` post-release. Near-term focus stays on realtime/load evidence depth, JS SDK npm publish, targeted cleanup in high-churn oversized files, and the still-pending operator org-rename decision (`griddlehq` → `AllyourbaseHQ`).
 
 ## P0 — Urgent
 

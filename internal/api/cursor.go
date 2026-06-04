@@ -297,7 +297,7 @@ func extractCursorValues(fields []SortField, record map[string]any) []any {
 // Uses LIMIT perPage+1 to detect whether more rows exist.
 func buildListWithCursor(tbl *schema.Table, opts listOpts, sortFields []SortField, cursorWhere string, cursorArgs []any) (string, []any) {
 	cols := buildColumnList(tbl, opts.fields)
-	cols = appendSelectExprs(cols, append([]string{opts.distanceSelect}, opts.cursorSelects...))
+	cols = appendSelectExprs(cols, append([]string{opts.distanceSelect, opts.highlightSelect}, opts.cursorSelects...))
 	ref := sqlutil.QuoteQualifiedName(tbl.Schema, tbl.Name)
 
 	basePredicate, baseArgs := combineSQLConditions(

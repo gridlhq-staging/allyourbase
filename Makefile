@@ -1,4 +1,4 @@
-.PHONY: build dev test test-sdk test-sdk-go test-sdk-python test-sdk-dart test-sdk-swift test-sdk-kotlin test-sdk-react test-sdk-ssr test-sdk-all test-sdk-integration test-ui test-integration test-demo-smoke test-demo-e2e test-demo-e2e-all test-e2e test-smoke test-browser-full test-full test-all test-everything test-api-smoke test-api-journey lint check check-sizes check-ui-lint check-browser-tests-lint check-func-sizes check-installer check-sync-pipeline check-sdk-build release-candidate-check clean ui demos release docker docker-runtime-smoke help sync-openapi build-postgres load-admin-status load-admin-status-local load-auth-request-path load-auth-request-path-local load-data-path load-data-path-local load-data-pool-pressure load-data-pool-pressure-local load-http-100 load-http-100-local load-http-500 load-http-500-local load-http-1000 load-http-1000-local load-realtime-ws load-realtime-ws-local load-realtime-ws-1000 load-realtime-ws-1000-local load-realtime-ws-5000 load-realtime-ws-5000-local load-realtime-ws-10000 load-realtime-ws-10000-local load-sustained-soak load-sustained-soak-local
+.PHONY: build dev test test-sdk test-sdk-go test-sdk-python test-sdk-dart test-sdk-swift test-sdk-kotlin test-sdk-react test-sdk-ssr test-sdk-all test-sdk-integration test-ui test-integration test-demo-smoke test-demo-e2e test-demo-cross-smoke test-e2e test-smoke test-browser-full test-full test-all test-everything test-api-smoke test-api-journey lint check check-sizes check-ui-lint check-browser-tests-lint check-func-sizes check-installer check-sync-pipeline check-sdk-build release-candidate-check clean ui demos release docker docker-runtime-smoke help sync-openapi build-postgres load-admin-status load-admin-status-local load-auth-request-path load-auth-request-path-local load-data-path load-data-path-local load-data-pool-pressure load-data-pool-pressure-local load-http-100 load-http-100-local load-http-500 load-http-500-local load-http-1000 load-http-1000-local load-realtime-ws load-realtime-ws-local load-realtime-ws-1000 load-realtime-ws-1000-local load-realtime-ws-5000 load-realtime-ws-5000-local load-realtime-ws-10000 load-realtime-ws-10000-local load-sustained-soak load-sustained-soak-local
 
 # Build variables
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
@@ -314,10 +314,12 @@ test-all: test test-integration test-sdk test-ui ## Run all fast tests: Go unit 
 
 test-full: test-all test-e2e ## Run every automated test: unit + integration + SDK + UI + all browser tests (~1.5 hrs)
 
+# Full per-demo Playwright suites, including live-polls passkey coverage.
 test-demo-e2e: build ## Run demo app E2E tests — Playwright suites for kanban + live-polls + movies (starts demo, runs tests, stops)
 	@cd _dev/manual_smoke_tests && AYB_BIN=$(CURDIR)/ayb bash 18_demo_e2e.test.sh
 
-test-demo-e2e-all: build ## Run cross-demo Playwright smoke — kanban + live-polls + movies in one suite
+# Cross-demo roundtrip smoke only; narrower than the full per-demo suites above.
+test-demo-cross-smoke: build ## Run cross-demo Playwright smoke — kanban + live-polls + movies in one suite
 	@cd tests/e2e && npm ci --prefer-offline --no-audit && \
 		AYB_BIN=$(CURDIR)/ayb npx playwright install chromium >/dev/null && \
 		AYB_BIN=$(CURDIR)/ayb npx playwright test --reporter=line cross_demo.spec.ts
@@ -345,7 +347,7 @@ test-everything: build ## Run absolutely everything: unit + integration + SDK + 
 	run_step "UI component tests" "cd ui && pnpm test"; \
 	run_step "Playwright e2e"     "$(MAKE) test-e2e"; \
 	run_step "Demo app E2E"       "cd _dev/manual_smoke_tests && AYB_BIN=$(CURDIR)/ayb bash 18_demo_e2e.test.sh"; \
-	run_step "Cross-demo smoke (Playwright)" "$(MAKE) test-demo-e2e-all"; \
+	run_step "Cross-demo smoke (Playwright)" "$(MAKE) test-demo-cross-smoke"; \
 	run_step "API smoke tests"    "$(MAKE) test-api-smoke"; \
 	printf "\n\033[1m━━━━━━━━━━━━━━━━━━━━━━\033[0m\n"; \
 	printf "\033[1m  TEST SUMMARY\033[0m\n"; \

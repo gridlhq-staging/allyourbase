@@ -1,0 +1,72 @@
+import { describe, expect, it } from "vitest";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
+
+const sdkRoot = resolve(__dirname, "..");
+
+function readSDKFile(relativePath: string): string {
+  return readFileSync(resolve(sdkRoot, relativePath), "utf8");
+}
+
+describe("0.2.0 release metadata", () => {
+  it("publishes the package metadata as 0.2.0 without changing package shape", () => {
+    const manifest = JSON.parse(readSDKFile("package.json")) as {
+      version: string;
+      main: string;
+      module: string;
+      types: string;
+      exports: Record<string, unknown>;
+      files: string[];
+      scripts: Record<string, string>;
+    };
+
+    expect(manifest.version).toBe("0.2.0");
+    expect(manifest.main).toBe("dist/index.cjs");
+    expect(manifest.module).toBe("dist/index.js");
+    expect(manifest.types).toBe("dist/index.d.ts");
+    expect(manifest.exports["."]).toEqual({
+      import: {
+        types: "./dist/index.d.ts",
+        default: "./dist/index.js",
+      },
+      require: {
+        types: "./dist/index.d.cts",
+        default: "./dist/index.cjs",
+      },
+    });
+    expect(manifest.files).toEqual(["dist"]);
+    expect(manifest.scripts.prepublishOnly).toBe("npm run build");
+  });
+
+  it("documents only the shipped search and passkey surfaces for 0.2.0", () => {
+    const changelog = readSDKFile("CHANGELOG.md");
+    const readme = readSDKFile("README.md");
+
+    expect(changelog).toContain("## 0.2.0");
+    expect(changelog).toContain("search");
+    expect(changelog).toContain("fuzzy");
+    expect(changelog).toContain("typoThreshold");
+    expect(changelog).toContain("highlight");
+    expect(changelog).toContain("facets");
+    expect(changelog).toContain("semantic");
+    expect(changelog).toContain("semanticQuery");
+    expect(changelog).toContain("nearest");
+    expect(changelog).toContain("vectorColumn");
+    expect(changelog).toContain("distance");
+    expect(changelog).toContain("beginWebAuthnLogin");
+    expect(changelog).toContain("finishWebAuthnLogin");
+    expect(changelog).toContain("signInWithPasskey");
+    expect(changelog).toContain("enrollPasskey");
+    expect(changelog).toContain("verifyPasskey");
+
+    expect(readme).toContain("SearchHit");
+    expect(readme).toContain("ayb.records.list<SearchHit");
+    expect(readme).toContain("signInWithPasskey");
+    expect(readme).toContain("beginWebAuthnLogin");
+    expect(readme).toContain("finishWebAuthnLogin");
+    expect(readme).toContain("enrollPasskey");
+    expect(readme).toContain("verifyPasskey");
+    expect(readme).toContain("FacetCounts");
+    expect(readme).toContain("WebAuthnLoginBeginResponse");
+  });
+});

@@ -191,7 +191,7 @@ func TestHybridSearch_RejectsUnsupportedSearchParams(t *testing.T) {
 	}
 	h := testHandlerForHybrid(hybridSchemaCache(), embedFn)
 
-	tests := []string{"fuzzy", "facets", "typo_threshold"}
+	tests := []string{"fuzzy", "facets", "typo_threshold", "highlight"}
 	for _, param := range tests {
 		t.Run(param, func(t *testing.T) {
 			t.Parallel()
@@ -218,7 +218,7 @@ func TestHybridSearch_RejectsUnsupportedSearchParamsWithBlankSearch(t *testing.T
 		{name: "empty", query: "search="},
 		{name: "whitespace", query: "search=+++"},
 	}
-	params := []string{"fuzzy", "facets", "typo_threshold"}
+	params := []string{"fuzzy", "facets", "typo_threshold", "highlight"}
 
 	for _, searchCase := range searchCases {
 		searchCase := searchCase

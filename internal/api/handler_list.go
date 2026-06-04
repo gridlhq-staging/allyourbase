@@ -92,29 +92,9 @@ func (h *Handler) handleList(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Parse search (full-text search) — only for non-vector paths.
-	searchSQL, searchRank, searchArgs, ok := h.parseSearchParam(w, tbl, q, len(fs.filterArgs)+len(fs.spatialArgs)+1)
+	baseOpts, ok := h.parseListBaseOpts(w, tbl, q, fields, perPage, fs)
 	if !ok {
 		return
-	}
-	facetCols, err := parseFacetColumns(tbl, q.Get("facets"))
-	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
-		return
-	}
-
-	baseOpts := listOpts{
-		table:       tbl,
-		perPage:     perPage,
-		fields:      fields,
-		filterSQL:   fs.filterSQL,
-		filterArgs:  fs.filterArgs,
-		spatialSQL:  fs.spatialSQL,
-		spatialArgs: fs.spatialArgs,
-		searchSQL:   searchSQL,
-		searchRank:  searchRank,
-		searchArgs:  searchArgs,
-		facetCols:   facetCols,
 	}
 
 	sc := h.schema.Get()
@@ -140,6 +120,36 @@ func (h *Handler) handleList(w http.ResponseWriter, r *http.Request) {
 		baseOpts.sort = ensureStructuredSortPKTiebreaker(tbl, parsedSort)
 	}
 	h.handleOffsetList(w, r, tbl, baseOpts)
+}
+
+// parseListBaseOpts parses the non-vector list inputs (search, facets) and
+// assembles the shared listOpts the offset and cursor paths consume. It returns
+// (opts, false) and writes the HTTP error response when validation fails.
+func (h *Handler) parseListBaseOpts(w http.ResponseWriter, tbl *schema.Table, q url.Values, fields []string, perPage int, fs filterSpatialResult) (listOpts, bool) {
+	search, ok := h.parseSearchParam(w, tbl, q, len(fs.filterArgs)+len(fs.spatialArgs)+1)
+	if !ok {
+		return listOpts{}, false
+	}
+	facetCols, err := parseFacetColumns(tbl, q.Get("facets"))
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return listOpts{}, false
+	}
+	return listOpts{
+		table:           tbl,
+		perPage:         perPage,
+		fields:          fields,
+		filterSQL:       fs.filterSQL,
+		filterArgs:      fs.filterArgs,
+		spatialSQL:      fs.spatialSQL,
+		spatialArgs:     fs.spatialArgs,
+		searchSQL:       search.searchSQL,
+		searchRank:      search.searchRank,
+		searchArgs:      search.searchArgs,
+		highlightSelect: search.highlightSelect,
+		highlightAlias:  search.highlightAlias,
+		facetCols:       facetCols,
+	}, true
 }
 
 // dispatchVectorPaths checks for nearest/semantic/hybrid query parameters and
@@ -229,7 +239,7 @@ func (h *Handler) handleOffsetList(w http.ResponseWriter, r *http.Request, tbl *
 		return
 	}
 
-	items, err := scanListItems(rows)
+	items, err := scanListItems(rows, opts.highlightAlias)
 	if err != nil {
 		done(err)
 		h.logger.Error("scan error", "error", err, "table", tbl.Name)
@@ -301,13 +311,28 @@ func decodeCursorListPredicate(opts listOpts, cursorParam string) (string, []any
 	return cursorWhere, cursorArgs, nil
 }
 
-func scanListItems(rows pgx.Rows) ([]map[string]any, error) {
+func scanListItems(rows pgx.Rows, highlightAlias string) ([]map[string]any, error) {
 	items, err := scanRows(rows)
 	rows.Close()
 	if err != nil {
 		return nil, err
 	}
+	renameListHighlightAlias(items, highlightAlias)
 	return items, nil
+}
+
+func renameListHighlightAlias(items []map[string]any, highlightAlias string) {
+	if highlightAlias == "" {
+		return
+	}
+	for _, item := range items {
+		highlight, ok := item[highlightAlias]
+		if !ok {
+			continue
+		}
+		delete(item, highlightAlias)
+		item[searchHighlightResponseField] = highlight
+	}
 }
 
 func (h *Handler) decryptListItems(tbl *schema.Table, items []map[string]any) error {
@@ -370,7 +395,7 @@ func (h *Handler) handleCursorList(
 		return
 	}
 
-	items, err := scanListItems(rows)
+	items, err := scanListItems(rows, opts.highlightAlias)
 	if err != nil {
 		done(err)
 		h.logger.Error("scan error", "error", err, "table", tbl.Name)

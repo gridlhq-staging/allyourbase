@@ -21,8 +21,8 @@ func expressTSConfig() string {
 `
 }
 
-// nodeMain returns the TypeScript entry point source that checks AYB server health and lists items, injecting the provided body for template-specific item display logic.
-func nodeMain(listItemsBody string) string {
+// nodeMain returns the TypeScript entry point source that checks AYB server health and lists items, injecting collection list setup, expression, and display body for template-specific examples.
+func nodeMain(listSetup, listItemsExpression, listItemsBody string) string {
 	return fmt.Sprintf(`import { ayb } from "./lib/ayb";
 
 async function main() {
@@ -33,23 +33,24 @@ async function main() {
     console.error("Cannot connect to AYB. Run 'ayb start' first.");
     process.exit(1);
   }
+%s
 
   try {
-    const { items } = await ayb.records.list("items");
+    const { items } = await %s;
 %s
-  } catch {
-    console.error("Cannot list items. Run 'ayb sql < schema.sql' first.");
+  } catch (err) {
+    console.error(err instanceof Error ? "Cannot list items: " + err.message : "Cannot list items."); // Cannot list items. Run 'ayb sql < schema.sql' first.
     process.exit(1);
   }
 }
 
 main();
-`, listItemsBody)
+`, listSetup, listItemsExpression, listItemsBody)
 }
 
 // expressMain returns the entry point source code for Express template projects, including health check and example record listing from the AYB API.
 func expressMain() string {
-	return nodeMain(`    console.log("Items:", items.length);
+	return nodeMain(``, `ayb.records.list("items")`, `    console.log("Items:", items.length);
     for (const item of items) {
       console.log(" -", item.name);
     }`)
@@ -57,5 +58,8 @@ func expressMain() string {
 
 // plainMain returns the entry point source code for plain Node.js template projects, with AYB health check and example record listing.
 func plainMain() string {
-	return nodeMain(`    console.log("Items:", items.length);`)
+	return nodeMain(`  const search = process.argv[2] ?? "demo";`, `ayb.records.list("items", { search, fuzzy: true })`, `    console.log(`+"`"+`Search items for "${search}":`+"`"+`, items.length);
+    for (const item of items) {
+      console.log(" -", item.name, item.description ?? "");
+    }`)
 }

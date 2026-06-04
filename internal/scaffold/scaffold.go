@@ -163,6 +163,7 @@ func addExpressFiles(files map[string]string, opts Options) {
 
 func addPlainFiles(files map[string]string, opts Options) {
 	files["package.json"] = packageJSON(opts, "plain")
+	files["tsconfig.json"] = expressTSConfig()
 	files["src/index.ts"] = plainMain()
 	files["src/lib/ayb.ts"] = aybClientNode()
 }

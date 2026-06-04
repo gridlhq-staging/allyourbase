@@ -262,15 +262,24 @@ func TestHandleList_NearestRejectsUnsupportedSearchParams(t *testing.T) {
 	t.Parallel()
 	h := testHandler(vectorSchemaCache())
 
-	tests := []string{"fuzzy", "facets", "typo_threshold"}
-	for _, param := range tests {
-		t.Run(param, func(t *testing.T) {
+	tests := []struct {
+		name  string
+		query string
+	}{
+		{name: "fuzzy", query: "fuzzy=true"},
+		{name: "facets", query: "facets=true"},
+		{name: "typo_threshold", query: "typo_threshold=0.5"},
+		{name: "highlight", query: "highlight=true"},
+	}
+	for _, tc := range tests {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			w := doRequest(h, "GET", "/collections/documents?nearest=[0.1,0.2,0.3]&"+param+"=true", "")
+			w := doRequest(h, "GET", "/collections/documents?nearest=[0.1,0.2,0.3]&"+tc.query, "")
 			testutil.Equal(t, http.StatusBadRequest, w.Code)
 			resp := decodeError(t, w)
 			testutil.Contains(t, resp.Message, "unsupported parameter")
-			testutil.Contains(t, resp.Message, param)
+			testutil.Contains(t, resp.Message, tc.name)
 		})
 	}
 }
@@ -286,20 +295,28 @@ func TestHandleList_NearestRejectsUnsupportedSearchParamsWithBlankSearch(t *test
 		{name: "empty", query: "search="},
 		{name: "whitespace", query: "search=+++"},
 	}
-	params := []string{"fuzzy", "facets", "typo_threshold"}
+	params := []struct {
+		name  string
+		query string
+	}{
+		{name: "fuzzy", query: "fuzzy=true"},
+		{name: "facets", query: "facets=true"},
+		{name: "typo_threshold", query: "typo_threshold=0.5"},
+		{name: "highlight", query: "highlight=true"},
+	}
 
 	for _, searchCase := range searchCases {
 		searchCase := searchCase
 		for _, param := range params {
 			param := param
-			t.Run(searchCase.name+"_"+param, func(t *testing.T) {
+			t.Run(searchCase.name+"_"+param.name, func(t *testing.T) {
 				t.Parallel()
-				url := "/collections/documents?nearest=[0.1,0.2,0.3]&" + searchCase.query + "&" + param + "=true"
+				url := "/collections/documents?nearest=[0.1,0.2,0.3]&" + searchCase.query + "&" + param.query
 				w := doRequest(h, "GET", url, "")
 				testutil.Equal(t, http.StatusBadRequest, w.Code)
 				resp := decodeError(t, w)
 				testutil.Contains(t, resp.Message, "unsupported parameter")
-				testutil.Contains(t, resp.Message, param)
+				testutil.Contains(t, resp.Message, param.name)
 			})
 		}
 	}

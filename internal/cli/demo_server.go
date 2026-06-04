@@ -48,7 +48,7 @@ func ensureDemoServer(demoName string) (string, bool, error) {
 		return "", false, err
 	}
 	defer cleanup()
-	startCmd.Env = demoServerStartEnv(jwtSecret)
+	startCmd.Env = demoServerStartEnv(jwtSecret, demoName)
 	startCmd.Stdout = io.Discard
 	var startErr strings.Builder
 	startCmd.Stderr = &startErr
@@ -103,12 +103,19 @@ func materializeEmbeddedDemoConfig(demoName string) (string, func(), error) {
 	return file.Name(), cleanup, nil
 }
 
-func demoServerStartEnv(jwtSecret string) []string {
+func demoServerStartEnv(jwtSecret, demoName string) []string {
+	siteURL := "http://localhost:" + demoDefaultServerPort
+	if demo, ok := demoRegistry[demoName]; ok {
+		// WebAuthn verifies the browser origin, so demo-started servers
+		// advertise the app origin rather than the backend API target.
+		siteURL = fmt.Sprintf("http://localhost:%d", demo.Port)
+	}
 	return append(
 		os.Environ(),
 		"AYB_AUTH_ENABLED=true",
 		"AYB_AUTH_JWT_SECRET="+jwtSecret,
 		"AYB_AUTH_ANONYMOUS_AUTH_ENABLED=true",
+		"AYB_SERVER_SITE_URL="+siteURL,
 	)
 }
 

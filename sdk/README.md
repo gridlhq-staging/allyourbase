@@ -11,7 +11,7 @@ npm install @allyourbase/js
 ## Quick Start
 
 ```ts
-import { AYBClient } from "@allyourbase/js";
+import { AYBClient, type SearchHit } from "@allyourbase/js";
 
 const ayb = new AYBClient("http://localhost:8090");
 
@@ -28,9 +28,26 @@ const posts = await ayb.records.list("posts", {
   perPage: 20,
 });
 
+// Search records with highlights and facet counts
+const search = await ayb.records.list<SearchHit<{ id: string; title: string }>>(
+  "posts",
+  {
+    search: "postgres",
+    fuzzy: true,
+    typoThreshold: 0.3,
+    highlight: "title",
+    facets: ["published"],
+  },
+);
+console.log(search.items[0]?._highlight, search.facets?.published);
+
 // Auth
 await ayb.auth.login("user@example.com", "password");
 const me = await ayb.auth.me();
+
+// Passkey sign-in and MFA
+await ayb.auth.signInWithPasskey("user@example.com");
+await ayb.auth.enrollPasskey("Primary passkey");
 ```
 
 ## API Reference
@@ -60,6 +77,26 @@ const result = await ayb.records.list<Post>("posts", {
   skipTotal: true,
 });
 // result: { items: Post[], page, perPage, totalItems, totalPages }
+
+// Search with typo tolerance, highlights, and facets
+const search = await ayb.records.list<SearchHit<Post>>("posts", {
+  search: "postgres database",
+  fuzzy: true,
+  typoThreshold: 0.3,
+  highlight: "title",
+  facets: ["status", "category"],
+});
+// search.items[0]._highlight is present when the backend returns a highlight.
+// search.facets is a FacetCounts envelope keyed by requested facet column.
+
+// Semantic/vector search
+await ayb.records.list<Post>("posts", {
+  semantic: true,
+  semanticQuery: "articles about hosted Postgres",
+  nearest: [0.12, 0.34, 0.56],
+  vectorColumn: "embedding",
+  distance: "cosine",
+});
 
 // Get by ID
 const post = await ayb.records.get<Post>("posts", "abc123", {
@@ -109,6 +146,17 @@ await ayb.auth.confirmPasswordReset(token, "newpassword");
 // Email verification
 await ayb.auth.verifyEmail(token);
 await ayb.auth.resendVerification();
+
+// First-factor WebAuthn login
+const challenge = await ayb.auth.beginWebAuthnLogin("user@example.com");
+await ayb.auth.finishWebAuthnLogin(challenge.challengeId, assertionResponse);
+
+// Browser passkey convenience flow
+await ayb.auth.signInWithPasskey("user@example.com");
+
+// WebAuthn MFA enrollment and verification
+await ayb.auth.enrollPasskey("Work laptop");
+await ayb.auth.verifyPasskey(mfaToken);
 
 // Restore tokens from storage
 ayb.setTokens(savedToken, savedRefreshToken);
@@ -171,7 +219,9 @@ const posts = await ayb.records.list<Post>("posts");
 // posts.items is Post[]
 ```
 
-Exported types: `ListResponse`, `ListParams`, `GetParams`, `AuthResponse`, `User`, `RealtimeEvent`, `StorageObject`, `ClientOptions`.
+Exported types include:
+
+`AdminAPIKey`, `AdminAPIKeyListResponse`, `App`, `AppListResponse`, `AuthPersistence`, `AuthResponse`, `AuthStateEvent`, `AuthStateListener`, `BatchOperation`, `BatchResult`, `ClientOptions`, `CreateAdminAPIKeyRequest`, `CreateAdminAPIKeyResponse`, `CreateOAuthClientRequest`, `CreateOAuthClientResponse`, `FacetCounts`, `FacetValueCount`, `GetParams`, `GraphQLErrorItem`, `GraphQLResponse`, `HealthResponse`, `ListParams`, `ListResponse`, `MagicLinkConfirmResponse`, `MagicLinkRequestResponse`, `MFAPendingAuthResponse`, `OAuthClient`, `OAuthClientListResponse`, `OAuthOptions`, `OAuthProvider`, `OAuthTokenResponse`, `PersistedAuthSession`, `PublicKeyCredentialCreationOptionsJSON`, `PublicKeyCredentialDescriptorJSON`, `PublicKeyCredentialParametersJSON`, `PublicKeyCredentialRequestOptionsJSON`, `PublicKeyCredentialRpEntityJSON`, `PublicKeyCredentialUserEntityJSON`, `RealtimeEvent`, `RotateOAuthClientSecretResponse`, `RpcNotifyOption`, `RpcOptions`, `SearchHit`, `StorageObject`, `UpdateOAuthClientRequest`, `User`, `WebAuthnEnrollBeginResponse`, `WebAuthnEnrollConfirmRequest`, `WebAuthnLoginBeginResponse`, `WebAuthnLoginFinishRequest`, `WebAuthnMFAChallengeResponse`, and `WebAuthnMFAVerifyRequest`.
 
 ## Error Handling
 

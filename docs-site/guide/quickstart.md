@@ -130,5 +130,7 @@ Now create/update/delete todos in another terminal or via the admin dashboard an
 ## Next steps
 
 - [Authentication](/guide/authentication) — Add user auth and per-user todos with RLS
+- [Search](/guide/search) — Use the same list endpoint for full-text search, fuzzy matching, filters, and facets
+- [Migrating from Algolia](/guide/migrating-from-algolia) — Compare AYB's shipped PostgreSQL search path with Algolia workflows
 - [File Storage](/guide/file-storage) — Attach files to your records
 - [Deployment](/guide/deployment) — Deploy to production with Docker or bare metal

@@ -90,6 +90,10 @@ The command handles everything:
   - Applies the database schema
   - Serves the pre-built demo app (no Node.js required)
 
+Search docs:
+  Non-vector collection search: https://allyourbase.io/guide/search
+  Algolia migration map:       https://allyourbase.io/guide/migrating-from-algolia
+
 Examples:
   ayb demo kanban
   ayb demo live-polls

@@ -74,18 +74,20 @@ import { ayb } from "./lib/ayb";
 
 function App() {
   const [items, setItems] = useState<any[]>([]);
+  const [search, setSearch] = useState("demo");
   const [status, setStatus] = useState("loading...");
 
   useEffect(() => {
     ayb.health()
       .then(() => setStatus("connected"))
       .catch(() => setStatus("disconnected - run 'ayb start'"));
+  }, []);
 
-    ayb.records
-      .list("items")
+  useEffect(() => {
+    ayb.records.list("items", { search, fuzzy: true })
       .then((res) => setItems(res.items))
       .catch(() => {});
-  }, []);
+  }, [search]);
 
   return (
     <div style={{ maxWidth: 600, margin: "2rem auto", fontFamily: "system-ui" }}>
@@ -93,14 +95,27 @@ function App() {
       <p>
         Server: <strong>{status}</strong>
       </p>
-      <h2>Items ({items.length})</h2>
+      <label style={{ display: "block", margin: "1rem 0" }}>
+        Search items
+        <input
+          value={search}
+          onChange={(event) => setSearch(event.target.value)}
+          placeholder="Try a name or description"
+          style={{ display: "block", marginTop: 6, padding: 8, width: "100%" }}
+        />
+      </label>
+      <h2>Search results ({items.length})</h2>
       <ul>
         {items.map((item: any) => (
-          <li key={item.id}>{item.name}</li>
+          <li key={item.id}>
+            <strong>{item.name}</strong>
+            {item.description ? " - " + item.description : ""}
+          </li>
         ))}
       </ul>
       <p style={{ color: "#888", fontSize: "0.9rem" }}>
-        Edit <code>src/App.tsx</code> to get started.
+        Run <code>ayb sql &lt; schema.sql</code> first so the <code>items</code> table exists.
+        Then edit <code>src/App.tsx</code> to get started.
         <br />
         Admin dashboard: <a href="http://localhost:8090/admin">localhost:8090/admin</a>
       </p>

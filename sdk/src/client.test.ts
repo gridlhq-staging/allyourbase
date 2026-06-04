@@ -1,7 +1,7 @@
 import { describe, it, expect, expectTypeOf, vi, beforeEach, afterEach } from "vitest";
 import { AYBClient } from "./client";
 import { AYBError } from "./errors";
-import type { RpcNotifyOption, RpcOptions } from "./index";
+import type { RpcNotifyOption, RpcOptions, SearchHit } from "./index";
 import { mockFetchSequence } from "./test_utils/mockFetchSequence";
 
 // --- EventSource mock for realtime tests ---
@@ -978,6 +978,62 @@ describe("records params coverage", () => {
     await client2.records.list("posts", { search: "hello", fuzzy: false });
     const url2 = (fetchFn2 as ReturnType<typeof vi.fn>).mock.calls[0][0] as string;
     expect(url2).not.toContain("fuzzy");
+  });
+
+  it("list encodes typo_threshold (omits when undefined)", async () => {
+    const fetchFn = mockFetch(200, { items: [], page: 1, perPage: 20, totalItems: 0, totalPages: 0 });
+    const client = new AYBClient("http://localhost:8090", { fetch: fetchFn });
+    await client.records.list("posts", { search: "hello", fuzzy: true, typoThreshold: 0.3 });
+    const url = (fetchFn as ReturnType<typeof vi.fn>).mock.calls[0][0] as string;
+    expect(url).toContain("typo_threshold=0.3");
+
+    const fetchFn2 = mockFetch(200, { items: [], page: 1, perPage: 20, totalItems: 0, totalPages: 0 });
+    const client2 = new AYBClient("http://localhost:8090", { fetch: fetchFn2 });
+    await client2.records.list("posts", { search: "hello", fuzzy: true, typoThreshold: undefined });
+    const url2 = (fetchFn2 as ReturnType<typeof vi.fn>).mock.calls[0][0] as string;
+    expect(url2).not.toContain("typo_threshold");
+  });
+
+  it("list encodes highlight column (omits when absent)", async () => {
+    const fetchFn = mockFetch(200, { items: [], page: 1, perPage: 20, totalItems: 0, totalPages: 0 });
+    const client = new AYBClient("http://localhost:8090", { fetch: fetchFn });
+    await client.records.list("posts", { search: "hello", highlight: "title" });
+    const url = (fetchFn as ReturnType<typeof vi.fn>).mock.calls[0][0] as string;
+    expect(url).toContain("highlight=title");
+
+    const fetchFn2 = mockFetch(200, { items: [], page: 1, perPage: 20, totalItems: 0, totalPages: 0 });
+    const client2 = new AYBClient("http://localhost:8090", { fetch: fetchFn2 });
+    await client2.records.list("posts", { search: "hello" });
+    const url2 = (fetchFn2 as ReturnType<typeof vi.fn>).mock.calls[0][0] as string;
+    expect(url2).not.toContain("highlight");
+  });
+
+  it("list exposes optional _highlight on the default item shape and via SearchHit<T>", async () => {
+    const fetchFn = mockFetch(200, {
+      items: [{ id: "1", title: "Hello world", _highlight: "<b>Hello</b> world" }],
+      page: 1,
+      perPage: 20,
+      totalItems: 1,
+      totalPages: 1,
+    });
+    const client = new AYBClient("http://localhost:8090", { fetch: fetchFn });
+    const result = await client.records.list("posts", { search: "hello", highlight: "title" });
+    expect(result.items[0]._highlight).toBe("<b>Hello</b> world");
+
+    const fetchFn2 = mockFetch(200, {
+      items: [{ id: "1", title: "Hello world", _highlight: "<b>Hello</b> world" }],
+      page: 1,
+      perPage: 20,
+      totalItems: 1,
+      totalPages: 1,
+    });
+    const client2 = new AYBClient("http://localhost:8090", { fetch: fetchFn2 });
+    const typed = await client2.records.list<SearchHit<{ id: string; title: string }>>(
+      "posts",
+      { search: "hello", highlight: "title" },
+    );
+    expect(typed.items[0].title).toBe("Hello world");
+    expect(typed.items[0]._highlight).toBe("<b>Hello</b> world");
   });
 
   it("list encodes facets as comma-separated single param", async () => {

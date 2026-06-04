@@ -223,6 +223,8 @@ const { items } = await ayb.records.list("posts", {
 console.log(items);
 ```
 
+Once list calls are working, see [Search](/guide/search) for full-text search, fuzzy matching, filters, and facets on the same endpoint. If you are comparing or moving from Algolia, use [Migrating from Algolia](/guide/migrating-from-algolia) for the non-vector migration map and current non-parity boundaries.
+
 ::: tip Windows
 AYB runs on Windows via WSL2. Install WSL (`wsl --install`) then follow the Linux instructions above.
 :::
@@ -231,6 +233,8 @@ AYB runs on Windows via WSL2. Install WSL (`wsl --install`) then follow the Linu
 
 - [Authentication](/guide/authentication) — Add user auth, then protect data with RLS
 - [JavaScript SDK](/guide/javascript-sdk) — Build your frontend with the TypeScript SDK
+- [Search](/guide/search) — Add full-text search, fuzzy matching, filters, and facets to list requests
+- [Migrating from Algolia](/guide/migrating-from-algolia) — Map Algolia concepts to AYB's shipped list endpoint
 - [Flutter SDK](/guide/flutter-sdk) — Build mobile/web apps with the Dart SDK
 - [PostGIS](/guide/postgis) — Add geospatial support with GeoJSON columns
 - [Demos](/guide/demos) — See live examples: kanban, Live Polls, and movies with vector search

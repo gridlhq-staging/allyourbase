@@ -43,6 +43,7 @@ export type {
   RpcNotifyOption,
   RpcOptions,
   RotateOAuthClientSecretResponse,
+  SearchHit,
   StorageObject,
   UpdateOAuthClientRequest,
   User,

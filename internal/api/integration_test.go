@@ -855,20 +855,195 @@ func TestSearchWhitespaceOnly(t *testing.T) {
 	testutil.Equal(t, 3, len(items)) // all posts returned
 }
 
-func TestSearchFuzzyTrueMatchesTypo(t *testing.T) {
+func setupSearchHighlightCollisionServer(t *testing.T, ctx context.Context) (*server.Server, *testutil.PGContainer) {
+	t.Helper()
+	resetAndSeedDB(t, ctx)
+	_, err := sharedPG.Pool.Exec(ctx, `
+		ALTER TABLE posts
+			ADD COLUMN "__search_highlight" TEXT DEFAULT 'stored old highlight column',
+			ADD COLUMN "__ayb_search_highlight" TEXT DEFAULT 'stored ayb highlight column'
+	`)
+	testutil.NoError(t, err)
+
+	logger := testutil.DiscardLogger()
+	ch := schema.NewCacheHolder(sharedPG.Pool, logger)
+	if err := ch.Load(ctx); err != nil {
+		t.Fatalf("loading schema cache: %v", err)
+	}
+
+	cfg := config.Default()
+	return server.New(cfg, logger, ch, sharedPG.Pool, nil, nil), sharedPG
+}
+
+func setupSearchHighlightResponseCollisionServer(t *testing.T, ctx context.Context) *server.Server {
+	t.Helper()
+	resetAndSeedDB(t, ctx)
+	_, err := sharedPG.Pool.Exec(ctx, `
+		ALTER TABLE posts ADD COLUMN "_highlight" TEXT DEFAULT 'stored user highlight column'
+	`)
+	testutil.NoError(t, err)
+
+	logger := testutil.DiscardLogger()
+	ch := schema.NewCacheHolder(sharedPG.Pool, logger)
+	if err := ch.Load(ctx); err != nil {
+		t.Fatalf("loading schema cache: %v", err)
+	}
+
+	cfg := config.Default()
+	return server.New(cfg, logger, ch, sharedPG.Pool, nil, nil)
+}
+
+func TestSearchHighlight(t *testing.T) {
+	ctx := context.Background()
+	srv, pg := setupSearchHighlightCollisionServer(t, ctx)
+	if !pgTrgmInstalled(t, ctx, pg) {
+		t.Fatal("shared migration/setup path must install pg_trgm for fuzzy highlight coverage")
+	}
+
+	t.Run("highlight_true_returns_marked_excerpt", func(t *testing.T) {
+		w := doRequest(t, srv, "GET", "/api/collections/posts/?search=hello&highlight=true", nil)
+		testutil.StatusCode(t, http.StatusOK, w.Code)
+
+		body := parseJSON(t, w)
+		items := jsonItems(t, body)
+		testutil.Equal(t, 1, len(items))
+		testutil.Equal(t, "First Post", jsonStr(t, items[0]["title"]))
+		testutil.Contains(t, jsonStr(t, items[0]["_highlight"]), "<b>Hello</b> world")
+		testutil.Equal(t, "stored old highlight column", jsonStr(t, items[0]["__search_highlight"]))
+		testutil.Equal(t, "stored ayb highlight column", jsonStr(t, items[0]["__ayb_search_highlight"]))
+	})
+
+	t.Run("highlight_escapes_stored_html", func(t *testing.T) {
+		_, err := pg.Pool.Exec(ctx, `
+			INSERT INTO posts (title, body, author_id, status)
+			VALUES ('Markup Post', 'Needle <script>alert(1)</script> & <img src=x>', 1, 'published')
+		`)
+		testutil.NoError(t, err)
+
+		w := doRequest(t, srv, "GET", "/api/collections/posts/?search=needle&highlight=true", nil)
+		testutil.StatusCode(t, http.StatusOK, w.Code)
+
+		body := parseJSON(t, w)
+		items := jsonItems(t, body)
+		testutil.Equal(t, 1, len(items))
+		highlight := jsonStr(t, items[0]["_highlight"])
+		testutil.Contains(t, highlight, "<b>Needle</b>")
+		testutil.Contains(t, highlight, "&lt;script&gt;alert(1)&lt;/script&gt;")
+		testutil.Contains(t, highlight, "&amp;")
+		if strings.Contains(highlight, "<script>") || strings.Contains(highlight, "<img") {
+			t.Fatalf("expected stored markup to be escaped in highlight, got %q", highlight)
+		}
+	})
+
+	t.Run("highlight_absent_omits_field", func(t *testing.T) {
+		w := doRequest(t, srv, "GET", "/api/collections/posts/?search=hello", nil)
+		testutil.StatusCode(t, http.StatusOK, w.Code)
+
+		body := parseJSON(t, w)
+		items := jsonItems(t, body)
+		testutil.Equal(t, 1, len(items))
+		if _, ok := items[0]["_highlight"]; ok {
+			t.Fatal("expected _highlight to be omitted when highlight is absent")
+		}
+		testutil.Equal(t, "stored old highlight column", jsonStr(t, items[0]["__search_highlight"]))
+		testutil.Equal(t, "stored ayb highlight column", jsonStr(t, items[0]["__ayb_search_highlight"]))
+	})
+
+	t.Run("fuzzy_only_highlight_is_present_without_markup", func(t *testing.T) {
+		w := doRequest(t, srv, "GET", "/api/collections/posts/?search=Frist+Post&fuzzy=true&highlight=true", nil)
+		testutil.StatusCode(t, http.StatusOK, w.Code)
+
+		body := parseJSON(t, w)
+		items := jsonItems(t, body)
+		testutil.Equal(t, 1, len(items))
+		highlight := jsonStr(t, items[0]["_highlight"])
+		testutil.Contains(t, highlight, "First Post")
+		if strings.Contains(highlight, "<b>") || strings.Contains(highlight, "</b>") {
+			t.Fatalf("expected fuzzy-only highlight without exact-search markup, got %q", highlight)
+		}
+	})
+}
+
+func TestSearchHighlightRejectsResponseFieldCollision(t *testing.T) {
+	ctx := context.Background()
+	srv := setupSearchHighlightResponseCollisionServer(t, ctx)
+
+	t.Run("offset", func(t *testing.T) {
+		w := doRequest(t, srv, "GET", "/api/collections/posts/?search=hello&highlight=true", nil)
+		testutil.StatusCode(t, http.StatusBadRequest, w.Code)
+
+		body := parseJSON(t, w)
+		testutil.Contains(t, jsonStr(t, body["message"]), `"_highlight" column`)
+	})
+
+	t.Run("cursor", func(t *testing.T) {
+		w := doRequest(t, srv, "GET", "/api/collections/posts/?cursor=&perPage=1&sort=id&search=hello&highlight=true", nil)
+		testutil.StatusCode(t, http.StatusBadRequest, w.Code)
+
+		body := parseJSON(t, w)
+		testutil.Contains(t, jsonStr(t, body["message"]), `"_highlight" column`)
+	})
+}
+
+func TestSearchTypoThreshold(t *testing.T) {
 	ctx := context.Background()
 	srv, pg := setupTestServer(t, ctx)
 	if !pgTrgmInstalled(t, ctx, pg) {
 		t.Fatal("shared migration/setup path must install pg_trgm for fuzzy integration coverage")
 	}
 
-	w := doRequest(t, srv, "GET", "/api/collections/posts/?search=Frist+Post&fuzzy=true", nil)
-	testutil.StatusCode(t, http.StatusOK, w.Code)
+	tests := []struct {
+		name          string
+		url           string
+		wantCount     int
+		wantTitle     string
+		wantExactRows bool
+	}{
+		{
+			name:          "default_threshold_matches_typo",
+			url:           "/api/collections/posts/?search=Frist+Post&fuzzy=true",
+			wantCount:     1,
+			wantTitle:     "First Post",
+			wantExactRows: true,
+		},
+		{
+			name:          "strict_threshold_misses_typo",
+			url:           "/api/collections/posts/?search=Frist+Post&fuzzy=true&typo_threshold=0.5",
+			wantCount:     0,
+			wantExactRows: true,
+		},
+		{
+			name:      "loose_threshold_matches_typo",
+			url:       "/api/collections/posts/?search=Frist+Post&fuzzy=true&typo_threshold=0.1",
+			wantTitle: "First Post",
+		},
+	}
 
-	body := parseJSON(t, w)
-	items := jsonItems(t, body)
-	testutil.Equal(t, 1, len(items))
-	testutil.Equal(t, "First Post", jsonStr(t, items[0]["title"]))
+	for _, tc := range tests {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			w := doRequest(t, srv, "GET", tc.url, nil)
+			testutil.StatusCode(t, http.StatusOK, w.Code)
+
+			body := parseJSON(t, w)
+			items := jsonItems(t, body)
+			if tc.wantExactRows {
+				testutil.Equal(t, tc.wantCount, len(items))
+			}
+			if tc.wantExactRows && tc.wantTitle != "" {
+				testutil.Equal(t, tc.wantTitle, jsonStr(t, items[0]["title"]))
+				return
+			}
+			if tc.wantTitle != "" {
+				for _, item := range items {
+					if jsonStr(t, item["title"]) == tc.wantTitle {
+						return
+					}
+				}
+				t.Fatalf("expected search results to include title %q, got %v", tc.wantTitle, items)
+			}
+		})
+	}
 }
 
 func TestSearchFuzzyFalseUsesExactSearch(t *testing.T) {
@@ -903,9 +1078,24 @@ func TestSearchRejectsInvalidFuzzyParams(t *testing.T) {
 			contains: "boolean",
 		},
 		{
-			name:     "typo_threshold_numeric",
+			name:     "typo_threshold_without_fuzzy",
 			url:      "/api/collections/posts/?search=post&typo_threshold=0.5",
-			contains: "unsupported parameter",
+			contains: "fuzzy",
+		},
+		{
+			name:     "typo_threshold_not_number",
+			url:      "/api/collections/posts/?search=post&fuzzy=true&typo_threshold=not-a-number",
+			contains: "typo_threshold",
+		},
+		{
+			name:     "typo_threshold_below_zero",
+			url:      "/api/collections/posts/?search=post&fuzzy=true&typo_threshold=-0.01",
+			contains: "typo_threshold",
+		},
+		{
+			name:     "typo_threshold_above_one",
+			url:      "/api/collections/posts/?search=post&fuzzy=true&typo_threshold=1.01",
+			contains: "typo_threshold",
 		},
 	}
 
@@ -1625,6 +1815,16 @@ func TestAggregateSearchRejectsInvalidFuzzyParams(t *testing.T) {
 			url:      "/api/collections/products/?aggregate=count&search=widget&typo_threshold=0.5",
 			contains: "unsupported parameter",
 		},
+		{
+			name:     "typo_threshold_with_fuzzy",
+			url:      "/api/collections/products/?aggregate=count&search=widget&fuzzy=true&typo_threshold=0.5",
+			contains: "unsupported parameter",
+		},
+		{
+			name:     "highlight",
+			url:      "/api/collections/products/?aggregate=count&search=widget&highlight=true",
+			contains: "unsupported parameter",
+		},
 	}
 
 	for _, tc := range tests {
@@ -1913,6 +2113,20 @@ func TestCursorPaginationWithSearch(t *testing.T) {
 	if len(allTitles) != 30 {
 		t.Fatalf("expected 30 search results, got %d: %v", len(allTitles), allTitles)
 	}
+}
+
+func TestCursorPaginationWithSearchHighlightOnPosts(t *testing.T) {
+	ctx := context.Background()
+	srv := setupCursorTestServer(t, ctx)
+
+	w := doRequest(t, srv, "GET", "/api/collections/posts/?cursor=&perPage=1&sort=id&search=hello&highlight=true", nil)
+	testutil.StatusCode(t, http.StatusOK, w.Code)
+
+	body := parseJSON(t, w)
+	items := jsonItems(t, body)
+	testutil.Equal(t, 1, len(items))
+	testutil.Equal(t, "First Post", jsonStr(t, items[0]["title"]))
+	testutil.Contains(t, jsonStr(t, items[0]["_highlight"]), "<b>Hello</b> world")
 }
 
 func TestCursorPaginationIncludesFacetsWhenRequested(t *testing.T) {

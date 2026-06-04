@@ -65,6 +65,10 @@ func TestRun_React(t *testing.T) {
 	assertFileContains(t, projectDir, "src/lib/ayb.ts", "clearTokens(")
 	assertFileContains(t, projectDir, "CLAUDE.md", "my-app")
 	assertFileContains(t, projectDir, "index.html", "my-app")
+	assertFileContains(t, projectDir, "src/App.tsx", `records.list("items", { search, fuzzy: true })`)
+	assertFileContains(t, projectDir, "src/App.tsx", "Search items")
+	assertFileContains(t, projectDir, "schema.sql", "Starter search examples query the items table")
+	assertFileContains(t, projectDir, "CLAUDE.md", `records.list("items", { search, fuzzy: true })`)
 }
 
 func TestRun_Next(t *testing.T) {
@@ -98,7 +102,13 @@ func TestRun_Plain(t *testing.T) {
 	t.Parallel()
 	projectDir := scaffoldProject(t, "plain-app", TemplatePlain)
 
-	assertFilesExist(t, projectDir, "package.json", "src/index.ts", "src/lib/ayb.ts", "ayb.toml")
+	assertFilesExist(t, projectDir, "package.json", "tsconfig.json", "src/index.ts", "src/lib/ayb.ts", "ayb.toml")
+	assertFileContains(t, projectDir, "package.json", `"@types/node"`)
+	assertFileContains(t, projectDir, "tsconfig.json", `"rootDir": "src"`)
+	assertFileContains(t, projectDir, "src/index.ts", `records.list("items", { search, fuzzy: true })`)
+	assertFileContains(t, projectDir, "src/index.ts", "Search items for")
+	assertFileContains(t, projectDir, "schema.sql", "Starter search examples query the items table")
+	assertFileContains(t, projectDir, "CLAUDE.md", `records.list("items", { search, fuzzy: true })`)
 }
 
 func TestRun_EmptyName(t *testing.T) {
@@ -164,6 +174,8 @@ func TestSchemaSQL(t *testing.T) {
 	testutil.Contains(t, content, "CREATE POLICY items_delete ON items FOR DELETE")
 	// Policy conditions reference the correct setting
 	testutil.Contains(t, content, "current_setting('ayb.user_id', true)::uuid")
+	testutil.Contains(t, content, "Starter search examples query the items table")
+	testutil.Contains(t, content, "name or description")
 }
 
 func TestGitignoreNextTemplate(t *testing.T) {
@@ -187,11 +199,14 @@ func TestClaudeMD(t *testing.T) {
 	testutil.Contains(t, content, "my-project")
 	testutil.Contains(t, content, "ayb start")
 	testutil.Contains(t, content, "AYBClient")
+	testutil.Contains(t, content, `records.list("items", { search, fuzzy: true })`)
+	testutil.Contains(t, content, "Run `ayb sql < schema.sql` first so the `items` table exists")
 }
 
 func TestAybClientBrowser(t *testing.T) {
 	t.Parallel()
 	content := aybClient()
+	testutil.Contains(t, content, `/// <reference types="vite/client" />`)
 	testutil.Contains(t, content, "import.meta.env.VITE_AYB_URL")
 	testutil.False(t, strings.Contains(content, "localStorage."))
 	testutil.Contains(t, content, "setSessionTokens")
@@ -204,6 +219,10 @@ func TestAybClientBrowser(t *testing.T) {
 	testutil.Contains(t, content, `typeof ayb.token === "string"`)
 	testutil.Contains(t, content, `typeof ayb.refreshToken === "string"`)
 	testutil.Contains(t, content, "Keep auth tokens in memory by default")
+	testutil.Contains(t, content, "type ScaffoldAYBClient")
+	testutil.Contains(t, content, "health(): Promise<{ status: string }>")
+	testutil.Contains(t, content, "search?: string")
+	testutil.Contains(t, content, "fuzzy?: boolean")
 }
 
 func TestAybClientNode(t *testing.T) {
@@ -212,6 +231,10 @@ func TestAybClientNode(t *testing.T) {
 	testutil.Contains(t, content, "process.env.AYB_URL")
 	// Node client should NOT use localStorage
 	testutil.False(t, strings.Contains(content, "localStorage"))
+	testutil.Contains(t, content, "type ScaffoldAYBClient")
+	testutil.Contains(t, content, "health(): Promise<{ status: string }>")
+	testutil.Contains(t, content, "search?: string")
+	testutil.Contains(t, content, "fuzzy?: boolean")
 }
 
 func TestEnvFileContent(t *testing.T) {
@@ -300,6 +323,9 @@ func TestReactAppContent(t *testing.T) {
 	testutil.Contains(t, content, "useState")
 	testutil.Contains(t, content, "ayb.health()")
 	testutil.Contains(t, content, "ayb.records")
+	testutil.Contains(t, content, `records.list("items", { search, fuzzy: true })`)
+	testutil.Contains(t, content, "Search items")
+	testutil.Contains(t, content, "ayb sql &lt; schema.sql")
 }
 
 func TestExpressMainContent(t *testing.T) {
@@ -319,6 +345,8 @@ func TestPlainMainContent(t *testing.T) {
 	testutil.Contains(t, content, `import { ayb }`)
 	testutil.Contains(t, content, "ayb.health()")
 	testutil.Contains(t, content, "ayb.records.list")
+	testutil.Contains(t, content, `records.list("items", { search, fuzzy: true })`)
+	testutil.Contains(t, content, "Search items for")
 	testutil.Contains(t, content, "Cannot connect to AYB. Run 'ayb start' first.")
 	testutil.Contains(t, content, "Cannot list items. Run 'ayb sql < schema.sql' first.")
 }

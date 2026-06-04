@@ -7,6 +7,7 @@ import { AYBClient as PublicAYBClient } from "./index";
 import type {
   AuthResponse as PublicAuthResponse,
   ListResponse as PublicListResponse,
+  SearchHit as PublicSearchHit,
   StorageObject as PublicStorageObject,
   User as PublicUser,
   WebAuthnLoginBeginResponse as PublicWebAuthnLoginBeginResponse,
@@ -15,6 +16,7 @@ import { mockFetchSequence } from "./test_utils/mockFetchSequence";
 import type {
   AuthResponse,
   ListResponse,
+  SearchHit,
   StorageObject,
   User,
   WebAuthnLoginBeginResponse,
@@ -41,12 +43,14 @@ describe("SDK contract fixtures", () => {
 
     const assertAuthType = (_value: AuthResponse): void => {};
     const assertListType = (_value: ListResponse<Record<string, unknown>>): void => {};
+    const assertSearchHitType = (_value: ListResponse<SearchHit<{ id: string }>>): void => {};
     const assertStorageType = (_value: StorageObject): void => {};
     const assertUserType = (_value: User): void => {};
     const assertWebAuthnBeginType = (_value: WebAuthnLoginBeginResponse): void => {};
 
     assertAuthType({} as PublicAuthResponse);
     assertListType({} as PublicListResponse<Record<string, unknown>>);
+    assertSearchHitType({} as PublicListResponse<PublicSearchHit<{ id: string }>>);
     assertStorageType({} as PublicStorageObject);
     assertUserType({} as PublicUser);
     assertWebAuthnBeginType({} as PublicWebAuthnLoginBeginResponse);

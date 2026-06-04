@@ -174,6 +174,70 @@ func TestRunWithAYBScriptRunsCommandAfterHealthReady(t *testing.T) {
 	requireOutputContains(t, output, "command-finished")
 }
 
+func TestRunWithAYBScriptDerivesHealthAndBaseURLFromServerHostPort(t *testing.T) {
+	t.Parallel()
+
+	logPath := filepath.Join(t.TempDir(), "ayb-derived-host-port.log")
+	healthPort := reserveLocalhostPort(t)
+	baseURL := fmt.Sprintf("http://127.0.0.1:%d", healthPort)
+
+	output, err := runAYBScript(t, fmt.Sprintf(`test "$AYB_BASE_URL" = %q && echo command-finished`, baseURL),
+		fmt.Sprintf(`AYB_START_COMMAND=node -e "const http=require('http'); const server=http.createServer((_,res)=>res.end('ok')); server.listen(%d, '127.0.0.1');"`, healthPort),
+		"AYB_SERVER_HOST=127.0.0.1",
+		fmt.Sprintf("AYB_SERVER_PORT=%d", healthPort),
+		"AYB_HEALTH_TIMEOUT_SECONDS=10",
+		"AYB_HEALTH_POLL_INTERVAL_SECONDS=0.1",
+		"AYB_ADMIN_PASSWORD=test-admin-password",
+		"AYB_START_LOG="+logPath,
+	)
+	if err != nil {
+		t.Fatalf("expected success, got error: %v output=%s", err, output)
+	}
+	requireOutputContains(t, output, "command-finished")
+}
+
+func TestRunWithAYBScriptUsesExplicitBaseURLForHealthAndChildren(t *testing.T) {
+	t.Parallel()
+
+	logPath := filepath.Join(t.TempDir(), "ayb-explicit-base-url.log")
+	healthPort := reserveLocalhostPort(t)
+	baseURL := fmt.Sprintf("http://127.0.0.1:%d", healthPort)
+
+	output, err := runAYBScript(t, fmt.Sprintf(`test "$AYB_BASE_URL" = %q && echo command-finished`, baseURL),
+		fmt.Sprintf(`AYB_START_COMMAND=node -e "const http=require('http'); const server=http.createServer((_,res)=>res.end('ok')); server.listen(%d, '127.0.0.1');"`, healthPort),
+		"AYB_BASE_URL="+baseURL,
+		"AYB_HEALTH_TIMEOUT_SECONDS=10",
+		"AYB_HEALTH_POLL_INTERVAL_SECONDS=0.1",
+		"AYB_ADMIN_PASSWORD=test-admin-password",
+		"AYB_START_LOG="+logPath,
+	)
+	if err != nil {
+		t.Fatalf("expected success, got error: %v output=%s", err, output)
+	}
+	requireOutputContains(t, output, "command-finished")
+}
+
+func TestRunWithAYBScriptTreatsAdminTokenEnvAsReadyCredentials(t *testing.T) {
+	t.Parallel()
+
+	logPath := filepath.Join(t.TempDir(), "ayb-admin-token-env.log")
+	healthPort := reserveLocalhostPort(t)
+	healthURL := fmt.Sprintf("http://127.0.0.1:%d/health", healthPort)
+
+	output, err := runAYBScript(t, "echo command-finished",
+		fmt.Sprintf(`AYB_START_COMMAND=node -e "const http=require('http'); const server=http.createServer((_,res)=>res.end('ok')); server.listen(%d);"`, healthPort),
+		"AYB_HEALTH_URL="+healthURL,
+		"AYB_HEALTH_TIMEOUT_SECONDS=10",
+		"AYB_HEALTH_POLL_INTERVAL_SECONDS=0.1",
+		"AYB_ADMIN_TOKEN=test-admin-token",
+		"AYB_START_LOG="+logPath,
+	)
+	if err != nil {
+		t.Fatalf("expected success, got error: %v output=%s", err, output)
+	}
+	requireOutputContains(t, output, "command-finished")
+}
+
 func TestRunWithAYBScriptUsesFreshAdminTokenAndRestoresOriginalToken(t *testing.T) {
 	t.Parallel()
 
@@ -197,6 +261,32 @@ func TestRunWithAYBScriptUsesFreshAdminTokenAndRestoresOriginalToken(t *testing.
 	}
 	requireOutputContains(t, output, "command-finished")
 	requireFileContainsTrimmed(t, tokenPath, "original-token")
+}
+
+func TestRunWithAYBScriptPreservesCallerOwnedCustomAdminTokenPath(t *testing.T) {
+	t.Parallel()
+
+	homeDir := t.TempDir()
+	logPath := filepath.Join(t.TempDir(), "ayb-custom-token-path.log")
+	customTokenPath := filepath.Join(t.TempDir(), "caller-owned-token")
+	healthPort := reserveLocalhostPort(t)
+	healthURL := fmt.Sprintf("http://127.0.0.1:%d/health", healthPort)
+	writeTextFile(t, customTokenPath, "caller-token\n")
+
+	output, err := runAYBScript(t, `test "$(cat "$HOME/.ayb/admin-token")" = fresh-token && echo command-finished`,
+		"HOME="+homeDir,
+		freshTokenWriterStartCommand(healthPort, 0),
+		"AYB_HEALTH_URL="+healthURL,
+		"AYB_HEALTH_TIMEOUT_SECONDS=10",
+		"AYB_HEALTH_POLL_INTERVAL_SECONDS=0.1",
+		"AYB_ADMIN_TOKEN_PATH="+customTokenPath,
+		"AYB_START_LOG="+logPath,
+	)
+	if err != nil {
+		t.Fatalf("expected success, got error: %v output=%s", err, output)
+	}
+	requireOutputContains(t, output, "command-finished")
+	requireFileContainsTrimmed(t, customTokenPath, "caller-token")
 }
 
 func TestRunWithAYBScriptRestoresOriginalTokenWhenAdminPasswordProvided(t *testing.T) {

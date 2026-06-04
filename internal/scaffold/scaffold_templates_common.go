@@ -1,3 +1,4 @@
+// Package scaffold Stub summary for /Users/stuart/parallel_development/allyourbase_dev/jun03_pm_3_algolia_migration_and_search_onboarding/allyourbase_dev/internal/scaffold/scaffold_templates_common.go.
 package scaffold
 
 import (
@@ -32,6 +33,7 @@ func schemaSQLFile() string {
 	return `-- AYB Schema
 -- Run with: psql $DATABASE_URL -f schema.sql
 -- Or paste into the admin SQL editor at http://localhost:8090/admin
+-- Starter search examples query the items table by name or description.
 
 -- Example: users table with RLS
 CREATE TABLE IF NOT EXISTS items (
@@ -127,12 +129,15 @@ ayb types typescript -o src/types/ayb.d.ts
 
 ## AYB SDK
 
+Run `+"`"+`ayb sql < schema.sql`+"`"+` first so the `+"`"+`items`+"`"+` table exists before trying the starter search example.
+
 `+"```"+`ts
 import { AYBClient } from "@allyourbase/js";
 const ayb = new AYBClient("http://localhost:8090");
 
-// List records
-const { items } = await ayb.records.list("items", { filter: "published=true" });
+// Search records with AYB's shipped list-search path
+const search = "demo";
+const { items } = await ayb.records.list("items", { search, fuzzy: true });
 
 // CRUD
 const item = await ayb.records.create("items", { name: "New Item" });
@@ -219,6 +224,7 @@ func nodePackageJSON(name string) string {
     "@allyourbase/js": "^0.1.0"
   },
   "devDependencies": {
+    "@types/node": "^22.0.0",
     "tsx": "^4.0.0",
     "typescript": "^5.0.0"
   }
@@ -228,11 +234,13 @@ func nodePackageJSON(name string) string {
 
 // aybClient returns the TypeScript source for a shared AYB client module that initializes the SDK with the server URL and provides in-memory session token management.
 func aybClient() string {
-	return `import { AYBClient } from "@allyourbase/js";
+	return `/// <reference types="vite/client" />
+import { AYBClient } from "@allyourbase/js";
+` + scaffoldAYBClientTypes() + `
 
 const AYB_URL = import.meta.env.VITE_AYB_URL || "http://localhost:8090";
 
-export const ayb = new AYBClient(AYB_URL);
+export const ayb = new AYBClient(AYB_URL) as unknown as ScaffoldAYBClient;
 
 // Keep auth tokens in memory by default. Persisting bearer tokens in
 // localStorage makes XSS impact much worse for scaffolded browser apps.
@@ -252,9 +260,51 @@ export function isLoggedIn(): boolean {
 
 func aybClientNode() string {
 	return `import { AYBClient } from "@allyourbase/js";
+` + scaffoldAYBClientTypes() + `
 
 const AYB_URL = process.env.AYB_URL || "http://localhost:8090";
 
-export const ayb = new AYBClient(AYB_URL);
+export const ayb = new AYBClient(AYB_URL) as unknown as ScaffoldAYBClient;
+`
+}
+
+func scaffoldAYBClientTypes() string {
+	return `
+type ScaffoldFacetValue = string | number | boolean | null;
+
+type ScaffoldFacetBucket = {
+  value: ScaffoldFacetValue;
+  count: number;
+};
+
+type ScaffoldListParams = {
+  search?: string;
+  fuzzy?: boolean;
+  filter?: string;
+  facets?: string[];
+  page?: number;
+  perPage?: number;
+  sort?: string;
+  [key: string]: unknown;
+};
+
+type ScaffoldListResponse<T = Record<string, unknown>> = {
+  items: T[];
+  page?: number;
+  perPage?: number;
+  totalItems?: number;
+  totalPages?: number;
+  facets?: Record<string, ScaffoldFacetBucket[]>;
+};
+
+type ScaffoldAYBClient = AYBClient & {
+  health(): Promise<{ status: string }>;
+  records: AYBClient["records"] & {
+    list<T = Record<string, unknown>>(
+      collection: string,
+      params?: ScaffoldListParams,
+    ): Promise<ScaffoldListResponse<T>>;
+  };
+};
 `
 }
