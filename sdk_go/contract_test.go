@@ -127,7 +127,7 @@ func TestContractAuthResponseJSONShape(t *testing.T) {
 }
 
 func TestContractListResponseJSONShape(t *testing.T) {
-	raw := []byte(`{"items":[{"id":"rec_1","title":"First"},{"id":"rec_2","title":"Second"}],"page":1,"perPage":2,"totalItems":2,"totalPages":1}`)
+	raw := []byte(`{"items":[{"id":"rec_1","title":"First","_highlight":"<mark>First</mark>"},{"id":"rec_2","title":"Second"}],"page":1,"perPage":2,"totalItems":2,"totalPages":1,"facets":{"category":[{"value":"dessert","count":2}]}}`)
 	var out ListResponse
 	if err := json.Unmarshal(raw, &out); err != nil {
 		t.Fatal(err)
@@ -140,6 +140,29 @@ func TestContractListResponseJSONShape(t *testing.T) {
 	}
 	if out.Items[0]["title"] != "First" || out.Items[1]["title"] != "Second" {
 		t.Fatalf("bad item order parse: %+v", out.Items)
+	}
+	if out.Items[0]["_highlight"] != "<mark>First</mark>" {
+		t.Fatalf("bad highlight parse: %+v", out.Items[0])
+	}
+	if out.Facets["category"][0].Value != "dessert" || out.Facets["category"][0].Count != 2 {
+		t.Fatalf("bad facets parse: %+v", out.Facets)
+	}
+}
+
+func TestContractCursorListResponseJSONShape(t *testing.T) {
+	raw := []byte(`{"items":[{"id":"rec_1","title":"First"}],"perPage":2,"nextCursor":"cursor_2","facets":{"priority":[{"value":1,"count":2}]}}`)
+	var out ListResponse
+	if err := json.Unmarshal(raw, &out); err != nil {
+		t.Fatal(err)
+	}
+	if out.NextCursor == nil || *out.NextCursor != "cursor_2" {
+		t.Fatalf("bad nextCursor parse: %+v", out.NextCursor)
+	}
+	if out.Page != 0 || out.TotalItems != 0 || out.TotalPages != 0 {
+		t.Fatalf("expected offset fields to stay zero-valued for cursor envelope, got %+v", out)
+	}
+	if out.Facets["priority"][0].Value != float64(1) || out.Facets["priority"][0].Count != 2 {
+		t.Fatalf("bad numeric facet parse: %+v", out.Facets)
 	}
 }
 

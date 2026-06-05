@@ -1,11 +1,11 @@
 """
-Stub summary for /Users/stuart/parallel_development/allyourbase_dev/MAR18_WS_C_phase5_features_and_phase6/allyourbase_dev/sdk_python/src/allyourbase/records.py.
+Stub summary for /Users/stuart/parallel_development/allyourbase_dev/jun04_pm_3_sdk_parity_go_python_openapi/allyourbase_dev/sdk_python/src/allyourbase/records.py.
 """
 
 from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any, Dict, List, Optional
-from urllib.parse import urlencode
+from urllib.parse import quote, urlencode
 
 from allyourbase.types import BatchOperation, BatchResult, ListResponse
 
@@ -25,6 +25,14 @@ class RecordsClient:
             return path
         return f"{path}?{urlencode(params)}"
 
+    @staticmethod
+    def _collection_path(collection: str) -> str:
+        return f"/api/collections/{quote(collection, safe='')}"
+
+    @classmethod
+    def _record_path(cls, collection: str, id: str) -> str:
+        return f"{cls._collection_path(collection)}/{quote(id, safe='')}"
+
     async def list(
         self,
         collection: str,
@@ -37,6 +45,12 @@ class RecordsClient:
         fields: Optional[str] = None,
         expand: Optional[str] = None,
         skip_total: bool = False,
+        fuzzy: bool = False,
+        typo_threshold: Optional[float] = None,
+        highlight: bool = False,
+        facets: Optional[List[str]] = None,
+        semantic: bool = False,
+        semantic_query: Optional[str] = None,
     ) -> ListResponse[Dict[str, Any]]:
         params: Dict[str, str] = {}
         if page is not None:
@@ -55,8 +69,20 @@ class RecordsClient:
             params["expand"] = expand
         if skip_total:
             params["skipTotal"] = "true"
+        if fuzzy:
+            params["fuzzy"] = "true"
+        if typo_threshold is not None:
+            params["typo_threshold"] = str(typo_threshold)
+        if highlight:
+            params["highlight"] = "true"
+        if facets:
+            params["facets"] = ",".join(facets)
+        if semantic:
+            params["semantic"] = "true"
+        if semantic_query:
+            params["semantic_query"] = semantic_query
 
-        path = self._build_path(f"/api/collections/{collection}", params)
+        path = self._build_path(self._collection_path(collection), params)
         resp = await self._client._request(path)
         if resp is None:
             raise RuntimeError("Expected response body for list")
@@ -76,7 +102,7 @@ class RecordsClient:
         if expand is not None:
             params["expand"] = expand
 
-        path = self._build_path(f"/api/collections/{collection}/{id}", params)
+        path = self._build_path(self._record_path(collection, id), params)
         resp = await self._client._request(path)
         if resp is None:
             raise RuntimeError("Expected response body for get")
@@ -89,7 +115,7 @@ class RecordsClient:
         data: Dict[str, Any],
     ) -> Dict[str, Any]:
         resp = await self._client._request(
-            f"/api/collections/{collection}",
+            self._collection_path(collection),
             method="POST",
             json=data,
         )
@@ -105,7 +131,7 @@ class RecordsClient:
         data: Dict[str, Any],
     ) -> Dict[str, Any]:
         resp = await self._client._request(
-            f"/api/collections/{collection}/{id}",
+            self._record_path(collection, id),
             method="PATCH",
             json=data,
         )
@@ -116,7 +142,7 @@ class RecordsClient:
 
     async def delete(self, collection: str, id: str) -> None:
         await self._client._request(
-            f"/api/collections/{collection}/{id}",
+            self._record_path(collection, id),
             method="DELETE",
         )
 
@@ -126,7 +152,7 @@ class RecordsClient:
         operations: List[BatchOperation],
     ) -> List[BatchResult[Dict[str, Any]]]:
         resp = await self._client._request(
-            f"/api/collections/{collection}/batch",
+            f"{self._collection_path(collection)}/batch",
             method="POST",
             json={
                 "operations": [op.model_dump(exclude_none=True) for op in operations]

@@ -195,7 +195,7 @@ func TestGenerate_ListQueryParamsExtended(t *testing.T) {
 		paramNames[pm["name"].(string)] = true
 	}
 
-	for _, name := range []string{"fields", "filter", "sort", "page", "perPage", "search", "skipTotal", "cursor", "direction", "aggregate", "group"} {
+	for _, name := range []string{"fields", "filter", "sort", "page", "perPage", "search", "skipTotal", "cursor", "direction", "aggregate", "group", "fuzzy", "typo_threshold", "highlight", "facets", "semantic", "semantic_query"} {
 		if !paramNames[name] {
 			t.Errorf("missing query parameter %q", name)
 		}
@@ -302,10 +302,7 @@ func TestGenerate_CRUDUsesRefs(t *testing.T) {
 	listResp := listOp["responses"].(map[string]any)["200"].(map[string]any)
 	listContent := listResp["content"].(map[string]any)["application/json"].(map[string]any)
 	listSchema := listContent["schema"].(map[string]any)
-	listItems := listSchema["items"].(map[string]any)
-	if ref := listItems["$ref"]; ref != "#/components/schemas/Posts" {
-		t.Errorf("list response items $ref = %v, want #/components/schemas/Posts", ref)
-	}
+	assertListResponseUnionSchema(t, listSchema, "#/components/schemas/Posts")
 
 	readPath := paths["/posts/{id}"].(map[string]any)
 	readOp := readPath["get"].(map[string]any)

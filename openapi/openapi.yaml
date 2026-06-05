@@ -1164,7 +1164,14 @@ paths:
         - $ref: "#/components/parameters/Fields"
         - $ref: "#/components/parameters/Expand"
         - $ref: "#/components/parameters/SkipTotal"
+        - $ref: "#/components/parameters/Cursor"
         - $ref: "#/components/parameters/Search"
+        - $ref: "#/components/parameters/Fuzzy"
+        - $ref: "#/components/parameters/TypoThreshold"
+        - $ref: "#/components/parameters/Highlight"
+        - $ref: "#/components/parameters/Facets"
+        - $ref: "#/components/parameters/Semantic"
+        - $ref: "#/components/parameters/SemanticQuery"
       security:
         - BearerAuth: []
         - {}
@@ -1174,7 +1181,9 @@ paths:
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/ListResponse"
+                oneOf:
+                  - $ref: "#/components/schemas/ListResponse"
+                  - $ref: "#/components/schemas/CursorListResponse"
         "400":
           description: Invalid filter or search syntax
           content:
@@ -1912,10 +1921,54 @@ components:
       schema:
         type: boolean
         default: false
+    Cursor:
+      name: cursor
+      in: query
+      description: Opaque cursor for pagination (use nextCursor from previous response)
+      schema:
+        type: string
     Search:
       name: search
       in: query
       description: "Full-text search across all text columns. Supports PostgreSQL websearch_to_tsquery syntax."
+      schema:
+        type: string
+    Fuzzy:
+      name: fuzzy
+      in: query
+      description: Include fuzzy trigram matches in full-text search results.
+      schema:
+        type: boolean
+    TypoThreshold:
+      name: typo_threshold
+      in: query
+      description: Similarity threshold for fuzzy search matches.
+      schema:
+        type: number
+        minimum: 0
+        maximum: 1
+    Highlight:
+      name: highlight
+      in: query
+      description: Include _highlight excerpts on search results.
+      schema:
+        type: boolean
+    Facets:
+      name: facets
+      in: query
+      description: "Comma-separated column names to return facet counts for."
+      schema:
+        type: string
+    Semantic:
+      name: semantic
+      in: query
+      description: Run semantic search from the search query.
+      schema:
+        type: boolean
+    SemanticQuery:
+      name: semantic_query
+      in: query
+      description: Semantic search query text.
       schema:
         type: string
 
@@ -1944,8 +1997,14 @@ components:
         items:
           type: array
           items:
-            type: object
-            additionalProperties: true
+            allOf:
+              - type: object
+                additionalProperties: true
+              - type: object
+                properties:
+                  _highlight:
+                    type: string
+                    description: HTML-highlighted search excerpt when highlight=true
           description: Records for the current page
         page:
           type: integer
@@ -1961,6 +2020,59 @@ components:
           type: integer
           description: Total pages (-1 if skipTotal=true)
           example: 3
+        facets:
+          type: object
+          description: Facet counts keyed by requested facet column
+          additionalProperties:
+            type: array
+            items:
+              type: object
+              required: [value, count]
+              properties:
+                value:
+                  description: Facet value
+                count:
+                  type: integer
+                  description: Number of matching rows for this facet value
+
+    CursorListResponse:
+      type: object
+      required: [items, perPage]
+      not:
+        required: [page]
+      properties:
+        items:
+          type: array
+          items:
+            allOf:
+              - type: object
+                additionalProperties: true
+              - type: object
+                properties:
+                  _highlight:
+                    type: string
+                    description: HTML-highlighted search excerpt when highlight=true
+          description: Records for the current cursor page
+        perPage:
+          type: integer
+          example: 20
+        nextCursor:
+          type: string
+          description: Opaque cursor for the next page when more rows are available
+        facets:
+          type: object
+          description: Facet counts keyed by requested facet column
+          additionalProperties:
+            type: array
+            items:
+              type: object
+              required: [value, count]
+              properties:
+                value:
+                  description: Facet value
+                count:
+                  type: integer
+                  description: Number of matching rows for this facet value
 
     AuthRequest:
       type: object

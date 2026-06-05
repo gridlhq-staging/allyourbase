@@ -126,6 +126,15 @@ type ListResponse struct {
 	PerPage    int              `json:"perPage"`
 	TotalItems int              `json:"totalItems"`
 	TotalPages int              `json:"totalPages"`
+	NextCursor *string          `json:"nextCursor,omitempty"`
+	Facets     FacetCounts      `json:"facets,omitempty"`
+}
+
+type FacetCounts map[string][]FacetValueCount
+
+type FacetValueCount struct {
+	Value any `json:"value"`
+	Count int `json:"count"`
 }
 
 type BatchOperation struct {

@@ -52,9 +52,20 @@ def test_list_response_parses_server_paginated_shape() -> None:
         "totalItems": 42,
         "totalPages": 3,
         "items": [
-            {"id": "rec_1", "title": "Hello", "published": True},
+            {
+                "id": "rec_1",
+                "title": "Hello",
+                "published": True,
+                "_highlight": "<mark>Hello</mark>",
+            },
             {"id": "rec_2", "title": "World", "published": False},
         ],
+        "facets": {
+            "category": [
+                {"value": "docs", "count": 2},
+                {"value": "fruit", "count": 1},
+            ],
+        },
     }
     resp = ListResponse.model_validate(raw)
     assert resp.page == 1
@@ -63,6 +74,34 @@ def test_list_response_parses_server_paginated_shape() -> None:
     assert resp.total_pages == 3
     assert len(resp.items) == 2
     assert resp.items[0]["id"] == "rec_1"
+    assert resp.items[0]["_highlight"] == "<mark>Hello</mark>"
+    assert resp.facets is not None
+    assert resp.facets["category"][0].value == "docs"
+    assert resp.facets["category"][0].count == 2
+    assert resp.facets["category"][1].value == "fruit"
+    assert resp.facets["category"][1].count == 1
+
+
+def test_list_response_parses_cursor_shape_and_non_string_facets() -> None:
+    raw = {
+        "perPage": 20,
+        "nextCursor": "cursor_2",
+        "items": [{"id": "rec_1", "title": "Hello"}],
+        "facets": {
+            "priority": [
+                {"value": 1, "count": 3},
+            ],
+        },
+    }
+    resp = ListResponse.model_validate(raw)
+    assert resp.page is None
+    assert resp.total_items is None
+    assert resp.total_pages is None
+    assert resp.next_cursor == "cursor_2"
+    assert resp.items[0]["id"] == "rec_1"
+    assert resp.facets is not None
+    assert resp.facets["priority"][0].value == 1
+    assert resp.facets["priority"][0].count == 3
 
 
 def test_realtime_event_parses_server_sse_shape() -> None:

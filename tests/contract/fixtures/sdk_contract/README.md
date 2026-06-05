@@ -1,8 +1,8 @@
 # SDK Contract Fixtures
 
-Canonical server response shapes for cross-SDK deserialization parity tests.
+Canonical server response shapes and shared live seed contracts for cross-SDK parity tests.
 
-This directory is the single source of truth for cross-SDK wire payload fixtures.
+This directory is the single source of truth for cross-SDK wire payload fixtures and deterministic seeded-server expectations.
 
 ## Fixture Ledger
 
@@ -10,6 +10,7 @@ This directory is the single source of truth for cross-SDK wire payload fixtures
 - `error_response_numeric_code.json`
 - `error_response_string_code.json`
 - `list_response.json`
+- `list_search_seed_contract.json`
 - `magic_link_request_response.json`
 - `magic_link_confirm_success_response.json`
 - `magic_link_confirm_pending_mfa_response.json`

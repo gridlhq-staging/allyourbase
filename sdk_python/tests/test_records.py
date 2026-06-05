@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from urllib.parse import parse_qs, quote
+
 import pytest
 
 from allyourbase.client import AYBClient
@@ -50,6 +52,101 @@ async def test_list_all_params(httpx_mock: pytest.fixture) -> None:
     assert params["fields"] == "id,title"
     assert params["expand"] == "author"
     assert params["skipTotal"] == "true"
+
+
+async def test_list_search_params_match_js_query_contract(httpx_mock: pytest.fixture) -> None:
+    httpx_mock.add_response(
+        json={"items": [], "page": 1, "perPage": 10, "totalItems": 0, "totalPages": 0}
+    )
+    client = AYBClient("https://api.example.com")
+
+    await client.records.list(
+        "posts",
+        search="banan",
+        fuzzy=True,
+        typo_threshold=0.2,
+        highlight=True,
+        facets=["category", "author"],
+        semantic=True,
+        semantic_query="banana semantic",
+    )
+
+    req = httpx_mock.get_request()
+    assert req is not None
+    assert parse_qs(req.url.query.decode(), keep_blank_values=True) == {
+        "search": ["banan"],
+        "fuzzy": ["true"],
+        "typo_threshold": ["0.2"],
+        "highlight": ["true"],
+        "facets": ["category,author"],
+        "semantic": ["true"],
+        "semantic_query": ["banana semantic"],
+    }
+
+
+@pytest.mark.parametrize(
+    ("kwargs", "expected_query"),
+    [
+        (
+            {"fuzzy": False, "highlight": False, "semantic": False, "facets": []},
+            {},
+        ),
+        (
+            {"typo_threshold": 0.0},
+            {"typo_threshold": ["0.0"]},
+        ),
+    ],
+)
+async def test_list_search_params_omit_false_flags_but_keep_numeric_zero(
+    httpx_mock: pytest.fixture,
+    kwargs: dict[str, object],
+    expected_query: dict[str, list[str]],
+) -> None:
+    httpx_mock.add_response(
+        json={"items": [], "page": 1, "perPage": 10, "totalItems": 0, "totalPages": 0}
+    )
+    client = AYBClient("https://api.example.com")
+
+    await client.records.list("posts", **kwargs)
+
+    req = httpx_mock.get_request()
+    assert req is not None
+    assert parse_qs(req.url.query.decode(), keep_blank_values=True) == expected_query
+
+
+async def test_list_accepts_cursor_envelope(httpx_mock: pytest.fixture) -> None:
+    httpx_mock.add_response(
+        json={
+            "items": [{"id": "rec_1"}],
+            "perPage": 10,
+            "nextCursor": "cursor_2",
+        }
+    )
+    client = AYBClient("https://api.example.com")
+
+    result = await client.records.list("posts")
+
+    assert isinstance(result, ListResponse)
+    assert result.page is None
+    assert result.total_items is None
+    assert result.total_pages is None
+    assert result.next_cursor == "cursor_2"
+    assert result.items[0]["id"] == "rec_1"
+
+
+async def test_list_escapes_collection_path_segment(httpx_mock: pytest.fixture) -> None:
+    httpx_mock.add_response(
+        json={"items": [], "page": 1, "perPage": 10, "totalItems": 0, "totalPages": 0}
+    )
+    client = AYBClient("https://api.example.com")
+    collection = "posts?admin=true"
+
+    await client.records.list(collection)
+
+    req = httpx_mock.get_request()
+    assert req is not None
+    assert parse_qs(req.url.query.decode(), keep_blank_values=True) == {}
+    assert req.url.raw_path.decode() == f"/api/collections/{quote(collection, safe='')}"
 
 
 async def test_get_by_id(httpx_mock: pytest.fixture) -> None:
@@ -127,12 +224,15 @@ async def test_batch(httpx_mock: pytest.fixture) -> None:
         BatchOperation(method="create", body={"title": "A"}),
         BatchOperation(method="delete", id="rec_1"),
     ]
-    result = await client.records.batch("posts", ops)
+    collection = "posts?admin=true"
+    result = await client.records.batch(collection, ops)
 
     assert len(result) == 2
     req = httpx_mock.get_request()
     assert req is not None
     assert req.method == "POST"
+    assert parse_qs(req.url.query.decode(), keep_blank_values=True) == {}
+    assert req.url.raw_path.decode() == f"/api/collections/{quote(collection, safe='')}/batch"
     assert req.content == (
         b'{"operations":[{"method":"create","body":{"title":"A"}},'
         b'{"method":"delete","id":"rec_1"}]}'

@@ -89,13 +89,7 @@ func TestGenerate_SingleTable(t *testing.T) {
 	resp200 := getOp["responses"].(map[string]any)["200"].(map[string]any)
 	content := resp200["content"].(map[string]any)["application/json"].(map[string]any)
 	schemaObj := content["schema"].(map[string]any)
-	if schemaObj["type"] != "array" {
-		t.Errorf("GET response type = %v, want array", schemaObj["type"])
-	}
-	items := schemaObj["items"].(map[string]any)
-	if ref := items["$ref"]; ref != "#/components/schemas/Posts" {
-		t.Errorf("GET response items $ref = %v, want #/components/schemas/Posts", ref)
-	}
+	assertListResponseUnionSchema(t, schemaObj, "#/components/schemas/Posts")
 
 	// Verify POST request body exists.
 	postOp := postsPath["post"].(map[string]any)
@@ -121,6 +115,177 @@ func TestGenerate_SingleTable(t *testing.T) {
 		if p["name"] != "id" || p["in"] != "path" {
 			t.Errorf("PATCH param: got name=%v in=%v, want id/path", p["name"], p["in"])
 		}
+	}
+}
+
+func assertListResponseUnionSchema(t *testing.T, schemaObj map[string]any, rowRef string) {
+	t.Helper()
+
+	oneOf, ok := schemaObj["oneOf"].([]any)
+	if !ok || len(oneOf) != 2 {
+		t.Fatalf("GET response schema oneOf = %v, want offset and cursor envelopes", schemaObj["oneOf"])
+	}
+
+	offsetBranch := findBranchWithRequired(t, oneOf, []string{"items", "page", "perPage", "totalItems", "totalPages"})
+	assertListEnvelopeBranch(t, offsetBranch, rowRef)
+
+	cursorBranch := findBranchWithRequiredOnly(t, oneOf, []string{"items", "perPage"}, []string{"page", "totalItems", "totalPages"})
+	assertListEnvelopeBranch(t, cursorBranch, rowRef)
+	assertNoProperties(t, cursorBranch, []string{"page", "totalItems", "totalPages"})
+	assertBranchRejectsRequiredFields(t, cursorBranch, []string{"page"})
+	cursorProps := cursorBranch["properties"].(map[string]any)
+	nextCursor, ok := cursorProps["nextCursor"].(map[string]any)
+	if !ok {
+		t.Fatalf("cursor response nextCursor property = %v, want object", cursorProps["nextCursor"])
+	}
+	if nextCursor["type"] != "string" {
+		t.Errorf("cursor response nextCursor type = %v, want string", nextCursor["type"])
+	}
+}
+
+func findBranchWithRequired(t *testing.T, branches []any, requiredFields []string) map[string]any {
+	t.Helper()
+
+	for _, branch := range branches {
+		branchMap := branch.(map[string]any)
+		required := requiredSet(branchMap)
+		allPresent := true
+		for _, name := range requiredFields {
+			if !required[name] {
+				allPresent = false
+				break
+			}
+		}
+		if allPresent {
+			return branchMap
+		}
+	}
+	t.Fatalf("missing response branch with required fields %v", requiredFields)
+	return nil
+}
+
+func findBranchWithRequiredOnly(t *testing.T, branches []any, requiredFields, absentProperties []string) map[string]any {
+	t.Helper()
+
+	for _, branch := range branches {
+		branchMap := branch.(map[string]any)
+		required := requiredSet(branchMap)
+		allPresent := true
+		for _, name := range requiredFields {
+			if !required[name] {
+				allPresent = false
+				break
+			}
+		}
+		if allPresent && propertiesAbsent(branchMap, absentProperties) {
+			return branchMap
+		}
+	}
+	t.Fatalf("missing response branch with required fields %v and absent properties %v", requiredFields, absentProperties)
+	return nil
+}
+
+func requiredSet(schemaObj map[string]any) map[string]bool {
+	required := make(map[string]bool)
+	for _, name := range schemaObj["required"].([]any) {
+		required[name.(string)] = true
+	}
+	return required
+}
+
+func propertiesAbsent(schemaObj map[string]any, names []string) bool {
+	props := schemaObj["properties"].(map[string]any)
+	for _, name := range names {
+		if _, ok := props[name]; ok {
+			return false
+		}
+	}
+	return true
+}
+
+func assertNoProperties(t *testing.T, schemaObj map[string]any, names []string) {
+	t.Helper()
+
+	props := schemaObj["properties"].(map[string]any)
+	for _, name := range names {
+		if _, ok := props[name]; ok {
+			t.Errorf("response branch should not document property %q", name)
+		}
+	}
+}
+
+func assertBranchRejectsRequiredFields(t *testing.T, schemaObj map[string]any, names []string) {
+	t.Helper()
+
+	notSchema, ok := schemaObj["not"].(map[string]any)
+	if !ok {
+		t.Fatalf("response branch missing not schema")
+	}
+	rejected := requiredSet(notSchema)
+	for _, name := range names {
+		if !rejected[name] {
+			t.Errorf("response branch should reject required field %q", name)
+		}
+	}
+}
+
+func assertListEnvelopeBranch(t *testing.T, schemaObj map[string]any, rowRef string) {
+	t.Helper()
+
+	if schemaObj["type"] != "object" {
+		t.Errorf("GET response branch type = %v, want object", schemaObj["type"])
+	}
+	props, ok := schemaObj["properties"].(map[string]any)
+	if !ok {
+		t.Fatalf("GET response properties = %v, want object", schemaObj["properties"])
+	}
+	items, ok := props["items"].(map[string]any)
+	if !ok {
+		t.Fatalf("GET response items property = %v, want object", props["items"])
+	}
+	if items["type"] != "array" {
+		t.Errorf("GET response items type = %v, want array", items["type"])
+	}
+	itemSchema, ok := items["items"].(map[string]any)
+	if !ok {
+		t.Fatalf("GET response item schema = %v, want object", items["items"])
+	}
+	allOf, ok := itemSchema["allOf"].([]any)
+	if !ok || len(allOf) == 0 {
+		t.Fatal("GET response items schema missing allOf")
+	}
+	baseItem := allOf[0].(map[string]any)
+	if ref := baseItem["$ref"]; ref != "#/components/schemas/Posts" {
+		t.Errorf("GET response item allOf $ref = %v, want #/components/schemas/Posts", ref)
+	}
+	highlightFound := false
+	for _, entry := range allOf[1:] {
+		entryProps := entry.(map[string]any)["properties"].(map[string]any)
+		if highlight, ok := entryProps["_highlight"].(map[string]any); ok && highlight["type"] == "string" {
+			highlightFound = true
+		}
+	}
+	if !highlightFound {
+		t.Error("GET response items missing optional _highlight string field")
+	}
+	facets, ok := props["facets"].(map[string]any)
+	if !ok {
+		t.Fatalf("GET response facets property = %v, want object", props["facets"])
+	}
+	if facets["type"] != "object" {
+		t.Errorf("GET response facets type = %v, want object", facets["type"])
+	}
+	facetValues := facets["additionalProperties"].(map[string]any)
+	if facetValues["type"] != "array" {
+		t.Errorf("GET response facets additionalProperties type = %v, want array", facetValues["type"])
+	}
+	facetEntry := facetValues["items"].(map[string]any)
+	facetEntryProps := facetEntry["properties"].(map[string]any)
+	if value := facetEntryProps["value"].(map[string]any); value["description"] == "" {
+		t.Error("facet entry value should be documented")
+	}
+	if count := facetEntryProps["count"].(map[string]any); count["type"] != "integer" {
+		t.Errorf("facet entry count type = %v, want integer", count["type"])
 	}
 }
 
@@ -372,17 +537,33 @@ func TestGenerate_ListQueryParams(t *testing.T) {
 	getOp := paths["/items"].(map[string]any)["get"].(map[string]any)
 	params := getOp["parameters"].([]any)
 
-	// Should have fields, filter, sort, page, perPage, search, skipTotal.
-	paramNames := make(map[string]bool, len(params))
+	paramSchemas := make(map[string]map[string]any, len(params))
 	for _, p := range params {
 		pm := p.(map[string]any)
-		paramNames[pm["name"].(string)] = true
+		paramSchemas[pm["name"].(string)] = pm["schema"].(map[string]any)
 	}
 
-	for _, name := range []string{"fields", "filter", "sort", "page", "perPage", "search", "skipTotal"} {
-		if !paramNames[name] {
+	for _, name := range []string{"fields", "filter", "sort", "page", "perPage", "search", "skipTotal", "fuzzy", "typo_threshold", "highlight", "facets", "semantic", "semantic_query"} {
+		if _, ok := paramSchemas[name]; !ok {
 			t.Errorf("missing query parameter %q", name)
 		}
+	}
+	for _, name := range []string{"fuzzy", "highlight", "semantic"} {
+		if schema := paramSchemas[name]; schema["type"] != "boolean" {
+			t.Errorf("%s schema type = %v, want boolean", name, schema["type"])
+		}
+	}
+	for _, name := range []string{"facets", "semantic_query"} {
+		if schema := paramSchemas[name]; schema["type"] != "string" {
+			t.Errorf("%s schema type = %v, want string", name, schema["type"])
+		}
+	}
+	typoThreshold := paramSchemas["typo_threshold"]
+	if typoThreshold["type"] != "number" {
+		t.Errorf("typo_threshold schema type = %v, want number", typoThreshold["type"])
+	}
+	if typoThreshold["minimum"] != float64(0) || typoThreshold["maximum"] != float64(1) {
+		t.Errorf("typo_threshold bounds = [%v,%v], want [0,1]", typoThreshold["minimum"], typoThreshold["maximum"])
 	}
 }
 

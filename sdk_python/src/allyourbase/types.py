@@ -58,14 +58,21 @@ class MagicLinkConfirmResponse(BaseModel):
         return cls(mfaPending=True, mfaToken=mfa_token)
 
 
+class FacetBucket(BaseModel):
+    value: Any
+    count: int
+
+
 class ListResponse(BaseModel, Generic[T]):
     model_config = ConfigDict(populate_by_name=True)
 
     items: List[T]
-    page: int
+    page: Optional[int] = None
     per_page: int = Field(alias="perPage")
-    total_items: int = Field(alias="totalItems")
-    total_pages: int = Field(alias="totalPages")
+    total_items: Optional[int] = Field(default=None, alias="totalItems")
+    total_pages: Optional[int] = Field(default=None, alias="totalPages")
+    next_cursor: Optional[str] = Field(default=None, alias="nextCursor")
+    facets: Optional[Dict[str, List[FacetBucket]]] = None
 
 
 class RealtimeEvent(BaseModel):

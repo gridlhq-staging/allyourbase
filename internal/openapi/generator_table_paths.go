@@ -1,4 +1,4 @@
-// Package openapi Generates OpenAPI paths and operations for REST API table collection and record endpoints.
+// Package openapi Stub summary for /Users/stuart/parallel_development/allyourbase_dev/jun04_pm_3_sdk_parity_go_python_openapi/allyourbase_dev/internal/openapi/generator_table_paths.go.
 package openapi
 
 import (
@@ -90,10 +90,111 @@ func buildListOp(tbl *schema.Table, rowSchema *schemaProperty, cache *schema.Sch
 				Description: "Successful response",
 				Content: map[string]*mediaContent{
 					"application/json": {
-						Schema: &schemaProperty{
-							Type:  "array",
-							Items: rowSchema,
-						},
+						Schema: listResponseSchema(rowSchema),
+					},
+				},
+			},
+		},
+	}
+}
+
+func listResponseSchema(rowSchema *schemaProperty) *schemaProperty {
+	return &schemaProperty{
+		OneOf: []*schemaProperty{
+			offsetListResponseSchema(rowSchema),
+			cursorListResponseSchema(rowSchema),
+		},
+	}
+}
+
+func offsetListResponseSchema(rowSchema *schemaProperty) *schemaProperty {
+	return &schemaProperty{
+		Type:     "object",
+		Required: []string{"items", "page", "perPage", "totalItems", "totalPages"},
+		Properties: map[string]*schemaProperty{
+			"items": {
+				Type:        "array",
+				Description: "Rows for the current page",
+				Items:       listItemSchema(rowSchema),
+			},
+			"page": {
+				Type:        "integer",
+				Description: "Current page number",
+			},
+			"perPage": {
+				Type:        "integer",
+				Description: "Rows requested per page",
+			},
+			"totalItems": {
+				Type:        "integer",
+				Description: "Total matching rows, or -1 when skipTotal=true",
+			},
+			"totalPages": {
+				Type:        "integer",
+				Description: "Total pages, or -1 when skipTotal=true",
+			},
+			"facets": facetCountsSchema(),
+		},
+	}
+}
+
+func cursorListResponseSchema(rowSchema *schemaProperty) *schemaProperty {
+	return &schemaProperty{
+		Type:     "object",
+		Required: []string{"items", "perPage"},
+		Not:      &schemaProperty{Required: []string{"page"}},
+		Properties: map[string]*schemaProperty{
+			"items": {
+				Type:        "array",
+				Description: "Rows for the current cursor page",
+				Items:       listItemSchema(rowSchema),
+			},
+			"perPage": {
+				Type:        "integer",
+				Description: "Rows requested per page",
+			},
+			"nextCursor": {
+				Type:        "string",
+				Description: "Opaque cursor for the next page when more rows are available",
+			},
+			"facets": facetCountsSchema(),
+		},
+	}
+}
+
+func listItemSchema(rowSchema *schemaProperty) *schemaProperty {
+	return &schemaProperty{
+		AllOf: []*schemaProperty{
+			rowSchema,
+			{
+				Type: "object",
+				Properties: map[string]*schemaProperty{
+					"_highlight": {
+						Type:        "string",
+						Description: "HTML-highlighted search excerpt when highlight=true",
+					},
+				},
+			},
+		},
+	}
+}
+
+func facetCountsSchema() *schemaProperty {
+	return &schemaProperty{
+		Type:        "object",
+		Description: "Facet counts keyed by requested facet column",
+		AdditionalProperties: &schemaProperty{
+			Type: "array",
+			Items: &schemaProperty{
+				Type:     "object",
+				Required: []string{"value", "count"},
+				Properties: map[string]*schemaProperty{
+					"value": {
+						Description: "Facet value",
+					},
+					"count": {
+						Type:        "integer",
+						Description: "Number of matching rows for this facet value",
 					},
 				},
 			},
@@ -194,6 +295,8 @@ func idPathParam() *parameter {
 // listQueryParams produces the query parameters for GET list endpoints.
 // These match the actual AYB REST query engine in internal/api/handler.go.
 func listQueryParams(tbl *schema.Table, cache *schema.SchemaCache) []*parameter {
+	minTypoThreshold := 0.0
+	maxTypoThreshold := 1.0
 	params := []*parameter{
 		{
 			Name:        "fields",
@@ -229,6 +332,42 @@ func listQueryParams(tbl *schema.Table, cache *schema.SchemaCache) []*parameter 
 			Name:        "search",
 			In:          "query",
 			Description: "Full-text search term across text columns",
+			Schema:      &schemaProperty{Type: "string"},
+		},
+		{
+			Name:        "fuzzy",
+			In:          "query",
+			Description: "Set to true to include fuzzy trigram search matches",
+			Schema:      &schemaProperty{Type: "boolean"},
+		},
+		{
+			Name:        "typo_threshold",
+			In:          "query",
+			Description: "Similarity threshold for fuzzy search matches",
+			Schema:      &schemaProperty{Type: "number", Minimum: &minTypoThreshold, Maximum: &maxTypoThreshold},
+		},
+		{
+			Name:        "highlight",
+			In:          "query",
+			Description: "Set to true to include _highlight excerpts on search results",
+			Schema:      &schemaProperty{Type: "boolean"},
+		},
+		{
+			Name:        "facets",
+			In:          "query",
+			Description: "Comma-separated list of columns to return facet counts for",
+			Schema:      &schemaProperty{Type: "string"},
+		},
+		{
+			Name:        "semantic",
+			In:          "query",
+			Description: "Set to true to run semantic search from the search query",
+			Schema:      &schemaProperty{Type: "boolean"},
+		},
+		{
+			Name:        "semantic_query",
+			In:          "query",
+			Description: "Semantic search query text",
 			Schema:      &schemaProperty{Type: "string"},
 		},
 		{

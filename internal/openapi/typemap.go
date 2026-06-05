@@ -9,16 +9,21 @@ import (
 
 // schemaProperty represents a JSON Schema property inside an OpenAPI document.
 type schemaProperty struct {
-	Ref         string                     `json:"$ref,omitempty"`
-	Type        string                     `json:"type,omitempty"`
-	Format      string                     `json:"format,omitempty"`
-	Enum        []string                   `json:"enum,omitempty"`
-	Items       *schemaProperty            `json:"items,omitempty"`
-	Properties  map[string]*schemaProperty `json:"properties,omitempty"`
-	Required    []string                   `json:"required,omitempty"`
-	Description string                     `json:"description,omitempty"`
-	ReadOnly    bool                       `json:"readOnly,omitempty"`
-	OneOf       []*schemaProperty          `json:"oneOf,omitempty"`
+	Ref                  string                     `json:"$ref,omitempty"`
+	Type                 string                     `json:"type,omitempty"`
+	Format               string                     `json:"format,omitempty"`
+	Enum                 []string                   `json:"enum,omitempty"`
+	Items                *schemaProperty            `json:"items,omitempty"`
+	Properties           map[string]*schemaProperty `json:"properties,omitempty"`
+	AdditionalProperties *schemaProperty            `json:"additionalProperties,omitempty"`
+	Required             []string                   `json:"required,omitempty"`
+	Description          string                     `json:"description,omitempty"`
+	ReadOnly             bool                       `json:"readOnly,omitempty"`
+	Minimum              *float64                   `json:"minimum,omitempty"`
+	Maximum              *float64                   `json:"maximum,omitempty"`
+	AllOf                []*schemaProperty          `json:"allOf,omitempty"`
+	OneOf                []*schemaProperty          `json:"oneOf,omitempty"`
+	Not                  *schemaProperty            `json:"not,omitempty"`
 }
 
 // columnToProperty converts a schema.Column to a JSON Schema property.

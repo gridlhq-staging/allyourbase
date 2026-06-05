@@ -110,14 +110,7 @@ func TestIntegration_OpenAPIFromLiveSchema(t *testing.T) {
 	if !ok {
 		t.Fatal("response schema is not an object")
 	}
-	itemsSchema, ok := schemaObj["items"].(map[string]any)
-	if !ok {
-		t.Fatal("response schema items is not an object")
-	}
-	ref, ok := itemsSchema["$ref"].(string)
-	if !ok || ref == "" {
-		t.Fatalf("response items missing $ref: %v", itemsSchema)
-	}
+	ref := listItemBaseRef(t, schemaObj)
 	const prefix = "#/components/schemas/"
 	if !strings.HasPrefix(ref, prefix) {
 		t.Fatalf("unexpected response items $ref: %s", ref)
@@ -143,4 +136,22 @@ func TestIntegration_OpenAPIFromLiveSchema(t *testing.T) {
 	if _, ok := props["description"]; !ok {
 		t.Error("regenerated spec should include newly added 'description' column")
 	}
+}
+
+func listItemBaseRef(t *testing.T, schemaObj map[string]any) string {
+	t.Helper()
+
+	for _, branch := range schemaObj["oneOf"].([]any) {
+		branchMap := branch.(map[string]any)
+		props := branchMap["properties"].(map[string]any)
+		itemsSchema := props["items"].(map[string]any)
+		itemSchema := itemsSchema["items"].(map[string]any)
+		for _, entry := range itemSchema["allOf"].([]any) {
+			if ref, ok := entry.(map[string]any)["$ref"].(string); ok && ref != "" {
+				return ref
+			}
+		}
+	}
+	t.Fatal("response list item schema missing component $ref")
+	return ""
 }

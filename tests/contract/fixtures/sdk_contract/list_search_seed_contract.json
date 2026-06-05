@@ -1,0 +1,12 @@
+{
+  "highlightSearch": "hello",
+  "highlightedTitle": "Hello migration guide",
+  "fuzzySearch": "banan",
+  "fuzzyTypoThreshold": 0.2,
+  "fuzzyMatchTitle": "Banana typo tolerance",
+  "facetColumn": "category",
+  "expectedFacetCounts": {
+    "docs": 2,
+    "fruit": 1
+  }
+}
