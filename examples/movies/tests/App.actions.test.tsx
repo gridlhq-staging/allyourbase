@@ -40,6 +40,54 @@ vi.mock("@allyourbase/react", () => ({
 const mockUseAuth = vi.mocked(useAuth);
 const mockUseAybAnonymousBootstrap = vi.mocked(useAybAnonymousBootstrap);
 
+function loggedOutAuthState() {
+  return {
+    loading: false,
+    user: null,
+    error: null,
+    token: null,
+    refreshToken: null,
+    login: vi.fn(),
+    register: vi.fn(),
+    signInAnonymously: vi.fn(),
+    requestMagicLink: vi.fn(),
+    confirmMagicLink: vi.fn(),
+    linkEmail: vi.fn(),
+    signInWithOAuth: vi.fn(),
+    signInWithPasskey: vi.fn(),
+    logout: vi.fn(),
+    refresh: vi.fn(),
+  };
+}
+
+function authenticatedAuthState(id: string, email: string, token: string, refreshToken: string) {
+  return {
+    loading: false,
+    user: { id, email, isAnonymous: false },
+    error: null,
+    token,
+    refreshToken,
+    login: vi.fn(),
+    register: vi.fn(),
+    signInAnonymously: vi.fn(),
+    requestMagicLink: vi.fn(),
+    confirmMagicLink: vi.fn(),
+    linkEmail: vi.fn(),
+    signInWithOAuth: vi.fn(),
+    signInWithPasskey: vi.fn(),
+    logout: vi.fn(),
+    refresh: vi.fn(),
+  };
+}
+
+function deferredChatResponse() {
+  let resolve!: (value: { sessionId: string; fullText: string }) => void;
+  const promise = new Promise<{ sessionId: string; fullText: string }>((res) => {
+    resolve = res;
+  });
+  return { promise, resolve };
+}
+
 describe("App actions delegate to lib/ayb", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -57,20 +105,26 @@ describe("App actions delegate to lib/ayb", () => {
       confirmMagicLink: vi.fn(),
       linkEmail: vi.fn(),
       signInWithOAuth: vi.fn(),
+      signInWithPasskey: vi.fn(),
       logout: vi.fn(),
       refresh: vi.fn(),
     });
     mockUseAybAnonymousBootstrap.mockReturnValue({ bootstrapping: false });
     mockSearchMovies.mockResolvedValue({
-      rows: [
+      items: [
         {
           slug: "the-matrix",
           title: "The Matrix",
           overview: "A computer hacker learns about the true nature of reality.",
           release_year: 1999,
-          similarity: 0.95,
+          primary_genre: "Sci-Fi",
         },
       ],
+      page: 1,
+      perPage: 10,
+      totalItems: 1,
+      totalPages: 1,
+      facets: { primary_genre: [{ value: "Sci-Fi", count: 1 }] },
     });
     mockEmbedNote.mockResolvedValue({
       id: "note-1",
@@ -85,10 +139,6 @@ describe("App actions delegate to lib/ayb", () => {
 
   it("calls embedNote from lib/ayb when adding a note", async () => {
     render(<App />);
-
-    const searchInput = screen.getByPlaceholderText(/search movies/i);
-    fireEvent.change(searchInput, { target: { value: "matrix" } });
-    fireEvent.submit(searchInput.closest("form")!);
 
     const movieButton = await screen.findByText("The Matrix");
     fireEvent.click(movieButton.closest("button")!);
@@ -133,6 +183,63 @@ describe("App actions delegate to lib/ayb", () => {
 
     await waitFor(() => {
       expect(screen.getByText("Local stub response: Summarize inception")).toBeInTheDocument();
+    });
+  });
+
+  it("clears chat transcript across non-logout auth transitions", async () => {
+    mockStreamChat.mockResolvedValue({
+      sessionId: "sess-1",
+      fullText: "Previous session answer",
+    });
+    const { rerender } = render(<App />);
+
+    const chatInput = screen.getByPlaceholderText(/ask about movies/i);
+    fireEvent.change(chatInput, { target: { value: "What did I watch?" } });
+    fireEvent.submit(chatInput.closest("form")!);
+
+    await waitFor(() => {
+      expect(screen.getByText("Previous session answer")).toBeInTheDocument();
+    });
+
+    mockUseAuth.mockReturnValue(loggedOutAuthState());
+    rerender(<App />);
+
+    mockUseAuth.mockReturnValue(authenticatedAuthState("user-2", "next@test.com", "token-2", "refresh-2"));
+    rerender(<App />);
+
+    expect(screen.queryByText("Previous session answer")).not.toBeInTheDocument();
+    expect(screen.getByText(/ask a question about movies/i)).toBeInTheDocument();
+  });
+
+  it("ignores in-flight chat stream updates across non-logout auth transitions", async () => {
+    const pendingChat = deferredChatResponse();
+    mockStreamChat.mockImplementation(async (_messages, onChunk) => {
+      onChunk("partial previous answer");
+      return pendingChat.promise;
+    });
+    const { rerender } = render(<App />);
+
+    const chatInput = screen.getByPlaceholderText(/ask about movies/i);
+    fireEvent.change(chatInput, { target: { value: "Keep streaming?" } });
+    fireEvent.submit(chatInput.closest("form")!);
+
+    await waitFor(() => {
+      expect(screen.getByText("partial previous answer")).toBeInTheDocument();
+    });
+
+    mockUseAuth.mockReturnValue(loggedOutAuthState());
+    rerender(<App />);
+
+    mockUseAuth.mockReturnValue(authenticatedAuthState("user-2", "next@test.com", "token-2", "refresh-2"));
+    rerender(<App />);
+
+    expect(screen.queryByText("partial previous answer")).not.toBeInTheDocument();
+    expect(screen.getByPlaceholderText(/ask about movies/i)).toBeEnabled();
+
+    pendingChat.resolve({ sessionId: "sess-1", fullText: "resolved previous answer" });
+
+    await waitFor(() => {
+      expect(screen.queryByText("resolved previous answer")).not.toBeInTheDocument();
     });
   });
 

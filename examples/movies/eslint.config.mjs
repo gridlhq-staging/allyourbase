@@ -1,9 +1,13 @@
-// ESLint config for Playwright e2e tests.
-// Enforces BROWSER_TESTING_STANDARDS_3.md — no shortcuts in spec files.
+// ESLint config for movies demo source and Playwright e2e tests.
+// The e2e section enforces BROWSER_TESTING_STANDARDS_3.md — no shortcuts in spec files.
 import playwright from "eslint-plugin-playwright";
 import tseslint from "typescript-eslint";
 
 export default [
+  ...tseslint.configs.recommended.map((config) => ({
+    ...config,
+    files: ["src/**/*.{ts,tsx}"],
+  })),
   ...tseslint.configs.recommended.map((config) => ({
     ...config,
     files: ["e2e/**/*.ts"],

@@ -61,7 +61,26 @@ func TestAdminSQLMoviesSearchRPCAndSeedIdempotency(t *testing.T) {
 	countRow := rows[0].([]any)
 	countValue, ok := countRow[0].(float64)
 	testutil.True(t, ok, "expected numeric movie count")
-	testutil.Equal(t, float64(3), countValue)
+	testutil.True(t, countValue >= 250, "expected at least 250 seeded movies")
+
+	emptyGenrePayload := execSQL(t, "SELECT COUNT(*) FROM movies WHERE primary_genre = ''")
+	emptyGenreRows, ok := emptyGenrePayload["rows"].([]any)
+	testutil.True(t, ok, "expected rows in primary_genre count response")
+	testutil.True(t, len(emptyGenreRows) == 1, "expected exactly one primary_genre count row")
+	emptyGenreCount, ok := emptyGenreRows[0].([]any)[0].(float64)
+	testutil.True(t, ok, "expected numeric primary_genre count")
+	testutil.Equal(t, float64(0), emptyGenreCount)
+
+	notesPolicyPayload := execSQL(t, `SELECT COUNT(*) FROM pg_policies
+		WHERE schemaname = 'public' AND tablename = 'movies_notes'`)
+	notesPolicyRows, ok := notesPolicyPayload["rows"].([]any)
+	testutil.True(t, ok, "expected rows in movies_notes policy response")
+	testutil.True(t, len(notesPolicyRows) == 1, "expected exactly one movies_notes policy count row")
+	notesPolicyCount, ok := notesPolicyRows[0].([]any)[0].(float64)
+	testutil.True(t, ok, "expected numeric movies_notes policy count")
+	// User-generated notes are written through the server-owned embed endpoint,
+	// so the table should not expose a blanket public-read policy.
+	testutil.Equal(t, float64(0), notesPolicyCount)
 
 	searchPayload := execSQL(t, "SELECT slug, title FROM search_movies('dreams heist', '[0.90,0.10,0.20]'::vector(3), 3)")
 	searchRows, ok := searchPayload["rows"].([]any)

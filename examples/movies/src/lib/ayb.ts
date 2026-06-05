@@ -1,9 +1,10 @@
 /**
- * @module Stub summary for /Users/stuart/parallel_development/allyourbase_dev/may31_pm_11_coverage_load_truth_closeout/allyourbase_dev/examples/movies/src/lib/ayb.ts.
+ * @module Stub summary for /Users/stuart/parallel_development/allyourbase_dev/jun04_pm_2_movies_instant_search_showcase/allyourbase_dev/examples/movies/src/lib/ayb.ts.
  */
 import { AYBClient } from "@allyourbase/js";
+import type { ListResponse } from "@allyourbase/js";
 import type {
-  MovieSearchResponse,
+  MovieListItem,
   NoteEmbedResponse,
   ChatMessage,
   BYOKProvider,
@@ -15,6 +16,10 @@ const REFRESH_TOKEN_KEY = "ayb_refresh_token";
 const ANONYMOUS_BOOTSTRAP_OPTOUT_KEY = "ayb_anonymous_bootstrap_optout";
 
 export const ayb = new AYBClient(url, {
+  // Indirect through globalThis so test code can spy on fetch after the
+  // client is constructed; without this the SDK captures the original fetch
+  // reference at construction time and module-scoped tests can't intercept.
+  fetch: (...args) => globalThis.fetch(...args),
   authPersistence: {
     load: () => {
       const token = sessionStorage.getItem(TOKEN_KEY);
@@ -79,19 +84,31 @@ function apiHeaders(): HeadersInit {
   };
 }
 
+export interface SearchMoviesParams {
+  search: string;
+  filter?: string;
+  perPage?: number;
+}
+
 export async function searchMovies(
-  query: string,
-  limit?: number,
-): Promise<MovieSearchResponse> {
-  const res = await fetch(`${apiBase()}/api/admin/movies/search`, {
-    method: "POST",
-    headers: apiHeaders(),
-    body: JSON.stringify({ query, limit }),
+  params: SearchMoviesParams,
+): Promise<ListResponse<MovieListItem>> {
+  // Backend rejects fuzzy + highlight when search is empty (400
+  // "fuzzy parameter requires non-empty search"), so the default
+  // corpus load and filter-only views must omit those options and
+  // only enable them once the user types a query.
+  const hasSearch = params.search.trim().length > 0;
+  return ayb.records.list<MovieListItem>("movies", {
+    search: params.search,
+    sort: "title",
+    perPage: params.perPage ?? 10,
+    // typoThreshold is a pg_trgm similarity ratio (0..1), not edit distance.
+    // 0.3 is permissive enough to forgive single-character typos like
+    // "Inceptoin" -> "Inception" while still excluding unrelated matches.
+    ...(hasSearch ? { fuzzy: true, typoThreshold: 0.3, highlight: true } : {}),
+    facets: ["primary_genre"],
+    filter: params.filter,
   });
-  if (!res.ok) {
-    throw new Error(`Search failed: ${res.status}`);
-  }
-  return res.json();
 }
 
 export async function embedNote(

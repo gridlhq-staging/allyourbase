@@ -339,7 +339,14 @@ func smokeTestMovies(t *testing.T, baseURL, adminToken string) {
 		map[string]string{"query": "SELECT COUNT(*) FROM movies"},
 		adminToken)
 	testutil.StatusCode(t, http.StatusOK, resp.StatusCode)
-	testutil.Equal(t, float64(3), body["rows"].([]any)[0].([]any)[0].(float64))
+	movieCount := body["rows"].([]any)[0].([]any)[0].(float64)
+	testutil.True(t, movieCount >= 250, "expected at least 250 seeded movies")
+
+	resp, body = httpJSON(t, "POST", baseURL+"/api/admin/sql/",
+		map[string]string{"query": "SELECT COUNT(*) FROM movies WHERE primary_genre = ''"},
+		adminToken)
+	testutil.StatusCode(t, http.StatusOK, resp.StatusCode)
+	testutil.Equal(t, float64(0), body["rows"].([]any)[0].([]any)[0].(float64))
 
 	resp, body = httpJSON(t, "POST", baseURL+"/api/admin/sql/",
 		map[string]string{"query": "SELECT slug FROM search_movies('dreams heist', '[0.90,0.10,0.20]'::vector(3), 3)"},

@@ -4,7 +4,7 @@
 [server]
 # Address to listen on.
 host = "127.0.0.1"
-port = 8090
+port = 8092
 
 # Public URL for email action links (password reset, magic links, verification).
 # Required for production. If unset, defaults to http://localhost:<port>.

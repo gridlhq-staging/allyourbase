@@ -10,10 +10,15 @@ CREATE TABLE IF NOT EXISTS movies (
   overview TEXT NOT NULL DEFAULT '',
   release_year INTEGER NOT NULL CHECK (release_year >= 1888 AND release_year <= 2100),
   genres TEXT[] NOT NULL DEFAULT '{}'::TEXT[],
+  primary_genre TEXT NOT NULL DEFAULT '',
   embedding VECTOR(3) NOT NULL,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+-- Keep already-created demo databases compatible when this idempotent schema
+-- is reapplied after primary_genre was added for facet filtering.
+ALTER TABLE movies ADD COLUMN IF NOT EXISTS primary_genre TEXT NOT NULL DEFAULT '';
 
 CREATE INDEX IF NOT EXISTS idx_movies_slug ON movies(slug);
 CREATE INDEX IF NOT EXISTS idx_movies_search_doc ON movies USING GIN (to_tsvector('simple', title || ' ' || overview));
@@ -38,7 +43,10 @@ CREATE INDEX IF NOT EXISTS idx_movies_notes_movie_slug ON movies_notes(movie_slu
 
 DROP POLICY IF EXISTS movies_notes_read ON movies_notes;
 ALTER TABLE movies_notes ENABLE ROW LEVEL SECURITY;
-CREATE POLICY movies_notes_read ON movies_notes FOR SELECT USING (true);
+-- Notes are created through the server-owned embed endpoint and can contain
+-- user-authored content, so direct collection reads stay denied by default.
+-- If a future UI needs note retrieval, add a scoped policy/handler rather than
+-- re-opening the table with a blanket public-read rule.
 
 -- movies_chat_history: persisted turns from the SSE chat endpoint, keyed
 -- by client-supplied session_id so retrieving a session yields its full

@@ -1,13 +1,10 @@
-export interface MovieSearchRow {
+export interface MovieListItem {
   slug: string;
   title: string;
   overview: string;
   release_year: number;
-  similarity: number;
-}
-
-export interface MovieSearchResponse {
-  rows: MovieSearchRow[];
+  primary_genre: string;
+  _highlight?: string;
 }
 
 export interface NoteEmbedResponse {

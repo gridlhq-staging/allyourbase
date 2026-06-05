@@ -111,6 +111,7 @@ describe("movies AuthForm", () => {
       confirmMagicLink: vi.fn(),
       linkEmail,
       signInWithOAuth,
+      signInWithPasskey: vi.fn(),
       logout: vi.fn(),
       refresh: vi.fn(),
     });

@@ -79,6 +79,7 @@ describe("App auth lifecycle", () => {
       confirmMagicLink: vi.fn(),
       linkEmail: vi.fn(),
       signInWithOAuth: vi.fn(),
+      signInWithPasskey: vi.fn(),
       logout,
       refresh: vi.fn(),
     });
@@ -105,6 +106,7 @@ describe("App auth lifecycle", () => {
       confirmMagicLink: vi.fn(),
       linkEmail: vi.fn(),
       signInWithOAuth: vi.fn(),
+      signInWithPasskey: vi.fn(),
       logout,
       refresh: vi.fn(),
     });
@@ -126,6 +128,7 @@ describe("App auth lifecycle", () => {
       confirmMagicLink: vi.fn(),
       linkEmail: vi.fn(),
       signInWithOAuth: vi.fn(),
+      signInWithPasskey: vi.fn(),
       logout,
       refresh: vi.fn(),
     });
@@ -180,6 +183,7 @@ describe("App auth lifecycle", () => {
       confirmMagicLink: vi.fn(),
       linkEmail: vi.fn(),
       signInWithOAuth: vi.fn(),
+      signInWithPasskey: vi.fn(),
       logout,
       refresh: vi.fn(),
     });

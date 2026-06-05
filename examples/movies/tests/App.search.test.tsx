@@ -1,9 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import App from "../src/App";
 import { searchMovies, isAnonymousBootstrapEnabled } from "../src/lib/ayb";
 import { useAuth, useAybAnonymousBootstrap } from "@allyourbase/react";
-import type { MovieSearchResponse } from "../src/types";
+import type { ListResponse } from "@allyourbase/js";
+import type { MovieListItem } from "../src/types";
 
 vi.mock("../src/components/AuthForm", () => ({
   default: () => null,
@@ -46,29 +47,50 @@ vi.mock("@allyourbase/react", () => ({
 const mockUseAuth = vi.mocked(useAuth);
 const mockUseAybAnonymousBootstrap = vi.mocked(useAybAnonymousBootstrap);
 
-const SEARCH_RESPONSE: MovieSearchResponse = {
-  rows: [
+function listResponse(items: MovieListItem[], totalItems = items.length): ListResponse<MovieListItem> {
+  return {
+    items,
+    page: 1,
+    perPage: 10,
+    totalItems,
+    totalPages: 1,
+    facets: {
+      primary_genre: [
+        { value: "Sci-Fi", count: 5 },
+        { value: "Drama", count: 3 },
+      ],
+    },
+  };
+}
+
+const SEARCH_RESPONSE = listResponse(
+  [
     {
       slug: "the-matrix",
       title: "The Matrix",
       overview: "A computer hacker learns about the true nature of reality.",
       release_year: 1999,
-      similarity: 0.95,
+      primary_genre: "Sci-Fi",
     },
     {
       slug: "inception",
       title: "Inception",
       overview: "A thief who steals corporate secrets through dream-sharing technology.",
       release_year: 2010,
-      similarity: 0.88,
+      primary_genre: "Sci-Fi",
+      _highlight: "A thief who steals corporate secrets through <b>dream</b>-sharing technology.",
     },
   ],
-};
+  250,
+);
 
 describe("App search", () => {
+  let logout: ReturnType<typeof vi.fn>;
+
   beforeEach(() => {
     vi.clearAllMocks();
     vi.mocked(isAnonymousBootstrapEnabled).mockReturnValue(true);
+    logout = vi.fn().mockResolvedValue(undefined);
     mockUseAuth.mockReturnValue({
       loading: false,
       user: { id: "user-1", email: "me@test.com", isAnonymous: false },
@@ -82,31 +104,63 @@ describe("App search", () => {
       confirmMagicLink: vi.fn(),
       linkEmail: vi.fn(),
       signInWithOAuth: vi.fn(),
-      logout: vi.fn(),
+      signInWithPasskey: vi.fn(),
+      logout,
       refresh: vi.fn(),
     });
     mockUseAybAnonymousBootstrap.mockReturnValue({ bootstrapping: false });
     mockSearchMovies.mockResolvedValue(SEARCH_RESPONSE);
   });
 
-  it("calls searchMovies from lib/ayb on form submit", async () => {
-    render(<App />);
+  async function advanceDebounce() {
+    // Debounce is 300ms; give a little buffer for the SDK promise to settle.
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 400));
+    });
+  }
 
-    const input = screen.getByPlaceholderText(/search movies/i);
-    fireEvent.change(input, { target: { value: "sci-fi" } });
-    fireEvent.submit(input.closest("form")!);
+  function deferredSearchResponse() {
+    let resolve!: (value: ListResponse<MovieListItem>) => void;
+    const promise = new Promise<ListResponse<MovieListItem>>((res) => {
+      resolve = res;
+    });
+    return { promise, resolve };
+  }
+
+  it("calls searchMovies via SDK with empty query on initial corpus load", async () => {
+    render(<App />);
+    await advanceDebounce();
 
     await waitFor(() => {
-      expect(mockSearchMovies).toHaveBeenCalledWith("sci-fi");
+      expect(mockSearchMovies).toHaveBeenCalled();
     });
+    expect(mockSearchMovies).toHaveBeenCalledWith(
+      expect.objectContaining({ search: "" }),
+    );
+  });
+
+  it("debounces search-as-you-type into a single SDK call", async () => {
+    render(<App />);
+    await advanceDebounce();
+    mockSearchMovies.mockClear();
+
+    const input = screen.getByPlaceholderText(/search movies/i);
+    fireEvent.change(input, { target: { value: "s" } });
+    fireEvent.change(input, { target: { value: "sc" } });
+    fireEvent.change(input, { target: { value: "sci" } });
+    await advanceDebounce();
+
+    await waitFor(() => {
+      expect(mockSearchMovies).toHaveBeenCalledTimes(1);
+    });
+    expect(mockSearchMovies).toHaveBeenCalledWith(
+      expect.objectContaining({ search: "sci" }),
+    );
   });
 
   it("renders search results with canonical response shape", async () => {
     render(<App />);
-
-    const input = screen.getByPlaceholderText(/search movies/i);
-    fireEvent.change(input, { target: { value: "sci-fi" } });
-    fireEvent.submit(input.closest("form")!);
+    await advanceDebounce();
 
     expect(await screen.findByText("The Matrix")).toBeInTheDocument();
     expect(screen.getByText("1999")).toBeInTheDocument();
@@ -115,30 +169,289 @@ describe("App search", () => {
     expect(screen.getByTestId("search-result-row-inception")).toBeInTheDocument();
     expect(screen.getByTestId("search-result-title-inception")).toHaveTextContent("Inception");
     expect(screen.getByTestId("search-result-year-inception")).toHaveTextContent("2010");
+    expect(screen.getByTestId("search-result-genre-inception")).toHaveTextContent("Sci-Fi");
   });
 
-  it("shows an error when search fails", async () => {
-    mockSearchMovies.mockRejectedValueOnce(new Error("Search failed: 500"));
+  it("renders highlight markup with accessible label", async () => {
     render(<App />);
+    await advanceDebounce();
 
-    const input = screen.getByPlaceholderText(/search movies/i);
-    fireEvent.change(input, { target: { value: "broken" } });
-    fireEvent.submit(input.closest("form")!);
-
-    expect(await screen.findByRole("alert")).toHaveTextContent(/search failed/i);
+    await screen.findByText("Inception");
+    const highlight = screen.getByLabelText("Highlighted match");
+    expect(highlight.innerHTML).toContain("<b>dream</b>");
   });
 
-  it("does not issue ad-hoc fetches from search results component", async () => {
-    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response());
+  it("renders results summary with totalItems", async () => {
     render(<App />);
+    await advanceDebounce();
 
-    const input = screen.getByPlaceholderText(/search movies/i);
-    fireEvent.change(input, { target: { value: "sci-fi" } });
-    fireEvent.submit(input.closest("form")!);
+    const summary = await screen.findByTestId("results-summary");
+    await waitFor(() => {
+      expect(summary).toHaveTextContent("Showing 2 of 250 movies");
+    });
+  });
 
+  it("renders primary_genre facet buttons from the SDK response", async () => {
+    render(<App />);
+    await advanceDebounce();
     await screen.findByText("The Matrix");
-    expect(mockSearchMovies).toHaveBeenCalledTimes(1);
-    expect(fetchSpy).not.toHaveBeenCalled();
-    fetchSpy.mockRestore();
+
+    expect(screen.getByTestId("genre-facet-Sci-Fi")).toHaveTextContent("Sci-Fi (5)");
+    expect(screen.getByTestId("genre-facet-Drama")).toHaveTextContent("Drama (3)");
   });
+
+  it("re-issues SDK call with primary_genre filter when a facet is selected", async () => {
+    render(<App />);
+    await advanceDebounce();
+    await screen.findByText("The Matrix");
+    mockSearchMovies.mockClear();
+
+    fireEvent.click(screen.getByTestId("genre-facet-Sci-Fi"));
+    await advanceDebounce();
+
+    await waitFor(() => {
+      expect(mockSearchMovies).toHaveBeenCalledWith(
+        expect.objectContaining({ filter: "primary_genre='Sci-Fi'" }),
+      );
+    });
+  });
+
+  it("re-issues SDK call with decade range when a decade is selected", async () => {
+    render(<App />);
+    await advanceDebounce();
+    await screen.findByText("The Matrix");
+    mockSearchMovies.mockClear();
+
+    fireEvent.change(screen.getByTestId("decade-filter"), { target: { value: "2010" } });
+    await advanceDebounce();
+
+    await waitFor(() => {
+      expect(mockSearchMovies).toHaveBeenCalledWith(
+        expect.objectContaining({ filter: "release_year>=2010 AND release_year<2020" }),
+      );
+    });
+  });
+
+  it("combines genre and decade filters with AND", async () => {
+    render(<App />);
+    await advanceDebounce();
+    await screen.findByText("The Matrix");
+    mockSearchMovies.mockClear();
+
+    fireEvent.click(screen.getByTestId("genre-facet-Sci-Fi"));
+    fireEvent.change(screen.getByTestId("decade-filter"), { target: { value: "2010" } });
+    await advanceDebounce();
+
+    await waitFor(() => {
+      expect(mockSearchMovies).toHaveBeenCalledWith(
+        expect.objectContaining({
+          filter: "primary_genre='Sci-Fi' AND release_year>=2010 AND release_year<2020",
+        }),
+      );
+    });
+  });
+
+  it("clears filters when Clear filters is clicked", async () => {
+    render(<App />);
+    await advanceDebounce();
+    await screen.findByText("The Matrix");
+
+    fireEvent.click(screen.getByTestId("genre-facet-Sci-Fi"));
+    await advanceDebounce();
+    mockSearchMovies.mockClear();
+
+    fireEvent.click(screen.getByTestId("clear-filters"));
+    await advanceDebounce();
+
+    await waitFor(() => {
+      expect(mockSearchMovies).toHaveBeenCalledWith(
+        expect.not.objectContaining({ filter: expect.any(String) }),
+      );
+    });
+  });
+
+  it("shows error alert and retry when search fails", async () => {
+    mockSearchMovies.mockRejectedValueOnce(new Error("boom"));
+    render(<App />);
+    await advanceDebounce();
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(/movie search failed/i);
+    expect(screen.getByTestId("results-summary")).toHaveTextContent("Showing 0 of 0 movies");
+    expect(screen.getByTestId("retry-search")).toBeInTheDocument();
+  });
+
+  it("clears stale failed search state when signing out", async () => {
+    mockSearchMovies.mockRejectedValueOnce(new Error("boom"));
+    render(<App />);
+    await advanceDebounce();
+    expect(await screen.findByRole("alert")).toHaveTextContent(/movie search failed/i);
+
+    fireEvent.click(screen.getByRole("button", { name: /sign out/i }));
+    await waitFor(() => {
+      expect(logout).toHaveBeenCalled();
+    });
+
+    expect(screen.queryByText(/movie search failed/i)).not.toBeInTheDocument();
+    expect(screen.getByTestId("results-summary")).toHaveTextContent("Loading movies...");
+  });
+
+  it("preserves authenticated movie results when logout fails", async () => {
+    logout.mockRejectedValueOnce(new Error("logout failed"));
+    render(<App />);
+    await advanceDebounce();
+    await screen.findByText("The Matrix");
+
+    fireEvent.click(screen.getByRole("button", { name: /sign out/i }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(/sign out failed/i);
+    expect(screen.getByText("The Matrix")).toBeInTheDocument();
+    expect(screen.getByTestId("results-summary")).toHaveTextContent("Showing 2 of 250 movies");
+  });
+
+  it("ignores an in-flight search response after signing out", async () => {
+    const pendingSearch = deferredSearchResponse();
+    mockSearchMovies.mockReturnValueOnce(pendingSearch.promise);
+    render(<App />);
+    await advanceDebounce();
+    await waitFor(() => {
+      expect(mockSearchMovies).toHaveBeenCalledTimes(1);
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: /sign out/i }));
+    await waitFor(() => {
+      expect(logout).toHaveBeenCalled();
+    });
+
+    await act(async () => {
+      pendingSearch.resolve(SEARCH_RESPONSE);
+    });
+
+    expect(screen.queryByText("The Matrix")).not.toBeInTheDocument();
+    expect(screen.getByTestId("results-summary")).toHaveTextContent("Loading movies...");
+  });
+
+  it("clears query and filters across non-logout auth transitions", async () => {
+    const { rerender } = render(<App />);
+    await advanceDebounce();
+    await screen.findByText("The Matrix");
+
+    fireEvent.change(screen.getByPlaceholderText(/search movies/i), { target: { value: "matrix" } });
+    fireEvent.click(screen.getByTestId("genre-facet-Sci-Fi"));
+    fireEvent.change(screen.getByTestId("decade-filter"), { target: { value: "1990" } });
+    await advanceDebounce();
+    await waitFor(() => {
+      expect(mockSearchMovies).toHaveBeenCalledWith(
+        expect.objectContaining({
+          search: "matrix",
+          filter: "primary_genre='Sci-Fi' AND release_year>=1990 AND release_year<2000",
+        }),
+      );
+    });
+
+    mockUseAuth.mockReturnValue({
+      loading: false,
+      user: null,
+      error: null,
+      token: null,
+      refreshToken: null,
+      login: vi.fn(),
+      register: vi.fn(),
+      signInAnonymously: vi.fn(),
+      requestMagicLink: vi.fn(),
+      confirmMagicLink: vi.fn(),
+      linkEmail: vi.fn(),
+      signInWithOAuth: vi.fn(),
+      signInWithPasskey: vi.fn(),
+      logout,
+      refresh: vi.fn(),
+    });
+    rerender(<App />);
+
+    mockSearchMovies.mockClear();
+    mockUseAuth.mockReturnValue({
+      loading: false,
+      user: { id: "user-2", email: "next@test.com", isAnonymous: false },
+      error: null,
+      token: "token-2",
+      refreshToken: "refresh-2",
+      login: vi.fn(),
+      register: vi.fn(),
+      signInAnonymously: vi.fn(),
+      requestMagicLink: vi.fn(),
+      confirmMagicLink: vi.fn(),
+      linkEmail: vi.fn(),
+      signInWithOAuth: vi.fn(),
+      signInWithPasskey: vi.fn(),
+      logout,
+      refresh: vi.fn(),
+    });
+    rerender(<App />);
+    await advanceDebounce();
+
+    await waitFor(() => {
+      expect(mockSearchMovies).toHaveBeenCalledWith(
+        expect.objectContaining({ search: "" }),
+      );
+    });
+    expect(mockSearchMovies).toHaveBeenCalledWith(
+      expect.not.objectContaining({ filter: expect.any(String) }),
+    );
+    expect(screen.getByPlaceholderText(/search movies/i)).toHaveValue("");
+    expect(screen.getByTestId("decade-filter")).toHaveValue("");
+  });
+
+  it("retry re-issues the SDK search call preserving query", async () => {
+    // Keep the search rejecting so the error state (and Retry button) persist
+    // through the typing+debounce cycle until the retry is explicitly clicked.
+    mockSearchMovies.mockRejectedValue(new Error("boom"));
+    render(<App />);
+    await advanceDebounce();
+    await screen.findByRole("alert");
+
+    const input = screen.getByPlaceholderText(/search movies/i);
+    fireEvent.change(input, { target: { value: "matrix" } });
+    await advanceDebounce();
+
+    mockSearchMovies.mockClear();
+    mockSearchMovies.mockResolvedValue(SEARCH_RESPONSE);
+    fireEvent.click(screen.getByTestId("retry-search"));
+
+    await waitFor(() => {
+      expect(mockSearchMovies).toHaveBeenCalledWith(
+        expect.objectContaining({ search: "matrix" }),
+      );
+    });
+  });
+
+  it("shows no-results state when filters produce zero matches", async () => {
+    render(<App />);
+    await advanceDebounce();
+    await screen.findByText("The Matrix");
+
+    mockSearchMovies.mockResolvedValueOnce(listResponse([], 250));
+    fireEvent.click(screen.getByTestId("genre-facet-Sci-Fi"));
+    await advanceDebounce();
+
+    await waitFor(() => {
+      expect(screen.getByTestId("no-matches")).toHaveTextContent(/no movies match your filters/i);
+    });
+  });
+
+  it("shows empty-corpus state when totalItems=0 with no filters", async () => {
+    mockSearchMovies.mockResolvedValue({
+      items: [],
+      page: 1,
+      perPage: 10,
+      totalItems: 0,
+      totalPages: 0,
+      facets: undefined,
+    });
+    render(<App />);
+    await advanceDebounce();
+
+    await waitFor(() => {
+      expect(screen.getByTestId("corpus-empty")).toHaveTextContent(/no seeded movies found/i);
+    });
+  });
+
 });

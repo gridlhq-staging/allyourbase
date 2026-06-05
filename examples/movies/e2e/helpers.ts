@@ -14,18 +14,14 @@ export async function loginWithDemoAccount(page: Page): Promise<void> {
   await expect(page.getByRole("button", { name: "Sign out" })).toBeVisible({ timeout: 15000 });
 }
 
-export async function runDeterministicSearch(page: Page, query: string): Promise<void> {
-  await page.getByPlaceholder("Search movies...").fill(query);
-  const searchResponsePromise = page.waitForResponse((res) => {
-    return res.request().method() === "POST" && res.url().includes("/api/admin/movies/search");
-  });
-  await page.getByRole("button", { name: "Search" }).click();
-  const searchResponse = await searchResponsePromise;
-  expect(searchResponse.status()).toBe(200);
-  const payload = (await searchResponse.json()) as { rows?: Array<{ slug?: string }> };
-  expect(Array.isArray(payload.rows)).toBeTruthy();
-  expect(payload.rows?.[0]?.slug).toBe("inception");
-  await expect(page.getByText("Inception")).toBeVisible({ timeout: 15000 });
+// UI-only search helper. Types the query and waits for the named result row
+// to appear via Playwright auto-retry — no waitForResponse, no .json(), no
+// API status assertions. The eslint config in eslint.config.mjs bans those
+// patterns in spec files; this helper keeps the act+assert path UI-only.
+export async function searchForMovie(page: Page, query: string, expectedSlug: string): Promise<void> {
+  const input = page.getByPlaceholder("Search movies...");
+  await input.fill(query);
+  await expect(page.getByTestId(`search-result-row-${expectedSlug}`)).toBeVisible({ timeout: 15000 });
 }
 
 export async function expectInceptionNoteEmbedding(

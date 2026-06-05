@@ -32,7 +32,7 @@ fi
 
 SERVER_STOPPED=0
 for _ in $(seq 1 40); do
-  if ! curl -sf "http://127.0.0.1:8090/health" >/dev/null 2>&1; then
+  if ! curl -sf "http://127.0.0.1:8092/health" >/dev/null 2>&1; then
     SERVER_STOPPED=1
     break
   fi
@@ -40,7 +40,7 @@ for _ in $(seq 1 40); do
 done
 
 if [ "$SERVER_STOPPED" -ne 1 ]; then
-  echo "ayb server is still responding on 127.0.0.1:8090 after stop; refusing to reuse stale runtime" >&2
+  echo "ayb server is still responding on 127.0.0.1:8092 after stop; refusing to reuse stale runtime" >&2
   exit 1
 fi
 
@@ -52,7 +52,7 @@ AYB_AUTH_JWT_SECRET="movies_demo_super_secret_key_32_chars" \
 
 SERVER_READY=0
 for _ in $(seq 1 40); do
-  if curl -sf "http://127.0.0.1:8090/health" >/dev/null 2>&1; then
+  if curl -sf "http://127.0.0.1:8092/health" >/dev/null 2>&1; then
     SERVER_READY=1
     break
   fi
@@ -60,7 +60,7 @@ for _ in $(seq 1 40); do
 done
 
 if [ "$SERVER_READY" -ne 1 ]; then
-  echo "ayb server failed to become healthy on 127.0.0.1:8090" >&2
+  echo "ayb server failed to become healthy on 127.0.0.1:8092" >&2
   exit 1
 fi
 
