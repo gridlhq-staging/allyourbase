@@ -113,8 +113,10 @@ void main() {
 
       expect(response['ok'], isTrue);
       expect(http.requests, hasLength(1));
-      expect(http.requests.single.url.toString(), 'https://api.example.com/api/me');
-      expect(_header(http.requests.single.headers, 'Authorization'), 'Bearer jwt_abc');
+      expect(http.requests.single.url.toString(),
+          'https://api.example.com/api/me');
+      expect(_header(http.requests.single.headers, 'Authorization'),
+          'Bearer jwt_abc');
     });
 
     test('skipAuth omits auth header even when token exists', () async {
@@ -179,15 +181,16 @@ void main() {
             .having((e) => e.message, 'message', 'unique violation')
             .having((e) => e.code, 'code', 'db/unique')
             .having(
-              (e) => e.data,
-              'data',
-              {'users_email_key': {'code': 'unique_violation'}},
-            )
-            .having(
-              (e) => e.docUrl,
-              'docUrl',
-              'https://allyourbase.io/guide/errors#db-unique',
-            ),
+          (e) => e.data,
+          'data',
+          {
+            'users_email_key': {'code': 'unique_violation'}
+          },
+        ).having(
+          (e) => e.docUrl,
+          'docUrl',
+          'https://allyourbase.io/guide/errors#db-unique',
+        ),
       );
       await expectLater(
         () => client.request<void>('/api/fail'),
@@ -221,7 +224,8 @@ void main() {
       final http = DeterministicHttpClient([StubResponse.json(200, 42)]);
       final client = AYBClient('https://api.example.com', httpClient: http);
 
-      final value = await client.rpc<int>('get_total', args: const {'user_id': 'abc'});
+      final value =
+          await client.rpc<int>('get_total', args: const {'user_id': 'abc'});
 
       expect(value, 42);
       final req = http.requests.single;
@@ -261,7 +265,8 @@ void main() {
 
       await client.rpc<int>('my_fn');
 
-      expect(_header(http.requests.single.headers, 'Authorization'), 'Bearer jwt_abc');
+      expect(_header(http.requests.single.headers, 'Authorization'),
+          'Bearer jwt_abc');
     });
   });
 }

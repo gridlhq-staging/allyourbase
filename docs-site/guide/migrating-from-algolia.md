@@ -14,6 +14,7 @@ For the canonical AYB search behavior, examples, response shape, and RLS notes, 
 | Query text | `search=<text>` on the collection list endpoint |
 | Typo tolerance | `fuzzy=true` with a non-empty `search` value, backed by PostgreSQL `pg_trgm` |
 | Typo-threshold tuning | `typoThreshold` in the JS SDK / `typo_threshold` in REST when `fuzzy=true` |
+| Synonyms | Per-collection synonym groups configured through admin collection settings |
 | Facets | `facets=column_a,column_b` for scalar column buckets in the list response |
 | Filters | `filter=<expr>` using AYB's safe filter syntax |
 | Highlight snippets | `highlight=true` returns `_highlight` in matching result items |
@@ -72,23 +73,19 @@ Move Algolia records into PostgreSQL tables first, then query those tables throu
 - `POST /api/collections/{table}/import` for CSV or JSON row import
 - `ayb.records.create` and `ayb.records.batch` from the JavaScript SDK
 
-This lane does not ship `ayb migrate algolia`, a dedicated Algolia importer, index-setting translation, or automated synonym/ranking-rule migration. Export from Algolia, shape the records for your PostgreSQL schema, ingest them through one of the paths above, then use [Search](/guide/search) to query them.
+This lane does not ship `ayb migrate algolia`, a dedicated Algolia importer, Algolia ranking-rule translation, hosted index operations, or dedicated importer automation. Export from Algolia, shape the records for your PostgreSQL schema, ingest them through one of the paths above, configure any per-collection synonym groups you need, then use [Search](/guide/search) to query them.
 
 ## Non-parity boundaries
 
 AYB's shipped PostgreSQL search path is useful when your application can use database-owned search, filters, facets, and RLS-scoped counts from one API. It is not an Algolia feature clone.
 
-AYB already ships typo-threshold tuning on fuzzy search plus `_highlight`
-snippets when you request `highlight=true`. The remaining gaps are:
+AYB already ships typo-threshold tuning on fuzzy search, per-collection synonym groups, and `_highlight` snippets when you request `highlight=true`. The remaining gaps are:
 
-- no synonym-management story
-- no Algolia-specific relevance-control translation
-- no hosted index operations separate from PostgreSQL
-- no dedicated Algolia importer automation
+- Algolia ranking-rule translation
+- hosted index operations separate from PostgreSQL
+- dedicated importer automation
 
-Use Algolia when you still need Algolia-specific ranking controls, synonym
-operations, or hosted search operations that are separate from your PostgreSQL
-data path.
+Use Algolia when you still need Algolia-specific ranking controls, hosted search operations, or importer automation that are separate from your PostgreSQL data path.
 
 ## Related guides
 

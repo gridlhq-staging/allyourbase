@@ -33,7 +33,8 @@ void main() {
         }));
 
         final bytes = Uint8List.fromList([0x89, 0x50, 0x4E, 0x47]);
-        final result = await client.storage.upload('avatars', bytes, 'photo.png');
+        final result =
+            await client.storage.upload('avatars', bytes, 'photo.png');
 
         expect(httpClient.requests, hasLength(1));
         final req = httpClient.requests.first;
@@ -122,8 +123,11 @@ void main() {
               .having((e) => e.status, 'status', 400)
               .having((e) => e.message, 'message', 'Invalid file')
               .having((e) => e.code, 'code', 'storage/invalid-file')
-              .having((e) => e.data, 'data', {'field': 'file', 'reason': 'unsupported format'})
-              .having((e) => e.docUrl, 'docUrl', 'https://docs.example.com/storage/upload')),
+              .having((e) => e.data, 'data', {
+            'field': 'file',
+            'reason': 'unsupported format'
+          }).having((e) => e.docUrl, 'docUrl',
+                  'https://docs.example.com/storage/upload')),
         );
       });
     });
@@ -137,7 +141,8 @@ void main() {
 
       test('handles bucket and name with special characters', () {
         final url = client.storage.downloadUrl('my-bucket', 'path/to/file.pdf');
-        expect(url, 'https://example.com/api/storage/my-bucket/path/to/file.pdf');
+        expect(
+            url, 'https://example.com/api/storage/my-bucket/path/to/file.pdf');
       });
     });
 
@@ -162,8 +167,7 @@ void main() {
 
         expect(
           () => client.storage.delete('avatars', 'missing.png'),
-          throwsA(isA<AYBError>()
-              .having((e) => e.status, 'status', 404)),
+          throwsA(isA<AYBError>().having((e) => e.status, 'status', 404)),
         );
       });
     });
@@ -203,8 +207,8 @@ void main() {
           'totalItems': 0,
         }));
 
-        await client.storage.list('docs',
-            prefix: 'reports/', limit: 10, offset: 20);
+        await client.storage
+            .list('docs', prefix: 'reports/', limit: 10, offset: 20);
 
         final req = httpClient.requests.first;
         expect(req.url.queryParameters['prefix'], 'reports/');
@@ -231,7 +235,8 @@ void main() {
           'url': 'https://example.com/signed/abc123',
         }));
 
-        final result = await client.storage.getSignedUrl('avatars', 'photo.png');
+        final result =
+            await client.storage.getSignedUrl('avatars', 'photo.png');
 
         expect(httpClient.requests, hasLength(1));
         final req = httpClient.requests.first;
@@ -249,11 +254,11 @@ void main() {
           'url': 'https://example.com/signed/xyz',
         }));
 
-        await client.storage.getSignedUrl('avatars', 'photo.png',
-            expiresIn: 7200);
+        await client.storage
+            .getSignedUrl('avatars', 'photo.png', expiresIn: 7200);
 
-        final body = httpClient.requests.first.decodeJsonBody()
-            as Map<String, Object?>;
+        final body =
+            httpClient.requests.first.decodeJsonBody() as Map<String, Object?>;
         expect(body['expiresIn'], 7200);
       });
 
@@ -265,14 +270,14 @@ void main() {
 
         expect(
           () => client.storage.getSignedUrl('private', 'secret.pdf'),
-          throwsA(isA<AYBError>()
-              .having((e) => e.status, 'status', 403)),
+          throwsA(isA<AYBError>().having((e) => e.status, 'status', 403)),
         );
       });
     });
 
     test('works with API key auth instead of JWT', () async {
-      final apiClient = AYBClient('https://example.com', httpClient: httpClient);
+      final apiClient =
+          AYBClient('https://example.com', httpClient: httpClient);
       apiClient.setApiKey('ayb_test_key');
 
       httpClient.enqueue(StubResponse.empty(204));

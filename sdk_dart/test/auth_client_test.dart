@@ -28,32 +28,39 @@ const _userJson = <String, Object?>{
 };
 
 final _anonymousFixture = (jsonDecode(
-  File('../tests/contract/fixtures/sdk_parity/anonymous.json').readAsStringSync(),
+  File('../tests/contract/fixtures/sdk_parity/anonymous.json')
+      .readAsStringSync(),
 ) as Map<Object?, Object?>)
     .cast<String, Object?>();
 final _magicLinkRequestResponseFixture = (jsonDecode(
-  File('../tests/contract/fixtures/sdk_contract/magic_link_request_response.json').readAsStringSync(),
+  File('../tests/contract/fixtures/sdk_contract/magic_link_request_response.json')
+      .readAsStringSync(),
 ) as Map<Object?, Object?>)
     .cast<String, Object?>();
 final _magicLinkConfirmSuccessFixture = (jsonDecode(
-  File('../tests/contract/fixtures/sdk_contract/magic_link_confirm_success_response.json').readAsStringSync(),
+  File('../tests/contract/fixtures/sdk_contract/magic_link_confirm_success_response.json')
+      .readAsStringSync(),
 ) as Map<Object?, Object?>)
     .cast<String, Object?>();
 final _magicLinkConfirmPendingMfaFixture = (jsonDecode(
-  File('../tests/contract/fixtures/sdk_contract/magic_link_confirm_pending_mfa_response.json').readAsStringSync(),
+  File('../tests/contract/fixtures/sdk_contract/magic_link_confirm_pending_mfa_response.json')
+      .readAsStringSync(),
 ) as Map<Object?, Object?>)
     .cast<String, Object?>();
 final _linkEmailFixture = (jsonDecode(
-  File('../tests/contract/fixtures/sdk_parity/link_email.json').readAsStringSync(),
+  File('../tests/contract/fixtures/sdk_parity/link_email.json')
+      .readAsStringSync(),
 ) as Map<Object?, Object?>)
     .cast<String, Object?>();
 
 void main() {
   group('AuthClient', () {
     group('signInAnonymously', () {
-      test('POSTs to /api/auth/anonymous and stores anonymous tokens', () async {
+      test('POSTs to /api/auth/anonymous and stores anonymous tokens',
+          () async {
         final http = DeterministicHttpClient([
-          StubResponse.json(201, _anonymousFixture['response'] as Map<String, Object?>),
+          StubResponse.json(
+              201, _anonymousFixture['response'] as Map<String, Object?>),
         ]);
         final client = AYBClient('https://api.example.com', httpClient: http);
         final events = <String>[];
@@ -63,7 +70,8 @@ void main() {
 
         final req = http.requests.single;
         expect(req.method, 'POST');
-        expect(req.url.toString(), 'https://api.example.com/api/auth/anonymous');
+        expect(
+            req.url.toString(), 'https://api.example.com/api/auth/anonymous');
         expect(req.decodeJsonBody(), isEmpty);
         expect(result.user.isAnonymous, isTrue);
         expect(client.token, result.token);
@@ -83,16 +91,16 @@ void main() {
         await expectLater(
           () => client.auth.signInAnonymously(),
           throwsA(
-            isA<AYBError>()
-                .having((e) => e.status, 'status', 404)
-                .having((e) => e.message, 'message', 'anonymous auth is not enabled'),
+            isA<AYBError>().having((e) => e.status, 'status', 404).having(
+                (e) => e.message, 'message', 'anonymous auth is not enabled'),
           ),
         );
       });
     });
 
     group('requestMagicLink', () {
-      test('POSTs email to /api/auth/magic-link without mutating auth state', () async {
+      test('POSTs email to /api/auth/magic-link without mutating auth state',
+          () async {
         const requestEmail = 'fixture@example.com';
         final http = DeterministicHttpClient([
           StubResponse.json(200, _magicLinkRequestResponseFixture),
@@ -103,7 +111,8 @@ void main() {
 
         final req = http.requests.single;
         expect(req.method, 'POST');
-        expect(req.url.toString(), 'https://api.example.com/api/auth/magic-link');
+        expect(
+            req.url.toString(), 'https://api.example.com/api/auth/magic-link');
         expect(req.decodeJsonBody(), {'email': requestEmail});
         expect(result.message, _magicLinkRequestResponseFixture['message']);
         expect(client.token, isNull);
@@ -131,7 +140,8 @@ void main() {
     });
 
     group('confirmMagicLink', () {
-      test('stores tokens and emits SIGNED_IN for authenticated response', () async {
+      test('stores tokens and emits SIGNED_IN for authenticated response',
+          () async {
         const requestToken = 'sdk-parity-magic-token';
         final http = DeterministicHttpClient([
           StubResponse.json(200, _magicLinkConfirmSuccessFixture),
@@ -144,7 +154,8 @@ void main() {
 
         final req = http.requests.single;
         expect(req.method, 'POST');
-        expect(req.url.toString(), 'https://api.example.com/api/auth/magic-link/confirm');
+        expect(req.url.toString(),
+            'https://api.example.com/api/auth/magic-link/confirm');
         expect(req.decodeJsonBody(), {'token': requestToken});
         expect(result.isPendingMFA, isFalse);
         expect(result.auth, isNotNull);
@@ -178,9 +189,11 @@ void main() {
     });
 
     group('linkEmail', () {
-      test('POSTs email+password to /api/auth/link/email with bearer auth', () async {
+      test('POSTs email+password to /api/auth/link/email with bearer auth',
+          () async {
         final http = DeterministicHttpClient([
-          StubResponse.json(200, _linkEmailFixture['response'] as Map<String, Object?>),
+          StubResponse.json(
+              200, _linkEmailFixture['response'] as Map<String, Object?>),
         ]);
         final client = AYBClient('https://api.example.com', httpClient: http);
         client.setTokens('anon_token', 'anon_refresh');
@@ -188,13 +201,16 @@ void main() {
         client.onAuthStateChange((event, _) => events.add(event));
 
         final result = await client.auth.linkEmail(
-          (_linkEmailFixture['request'] as Map<String, Object?>)['email']! as String,
-          (_linkEmailFixture['request'] as Map<String, Object?>)['password']! as String,
+          (_linkEmailFixture['request'] as Map<String, Object?>)['email']!
+              as String,
+          (_linkEmailFixture['request'] as Map<String, Object?>)['password']!
+              as String,
         );
 
         final req = http.requests.single;
         expect(req.method, 'POST');
-        expect(req.url.toString(), 'https://api.example.com/api/auth/link/email');
+        expect(
+            req.url.toString(), 'https://api.example.com/api/auth/link/email');
         expect(_header(req.headers, 'Authorization'), 'Bearer anon_token');
         expect(req.decodeJsonBody(), _linkEmailFixture['request']);
         expect(result.user.email, 'upgraded@example.com');
@@ -218,9 +234,7 @@ void main() {
         await expectLater(
           () => client.auth.linkEmail('upgraded@example.com', 'LinkedPass123!'),
           throwsA(
-            isA<AYBError>()
-                .having((e) => e.status, 'status', 409)
-                .having(
+            isA<AYBError>().having((e) => e.status, 'status', 409).having(
                   (e) => e.message,
                   'message',
                   'email already belongs to another account',
@@ -700,8 +714,8 @@ void main() {
       test('returns null when fragment is empty', () {
         final client = AYBClient('https://api.example.com');
 
-        final result =
-            client.auth.handleOAuthRedirect(Uri.parse('https://myapp.com/callback'));
+        final result = client.auth
+            .handleOAuthRedirect(Uri.parse('https://myapp.com/callback'));
 
         expect(result, isNull);
       });

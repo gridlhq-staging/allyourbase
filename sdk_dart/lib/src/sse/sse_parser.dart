@@ -37,11 +37,11 @@ class SseMessage {
 class SseParser {
   SseParser(Stream<List<int>> byteStream) {
     _subscription = byteStream.cast<List<int>>().transform(utf8.decoder).listen(
-      _onData,
-      onDone: _onDone,
-      onError: _controller.addError,
-      cancelOnError: false,
-    );
+          _onData,
+          onDone: _onDone,
+          onError: _controller.addError,
+          cancelOnError: false,
+        );
     _controller.onCancel = _cancel;
   }
 

@@ -48,6 +48,14 @@ export type SeedInput = {
   priority: number;
 };
 
+export type SearchSynonymGroupInput = {
+  terms: string[];
+};
+
+export type SearchSynonymsResponse = {
+  groups: SearchSynonymGroupInput[];
+};
+
 // ── Constants ────────────────────────────────────────────────────────────────
 
 export const BASE_URL =
@@ -256,6 +264,33 @@ export async function adminSql(query: string): Promise<AdminSQLResponse> {
   }
 
   return (await response.json()) as AdminSQLResponse;
+}
+
+export async function putCollectionSearchSynonyms(
+  tableName: string,
+  groups: SearchSynonymGroupInput[],
+): Promise<SearchSynonymsResponse> {
+  const adminToken = await getAdminToken();
+  const response = await fetch(
+    `${BASE_URL}/api/collections/${encodeURIComponent(tableName)}/synonyms/`,
+    {
+      method: "PUT",
+      headers: {
+        Authorization: `Bearer ${adminToken}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ groups }),
+    },
+  );
+
+  if (!response.ok) {
+    const msg = await response.text().catch(() => "");
+    throw new Error(
+      `Search synonyms update failed: ${response.status}${msg ? ` - ${msg}` : ""}`,
+    );
+  }
+
+  return (await response.json()) as SearchSynonymsResponse;
 }
 
 export function sleep(delayMs: number): Promise<void> {

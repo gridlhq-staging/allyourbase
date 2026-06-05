@@ -12,23 +12,28 @@ import 'package:allyourbase/src/types.dart';
 import 'support/deterministic_http_client.dart';
 
 final _magicLinkRequestResponseFixture = (jsonDecode(
-  File('../tests/contract/fixtures/sdk_contract/magic_link_request_response.json').readAsStringSync(),
+  File('../tests/contract/fixtures/sdk_contract/magic_link_request_response.json')
+      .readAsStringSync(),
 ) as Map<Object?, Object?>)
     .cast<String, Object?>();
 final _magicLinkConfirmSuccessFixture = (jsonDecode(
-  File('../tests/contract/fixtures/sdk_contract/magic_link_confirm_success_response.json').readAsStringSync(),
+  File('../tests/contract/fixtures/sdk_contract/magic_link_confirm_success_response.json')
+      .readAsStringSync(),
 ) as Map<Object?, Object?>)
     .cast<String, Object?>();
 final _magicLinkConfirmPendingMfaFixture = (jsonDecode(
-  File('../tests/contract/fixtures/sdk_contract/magic_link_confirm_pending_mfa_response.json').readAsStringSync(),
+  File('../tests/contract/fixtures/sdk_contract/magic_link_confirm_pending_mfa_response.json')
+      .readAsStringSync(),
 ) as Map<Object?, Object?>)
     .cast<String, Object?>();
 final _anonymousFixture = (jsonDecode(
-  File('../tests/contract/fixtures/sdk_parity/anonymous.json').readAsStringSync(),
+  File('../tests/contract/fixtures/sdk_parity/anonymous.json')
+      .readAsStringSync(),
 ) as Map<Object?, Object?>)
     .cast<String, Object?>();
 final _linkEmailFixture = (jsonDecode(
-  File('../tests/contract/fixtures/sdk_parity/link_email.json').readAsStringSync(),
+  File('../tests/contract/fixtures/sdk_parity/link_email.json')
+      .readAsStringSync(),
 ) as Map<Object?, Object?>)
     .cast<String, Object?>();
 
@@ -75,13 +80,17 @@ void main() {
 
   group('Contract: magic link responses', () {
     test('MagicLinkRequestResponse parses canonical message payload', () {
-      final response = MagicLinkRequestResponse.fromJson(_magicLinkRequestResponseFixture);
+      final response =
+          MagicLinkRequestResponse.fromJson(_magicLinkRequestResponseFixture);
 
-      expect(response.message, 'If an account exists, a magic link has been sent.');
+      expect(response.message,
+          'If an account exists, a magic link has been sent.');
     });
 
-    test('MagicLinkConfirmResponse.fromJson parses canonical success payload', () {
-      final response = MagicLinkConfirmResponse.fromJson(_magicLinkConfirmSuccessFixture);
+    test('MagicLinkConfirmResponse.fromJson parses canonical success payload',
+        () {
+      final response =
+          MagicLinkConfirmResponse.fromJson(_magicLinkConfirmSuccessFixture);
 
       expect(response.isPendingMFA, isFalse);
       expect(response.mfaToken, isNull);
@@ -92,8 +101,11 @@ void main() {
       expect(response.auth!.user.updatedAt, isNull);
     });
 
-    test('MagicLinkConfirmResponse.fromJson parses canonical pending MFA payload', () {
-      final response = MagicLinkConfirmResponse.fromJson(_magicLinkConfirmPendingMfaFixture);
+    test(
+        'MagicLinkConfirmResponse.fromJson parses canonical pending MFA payload',
+        () {
+      final response =
+          MagicLinkConfirmResponse.fromJson(_magicLinkConfirmPendingMfaFixture);
 
       expect(response.isPendingMFA, isTrue);
       expect(response.mfaToken, 'mfa_pending_token_stage1');
@@ -102,12 +114,15 @@ void main() {
   });
 
   group('Contract: user field normalization', () {
-    test('User.fromJson accepts snake_case from anonymous/link-email fixtures', () {
+    test('User.fromJson accepts snake_case from anonymous/link-email fixtures',
+        () {
       final anonymous = User.fromJson(
-        (_anonymousFixture['response'] as Map<String, Object?>)['user']! as Map<String, Object?>,
+        (_anonymousFixture['response'] as Map<String, Object?>)['user']!
+            as Map<String, Object?>,
       );
       final linked = User.fromJson(
-        (_linkEmailFixture['response'] as Map<String, Object?>)['user']! as Map<String, Object?>,
+        (_linkEmailFixture['response'] as Map<String, Object?>)['user']!
+            as Map<String, Object?>,
       );
 
       expect(anonymous.isAnonymous, isTrue);
@@ -119,7 +134,8 @@ void main() {
   });
 
   group('Contract: error responses', () {
-    test('AYBError parses server ErrorResponse with doc_url (snake_case)', () async {
+    test('AYBError parses server ErrorResponse with doc_url (snake_case)',
+        () async {
       // Canonical fixture: error_response_numeric_code.json
       final http = DeterministicHttpClient();
       final client = AYBClient('https://api.example.com', httpClient: http);
@@ -131,7 +147,8 @@ void main() {
       }));
 
       try {
-        await client.request<Map<String, Object?>>('/api/auth/login', method: 'POST');
+        await client.request<Map<String, Object?>>('/api/auth/login',
+            method: 'POST');
         fail('Expected AYBError');
       } on AYBError catch (e) {
         expect(e.status, 403);
@@ -154,7 +171,8 @@ void main() {
       }));
 
       try {
-        await client.request<Map<String, Object?>>('/api/auth/refresh', method: 'POST');
+        await client.request<Map<String, Object?>>('/api/auth/refresh',
+            method: 'POST');
         fail('Expected AYBError');
       } on AYBError catch (e) {
         expect(e.status, 400);
@@ -251,7 +269,9 @@ void main() {
       expect(obj.updatedAt, '2026-01-02T12:30:00Z');
     });
 
-    test('StorageListResponse matches canonical list shape with nullable fields', () {
+    test(
+        'StorageListResponse matches canonical list shape with nullable fields',
+        () {
       final json = <String, Object?>{
         'items': [
           {
@@ -337,7 +357,8 @@ void main() {
   });
 
   group('Contract: GeoJSON round-trip', () {
-    test('Record with GeoJSON Point location round-trips through create/get', () async {
+    test('Record with GeoJSON Point location round-trips through create/get',
+        () async {
       // Server returns geometry columns as GeoJSON objects (ST_AsGeoJSON wrapping).
       // The SDK uses Map<String, Object?> for records — GeoJSON is a plain map.
       final geoPoint = <String, Object?>{
@@ -375,7 +396,8 @@ void main() {
       expect(created['boundary'], isNull);
 
       // Verify the request body sent the GeoJSON as-is
-      final reqBody = http.requests.first.decodeJsonBody() as Map<String, Object?>;
+      final reqBody =
+          http.requests.first.decodeJsonBody() as Map<String, Object?>;
       expect(reqBody['location'], isA<Map<String, Object?>>());
       final sentLoc = reqBody['location'] as Map<String, Object?>;
       expect(sentLoc['type'], 'Point');
@@ -404,7 +426,13 @@ void main() {
       final polygon = <String, Object?>{
         'type': 'Polygon',
         'coordinates': [
-          [[-73.9, 40.7], [-73.8, 40.7], [-73.8, 40.8], [-73.9, 40.8], [-73.9, 40.7]],
+          [
+            [-73.9, 40.7],
+            [-73.8, 40.7],
+            [-73.8, 40.8],
+            [-73.9, 40.8],
+            [-73.9, 40.7]
+          ],
         ],
       };
 
@@ -427,7 +455,8 @@ void main() {
       expect(http.requests, hasLength(1));
       expect(http.requests.first.method, 'POST');
       expect(http.requests.first.url.path, '/api/collections/zones');
-      final reqBody = http.requests.first.decodeJsonBody() as Map<String, Object?>;
+      final reqBody =
+          http.requests.first.decodeJsonBody() as Map<String, Object?>;
       final sentBoundary = reqBody['boundary'] as Map<String, Object?>;
       expect(sentBoundary['type'], 'Polygon');
       final sentCoords = sentBoundary['coordinates'] as List;

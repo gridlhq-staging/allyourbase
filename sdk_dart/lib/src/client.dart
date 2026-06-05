@@ -287,7 +287,8 @@ class AuthClient {
       decode: (value) => MagicLinkConfirmResponse.fromJson(value as JsonMap),
     );
     if (!response.isPendingMFA && response.auth != null) {
-      client.setTokensInternal(response.auth!.token, response.auth!.refreshToken);
+      client.setTokensInternal(
+          response.auth!.token, response.auth!.refreshToken);
       client.emitAuthEvent(AuthStateEvent.signedIn);
     }
     return response;

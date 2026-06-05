@@ -76,8 +76,37 @@ func buildSearchDocumentExpression(cols []string) string {
 	return strings.Join(parts, " || ' ' || ")
 }
 
-func buildSearchQueryExpression(paramRef string) string {
-	return fmt.Sprintf("websearch_to_tsquery('simple', %s)", paramRef)
+// buildSearchQueryExpression builds the FTS tsquery expression for the user's
+// search term, expanded by any per-collection synonym groups configured in
+// _ayb_search_synonyms for (schemaRef, tableRef).
+//
+// Mechanism: ts_rewrite substitutes each matched synonym term in-place,
+// preserving any AND structure from the surrounding user query. For each
+// synonym group, the substitute is the OR of phraseto_tsquery() over all
+// group members, so multi-word terms become phrase predicates and special
+// tsquery characters in stored terms are escaped safely. Each group emits
+// both a phraseto_tsquery target (matches quoted-phrase user input) and a
+// websearch_to_tsquery target (matches plain user input) so expansion fires
+// regardless of how the user typed the trigger term. The rewrite SELECT text
+// is built dynamically with quote_literal() on schema/table names rather than
+// outer-query parameters, because ts_rewrite's text variant executes the
+// SELECT in a separate planning context that does not see outer $N args.
+func buildSearchQueryExpression(paramRef, schemaRef, tableRef string) string {
+	rewriteSQL := "" +
+		"'WITH grp AS (' " +
+		"|| 'SELECT schema_name, table_name, group_id, ' " +
+		"|| '       (string_agg(''('' || phraseto_tsquery(''simple'', term)::text || '')'', '' | ''))::tsquery AS expanded ' " +
+		"|| 'FROM _ayb_search_synonyms ' " +
+		"|| 'WHERE schema_name = ' || quote_literal(" + schemaRef + ") || ' AND table_name = ' || quote_literal(" + tableRef + ") || ' ' " +
+		"|| 'GROUP BY schema_name, table_name, group_id) ' " +
+		"|| 'SELECT phraseto_tsquery(''simple'', s1.term), grp.expanded ' " +
+		"|| 'FROM _ayb_search_synonyms s1 JOIN grp USING (schema_name, table_name, group_id) ' " +
+		"|| 'WHERE s1.schema_name = ' || quote_literal(" + schemaRef + ") || ' AND s1.table_name = ' || quote_literal(" + tableRef + ") || ' ' " +
+		"|| 'UNION ' " +
+		"|| 'SELECT websearch_to_tsquery(''simple'', s1.term), grp.expanded ' " +
+		"|| 'FROM _ayb_search_synonyms s1 JOIN grp USING (schema_name, table_name, group_id) ' " +
+		"|| 'WHERE s1.schema_name = ' || quote_literal(" + schemaRef + ") || ' AND s1.table_name = ' || quote_literal(" + tableRef + ")"
+	return fmt.Sprintf("ts_rewrite(websearch_to_tsquery('simple', %s), %s)", paramRef, rewriteSQL)
 }
 
 func buildSearchHTMLEscapedExpression(docExpr string) string {
@@ -124,11 +153,17 @@ func buildSearchSQL(tbl *schema.Table, searchTerm string, argOffset int, opts se
 		return searchSQLResult{}, fmt.Errorf("table %q has no text columns to search", tbl.Name)
 	}
 
-	args := []any{searchTerm}
+	// Three positional args: the search term, the collection schema, and the
+	// collection table. The schema/table refs are consumed by the synonym
+	// subquery in buildSearchQueryExpression to scope expansion to this
+	// collection only.
+	args := []any{searchTerm, tbl.Schema, tbl.Name}
 	paramRef := fmt.Sprintf("$%d", argOffset)
+	schemaRef := fmt.Sprintf("$%d", argOffset+1)
+	tableRef := fmt.Sprintf("$%d", argOffset+2)
 	docExpr := buildSearchDocumentExpression(cols)
 	tsvector := fmt.Sprintf("to_tsvector('simple', %s)", docExpr)
-	tsquery := buildSearchQueryExpression(paramRef)
+	tsquery := buildSearchQueryExpression(paramRef, schemaRef, tableRef)
 
 	result := searchSQLResult{
 		whereSQL: fmt.Sprintf("%s @@ %s", tsvector, tsquery),

@@ -89,10 +89,14 @@ func TestExecuteFTSQuery_NilPoolBuildsSearchAndFilter(t *testing.T) {
 	testutil.Contains(t, q, " AS _fts_rank")
 	testutil.Contains(t, q, "ORDER BY _fts_rank DESC")
 	testutil.Contains(t, q, "\"id\" = $1")
-	testutil.Equal(t, 3, len(args))
+	// Args now include the synonym-expansion schema/table refs after the
+	// search term: [filter..., term, schema, table, limit].
+	testutil.Equal(t, 5, len(args))
 	testutil.Equal(t, 123, args[0])
 	testutil.Equal(t, "hello", args[1])
-	testutil.Equal(t, 5, args[2])
+	testutil.Equal(t, hybridTable().Schema, args[2].(string))
+	testutil.Equal(t, hybridTable().Name, args[3].(string))
+	testutil.Equal(t, 5, args[4])
 }
 
 func TestExecuteVectorQuery_NilPoolBuildsFilterArgs(t *testing.T) {

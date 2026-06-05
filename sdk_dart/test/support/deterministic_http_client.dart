@@ -3,7 +3,8 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 
 class DeterministicHttpClient extends http.BaseClient {
-  DeterministicHttpClient([Iterable<StubResponse> initialResponses = const []]) {
+  DeterministicHttpClient(
+      [Iterable<StubResponse> initialResponses = const []]) {
     _responses.addAll(initialResponses);
   }
 

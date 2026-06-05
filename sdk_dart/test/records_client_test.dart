@@ -43,9 +43,20 @@ void main() {
     test('parses items with decodeItem', () async {
       http.enqueue(StubResponse.json(200, {
         'items': [
-          {'id': '1', 'title': 'First'},
+          {
+            'id': '1',
+            'title': 'First',
+            '_highlight': {
+              'title': ['<b>First</b>'],
+            },
+          },
           {'id': '2', 'title': 'Second'},
         ],
+        'facets': {
+          'category': [
+            {'value': 'docs', 'count': 2},
+          ],
+        },
         'page': 1,
         'perPage': 20,
         'totalItems': 2,
@@ -57,7 +68,15 @@ void main() {
       expect(result.items, hasLength(2));
       expect(result.items[0], isA<Map<String, Object?>>());
       expect((result.items[0] as Map)['id'], '1');
+      expect((result.items[0] as Map)['_highlight'], {
+        'title': ['<b>First</b>'],
+      });
       expect((result.items[1] as Map)['title'], 'Second');
+      expect(result.facets, {
+        'category': [
+          {'value': 'docs', 'count': 2},
+        ],
+      });
       expect(result.totalItems, 2);
     });
 
@@ -81,6 +100,12 @@ void main() {
           fields: 'id,title',
           expand: 'author',
           skipTotal: true,
+          fuzzy: true,
+          typoThreshold: 0.42,
+          highlight: true,
+          facets: ['status', 'category'],
+          semantic: true,
+          semanticQuery: 'related notes',
         ),
       );
 
@@ -94,6 +119,12 @@ void main() {
       expect(queryParams['fields'], 'id,title');
       expect(queryParams['expand'], 'author');
       expect(queryParams['skipTotal'], 'true');
+      expect(queryParams['fuzzy'], 'true');
+      expect(queryParams['typo_threshold'], '0.42');
+      expect(queryParams['highlight'], 'true');
+      expect(queryParams['facets'], 'status,category');
+      expect(queryParams['semantic'], 'true');
+      expect(queryParams['semantic_query'], 'related notes');
     });
 
     test('omits null params from query string', () async {
@@ -107,11 +138,14 @@ void main() {
 
       await client.records.list(
         'posts',
-        params: ListParams(page: 3),
+        params: ListParams(page: 3, semanticQuery: 'find me'),
       );
 
       final req = http.requests.first;
-      expect(req.url.queryParameters, {'page': '3'});
+      expect(req.url.queryParameters, {
+        'page': '3',
+        'semantic_query': 'find me',
+      });
     });
 
     test('propagates errors', () async {
@@ -177,7 +211,8 @@ void main() {
   });
 
   group('RecordsClient.create', () {
-    test('sends POST to /api/collections/{collection} with JSON body', () async {
+    test('sends POST to /api/collections/{collection} with JSON body',
+        () async {
       http.enqueue(StubResponse.json(201, {
         'id': 'new-1',
         'title': 'New Post',
@@ -221,7 +256,8 @@ void main() {
   });
 
   group('RecordsClient.update', () {
-    test('sends PATCH to /api/collections/{collection}/{id} with JSON body', () async {
+    test('sends PATCH to /api/collections/{collection}/{id} with JSON body',
+        () async {
       http.enqueue(StubResponse.json(200, {
         'id': 'rec-1',
         'title': 'Updated Title',
@@ -284,16 +320,26 @@ void main() {
   });
 
   group('RecordsClient.batch', () {
-    test('sends POST to /api/collections/{collection}/batch with operations', () async {
+    test('sends POST to /api/collections/{collection}/batch with operations',
+        () async {
       http.enqueue(StubResponse.json(200, [
-        {'index': 0, 'status': 201, 'body': {'id': 'new-1', 'title': 'A'}},
-        {'index': 1, 'status': 200, 'body': {'id': 'rec-2', 'title': 'B Updated'}},
+        {
+          'index': 0,
+          'status': 201,
+          'body': {'id': 'new-1', 'title': 'A'}
+        },
+        {
+          'index': 1,
+          'status': 200,
+          'body': {'id': 'rec-2', 'title': 'B Updated'}
+        },
         {'index': 2, 'status': 204, 'body': null},
       ]));
 
       final operations = [
         BatchOperation(method: 'create', body: {'title': 'A'}),
-        BatchOperation(method: 'update', id: 'rec-2', body: {'title': 'B Updated'}),
+        BatchOperation(
+            method: 'update', id: 'rec-2', body: {'title': 'B Updated'}),
         BatchOperation(method: 'delete', id: 'rec-3'),
       ];
 
@@ -354,6 +400,12 @@ void main() {
         fields: 'id,name',
         expand: 'author',
         skipTotal: true,
+        fuzzy: true,
+        typoThreshold: 0.42,
+        highlight: true,
+        facets: ['status', 'category'],
+        semantic: true,
+        semanticQuery: 'related notes',
       );
 
       final map = params.toQueryMap();
@@ -366,6 +418,12 @@ void main() {
         'fields': 'id,name',
         'expand': 'author',
         'skipTotal': 'true',
+        'fuzzy': 'true',
+        'typo_threshold': '0.42',
+        'highlight': 'true',
+        'facets': 'status,category',
+        'semantic': 'true',
+        'semantic_query': 'related notes',
       });
     });
 
@@ -376,7 +434,13 @@ void main() {
     });
 
     test('does not include skipTotal when false', () {
-      final params = ListParams(skipTotal: false);
+      final params = ListParams(
+        skipTotal: false,
+        fuzzy: false,
+        highlight: false,
+        semantic: false,
+        facets: const [],
+      );
       expect(params.toQueryMap(), isEmpty);
     });
 
@@ -408,7 +472,8 @@ void main() {
 
   group('RecordsClient with no auth token', () {
     test('does not send Authorization header when no tokens set', () async {
-      final noAuthClient = AYBClient('https://api.example.com', httpClient: http);
+      final noAuthClient =
+          AYBClient('https://api.example.com', httpClient: http);
       http.enqueue(StubResponse.json(200, {
         'items': [],
         'page': 1,
@@ -426,7 +491,8 @@ void main() {
 
   group('RecordsClient with API key auth', () {
     test('sends API key as Bearer token', () async {
-      final apiKeyClient = AYBClient('https://api.example.com', httpClient: http);
+      final apiKeyClient =
+          AYBClient('https://api.example.com', httpClient: http);
       apiKeyClient.setApiKey('ayb_abc123');
       http.enqueue(StubResponse.json(200, {'id': 'rec-1'}));
 

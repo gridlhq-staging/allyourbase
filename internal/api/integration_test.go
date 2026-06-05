@@ -2174,6 +2174,16 @@ func setupExportTestServerWithAPILimits(t *testing.T, ctx context.Context, apiCf
 		t.Fatalf("resetting schema: %v", err)
 	}
 
+	// Re-apply shared migrations so system tables (e.g. _ayb_search_synonyms)
+	// that live in public are present for the duration of the export tests.
+	runner := migrations.NewRunner(sharedPG.Pool, testutil.DiscardLogger())
+	if err := runner.Bootstrap(ctx); err != nil {
+		t.Fatalf("bootstrapping migrations after schema reset: %v", err)
+	}
+	if _, err := runner.Run(ctx); err != nil {
+		t.Fatalf("running migrations after schema reset: %v", err)
+	}
+
 	_, err = sharedPG.Pool.Exec(ctx, `
 		CREATE TABLE posts (
 			id SERIAL PRIMARY KEY,
@@ -2639,4 +2649,294 @@ func TestImportOversizedBody413(t *testing.T) {
 	err := sharedPG.Pool.QueryRow(ctx, "SELECT COUNT(*) FROM import_items WHERE id = 1").Scan(&count)
 	testutil.NoError(t, err)
 	testutil.Equal(t, 0, count)
+}
+
+// --- Search synonym expansion tests (Stage 2) ---
+//
+// These tests exercise per-collection synonym expansion against the
+// _ayb_search_synonyms table created by migration 174. Memberships are scoped by
+// (schema_name, table_name); within a collection, all rows that share a
+// group_id are treated as mutual synonyms during FTS expansion.
+
+// setupSearchSynonymServer seeds the standard fixture, appends rows whose
+// content uses the term pair scifi / "science fiction", and reloads the schema
+// cache so the API can see the new rows.
+func setupSearchSynonymServer(t *testing.T, ctx context.Context) (*server.Server, *testutil.PGContainer) {
+	t.Helper()
+	srv, pg := setupTestServer(t, ctx)
+
+	// Use independent rows so each can only be matched via synonym expansion
+	// from the other's literal term.
+	_, err := pg.Pool.Exec(ctx, `
+		INSERT INTO posts (title, body, author_id, status) VALUES
+			('Cyberpunk',       'a classic scifi tale',          1, 'published'),
+			('Foundation',      'a classic science fiction novel', 1, 'published'),
+			('Romance Read',    'a cozy romance novel',          2, 'draft')
+	`)
+	testutil.NoError(t, err)
+	return srv, pg
+}
+
+// insertSearchSynonymGroup writes a single synonym group into
+// _ayb_search_synonyms for the given collection. Terms are lowercased to
+// satisfy the chk_ayb_search_synonyms_term_lowercase migration constraint.
+func insertSearchSynonymGroup(t *testing.T, ctx context.Context, pg *testutil.PGContainer, schemaName, tableName string, terms ...string) {
+	t.Helper()
+	var groupID string
+	err := pg.Pool.QueryRow(ctx, `SELECT gen_random_uuid()::text`).Scan(&groupID)
+	testutil.NoError(t, err)
+	for _, term := range terms {
+		_, err := pg.Pool.Exec(ctx, `
+			INSERT INTO _ayb_search_synonyms (schema_name, table_name, group_id, term)
+			VALUES ($1, $2, $3, lower($4))
+		`, schemaName, tableName, groupID, term)
+		testutil.NoError(t, err)
+	}
+}
+
+func searchTitles(t *testing.T, srv *server.Server, query string) []string {
+	t.Helper()
+	w := doRequest(t, srv, "GET", "/api/collections/posts/?"+query, nil)
+	testutil.StatusCode(t, http.StatusOK, w.Code)
+	body := parseJSON(t, w)
+	items := jsonItems(t, body)
+	titles := make([]string, len(items))
+	for i, item := range items {
+		titles[i] = jsonStr(t, item["title"])
+	}
+	return titles
+}
+
+// TestSearchSynonymsBidirectionalExpansion proves that searching either
+// configured term returns rows whose content matches the other term.
+func TestSearchSynonymsBidirectionalExpansion(t *testing.T) {
+	ctx := context.Background()
+	srv, pg := setupSearchSynonymServer(t, ctx)
+	insertSearchSynonymGroup(t, ctx, pg, "public", "posts", "scifi", "science fiction")
+
+	// Searching the single-word term must return the row that only mentions
+	// the multi-word term, and vice versa.
+	t.Run("single_term_expands_to_phrase", func(t *testing.T) {
+		titles := searchTitles(t, srv, "search=scifi")
+		// Should contain both Cyberpunk (literal scifi match) and Foundation (synonym).
+		want := map[string]bool{"Cyberpunk": true, "Foundation": true}
+		got := map[string]bool{}
+		for _, title := range titles {
+			got[title] = true
+		}
+		for title := range want {
+			if !got[title] {
+				t.Fatalf("expected scifi search to include %q (synonym expansion); got %v", title, titles)
+			}
+		}
+	})
+
+	t.Run("phrase_expands_to_single_term", func(t *testing.T) {
+		// URL-encoded "science fiction" with quotes preserved would over-narrow
+		// to phrase semantics; use the unquoted form here (multi-term AND).
+		titles := searchTitles(t, srv, "search=science+fiction")
+		got := map[string]bool{}
+		for _, title := range titles {
+			got[title] = true
+		}
+		if !got["Foundation"] {
+			t.Fatalf("expected baseline match for Foundation; got %v", titles)
+		}
+		if !got["Cyberpunk"] {
+			t.Fatalf("expected synonym expansion to include Cyberpunk; got %v", titles)
+		}
+	})
+}
+
+// TestSearchSynonymsScopedByCollection proves that a synonym configured for a
+// different collection does not leak into the queried collection.
+func TestSearchSynonymsScopedByCollection(t *testing.T) {
+	ctx := context.Background()
+	srv, pg := setupSearchSynonymServer(t, ctx)
+	// Register an expansion that would, if leaked, match the 'Romance Read'
+	// row by expanding 'scifi' to 'romance'. But it's scoped to a different
+	// table, so it must not affect /api/collections/posts/.
+	insertSearchSynonymGroup(t, ctx, pg, "public", "authors", "scifi", "romance")
+
+	// Register the same leak-prone expansion for a same-named table in another
+	// schema. If buildSearchSQL scoped only by table_name, this would also
+	// broaden the public.posts request to the Romance Read row.
+	insertSearchSynonymGroup(t, ctx, pg, "app", "posts", "scifi", "romance")
+
+	titles := searchTitles(t, srv, "search=scifi")
+	for _, title := range titles {
+		if title == "Romance Read" {
+			t.Fatalf("synonym from another collection leaked into public.posts query; got %v", titles)
+		}
+	}
+}
+
+// TestSearchSynonymsMultiTermAndSemanticsPreserved proves that combining a
+// synonym with another required term still uses AND semantics: 'classic scifi'
+// must keep returning only rows that contain both 'classic' and a scifi-group
+// term, not all rows that contain any scifi-group term.
+func TestSearchSynonymsMultiTermAndSemanticsPreserved(t *testing.T) {
+	ctx := context.Background()
+	srv, pg := setupSearchSynonymServer(t, ctx)
+	insertSearchSynonymGroup(t, ctx, pg, "public", "posts", "scifi", "science fiction")
+
+	// Add a row that contains 'scifi' but NOT 'classic'; multi-term AND must
+	// keep it out of results.
+	_, err := pg.Pool.Exec(ctx, `
+		INSERT INTO posts (title, body, author_id, status)
+		VALUES ('Lone Scifi', 'just a scifi reference', 1, 'published')
+	`)
+	testutil.NoError(t, err)
+
+	titles := searchTitles(t, srv, "search=classic+scifi")
+	got := map[string]bool{}
+	for _, title := range titles {
+		got[title] = true
+	}
+	for _, want := range []string{"Cyberpunk", "Foundation"} {
+		if !got[want] {
+			t.Fatalf("multi-term AND with synonym expansion missing %q; got %v", want, titles)
+		}
+	}
+	if got["Lone Scifi"] {
+		t.Fatalf("multi-term AND should have excluded 'Lone Scifi' (no 'classic'); got %v", titles)
+	}
+}
+
+// TestSearchSynonymsQuotedPhrasePreserved proves that quoted-phrase syntax
+// keeps websearch_to_tsquery phrase semantics on the literal input; the synonym
+// expansion must not broaden quoted phrases into unrelated rows that happen to
+// contain the phrase's words separately.
+func TestSearchSynonymsQuotedPhrasePreserved(t *testing.T) {
+	ctx := context.Background()
+	srv, pg := setupSearchSynonymServer(t, ctx)
+	insertSearchSynonymGroup(t, ctx, pg, "public", "posts", "scifi", "science fiction")
+
+	// Row whose body contains 'science' and 'fiction' as separate tokens but
+	// NOT adjacent, so it should fail the quoted-phrase predicate even after
+	// synonym expansion.
+	_, err := pg.Pool.Exec(ctx, `
+		INSERT INTO posts (title, body, author_id, status)
+		VALUES ('Mixed Words', 'pure science is a discipline; fiction is a genre', 1, 'published')
+	`)
+	testutil.NoError(t, err)
+
+	// %22 = " quote
+	titles := searchTitles(t, srv, "search=%22science+fiction%22")
+	got := map[string]bool{}
+	for _, title := range titles {
+		got[title] = true
+	}
+	if got["Mixed Words"] {
+		t.Fatalf("quoted-phrase search must not match non-adjacent words; got %v", titles)
+	}
+	if !got["Foundation"] {
+		t.Fatalf("quoted-phrase search should still match literal 'science fiction'; got %v", titles)
+	}
+	if !got["Cyberpunk"] {
+		t.Fatalf("quoted-phrase search should expand 'science fiction' synonym to scifi; got %v", titles)
+	}
+}
+
+// TestSearchSynonymsBaselineUnchanged proves that without any synonym rows
+// configured, search behavior matches the existing baseline counts.
+func TestSearchSynonymsBaselineUnchanged(t *testing.T) {
+	ctx := context.Background()
+	srv, _ := setupTestServer(t, ctx)
+
+	// Sanity: confirm the synonyms table exists but is empty for this test.
+	var count int
+	err := sharedPG.Pool.QueryRow(ctx, `SELECT COUNT(*) FROM _ayb_search_synonyms`).Scan(&count)
+	testutil.NoError(t, err)
+	testutil.Equal(t, 0, count)
+
+	// Reuse the baseline TestSearchBasic assertions inline: searching 'Bob'
+	// returns exactly one row.
+	w := doRequest(t, srv, "GET", "/api/collections/posts/?search=Bob", nil)
+	testutil.StatusCode(t, http.StatusOK, w.Code)
+	body := parseJSON(t, w)
+	items := jsonItems(t, body)
+	testutil.Equal(t, 1, len(items))
+	testutil.Equal(t, "Bob Post", jsonStr(t, items[0]["title"]))
+}
+
+// TestSearchSynonymsHighlight proves that synonym-matched rows can still return
+// a properly escaped _highlight field; the highlight selector must not corrupt
+// the stored text or leak unescaped markup.
+func TestSearchSynonymsHighlight(t *testing.T) {
+	ctx := context.Background()
+	srv, pg := setupSearchSynonymServer(t, ctx)
+	insertSearchSynonymGroup(t, ctx, pg, "public", "posts", "scifi", "science fiction")
+
+	// Insert a row that matches only via synonym expansion AND contains
+	// dangerous HTML in its stored text.
+	_, err := pg.Pool.Exec(ctx, `
+		INSERT INTO posts (title, body, author_id, status)
+		VALUES ('Markup', 'science fiction <script>alert(1)</script>', 1, 'published')
+	`)
+	testutil.NoError(t, err)
+
+	w := doRequest(t, srv, "GET", "/api/collections/posts/?search=scifi&highlight=true", nil)
+	testutil.StatusCode(t, http.StatusOK, w.Code)
+	body := parseJSON(t, w)
+	items := jsonItems(t, body)
+
+	foundMarkup := false
+	for _, item := range items {
+		if jsonStr(t, item["title"]) == "Markup" {
+			foundMarkup = true
+			highlight := jsonStr(t, item["_highlight"])
+			testutil.Contains(t, highlight, "&lt;script&gt;alert(1)&lt;/script&gt;")
+			if strings.Contains(highlight, "<script>") {
+				t.Fatalf("synonym-expanded highlight leaked raw <script>: %q", highlight)
+			}
+		}
+	}
+	if !foundMarkup {
+		titles := make([]string, len(items))
+		for i, item := range items {
+			titles[i] = jsonStr(t, item["title"])
+		}
+		t.Fatalf("expected synonym expansion to include 'Markup' row; got %v", titles)
+	}
+}
+
+// TestSearchSynonymsFacetCountsReflectExpansion proves that facet buckets are
+// computed over the expanded result set, not the literal-match-only set.
+func TestSearchSynonymsFacetCountsReflectExpansion(t *testing.T) {
+	ctx := context.Background()
+	srv, pg := setupSearchSynonymServer(t, ctx)
+	insertSearchSynonymGroup(t, ctx, pg, "public", "posts", "scifi", "science fiction")
+
+	w := doRequest(t, srv, "GET", "/api/collections/posts/?search=scifi&facets=author_id", nil)
+	testutil.StatusCode(t, http.StatusOK, w.Code)
+	body := parseJSON(t, w)
+	items := jsonItems(t, body)
+
+	// Confirm both rows are present so the facet count is meaningful.
+	if len(items) < 2 {
+		titles := make([]string, len(items))
+		for i, item := range items {
+			titles[i] = jsonStr(t, item["title"])
+		}
+		t.Fatalf("expected at least 2 expanded matches; got %v", titles)
+	}
+
+	facets, ok := body["facets"].(map[string]any)
+	testutil.True(t, ok, "expected facets object")
+	authorRaw, ok := facets["author_id"].([]any)
+	testutil.True(t, ok, "expected author_id facet bucket")
+
+	// Both Cyberpunk and Foundation are author_id=1, so the bucket for author 1
+	// must count at least 2.
+	for _, raw := range authorRaw {
+		bucket := raw.(map[string]any)
+		if jsonNum(t, bucket["value"]) == 1.0 {
+			if jsonNum(t, bucket["count"]) < 2.0 {
+				t.Fatalf("expected author_id=1 facet count to include expanded rows; got %v", bucket["count"])
+			}
+			return
+		}
+	}
+	t.Fatalf("expected an author_id=1 facet bucket; got %v", authorRaw)
 }

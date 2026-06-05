@@ -161,6 +161,12 @@ func (s *Server) registerAdminDataRoutes(r chi.Router) {
 			r.Post("/{table}/disable", handleDisableRls(s.pool))
 			r.Delete("/{table}/{policy}", handleDeleteRlsPolicy(s.pool))
 		})
+
+		r.Route("/collections/{table}/synonyms", func(r chi.Router) {
+			r.Use(s.requireAdminToken)
+			r.Get("/", s.handleSearchSynonymsGet)
+			r.With(middleware.AllowContentType("application/json")).Put("/", s.handleSearchSynonymsPut)
+		})
 	} else {
 		s.logger.Warn("pool is nil, skipping admin SQL and RLS routes")
 	}

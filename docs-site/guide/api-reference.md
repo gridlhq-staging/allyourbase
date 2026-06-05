@@ -146,8 +146,10 @@ curl "http://localhost:8090/api/collections/posts?search=postgres&filter=status=
 
 `fuzzy` requires a non-empty `search` value, must be `true` or `false`, and returns `400` for invalid combinations.
 
-`typo_threshold` tunes fuzzy matching, must be a number between `0` and `1`,
-and is only accepted when `fuzzy=true`. `typo_threshold` is not supported on collection list endpoints and returns `400 Bad Request` when provided.
+`typo_threshold` tunes fuzzy matching on non-vector collection list search, must be a number between `0` and `1`, and is only accepted when `fuzzy=true`.
+
+`typo_threshold` without `fuzzy=true` returns `400 Bad Request`.
+Vector list modes reject `typo_threshold` along with other non-vector search modifiers.
 
 `highlight=true` asks AYB to return `_highlight` snippets on matching rows. The
 source text is HTML-escaped before AYB wraps matched terms in `<b>` and

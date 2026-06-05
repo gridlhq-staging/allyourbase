@@ -6,6 +6,7 @@ import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
@@ -49,6 +50,12 @@ class RecordsClientTest {
                 fields = "id,title",
                 expand = "author",
                 skipTotal = true,
+                fuzzy = true,
+                typoThreshold = 0.2,
+                highlight = true,
+                facets = listOf("category", "status"),
+                semantic = true,
+                semanticQuery = "related notes",
             ),
         )
 
@@ -58,6 +65,48 @@ class RecordsClientTest {
         assertEquals(2, result.items.size)
         assertEquals(2, result.metadata.totalItems)
         assertEquals("rec_1", result.items[0]["id"]!!.jsonPrimitive.content)
+    }
+
+    @Test
+    fun `list preserves highlight field and facets envelope`() = runTest {
+        val transport = MockHttpTransport()
+        transport.enqueue(
+            StubResponse(
+                status = 200,
+                json = buildJsonObject {
+                    putJsonArray("items") {
+                        add(
+                            buildJsonObject {
+                                put("id", "rec_1")
+                                put("title", "A")
+                                put("_highlight", "<b>hello</b> world")
+                            },
+                        )
+                    }
+                    putJsonObject("facets") {
+                        putJsonArray("category") {
+                            add(
+                                buildJsonObject {
+                                    put("value", "docs")
+                                    put("count", 1)
+                                },
+                            )
+                        }
+                    }
+                    put("page", 1)
+                    put("perPage", 1)
+                    put("totalItems", 1)
+                    put("totalPages", 1)
+                },
+            ),
+        )
+
+        val client = AYBClient("https://api.example.com", transport = transport)
+        val result = client.records.list("posts")
+
+        assertEquals("<b>hello</b> world", result.items[0]["_highlight"]!!.jsonPrimitive.content)
+        assertEquals("docs", result.facets!!.getValue("category").jsonArray.first().jsonObject["value"]!!.jsonPrimitive.content)
+        assertEquals(1, result.facets!!.getValue("category").jsonArray.first().jsonObject["count"]!!.jsonPrimitive.content.toInt())
     }
 
     @Test

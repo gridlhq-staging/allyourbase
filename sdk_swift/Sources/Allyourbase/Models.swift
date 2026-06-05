@@ -112,11 +112,22 @@ private enum QueryItemFactory {
         value.map { URLQueryItem(name: name, value: String($0)) }
     }
 
+    static func double(_ name: String, _ value: Double?) -> URLQueryItem? {
+        value.map { URLQueryItem(name: name, value: String($0)) }
+    }
+
     static func trueOnly(_ name: String, _ value: Bool?) -> URLQueryItem? {
         guard value == true else {
             return nil
         }
         return URLQueryItem(name: name, value: "true")
+    }
+
+    static func csv(_ name: String, _ values: [String]?) -> URLQueryItem? {
+        guard let values, values.isEmpty == false else {
+            return nil
+        }
+        return URLQueryItem(name: name, value: values.joined(separator: ","))
     }
 }
 
@@ -129,6 +140,18 @@ public struct ListParams {
     public let fields: String?
     public let expand: String?
     public let skipTotal: Bool?
+    /// Enables pg_trgm typo-tolerant search when the backend supports it.
+    public let fuzzy: Bool?
+    /// Overrides the backend typo threshold and must stay within `[0, 1]`.
+    public let typoThreshold: Double?
+    /// Requests the `_highlight` snippet field in each matching record.
+    public let highlight: Bool?
+    /// Requests backend facet counts for the named columns as a comma list.
+    public let facets: [String]?
+    /// Opts into semantic search routing when an embedder is configured.
+    public let semantic: Bool?
+    /// Supplies the semantic query text serialized as `semantic_query`.
+    public let semanticQuery: String?
 
     public init(
         page: Int? = nil,
@@ -138,7 +161,13 @@ public struct ListParams {
         search: String? = nil,
         fields: String? = nil,
         expand: String? = nil,
-        skipTotal: Bool? = nil
+        skipTotal: Bool? = nil,
+        fuzzy: Bool? = nil,
+        typoThreshold: Double? = nil,
+        highlight: Bool? = nil,
+        facets: [String]? = nil,
+        semantic: Bool? = nil,
+        semanticQuery: String? = nil
     ) {
         self.page = page
         self.perPage = perPage
@@ -148,6 +177,12 @@ public struct ListParams {
         self.fields = fields
         self.expand = expand
         self.skipTotal = skipTotal
+        self.fuzzy = fuzzy
+        self.typoThreshold = typoThreshold
+        self.highlight = highlight
+        self.facets = facets
+        self.semantic = semantic
+        self.semanticQuery = semanticQuery
     }
 
     public func toQueryItems() -> [URLQueryItem] {
@@ -160,6 +195,12 @@ public struct ListParams {
             QueryItemFactory.string("fields", fields),
             QueryItemFactory.string("expand", expand),
             QueryItemFactory.trueOnly("skipTotal", skipTotal),
+            QueryItemFactory.trueOnly("fuzzy", fuzzy),
+            QueryItemFactory.double("typo_threshold", typoThreshold),
+            QueryItemFactory.trueOnly("highlight", highlight),
+            QueryItemFactory.csv("facets", facets),
+            QueryItemFactory.trueOnly("semantic", semantic),
+            QueryItemFactory.string("semantic_query", semanticQuery),
         ].compactMap { $0 }
     }
 }
@@ -293,8 +334,16 @@ public struct ListMetadata {
 public struct ListResponse<T> {
     public let items: [T]
     public let metadata: ListMetadata
+    public let facets: [String: Any]?
 
-    public init(items: [T], page: Int, perPage: Int, totalItems: Int, totalPages: Int) {
+    public init(
+        items: [T],
+        page: Int,
+        perPage: Int,
+        totalItems: Int,
+        totalPages: Int,
+        facets: [String: Any]? = nil
+    ) {
         self.items = items
         self.metadata = ListMetadata(
             page: page,
@@ -302,6 +351,7 @@ public struct ListResponse<T> {
             totalItems: totalItems,
             totalPages: totalPages,
         )
+        self.facets = facets
     }
 
     public static func decode(_ json: Any, decodeItem: ([String: Any]) throws -> T) throws -> ListResponse<T> {
@@ -318,7 +368,8 @@ public struct ListResponse<T> {
             page: try AYBJSON.requiredInt(dictionary, ["page"]),
             perPage: try AYBJSON.requiredInt(dictionary, ["perPage"]),
             totalItems: try AYBJSON.requiredInt(dictionary, ["totalItems"]),
-            totalPages: try AYBJSON.requiredInt(dictionary, ["totalPages"])
+            totalPages: try AYBJSON.requiredInt(dictionary, ["totalPages"]),
+            facets: AYBJSON.optionalDictionary(dictionary, "facets")
         )
     }
 }

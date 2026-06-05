@@ -1,4 +1,5 @@
 import 'package:test/test.dart';
+import 'dart:io';
 
 import 'support/integration_env.dart';
 
@@ -15,11 +16,13 @@ void main() {
     test('normalizes AYB_TEST_URL and parses timeout', () {
       final env = IntegrationTestEnv.fromEnvironment(const <String, String>{
         'AYB_TEST_URL': ' https://api.example.com/ ',
+        'AYB_TEST_ADMIN_TOKEN': ' test-admin-token ',
         'AYB_TEST_TIMEOUT_SECONDS': '45',
       });
 
       expect(env.isConfigured, isTrue);
       expect(env.baseUrl, 'https://api.example.com');
+      expect(env.adminToken, 'test-admin-token');
       expect(env.timeout, const Duration(seconds: 45));
       expect(env.skipReason, isNull);
     });
@@ -46,6 +49,28 @@ void main() {
       expect(first.password, startsWith('P@ssw0rd-'));
       expect(second.email, isNot(equals(first.email)));
       expect(second.password, isNot(equals(first.password)));
+    });
+
+    test(
+        'falls back to the admin token file when AYB_TEST_ADMIN_TOKEN is unset',
+        () async {
+      final tempDir = await Directory.systemTemp.createTemp('ayb-dart-token-');
+      addTearDown(() async {
+        if (await tempDir.exists()) {
+          await tempDir.delete(recursive: true);
+        }
+      });
+      final tokenDir = Directory('${tempDir.path}/.ayb');
+      await tokenDir.create(recursive: true);
+      await File('${tokenDir.path}/admin-token')
+          .writeAsString(' file-token \n');
+
+      final env = IntegrationTestEnv.fromEnvironment(<String, String>{
+        'AYB_TEST_URL': 'https://api.example.com',
+        'HOME': tempDir.path,
+      });
+
+      expect(env.adminToken, 'file-token');
     });
   });
 }

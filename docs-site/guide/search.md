@@ -1,7 +1,7 @@
 <!-- audited 2026-06-04 -->
 # Search
 
-AYB's collection list endpoints support full-text search, typo-tolerant fuzzy matching, filters, and facet counts on the same request path. This guide covers the shipped non-vector collection search workflow. For the canonical query-parameter table and response field reference, see [REST API Reference](/guide/api-reference).
+AYB's collection list endpoints support full-text search, collection-scoped synonym expansion, typo-tolerant fuzzy matching, filters, and facet counts on the same request path. This guide covers the shipped collection search workflow. For the canonical query-parameter table and response field reference, see [REST API Reference](/guide/api-reference).
 
 It is based on:
 
@@ -19,9 +19,10 @@ All examples in this guide use the standard collection list endpoint:
 GET /api/collections/{table}
 ```
 
-The non-vector search surface is:
+The standard text search surface is:
 
 - `search=<text>` for PostgreSQL full-text search
+- collection-scoped synonym expansion configured by admins
 - `fuzzy=true` for `pg_trgm` typo tolerance
 - `typo_threshold=<0..1>` to tune fuzzy matching when `fuzzy=true`
 - `highlight=true` to request `_highlight` snippets on matching rows
@@ -45,6 +46,28 @@ You can combine search with filters and pagination:
 curl -s "http://127.0.0.1:8090/api/collections/posts?search=postgres&filter=status='published'&perPage=10" \
   -H "Authorization: Bearer $AYB_TOKEN" | jq '{totalItems, items}'
 ```
+
+## Synonym expansion
+
+Admins can configure synonym groups for one collection at a time. When a group exists, AYB expands matching search terms before evaluating the normal full-text predicate. A row that stores `science fiction` can therefore match a caller searching for `scifi` when that collection has a `["scifi", "science fiction"]` group.
+
+Synonyms do not add a separate search endpoint. Search consumers still use:
+
+```text
+GET /api/collections/{table}?search=<text>
+```
+
+The JavaScript SDK keeps using `records.list`:
+
+```ts
+const response = await ayb.records.list("posts", {
+  search: "scifi",
+});
+```
+
+Admin setup and replacement semantics are documented in [Search Synonyms](/guide/synonyms).
+
+Hybrid search with `search=<text>&semantic=true` uses the same full-text search builder for its text leg, so configured synonym groups also expand that text leg. The vector leg and fusion rules remain documented in [AI and Vector Search](/guide/ai-vector).
 
 ## Fuzzy matching
 
@@ -197,5 +220,6 @@ Use [AI and Vector Search](/guide/ai-vector) for those query modes and their com
 
 - [REST API Reference](/guide/api-reference)
 - [JavaScript SDK](/guide/javascript-sdk)
+- [Search Synonyms](/guide/synonyms)
 - [Authentication](/guide/authentication)
 - [AI and Vector Search](/guide/ai-vector)

@@ -19,7 +19,13 @@ struct QuerySerializationTests {
             search: "swift",
             fields: "id,title",
             expand: "author",
-            skipTotal: true
+            skipTotal: true,
+            fuzzy: true,
+            typoThreshold: 0.2,
+            highlight: true,
+            facets: ["category", "status"],
+            semantic: true,
+            semanticQuery: "related notes"
         )
 
         let query = params.toQueryItems().map { "\($0.name)=\($0.value ?? "")" }
@@ -34,6 +40,12 @@ struct QuerySerializationTests {
                 "fields=id,title",
                 "expand=author",
                 "skipTotal=true",
+                "fuzzy=true",
+                "typo_threshold=0.2",
+                "highlight=true",
+                "facets=category,status",
+                "semantic=true",
+                "semantic_query=related notes",
             ]
         )
     }
@@ -61,14 +73,20 @@ struct QuerySerializationTests {
                 search: "swift",
                 fields: "id,title",
                 expand: "author",
-                skipTotal: true
+                skipTotal: true,
+                fuzzy: true,
+                typoThreshold: 0.2,
+                highlight: true,
+                facets: ["category", "status"],
+                semantic: true,
+                semanticQuery: "related notes"
             )
         )
 
         let request = try #require(transport.requests.first)
         #expect(request.url.path == "/api/collections/posts")
         #expect(
-            request.url.query == "page=2&perPage=10&sort=-created_at&filter=published%3Dtrue&search=swift&fields=id,title&expand=author&skipTotal=true"
+            request.url.query == "page=2&perPage=10&sort=-created_at&filter=published%3Dtrue&search=swift&fields=id,title&expand=author&skipTotal=true&fuzzy=true&typo_threshold=0.2&highlight=true&facets=category,status&semantic=true&semantic_query=related%20notes"
         )
     }
 }

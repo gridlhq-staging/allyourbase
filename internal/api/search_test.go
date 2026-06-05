@@ -95,20 +95,26 @@ func TestBuildSearchSQL(t *testing.T) {
 
 	search, err := buildSearchSQL(tbl, "hello world", 1, defaultSearchOptions(false))
 	testutil.NoError(t, err)
-	testutil.SliceLen(t, search.args, 1)
+	// args: search term, then the schema/table names consumed by the synonym
+	// expansion subquery built by buildSearchQueryExpression.
+	testutil.SliceLen(t, search.args, 3)
 	testutil.Equal(t, "hello world", search.args[0].(string))
+	testutil.Equal(t, "public", search.args[1].(string))
+	testutil.Equal(t, "posts", search.args[2].(string))
 
-	// WHERE should contain tsvector @@ tsquery
+	// WHERE should contain tsvector @@ ts_rewrite(...) with the original websearch tsquery inside.
 	testutil.Contains(t, search.whereSQL, "to_tsvector('simple'")
-	testutil.Contains(t, search.whereSQL, "websearch_to_tsquery('simple', $1)")
+	testutil.Contains(t, search.whereSQL, "ts_rewrite(websearch_to_tsquery('simple', $1)")
 	testutil.Contains(t, search.whereSQL, "@@")
 	testutil.Contains(t, search.whereSQL, `coalesce("title", '')`)
 	testutil.Contains(t, search.whereSQL, `coalesce("body", '')`)
 	testutil.Contains(t, search.whereSQL, `coalesce("status", '')`)
+	testutil.Contains(t, search.whereSQL, "quote_literal($2)")
+	testutil.Contains(t, search.whereSQL, "quote_literal($3)")
 
-	// Rank should use ts_rank
+	// Rank should use ts_rank.
 	testutil.Contains(t, search.rankSQL, "ts_rank(")
-	testutil.Contains(t, search.rankSQL, "websearch_to_tsquery('simple', $1)")
+	testutil.Contains(t, search.rankSQL, "ts_rewrite(websearch_to_tsquery('simple', $1)")
 	testutil.Equal(t, "", search.highlightSelect)
 	testutil.Equal(t, "", search.highlightAlias)
 }
@@ -124,12 +130,15 @@ func TestBuildSearchSQLWithHighlightUsesCanonicalDocument(t *testing.T) {
 	testutil.NoError(t, err)
 
 	docExpr := `coalesce("title", '') || ' ' || coalesce("body", '') || ' ' || coalesce("status", '')`
-	tsquery := "websearch_to_tsquery('simple', $1)"
-	testutil.Contains(t, search.whereSQL, "to_tsvector('simple', "+docExpr+") @@ "+tsquery)
-	testutil.Contains(t, search.rankSQL, "ts_rank(to_tsvector('simple', "+docExpr+"), "+tsquery+")")
-	testutil.Contains(t, search.highlightSelect, "CASE WHEN to_tsvector('simple', "+docExpr+") @@ "+tsquery)
+	// The tsquery expression now goes through ts_rewrite to support synonym
+	// expansion; the same expression must be reused by where, rank, and the
+	// highlight CASE/ELSE branches so all three score against the same query.
+	tsqueryPrefix := "ts_rewrite(websearch_to_tsquery('simple', $1),"
+	testutil.Contains(t, search.whereSQL, "to_tsvector('simple', "+docExpr+") @@ "+tsqueryPrefix)
+	testutil.Contains(t, search.rankSQL, "ts_rank(to_tsvector('simple', "+docExpr+"), "+tsqueryPrefix)
+	testutil.Contains(t, search.highlightSelect, "CASE WHEN to_tsvector('simple', "+docExpr+") @@ "+tsqueryPrefix)
 	escapedDocExpr := "replace(replace(replace(" + docExpr + ", '&', '&amp;'), '<', '&lt;'), '>', '&gt;')"
-	testutil.Contains(t, search.highlightSelect, "ts_headline('simple', "+escapedDocExpr+", "+tsquery+", 'StartSel=<b>,StopSel=</b>')")
+	testutil.Contains(t, search.highlightSelect, "ts_headline('simple', "+escapedDocExpr+", "+tsqueryPrefix)
 	testutil.Contains(t, search.highlightSelect, "ELSE "+escapedDocExpr)
 	testutil.Contains(t, search.highlightSelect, `AS "`+searchHighlightSQLAlias+`"`)
 	testutil.Equal(t, searchHighlightSQLAlias, search.highlightAlias)
@@ -170,19 +179,25 @@ func TestBuildSearchSQLWithOffset(t *testing.T) {
 	t.Parallel()
 	tbl := searchableTable()
 
-	// Simulate filter already using $1, $2
+	// Simulate filter already using $1, $2. The search now claims $3 (term),
+	// $4 (schema), and $5 (table) for its FTS+synonym expansion.
 	search, err := buildSearchSQL(tbl, "test", 3, defaultSearchOptions(false))
 	testutil.NoError(t, err)
-	testutil.SliceLen(t, search.args, 1)
+	testutil.SliceLen(t, search.args, 3)
+	testutil.Equal(t, "test", search.args[0].(string))
+	testutil.Equal(t, "public", search.args[1].(string))
+	testutil.Equal(t, "posts", search.args[2].(string))
 	testutil.Contains(t, search.whereSQL, "$3")
+	testutil.Contains(t, search.whereSQL, "quote_literal($4)")
+	testutil.Contains(t, search.whereSQL, "quote_literal($5)")
 	testutil.Contains(t, search.rankSQL, "$3")
 
 	// Must NOT contain $1 or $2 — those belong to the filter.
 	if strings.Contains(search.whereSQL, "$1") || strings.Contains(search.whereSQL, "$2") {
-		t.Errorf("whereSQL should only use $3, got: %s", search.whereSQL)
+		t.Errorf("whereSQL should not use $1/$2 (reserved for filter), got: %s", search.whereSQL)
 	}
 	if strings.Contains(search.rankSQL, "$1") || strings.Contains(search.rankSQL, "$2") {
-		t.Errorf("rankSQL should only use $3, got: %s", search.rankSQL)
+		t.Errorf("rankSQL should not use $1/$2 (reserved for filter), got: %s", search.rankSQL)
 	}
 }
 
@@ -194,8 +209,10 @@ func TestBuildSearchSQLEmptyTerm(t *testing.T) {
 	// but buildSearchSQL itself should not panic or produce broken SQL).
 	search, err := buildSearchSQL(tbl, "", 1, defaultSearchOptions(false))
 	testutil.NoError(t, err)
-	testutil.SliceLen(t, search.args, 1)
+	testutil.SliceLen(t, search.args, 3)
 	testutil.Equal(t, "", search.args[0].(string))
+	testutil.Equal(t, "public", search.args[1].(string))
+	testutil.Equal(t, "posts", search.args[2].(string))
 	testutil.Contains(t, search.whereSQL, "@@")
 	testutil.Contains(t, search.rankSQL, "ts_rank(")
 }
@@ -213,18 +230,21 @@ func TestBuildSearchSQLWithFuzzy(t *testing.T) {
 	t.Parallel()
 	tbl := searchableTable()
 
+	// argOffset=2: $2=term, $3=schema, $4=table, then fuzzy token args $5/$6.
 	search, err := buildSearchSQL(tbl, "helo wrld", 2, defaultSearchOptions(true))
 	testutil.NoError(t, err)
-	testutil.SliceLen(t, search.args, 3)
+	testutil.SliceLen(t, search.args, 5)
 	testutil.Equal(t, "helo wrld", search.args[0].(string))
-	testutil.Equal(t, "helo", search.args[1].(string))
-	testutil.Equal(t, "wrld", search.args[2].(string))
+	testutil.Equal(t, "public", search.args[1].(string))
+	testutil.Equal(t, "posts", search.args[2].(string))
+	testutil.Equal(t, "helo", search.args[3].(string))
+	testutil.Equal(t, "wrld", search.args[4].(string))
 	testutil.Contains(t, search.whereSQL, "websearch_to_tsquery('simple', $2)")
 	testutil.Contains(t, search.whereSQL, `similarity(coalesce("title", ''), $2) > 0.2`)
 	testutil.Contains(t, search.whereSQL, `similarity(coalesce("body", ''), $2) > 0.2`)
 	testutil.Contains(t, search.whereSQL, `similarity(coalesce("status", ''), $2) > 0.2`)
-	testutil.Contains(t, search.whereSQL, `strict_word_similarity(lower($3), lower(coalesce("title", ''))) >= 0.2`)
-	testutil.Contains(t, search.whereSQL, `strict_word_similarity(lower($4), lower(coalesce("title", ''))) >= 0.2`)
+	testutil.Contains(t, search.whereSQL, `strict_word_similarity(lower($5), lower(coalesce("title", ''))) >= 0.2`)
+	testutil.Contains(t, search.whereSQL, `strict_word_similarity(lower($6), lower(coalesce("title", ''))) >= 0.2`)
 	testutil.Contains(t, search.whereSQL, "AND")
 	testutil.Contains(t, search.rankSQL, "GREATEST(")
 	testutil.Contains(t, search.rankSQL, `similarity(coalesce("title", ''), $2)`)
@@ -241,12 +261,12 @@ func TestBuildSearchSQLWithFuzzyTypoThreshold(t *testing.T) {
 		typoThreshold: 0.1,
 	})
 	testutil.NoError(t, err)
-	testutil.SliceLen(t, search.args, 3)
+	testutil.SliceLen(t, search.args, 5)
 	testutil.Contains(t, search.whereSQL, `similarity(coalesce("title", ''), $2) > 0.1`)
 	testutil.Contains(t, search.whereSQL, `similarity(coalesce("body", ''), $2) > 0.1`)
 	testutil.Contains(t, search.whereSQL, `similarity(coalesce("status", ''), $2) > 0.1`)
-	testutil.Contains(t, search.whereSQL, `strict_word_similarity(lower($3), lower(coalesce("title", ''))) >= 0.1`)
-	testutil.Contains(t, search.whereSQL, `strict_word_similarity(lower($4), lower(coalesce("title", ''))) >= 0.1`)
+	testutil.Contains(t, search.whereSQL, `strict_word_similarity(lower($5), lower(coalesce("title", ''))) >= 0.1`)
+	testutil.Contains(t, search.whereSQL, `strict_word_similarity(lower($6), lower(coalesce("title", ''))) >= 0.1`)
 	if strings.Contains(search.whereSQL, "> 0.2") || strings.Contains(search.whereSQL, ">= 0.2") {
 		t.Fatalf("expected caller-provided fuzzy threshold, got whereSQL: %s", search.whereSQL)
 	}
@@ -370,16 +390,23 @@ func TestParseSearchParamAllowsFuzzyWithNonEmptySearch(t *testing.T) {
 			testutil.Equal(t, true, ok)
 			testutil.Equal(t, http.StatusOK, w.Code)
 			testutil.Contains(t, search.searchSQL, "websearch_to_tsquery")
+			// Every searchArgs slice now includes schema/table refs in addition
+			// to the term (and any fuzzy tokens). For the searchableTable
+			// fixture, schema=public, table=posts.
 			if tc.wantFuzzy {
-				testutil.SliceLen(t, search.searchArgs, 2)
+				testutil.SliceLen(t, search.searchArgs, 4)
 				testutil.Equal(t, "post", search.searchArgs[0].(string))
-				testutil.Equal(t, "post", search.searchArgs[1].(string))
+				testutil.Equal(t, "public", search.searchArgs[1].(string))
+				testutil.Equal(t, "posts", search.searchArgs[2].(string))
+				testutil.Equal(t, "post", search.searchArgs[3].(string))
 				testutil.Contains(t, search.searchSQL, "similarity(")
 				testutil.Contains(t, search.searchSQL, "strict_word_similarity(")
 				testutil.Contains(t, search.searchRank, "similarity(")
 			} else {
-				testutil.SliceLen(t, search.searchArgs, 1)
+				testutil.SliceLen(t, search.searchArgs, 3)
 				testutil.Equal(t, "post", search.searchArgs[0].(string))
+				testutil.Equal(t, "public", search.searchArgs[1].(string))
+				testutil.Equal(t, "posts", search.searchArgs[2].(string))
 				if strings.Contains(search.searchSQL, "similarity(") {
 					t.Fatalf("expected exact search SQL for fuzzy=false, got: %s", search.searchSQL)
 				}

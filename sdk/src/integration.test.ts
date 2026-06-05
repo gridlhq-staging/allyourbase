@@ -19,6 +19,7 @@ import {
   getCachedAdminToken,
   makeUniqueAuthEmail,
   primeIntegrationSuite,
+  putCollectionSearchSynonyms,
   sqlStringLiteral,
   toCount,
   trackAuthUser,
@@ -478,7 +479,9 @@ describe("SDK integration smoke + auth suite", () => {
       // is fully exercised on a fresh table that includes `category` from the
       // start.
       const facetsTableName = `${tableName}_facets`;
+      const synonymsTableName = `${tableName}_synonyms`;
       type SearchFixture = { id: number; title: string; category: string };
+      type SynonymSearchFixture = { id: number; title: string; body: string };
       type SearchListBody = {
         items?: Array<SearchHit<SearchFixture>>;
         message?: unknown;
@@ -528,14 +531,35 @@ describe("SDK integration smoke + auth suite", () => {
         );
         pgTrgmInstalled = extensionProbe.rows[0]?.[0] === true;
         await waitForCollectionSchemaCache(client, facetsTableName, "facets records");
+
+        await adminSql(
+          `CREATE TABLE ${synonymsTableName} (
+            id serial PRIMARY KEY,
+            title text NOT NULL,
+            body text NOT NULL
+          )`,
+        );
+        await adminSql(`ALTER TABLE ${synonymsTableName} ENABLE ROW LEVEL SECURITY`);
+        await adminSql(
+          `CREATE POLICY sdk_test_all ON ${synonymsTableName} FOR ALL USING (true) WITH CHECK (true)`,
+        );
+        await waitForCollectionSchemaCache(client, synonymsTableName, "synonym records");
       }, 35_000);
 
       afterAll(async () => {
+        await adminSql(
+          `DELETE FROM _ayb_search_synonyms WHERE schema_name = 'public' AND table_name = ${sqlStringLiteral(synonymsTableName)}`,
+        );
+        await dropTableAndAssertRemoved(synonymsTableName);
         await dropTableAndAssertRemoved(facetsTableName);
       }, 35_000);
 
       beforeEach(async () => {
+        await adminSql(
+          `DELETE FROM _ayb_search_synonyms WHERE schema_name = 'public' AND table_name = ${sqlStringLiteral(synonymsTableName)}`,
+        );
         await adminSql(`TRUNCATE TABLE ${facetsTableName} RESTART IDENTITY`);
+        await adminSql(`TRUNCATE TABLE ${synonymsTableName} RESTART IDENTITY`);
         const seeded = await adminSql(
           `INSERT INTO ${facetsTableName} (title, category) VALUES ` +
             `('banana split','dessert'), ('banna bread','dessert'), ` +
@@ -548,6 +572,10 @@ describe("SDK integration smoke + auth suite", () => {
           title: String(title),
           category: String(category),
         }));
+        await adminSql(
+          `INSERT INTO ${synonymsTableName} (title, body) VALUES ` +
+            `('Foundation', 'classic science fiction reference')`,
+        );
       });
 
       it("returns typed SearchHit _highlight snippets when highlight: true is enabled", async () => {
@@ -657,6 +685,26 @@ describe("SDK integration smoke + auth suite", () => {
           400,
           /unknown column .*nonexistent_col/i,
         );
+      });
+
+      it("expands configured search synonyms through records.list", async () => {
+        const baseline = await client.records.list<SynonymSearchFixture>(synonymsTableName, {
+          search: "scifi",
+          sort: "+id",
+        });
+        expect(baseline.items.map((item) => item.title)).not.toContain("Foundation");
+
+        const update = await putCollectionSearchSynonyms(synonymsTableName, [
+          { terms: ["scifi", "science fiction"] },
+        ]);
+        expect(update.groups).toEqual([{ terms: ["science fiction", "scifi"] }]);
+
+        const expanded = await client.records.list<SynonymSearchFixture>(synonymsTableName, {
+          search: "scifi",
+          sort: "+id",
+        });
+        expect(expanded.items.map((item) => item.id)).toEqual([1]);
+        expect(expanded.items.map((item) => item.title)).toEqual(["Foundation"]);
       });
     });
   });

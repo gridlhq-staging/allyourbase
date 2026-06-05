@@ -50,12 +50,12 @@ AYB ships built-in migration/import flows for these source platforms:
 
 ## Search and Algolia
 
-AYB's shipped search path is PostgreSQL search on the standard collection list endpoint, not a hosted-search replacement for every Algolia workflow. It is a fit when records already live in PostgreSQL and you want one API path for full-text `search`, optional `fuzzy=true` typo tolerance through `pg_trgm`, safe `filter` expressions, scalar `facets`, pagination, and RLS-scoped counts.
+AYB's shipped search path is PostgreSQL search on the standard collection list endpoint, not a hosted-search replacement for every Algolia workflow. It is a fit when records already live in PostgreSQL and you want one API path for full-text `search`, per-collection synonym groups, optional `fuzzy=true` typo tolerance through `pg_trgm`, safe `filter` expressions, scalar `facets`, pagination, and RLS-scoped counts.
 
 Keep Algolia when your product depends on Algolia-specific relevance controls,
-synonym management, hosted index operations, or importer automation. AYB does
-ship fuzzy typo-threshold tuning plus `highlight=true` `_highlight` snippets,
-but it does not ship `ayb migrate algolia` or a dedicated Algolia importer in
+Algolia ranking-rule translation, hosted index operations, or dedicated importer automation. AYB does ship per-collection synonym groups, fuzzy typo-threshold
+tuning, and `highlight=true` `_highlight` snippets, but it does not ship `ayb
+migrate algolia`, hosted index operations, or a dedicated Algolia importer in
 this lane.
 
 For an Algolia-oriented migration map, see [Migrating from Algolia](/guide/migrating-from-algolia). For the canonical shipped AYB search behavior, see [Search](/guide/search).

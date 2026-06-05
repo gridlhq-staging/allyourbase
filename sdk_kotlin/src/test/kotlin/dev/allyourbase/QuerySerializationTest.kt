@@ -21,6 +21,12 @@ class QuerySerializationTest {
             fields = "id,title",
             expand = "author",
             skipTotal = true,
+            fuzzy = true,
+            typoThreshold = 0.2,
+            highlight = true,
+            facets = listOf("category", "status"),
+            semantic = true,
+            semanticQuery = "related notes",
         ).toQueryItems()
 
         assertEquals(
@@ -33,6 +39,12 @@ class QuerySerializationTest {
                 "fields" to "id,title",
                 "expand" to "author",
                 "skipTotal" to "true",
+                "fuzzy" to "true",
+                "typo_threshold" to "0.2",
+                "highlight" to "true",
+                "facets" to "category,status",
+                "semantic" to "true",
+                "semantic_query" to "related notes",
             ),
             items,
         )
@@ -49,6 +61,11 @@ class QuerySerializationTest {
         assertTrue(ListParams(skipTotal = true).toQueryItems().any { it.first == "skipTotal" })
         assertFalse(ListParams(skipTotal = false).toQueryItems().any { it.first == "skipTotal" })
         assertFalse(ListParams(skipTotal = null).toQueryItems().any { it.first == "skipTotal" })
+        assertFalse(ListParams(highlight = false).toQueryItems().any { it.first == "highlight" })
+        assertFalse(ListParams(fuzzy = false).toQueryItems().any { it.first == "fuzzy" })
+        assertFalse(ListParams(semantic = false).toQueryItems().any { it.first == "semantic" })
+        assertFalse(ListParams(facets = emptyList()).toQueryItems().any { it.first == "facets" })
+        assertFalse(ListParams(facets = null).toQueryItems().any { it.first == "facets" })
     }
 
     @Test
@@ -79,11 +96,25 @@ class QuerySerializationTest {
                 fields = "id,title",
                 expand = "author",
                 skipTotal = true,
+                fuzzy = true,
+                typoThreshold = 0.2,
+                highlight = true,
+                facets = listOf("category", "status"),
+                semantic = true,
+                semanticQuery = "related notes",
             ),
         )
 
-        val queryItems = java.net.URI(transport.requests.first().url)
-            .query
+        val requestUrl = transport.requests.first().url
+        assertEquals(
+            "https://api.example.com/api/collections/posts?page=1&perPage=50&sort=-created&filter=status%3D%27pub%27&search=hello+world&fields=id%2Ctitle&expand=author&skipTotal=true&fuzzy=true&typo_threshold=0.2&highlight=true&facets=category%2Cstatus&semantic=true&semantic_query=related+notes",
+            requestUrl,
+        )
+
+        val requestUri = java.net.URI(requestUrl)
+        assertEquals("/api/collections/posts", requestUri.path)
+
+        val queryItems = requestUri.query
             .split("&")
             .associate {
                 val parts = it.split("=", limit = 2)
@@ -99,5 +130,11 @@ class QuerySerializationTest {
         assertEquals("id,title", queryItems["fields"])
         assertEquals("author", queryItems["expand"])
         assertEquals("true", queryItems["skipTotal"])
+        assertEquals("true", queryItems["fuzzy"])
+        assertEquals("0.2", queryItems["typo_threshold"])
+        assertEquals("true", queryItems["highlight"])
+        assertEquals("category,status", queryItems["facets"])
+        assertEquals("true", queryItems["semantic"])
+        assertEquals("related notes", queryItems["semantic_query"])
     }
 }

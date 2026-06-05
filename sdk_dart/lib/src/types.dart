@@ -11,6 +11,12 @@ class ListParams {
     this.fields,
     this.expand,
     this.skipTotal,
+    this.fuzzy,
+    this.typoThreshold,
+    this.highlight,
+    this.facets,
+    this.semantic,
+    this.semanticQuery,
   });
 
   final int? page;
@@ -21,6 +27,12 @@ class ListParams {
   final String? fields;
   final String? expand;
   final bool? skipTotal;
+  final bool? fuzzy;
+  final num? typoThreshold;
+  final bool? highlight;
+  final List<String>? facets;
+  final bool? semantic;
+  final String? semanticQuery;
 
   /// Converts non-null parameters to a string map suitable for URI query params.
   Map<String, String> toQueryMap() {
@@ -33,6 +45,12 @@ class ListParams {
     if (fields != null) map['fields'] = fields!;
     if (expand != null) map['expand'] = expand!;
     if (skipTotal == true) map['skipTotal'] = 'true';
+    if (fuzzy == true) map['fuzzy'] = 'true';
+    if (typoThreshold != null) map['typo_threshold'] = typoThreshold.toString();
+    if (highlight == true) map['highlight'] = 'true';
+    if (facets != null && facets!.isNotEmpty) map['facets'] = facets!.join(',');
+    if (semantic == true) map['semantic'] = 'true';
+    if (semanticQuery != null) map['semantic_query'] = semanticQuery!;
     return map;
   }
 }
@@ -118,8 +136,9 @@ class MagicLinkConfirmResponse {
   }
 
   factory MagicLinkConfirmResponse.fromJson(JsonMap json) {
-    final mfaPending =
-        _optionalBool(json, 'mfaPending') ?? _optionalBool(json, 'mfa_pending') ?? false;
+    final mfaPending = _optionalBool(json, 'mfaPending') ??
+        _optionalBool(json, 'mfa_pending') ??
+        false;
     if (mfaPending) {
       return MagicLinkConfirmResponse.pending(
         _optionalString(json, 'mfaToken') ?? _requireString(json, 'mfa_token'),
@@ -154,11 +173,16 @@ class User {
     return User(
       id: _requireString(json, 'id'),
       email: _requireString(json, 'email'),
-      isAnonymous: _optionalBool(json, 'isAnonymous') ?? _optionalBool(json, 'is_anonymous'),
-      linkedAt: _optionalString(json, 'linkedAt') ?? _optionalString(json, 'linked_at'),
-      emailVerified: _optionalBool(json, 'emailVerified') ?? _optionalBool(json, 'email_verified'),
-      createdAt: _optionalString(json, 'createdAt') ?? _optionalString(json, 'created_at'),
-      updatedAt: _optionalString(json, 'updatedAt') ?? _optionalString(json, 'updated_at'),
+      isAnonymous: _optionalBool(json, 'isAnonymous') ??
+          _optionalBool(json, 'is_anonymous'),
+      linkedAt: _optionalString(json, 'linkedAt') ??
+          _optionalString(json, 'linked_at'),
+      emailVerified: _optionalBool(json, 'emailVerified') ??
+          _optionalBool(json, 'email_verified'),
+      createdAt: _optionalString(json, 'createdAt') ??
+          _optionalString(json, 'created_at'),
+      updatedAt: _optionalString(json, 'updatedAt') ??
+          _optionalString(json, 'updated_at'),
     );
   }
 
@@ -183,6 +207,7 @@ class ListResponse<T> {
     required this.perPage,
     required this.totalItems,
     required this.totalPages,
+    this.facets,
   });
 
   final List<T> items;
@@ -190,6 +215,7 @@ class ListResponse<T> {
   final int perPage;
   final int totalItems;
   final int totalPages;
+  final JsonMap? facets;
 
   factory ListResponse.fromJson(
     JsonMap json, {
@@ -202,6 +228,7 @@ class ListResponse<T> {
       perPage: _requireInt(json, 'perPage'),
       totalItems: _requireInt(json, 'totalItems'),
       totalPages: _requireInt(json, 'totalPages'),
+      facets: _optionalJsonMap(json, 'facets'),
     );
   }
 }
@@ -224,7 +251,8 @@ class RealtimeEvent {
       action: _requireString(json, 'action'),
       table: _requireString(json, 'table'),
       record: _requireJsonMap(json, 'record'),
-      oldRecord: _optionalJsonMap(json, 'oldRecord') ?? _optionalJsonMap(json, 'old_record'),
+      oldRecord: _optionalJsonMap(json, 'oldRecord') ??
+          _optionalJsonMap(json, 'old_record'),
     );
   }
 
@@ -255,9 +283,9 @@ class StorageObject {
   final String name;
   final int size;
   final String contentType;
-    final String? userId;
-    final String createdAt;
-    final String? updatedAt;
+  final String? userId;
+  final String createdAt;
+  final String? updatedAt;
 
   factory StorageObject.fromJson(JsonMap json) {
     return StorageObject(
@@ -265,10 +293,14 @@ class StorageObject {
       bucket: _requireString(json, 'bucket'),
       name: _requireString(json, 'name'),
       size: _requireInt(json, 'size'),
-      contentType: _optionalString(json, 'contentType') ?? _requireString(json, 'content_type'),
-      userId: _optionalString(json, 'userId') ?? _optionalString(json, 'user_id'),
-      createdAt: _optionalString(json, 'createdAt') ?? _requireString(json, 'created_at'),
-      updatedAt: _optionalString(json, 'updatedAt') ?? _optionalString(json, 'updated_at'),
+      contentType: _optionalString(json, 'contentType') ??
+          _requireString(json, 'content_type'),
+      userId:
+          _optionalString(json, 'userId') ?? _optionalString(json, 'user_id'),
+      createdAt: _optionalString(json, 'createdAt') ??
+          _requireString(json, 'created_at'),
+      updatedAt: _optionalString(json, 'updatedAt') ??
+          _optionalString(json, 'updated_at'),
     );
   }
 

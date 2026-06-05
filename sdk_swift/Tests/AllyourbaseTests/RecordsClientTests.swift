@@ -5,7 +5,32 @@ import Testing
 struct RecordsClientTests {
     @Test func listMethodAndQueryParameters() async throws {
         let transport = MockTransport()
-        transport.enqueue(StubResponse(status: 200, json: ContractFixtures.listResponse))
+        transport.enqueue(
+            StubResponse(
+                status: 200,
+                json: [
+                    "items": [
+                        [
+                            "id": "rec_1",
+                            "title": "First",
+                            "_highlight": "<b>swift</b> search result",
+                        ],
+                    ],
+                    "facets": [
+                        "category": [
+                            [
+                                "value": "docs",
+                                "count": 1,
+                            ],
+                        ],
+                    ],
+                    "page": 1,
+                    "perPage": 2,
+                    "totalItems": 1,
+                    "totalPages": 1,
+                ]
+            )
+        )
         let client = AYBClient(Stage3TestBootstrap.baseURL, transport: transport)
 
         _ = try await client.records.list(
@@ -18,13 +43,19 @@ struct RecordsClientTests {
                 search: "swift",
                 fields: "id,title",
                 expand: "author",
-                skipTotal: true
+                skipTotal: true,
+                fuzzy: true,
+                typoThreshold: 0.2,
+                highlight: true,
+                facets: ["category", "status"],
+                semantic: true,
+                semanticQuery: "related notes"
             )
         )
 
         let request = try #require(transport.requests.last)
         #expect(request.url.path == "/api/collections/posts")
-        #expect(request.url.query == "page=1&perPage=20&sort=-created_at&filter=published%3Dtrue&search=swift&fields=id,title&expand=author&skipTotal=true")
+        #expect(request.url.query == "page=1&perPage=20&sort=-created_at&filter=published%3Dtrue&search=swift&fields=id,title&expand=author&skipTotal=true&fuzzy=true&typo_threshold=0.2&highlight=true&facets=category,status&semantic=true&semantic_query=related%20notes")
         #expect(lowercasedLookup(request.headers, "Authorization") == nil)
     }
 
@@ -151,7 +182,36 @@ struct RecordsClientTests {
 
     @Test func listResponseMetadataAndItemsDecoded() async throws {
         let transport = MockTransport()
-        transport.enqueue(StubResponse(status: 200, json: ContractFixtures.listResponse))
+        transport.enqueue(
+            StubResponse(
+                status: 200,
+                json: [
+                    "items": [
+                        [
+                            "id": "rec_1",
+                            "title": "First",
+                            "_highlight": "<b>swift</b> result",
+                        ],
+                        [
+                            "id": "rec_2",
+                            "title": "Second",
+                        ],
+                    ],
+                    "facets": [
+                        "category": [
+                            [
+                                "value": "docs",
+                                "count": 2,
+                            ],
+                        ],
+                    ],
+                    "page": 1,
+                    "perPage": 2,
+                    "totalItems": 2,
+                    "totalPages": 1,
+                ]
+            )
+        )
         let client = AYBClient(Stage3TestBootstrap.baseURL, transport: transport)
 
         let response = try await client.records.list("posts")
@@ -160,5 +220,10 @@ struct RecordsClientTests {
         #expect(response.metadata.perPage == 2)
         #expect(response.items.count == 2)
         #expect(response.items[0]["id"] as? String == "rec_1")
+        #expect(response.items[0]["_highlight"] as? String == "<b>swift</b> result")
+        let categoryFacets = response.facets?["category"] as? [[String: Any]]
+        #expect(categoryFacets?.count == 1)
+        #expect(categoryFacets?.first?["value"] as? String == "docs")
+        #expect(categoryFacets?.first?["count"] as? Int == 2)
     }
 }

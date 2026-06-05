@@ -312,8 +312,8 @@ void main() {
 
       expect(
         future,
-        throwsA(isA<AYBError>()
-            .having((e) => e.code, 'code', 'oauth/sse-closed')),
+        throwsA(
+            isA<AYBError>().having((e) => e.code, 'code', 'oauth/sse-closed')),
       );
     });
 

@@ -12,14 +12,34 @@ import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 
 data class ListParams(
+    /** Page number for paginated collection reads. */
     val page: Int? = null,
+    /** Page size for paginated collection reads. */
     val perPage: Int? = null,
+    /** Sort expression forwarded unchanged to the backend. */
     val sort: String? = null,
+    /** Filter expression forwarded unchanged to the backend. */
     val filter: String? = null,
+    /** Full-text search query string. */
     val search: String? = null,
+    /** Sparse fieldset list forwarded as `fields`. */
     val fields: String? = null,
+    /** Expansion list forwarded as `expand`. */
     val expand: String? = null,
+    /** Omits total-count work when true. */
     val skipTotal: Boolean? = null,
+    /** Enables pg_trgm typo-tolerant search when the backend supports it. */
+    val fuzzy: Boolean? = null,
+    /** Overrides the backend typo threshold using `typo_threshold`. */
+    val typoThreshold: Double? = null,
+    /** Requests `_highlight` snippets in each matching item. */
+    val highlight: Boolean? = null,
+    /** Requests facet counts for the named columns as a comma-joined list. */
+    val facets: List<String>? = null,
+    /** Opts into semantic search routing when an embedder is configured. */
+    val semantic: Boolean? = null,
+    /** Supplies the semantic query text serialized as `semantic_query`. */
+    val semanticQuery: String? = null,
 ) {
     fun toQueryItems(): List<Pair<String, String>> {
         val items = mutableListOf<Pair<String, String>>()
@@ -33,6 +53,20 @@ data class ListParams(
         if (skipTotal == true) {
             items += "skipTotal" to "true"
         }
+        if (fuzzy == true) {
+            items += "fuzzy" to "true"
+        }
+        typoThreshold?.let { items += "typo_threshold" to it.toString() }
+        if (highlight == true) {
+            items += "highlight" to "true"
+        }
+        if (!facets.isNullOrEmpty()) {
+            items += "facets" to facets.joinToString(",")
+        }
+        if (semantic == true) {
+            items += "semantic" to "true"
+        }
+        semanticQuery?.let { items += "semantic_query" to it }
         return items
     }
 }
@@ -59,6 +93,7 @@ data class ListMetadata(
 data class ListResponse<T>(
     val items: List<T>,
     val metadata: ListMetadata,
+    val facets: JsonObject? = null,
 ) {
     companion object {
         fun <T> decode(
@@ -84,6 +119,7 @@ data class ListResponse<T>(
                     totalItems = obj.requiredInt("totalItems"),
                     totalPages = obj.requiredInt("totalPages"),
                 ),
+                facets = obj["facets"] as? JsonObject,
             )
         }
     }
