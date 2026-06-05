@@ -3,6 +3,7 @@ package api
 
 import (
 	"fmt"
+	"math"
 	"net/http"
 	"strings"
 
@@ -18,8 +19,12 @@ const (
 )
 
 // constructs a SQL query for full-text search that ranks rows by relevance, optionally combining with a filter condition, and limits results to the specified count.
-func buildFTSHybridQuery(tbl *schema.Table, searchTerm string, limit int, filterSQL string, filterArgs []any) (string, []any, error) {
-	search, err := buildSearchSQL(tbl, searchTerm, len(filterArgs)+1, defaultSearchOptions(false))
+func buildFTSHybridQuery(tbl *schema.Table, searchTerm string, limit int, filterSQL string, filterArgs []any, textSearchConfigs ...string) (string, []any, error) {
+	opts := defaultSearchOptions(false)
+	if len(textSearchConfigs) > 0 {
+		opts.textSearchConfig = textSearchConfigs[0]
+	}
+	search, err := buildSearchSQL(tbl, searchTerm, len(filterArgs)+1, opts)
 	if err != nil {
 		return "", nil, err
 	}
@@ -63,7 +68,8 @@ func buildVectorHybridQuery(tbl *schema.Table, col *schema.Column, queryVec []fl
 
 // executes a full-text search query with row-level security applied and returns the matching rows as a slice of maps keyed by column name.
 func (h *Handler) executeFTSQuery(r *http.Request, tbl *schema.Table, searchTerm string, limit int, filterSQL string, filterArgs []any) ([]map[string]any, error) {
-	sql, args, err := buildFTSHybridQuery(tbl, searchTerm, limit, filterSQL, filterArgs)
+	apiCfg := h.effectiveAPIConfig()
+	sql, args, err := buildFTSHybridQuery(tbl, searchTerm, limit, filterSQL, filterArgs, apiCfg.TextSearchConfig)
 	if err != nil {
 		return nil, err
 	}
@@ -122,7 +128,7 @@ func (h *Handler) executeVectorQuery(r *http.Request, tbl *schema.Table, col *sc
 }
 
 // is the HTTP handler for hybrid search that embeds the search term, executes both full-text and vector similarity queries with over-fetching, merges results using reciprocal rank fusion, and writes a paginated JSON response.
-func (h *Handler) handleHybridSearch(w http.ResponseWriter, r *http.Request, tbl *schema.Table, searchTerm, vectorColName, distanceParam string, perPage int, filterSQL string, filterArgs []any) {
+func (h *Handler) handleHybridSearch(w http.ResponseWriter, r *http.Request, tbl *schema.Table, searchTerm, vectorColName, distanceParam string, page, perPage int, filterSQL string, filterArgs []any) {
 	if h.embedFn == nil {
 		writeError(w, http.StatusNotImplemented, "hybrid search is not configured — no embedding provider available")
 		return
@@ -167,7 +173,9 @@ func (h *Handler) handleHybridSearch(w http.ResponseWriter, r *http.Request, tbl
 		return
 	}
 
-	fetchLimit := perPage * hybridOverFetchMultiplier
+	offset := (page - 1) * perPage
+	candidateWindow := offset + perPage
+	fetchLimit := candidateWindow * hybridOverFetchMultiplier
 	if fetchLimit > hybridOverFetchCap {
 		fetchLimit = hybridOverFetchCap
 	}
@@ -190,15 +198,19 @@ func (h *Handler) handleHybridSearch(w http.ResponseWriter, r *http.Request, tbl
 	}
 
 	merged := rrfMerge(ftsResults, vectorResults, tbl.PrimaryKey, defaultRRFConstant)
-	if len(merged) > perPage {
-		merged = merged[:perPage]
+	totalItems := len(merged)
+	totalPages := int(math.Ceil(float64(totalItems) / float64(perPage)))
+
+	items := []map[string]any{}
+	if offset < totalItems {
+		items = merged[offset:min(offset+perPage, totalItems)]
 	}
 
 	writeJSON(w, http.StatusOK, ListResponse{
-		Page:       1,
+		Page:       page,
 		PerPage:    perPage,
-		TotalItems: len(merged),
-		TotalPages: 1,
-		Items:      merged,
+		TotalItems: totalItems,
+		TotalPages: totalPages,
+		Items:      items,
 	})
 }

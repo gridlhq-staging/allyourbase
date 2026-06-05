@@ -1,7 +1,7 @@
 <!-- audited 2026-06-04 -->
 # Search
 
-AYB's collection list endpoints support full-text search, collection-scoped synonym expansion, typo-tolerant fuzzy matching, filters, and facet counts on the same request path. This guide covers the shipped collection search workflow. For the canonical query-parameter table and response field reference, see [REST API Reference](/guide/api-reference).
+AYB's collection list endpoints support full-text search, collection-scoped synonym expansion, typo-tolerant fuzzy matching, filters, highlighting, facet counts, and hybrid text/vector search on the same request path. This guide owns the behavioral search contract. For the compact query-parameter table and response field reference, see [REST API Reference](/guide/api-reference).
 
 It is based on:
 
@@ -21,11 +21,11 @@ GET /api/collections/{table}
 
 The standard text search surface is:
 
-- `search=<text>` for PostgreSQL full-text search
+- `search=<text>` for PostgreSQL full-text search with stemming enabled by default
 - collection-scoped synonym expansion configured by admins
 - `fuzzy=true` for `pg_trgm` typo tolerance
 - `typo_threshold=<0..1>` to tune fuzzy matching when `fuzzy=true`
-- `highlight=true` to request `_highlight` snippets on matching rows
+- `highlight=true` to request legacy `_highlight` snippets and `_highlightResult` metadata on matching rows
 - `filter=<expr>` for safe predicate narrowing
 - `facets=col_a,col_b` for facet buckets in the same response
 
@@ -33,7 +33,7 @@ Vector and hybrid search are documented separately in [AI and Vector Search](/gu
 
 ## Full-text search
 
-AYB searches across the table's text columns using PostgreSQL `websearch_to_tsquery`, so phrase search, `or`, and term exclusion work the same way they do in the REST reference.
+AYB searches across the table's text columns using PostgreSQL `websearch_to_tsquery`, so phrase search, `or`, and term exclusion work the same way they do in the REST reference. The default text-search configuration is English, so normal stemming is enabled by default: searches for terms such as `running` can match rows containing the same stem, such as `run`.
 
 ```bash
 curl -s "http://127.0.0.1:8090/api/collections/posts?search=postgres" \
@@ -67,7 +67,7 @@ const response = await ayb.records.list("posts", {
 
 Admin setup and replacement semantics are documented in [Search Synonyms](/guide/synonyms).
 
-Hybrid search with `search=<text>&semantic=true` uses the same full-text search builder for its text leg, so configured synonym groups also expand that text leg. The vector leg and fusion rules remain documented in [AI and Vector Search](/guide/ai-vector).
+Hybrid search with `search=<text>&semantic=true` uses the same full-text search builder for its text leg, so stemming and configured synonym groups also apply to that text leg. Hybrid results are ranked by the fused text/vector rank and then paginated from the fused set. The vector leg and fusion rules remain documented in [AI and Vector Search](/guide/ai-vector).
 
 ## Fuzzy matching
 
@@ -86,13 +86,20 @@ must be a number between `0` and `1`, and the backend rejects it unless
 
 ## Highlighting
 
-`highlight=true` asks AYB to return a `_highlight` field on matching items. AYB
-HTML-escapes the source text before `ts_headline` inserts `<b>` and `</b>`, so
-the only HTML the server adds is those bold tags around matched terms.
+`highlight=true` asks AYB to return both highlight response fields on matching
+items:
+
+- `_highlight`: the legacy combined excerpt string.
+- `_highlightResult`: a map keyed by searchable attribute. Each entry contains
+  `value`, the HTML-escaped highlighted attribute value, and `matchLevel`, which
+  is `full` when that attribute matched the query and `none` otherwise.
+
+AYB HTML-escapes the source text before `ts_headline` inserts `<b>` and `</b>`,
+so the only HTML the server adds is those bold tags around matched terms.
 
 ```bash
 curl -s "http://127.0.0.1:8090/api/collections/posts?search=postgres&highlight=true" \
-  -H "Authorization: Bearer $AYB_TOKEN" | jq '.items[0]._highlight'
+  -H "Authorization: Bearer $AYB_TOKEN" | jq '.items[0] | {title, _highlight, _highlightResult}'
 ```
 
 Example item shape:
@@ -101,7 +108,17 @@ Example item shape:
 {
   "id": 1,
   "title": "Postgres guide",
-  "_highlight": "<b>Postgres</b> guide"
+  "_highlight": "<b>Postgres</b> guide",
+  "_highlightResult": {
+    "title": {
+      "value": "<b>Postgres</b> guide",
+      "matchLevel": "full"
+    },
+    "body": {
+      "value": "Database notes",
+      "matchLevel": "none"
+    }
+  }
 }
 ```
 
@@ -189,6 +206,7 @@ const response = await ayb.records.list("posts", {
 
 console.log(response.items);
 console.log(response.items[0]?._highlight);
+console.log(response.items[0]?._highlightResult?.title);
 console.log(response.facets?.status);
 ```
 
@@ -208,7 +226,7 @@ That screen is a thin client over the same `GET /api/collections/{table}` contra
 
 ## Vector boundary
 
-Facets are part of AYB's non-vector list/search path. They are not supported on vector list modes such as:
+Facets, fuzzy matching, typo-threshold tuning, and highlight metadata are part of AYB's non-vector list/search path. They are rejected on vector list modes such as:
 
 - `nearest=[...]`
 - `semantic_query=<text>`

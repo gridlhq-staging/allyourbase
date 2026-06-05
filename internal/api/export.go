@@ -40,10 +40,8 @@ func buildExportQuery(tbl *schema.Table, opts listOpts, maxRows int) (string, []
 	}
 
 	orderClause := ""
-	if opts.sortSQL != "" {
-		orderClause = " ORDER BY " + opts.sortSQL
-	} else if opts.searchRank != "" {
-		orderClause = " ORDER BY " + opts.searchRank + " DESC"
+	if sql := orderByBody(opts.searchRank, opts.sortSQL); sql != "" {
+		orderClause = " ORDER BY " + sql
 	}
 
 	query := fmt.Sprintf("SELECT %s FROM %s%s%s", cols, ref, whereClause, orderClause)

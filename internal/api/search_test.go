@@ -103,8 +103,8 @@ func TestBuildSearchSQL(t *testing.T) {
 	testutil.Equal(t, "posts", search.args[2].(string))
 
 	// WHERE should contain tsvector @@ ts_rewrite(...) with the original websearch tsquery inside.
-	testutil.Contains(t, search.whereSQL, "to_tsvector('simple'")
-	testutil.Contains(t, search.whereSQL, "ts_rewrite(websearch_to_tsquery('simple', $1)")
+	testutil.Contains(t, search.whereSQL, "to_tsvector('english'::regconfig")
+	testutil.Contains(t, search.whereSQL, "ts_rewrite(websearch_to_tsquery('english'::regconfig, $1)")
 	testutil.Contains(t, search.whereSQL, "@@")
 	testutil.Contains(t, search.whereSQL, `coalesce("title", '')`)
 	testutil.Contains(t, search.whereSQL, `coalesce("body", '')`)
@@ -114,9 +114,31 @@ func TestBuildSearchSQL(t *testing.T) {
 
 	// Rank should use ts_rank.
 	testutil.Contains(t, search.rankSQL, "ts_rank(")
-	testutil.Contains(t, search.rankSQL, "ts_rewrite(websearch_to_tsquery('simple', $1)")
+	testutil.Contains(t, search.rankSQL, "ts_rewrite(websearch_to_tsquery('english'::regconfig, $1)")
 	testutil.Equal(t, "", search.highlightSelect)
 	testutil.Equal(t, "", search.highlightAlias)
+}
+
+func TestBuildSearchSQLUsesConfiguredTextSearchConfig(t *testing.T) {
+	t.Parallel()
+	tbl := searchableTable()
+
+	search, err := buildSearchSQL(tbl, "hello world", 1, searchOptions{
+		textSearchConfig: "simple",
+		typoThreshold:    defaultTypoThreshold,
+		highlight:        true,
+	})
+	testutil.NoError(t, err)
+
+	testutil.Contains(t, search.whereSQL, "to_tsvector('simple'::regconfig")
+	testutil.Contains(t, search.whereSQL, "websearch_to_tsquery('simple'::regconfig, $1)")
+	testutil.Contains(t, search.whereSQL, "phraseto_tsquery(''simple''::regconfig, term)")
+	testutil.Contains(t, search.whereSQL, "websearch_to_tsquery(''simple''::regconfig, s1.term)")
+	testutil.Contains(t, search.rankSQL, "ts_rank(to_tsvector('simple'::regconfig")
+	testutil.Contains(t, search.highlightSelect, "ts_headline('simple'::regconfig")
+	if strings.Contains(search.whereSQL, "DROP TABLE") || strings.Contains(search.highlightSelect, "DROP TABLE") {
+		t.Fatalf("search SQL should only contain validated regconfig literals, got where=%s highlight=%s", search.whereSQL, search.highlightSelect)
+	}
 }
 
 func TestBuildSearchSQLWithHighlightUsesCanonicalDocument(t *testing.T) {
@@ -133,15 +155,20 @@ func TestBuildSearchSQLWithHighlightUsesCanonicalDocument(t *testing.T) {
 	// The tsquery expression now goes through ts_rewrite to support synonym
 	// expansion; the same expression must be reused by where, rank, and the
 	// highlight CASE/ELSE branches so all three score against the same query.
-	tsqueryPrefix := "ts_rewrite(websearch_to_tsquery('simple', $1),"
-	testutil.Contains(t, search.whereSQL, "to_tsvector('simple', "+docExpr+") @@ "+tsqueryPrefix)
-	testutil.Contains(t, search.rankSQL, "ts_rank(to_tsvector('simple', "+docExpr+"), "+tsqueryPrefix)
-	testutil.Contains(t, search.highlightSelect, "CASE WHEN to_tsvector('simple', "+docExpr+") @@ "+tsqueryPrefix)
+	tsqueryPrefix := "(SELECT ts_rewrite(websearch_to_tsquery('english'::regconfig, $1),"
+	testutil.Contains(t, search.whereSQL, "to_tsvector('english'::regconfig, "+docExpr+") @@ "+tsqueryPrefix)
+	testutil.Contains(t, search.rankSQL, "ts_rank(to_tsvector('english'::regconfig, "+docExpr+"), "+tsqueryPrefix)
+	testutil.Contains(t, search.highlightSelect, "CASE WHEN to_tsvector('english'::regconfig, "+docExpr+") @@ "+tsqueryPrefix)
 	escapedDocExpr := "replace(replace(replace(" + docExpr + ", '&', '&amp;'), '<', '&lt;'), '>', '&gt;')"
-	testutil.Contains(t, search.highlightSelect, "ts_headline('simple', "+escapedDocExpr+", "+tsqueryPrefix)
+	testutil.Contains(t, search.highlightSelect, "ts_headline('english'::regconfig, "+escapedDocExpr+", "+tsqueryPrefix)
 	testutil.Contains(t, search.highlightSelect, "ELSE "+escapedDocExpr)
 	testutil.Contains(t, search.highlightSelect, `AS "`+searchHighlightSQLAlias+`"`)
 	testutil.Equal(t, searchHighlightSQLAlias, search.highlightAlias)
+	testutil.Contains(t, search.highlightResultSelect, `jsonb_build_object('title', jsonb_build_object('value', CASE WHEN to_tsvector('english'::regconfig, coalesce("title", '')) @@ `+tsqueryPrefix)
+	testutil.Contains(t, search.highlightResultSelect, `ts_headline('english'::regconfig, replace(replace(replace(coalesce("body", ''), '&', '&amp;'), '<', '&lt;'), '>', '&gt;'), `+tsqueryPrefix)
+	testutil.Contains(t, search.highlightResultSelect, `'matchLevel', CASE WHEN to_tsvector('english'::regconfig, coalesce("status", '')) @@ `+tsqueryPrefix)
+	testutil.Contains(t, search.highlightResultSelect, `AS "`+searchHighlightResultSQLAlias+`"`)
+	testutil.Equal(t, searchHighlightResultSQLAlias, search.highlightResultAlias)
 }
 
 func TestBuildSearchSQLWithHighlightAvoidsSchemaAliasCollision(t *testing.T) {
@@ -160,6 +187,7 @@ func TestBuildSearchSQLWithHighlightAvoidsSchemaAliasCollision(t *testing.T) {
 
 	testutil.Equal(t, searchHighlightSQLAlias+"_1", search.highlightAlias)
 	testutil.Contains(t, search.highlightSelect, `AS "`+searchHighlightSQLAlias+`_1"`)
+	testutil.Equal(t, searchHighlightResultSQLAlias, search.highlightResultAlias)
 }
 
 func TestBuildSearchSQLWithHighlightRejectsResponseFieldCollision(t *testing.T) {
@@ -173,6 +201,19 @@ func TestBuildSearchSQLWithHighlightRejectsResponseFieldCollision(t *testing.T) 
 	})
 	testutil.Error(t, err)
 	testutil.Contains(t, err.Error(), `highlight cannot be used on table "posts" because it has a "_highlight" column`)
+}
+
+func TestBuildSearchSQLWithHighlightRejectsHighlightResultCollision(t *testing.T) {
+	t.Parallel()
+	tbl := searchableTable()
+	tbl.Columns = append(tbl.Columns, &schema.Column{Name: searchHighlightResultResponseField, Position: 8, TypeName: "jsonb", IsJSON: true})
+
+	_, err := buildSearchSQL(tbl, "hello", 1, searchOptions{
+		highlight:     true,
+		typoThreshold: defaultTypoThreshold,
+	})
+	testutil.Error(t, err)
+	testutil.Contains(t, err.Error(), `"`+searchHighlightResultResponseField+`" column`)
 }
 
 func TestBuildSearchSQLWithOffset(t *testing.T) {
@@ -239,7 +280,7 @@ func TestBuildSearchSQLWithFuzzy(t *testing.T) {
 	testutil.Equal(t, "posts", search.args[2].(string))
 	testutil.Equal(t, "helo", search.args[3].(string))
 	testutil.Equal(t, "wrld", search.args[4].(string))
-	testutil.Contains(t, search.whereSQL, "websearch_to_tsquery('simple', $2)")
+	testutil.Contains(t, search.whereSQL, "websearch_to_tsquery('english'::regconfig, $2)")
 	testutil.Contains(t, search.whereSQL, `similarity(coalesce("title", ''), $2) > 0.2`)
 	testutil.Contains(t, search.whereSQL, `similarity(coalesce("body", ''), $2) > 0.2`)
 	testutil.Contains(t, search.whereSQL, `similarity(coalesce("status", ''), $2) > 0.2`)
@@ -344,7 +385,7 @@ func TestBuildListSearchWithExplicitSort(t *testing.T) {
 	t.Parallel()
 	tbl := searchableTable()
 
-	// When user provides explicit sort, it should override search rank
+	// Explicit legacy sort must break ties after relevance, not replace it.
 	opts := listOpts{
 		page:       1,
 		perPage:    20,
@@ -356,11 +397,27 @@ func TestBuildListSearchWithExplicitSort(t *testing.T) {
 
 	dataQ, _, _, _ := buildList(tbl, opts)
 
-	// Should use user's sort, not rank.
-	testutil.Contains(t, dataQ, `ORDER BY "title" ASC`)
-	if strings.Contains(dataQ, "ts_rank") {
-		t.Errorf("expected explicit sort to override rank, but ts_rank found in query: %s", dataQ)
+	testutil.Contains(t, dataQ, `ORDER BY ts_rank(to_tsvector('simple', coalesce("title", '')), websearch_to_tsquery('simple', $1)) DESC, "title" ASC`)
+}
+
+func TestBuildListSearchWithStructuredSortAppendsAfterRank(t *testing.T) {
+	t.Parallel()
+	tbl := searchableTable()
+	parsedSort, err := parseStructuredSort(tbl, "-title", true)
+	testutil.NoError(t, err)
+
+	opts := listOpts{
+		page:       1,
+		perPage:    20,
+		sort:       parsedSort,
+		searchSQL:  `to_tsvector('simple', coalesce("title", '')) @@ websearch_to_tsquery('simple', $1)`,
+		searchRank: `ts_rank(to_tsvector('simple', coalesce("title", '')), websearch_to_tsquery('simple', $1))`,
+		searchArgs: []any{"hello"},
 	}
+
+	dataQ, _, _, _ := buildList(tbl, opts)
+
+	testutil.Contains(t, dataQ, `ORDER BY ts_rank(to_tsvector('simple', coalesce("title", '')), websearch_to_tsquery('simple', $1)) DESC, "title" DESC`)
 }
 
 func TestParseSearchParamAllowsFuzzyWithNonEmptySearch(t *testing.T) {
@@ -632,12 +689,34 @@ func TestParseSearchParamHighlight(t *testing.T) {
 			if tc.wantHighlight {
 				testutil.Contains(t, search.highlightSelect, tc.wantSnippet)
 				testutil.Equal(t, searchHighlightSQLAlias, search.highlightAlias)
+				testutil.Contains(t, search.highlightResultSelect, searchHighlightResultSQLAlias)
+				testutil.Equal(t, searchHighlightResultSQLAlias, search.highlightResultAlias)
 				return
 			}
 			testutil.Equal(t, "", search.highlightSelect)
 			testutil.Equal(t, "", search.highlightAlias)
+			testutil.Equal(t, "", search.highlightResultSelect)
+			testutil.Equal(t, "", search.highlightResultAlias)
 		})
 	}
+}
+
+func TestParseSearchParamHighlightRejectsHighlightResultCollision(t *testing.T) {
+	t.Parallel()
+	h := NewHandler(nil, testCacheHolder(&schema.SchemaCache{HasPgTrgm: true}), nil, nil, nil, nil)
+	tbl := searchableTable()
+	tbl.Columns = append(tbl.Columns, &schema.Column{Name: searchHighlightResultResponseField, Position: 8, TypeName: "jsonb", IsJSON: true})
+	w := httptest.NewRecorder()
+
+	q := url.Values{
+		"search":    []string{"post"},
+		"highlight": []string{"true"},
+	}
+
+	_, ok := h.parseSearchParam(w, tbl, q, 1)
+	testutil.Equal(t, false, ok)
+	testutil.Equal(t, http.StatusBadRequest, w.Code)
+	testutil.Contains(t, w.Body.String(), searchHighlightResultResponseField)
 }
 
 func TestHandleList_AllowsFacetsOnNonVectorPath(t *testing.T) {

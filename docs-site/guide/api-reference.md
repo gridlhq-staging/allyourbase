@@ -38,9 +38,10 @@ curl "http://localhost:8090/api/collections/posts?filter=status='active'&sort=-c
 
 | Parameter | Example | Description |
 |-----------|---------|-------------|
-| `search` | `?search=hello world` | Full-text search across all text columns |
+| `search` | `?search=hello world` | Full-text search across all text columns; see [Search](/guide/search) for stemming, ranking, and hybrid behavior |
 | `fuzzy` | `?search=helo&fuzzy=true` | Optional typo-tolerant search via `pg_trgm` (disabled unless extension is installed) |
 | `facets` | `?search=post&facets=status,author_id` | Return facet counts for requested columns alongside list results |
+| `highlight` | `?search=hello&highlight=true` | Return `_highlight` and `_highlightResult` on matching items |
 | `filter` | `?filter=status='active' AND age>21` | SQL-safe parameterized filtering |
 | `sort` | `?sort=-created_at,+title` | Sort by fields (`-` desc, `+` asc) |
 | `page` | `?page=2` | Page number (default: 1) |
@@ -109,7 +110,7 @@ Values: strings in single quotes (`'hello'`), numbers (`42`, `3.14`), booleans (
 
 ### Full-text search
 
-For an end-to-end workflow that combines full-text search, fuzzy matching, filters, facet buckets, and RLS behavior, see [Search](/guide/search).
+For the canonical behavior details for stemming, result ranking, highlighting, hybrid pagination, vector-mode boundaries, fuzzy matching, filters, facet buckets, and RLS behavior, see [Search](/guide/search).
 
 Use `?search=` to search across all text columns (`text`, `varchar`, `char`) in a table:
 
@@ -117,7 +118,7 @@ Use `?search=` to search across all text columns (`text`, `varchar`, `char`) in 
 curl "http://localhost:8090/api/collections/posts?search=postgres database"
 ```
 
-Search uses PostgreSQL's `websearch_to_tsquery`, so it supports natural search syntax:
+Search supports PostgreSQL web-search syntax:
 
 ```
 # Simple search
@@ -136,7 +137,7 @@ Search uses PostgreSQL's `websearch_to_tsquery`, so it supports natural search s
 ?search=postgres -mysql
 ```
 
-Results are automatically ranked by relevance when no explicit `sort` is provided.
+The [Search](/guide/search) guide owns stemming, ranking, and pagination behavior.
 
 Search can be combined with filters:
 
@@ -149,30 +150,15 @@ curl "http://localhost:8090/api/collections/posts?search=postgres&filter=status=
 `typo_threshold` tunes fuzzy matching on non-vector collection list search, must be a number between `0` and `1`, and is only accepted when `fuzzy=true`.
 
 `typo_threshold` without `fuzzy=true` returns `400 Bad Request`.
-Vector list modes reject `typo_threshold` along with other non-vector search modifiers.
+Vector list modes reject `typo_threshold` along with other non-vector search modifiers; see [Search](/guide/search) for hybrid and vector-mode boundaries.
 
-`highlight=true` asks AYB to return `_highlight` snippets on matching rows. The
-source text is HTML-escaped before AYB wraps matched terms in `<b>` and
-`</b>`.
+`highlight=true` asks AYB to return legacy `_highlight` snippets and per-attribute
+`_highlightResult` metadata on matching rows. See [Search](/guide/search) for
+escaping behavior and the full response shape.
 
 `facets=column_a,column_b` requests per-column facet counts in the same list response. Requested columns must exist on the target table.
 
-Unsupported query-mode combinations return `400` (for example `semantic=true` with `nearest` or `semantic_query`).
-
-When `highlight=true`, matching items can include an additional `_highlight`
-field:
-
-```json
-{
-  "items": [
-    {
-      "id": 1,
-      "title": "Hello",
-      "_highlight": "<b>Hello</b>"
-    }
-  ]
-}
-```
+Unsupported query-mode combinations return `400`; [Search](/guide/search) owns the compatibility matrix for semantic, vector, fuzzy, facet, typo-threshold, and highlight parameters.
 
 When `facets` is requested, list responses include an additional `facets` object:
 

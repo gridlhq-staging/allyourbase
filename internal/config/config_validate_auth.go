@@ -2,7 +2,16 @@ package config
 
 import (
 	"fmt"
+	"regexp"
 )
+
+var textSearchConfigPattern = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*(\.[A-Za-z_][A-Za-z0-9_]*)?$`)
+
+// IsValidTextSearchConfigName reports whether value is safe to render as a
+// PostgreSQL regconfig literal after normal SQL string quoting.
+func IsValidTextSearchConfigName(value string) bool {
+	return textSearchConfigPattern.MatchString(value)
+}
 
 func validateAuthConfig(c *Config) error {
 	if c.Auth.MinPasswordLength < 1 {
@@ -34,6 +43,9 @@ func validateAuthConfig(c *Config) error {
 	}
 	if c.API.ExportMaxRows <= 0 {
 		return fmt.Errorf("api.export_max_rows must be positive, got %d", c.API.ExportMaxRows)
+	}
+	if !IsValidTextSearchConfigName(c.API.TextSearchConfig) {
+		return fmt.Errorf("api.text_search_config must be a PostgreSQL text search config name, got %q", c.API.TextSearchConfig)
 	}
 	if c.Auth.Enabled && c.Auth.JWTSecret == "" {
 		return fmt.Errorf("auth.jwt_secret is required when auth is enabled")

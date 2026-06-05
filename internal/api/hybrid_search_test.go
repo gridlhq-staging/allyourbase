@@ -11,7 +11,10 @@ import (
 
 	"github.com/allyourbase/ayb/internal/ai"
 	"github.com/allyourbase/ayb/internal/schema"
+	"github.com/allyourbase/ayb/internal/tenant"
 	"github.com/allyourbase/ayb/internal/testutil"
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 )
 
 func hybridTable() *schema.Table {
@@ -89,6 +92,8 @@ func TestExecuteFTSQuery_NilPoolBuildsSearchAndFilter(t *testing.T) {
 	testutil.Contains(t, q, " AS _fts_rank")
 	testutil.Contains(t, q, "ORDER BY _fts_rank DESC")
 	testutil.Contains(t, q, "\"id\" = $1")
+	testutil.Contains(t, q, "to_tsvector('english'::regconfig")
+	testutil.Contains(t, q, "websearch_to_tsquery('english'::regconfig, $2)")
 	// Args now include the synonym-expansion schema/table refs after the
 	// search term: [filter..., term, schema, table, limit].
 	testutil.Equal(t, 5, len(args))
@@ -97,6 +102,11 @@ func TestExecuteFTSQuery_NilPoolBuildsSearchAndFilter(t *testing.T) {
 	testutil.Equal(t, hybridTable().Schema, args[2].(string))
 	testutil.Equal(t, hybridTable().Name, args[3].(string))
 	testutil.Equal(t, 5, args[4])
+
+	customQ, _, customErr := buildFTSHybridQuery(hybridTable(), "hello", 5, "", nil, "simple")
+	testutil.NoError(t, customErr)
+	testutil.Contains(t, customQ, "to_tsvector('simple'::regconfig")
+	testutil.Contains(t, customQ, "websearch_to_tsquery('simple'::regconfig, $1)")
 }
 
 func TestExecuteVectorQuery_NilPoolBuildsFilterArgs(t *testing.T) {
@@ -241,6 +251,26 @@ func TestHybridSearch_RejectsUnsupportedSearchParamsWithBlankSearch(t *testing.T
 	}
 }
 
+func TestHybridSearchRejectsHighlightForSemanticSearchWithBlankAndNonEmptySearch(t *testing.T) {
+	t.Parallel()
+	embedFn := func(_ context.Context, _ []string) ([][]float64, error) {
+		return [][]float64{{0.1, 0.2, 0.3}}, nil
+	}
+	h := testHandlerForHybrid(hybridSchemaCache(), embedFn)
+
+	for _, query := range []string{"search=hello", "search=", "search=+++"} {
+		query := query
+		t.Run(query, func(t *testing.T) {
+			t.Parallel()
+			w := doRequest(h, "GET", "/collections/articles?"+query+"&semantic=true&highlight=true", "")
+			testutil.Equal(t, http.StatusBadRequest, w.Code)
+			resp := decodeError(t, w)
+			testutil.Contains(t, strings.ToLower(resp.Message), "unsupported")
+			testutil.Contains(t, resp.Message, "highlight")
+		})
+	}
+}
+
 func TestHybridSearch_SemanticFalseIsRegularFTS(t *testing.T) {
 	t.Parallel()
 	h := testHandler(hybridSchemaCache())
@@ -346,4 +376,143 @@ func TestHybridSearch_ResponseEnvelopeDefaults(t *testing.T) {
 	testutil.Contains(t, string(b), "\"page\":1")
 	testutil.Contains(t, string(b), "\"perPage\":20")
 	testutil.Contains(t, string(b), "\"totalPages\":1")
+}
+
+type hybridFakeConn struct {
+	queries int
+}
+
+func (c *hybridFakeConn) Query(_ context.Context, sql string, _ ...any) (pgx.Rows, error) {
+	c.queries++
+	if strings.Contains(sql, "_fts_rank") {
+		return hybridFakeRows([]map[string]any{
+			{"id": int32(1), "title": "Alpha", "body": "needle", "embedding": []float32{1, 0, 0}},
+			{"id": int32(2), "title": "Bravo", "body": "needle", "embedding": []float32{0.9, 0, 0}},
+			{"id": int32(3), "title": "Charlie", "body": "needle", "embedding": []float32{0.8, 0, 0}},
+			{"id": int32(4), "title": "Delta", "body": "needle", "embedding": []float32{0.7, 0, 0}},
+		}), nil
+	}
+	return hybridFakeRows([]map[string]any{
+		{"id": int32(1), "title": "Alpha", "body": "needle", "embedding": []float32{1, 0, 0}},
+		{"id": int32(2), "title": "Bravo", "body": "needle", "embedding": []float32{0.9, 0, 0}},
+		{"id": int32(3), "title": "Charlie", "body": "needle", "embedding": []float32{0.8, 0, 0}},
+		{"id": int32(4), "title": "Delta", "body": "needle", "embedding": []float32{0.7, 0, 0}},
+	}), nil
+}
+
+func (c *hybridFakeConn) QueryRow(context.Context, string, ...any) pgx.Row {
+	return nil
+}
+
+func (c *hybridFakeConn) Exec(context.Context, string, ...any) (pgconn.CommandTag, error) {
+	return pgconn.CommandTag{}, nil
+}
+
+func (c *hybridFakeConn) Begin(context.Context) (pgx.Tx, error) {
+	return nil, errors.New("unexpected transaction")
+}
+
+type hybridRows struct {
+	fields []pgconn.FieldDescription
+	rows   [][]any
+	idx    int
+	closed bool
+}
+
+func hybridFakeRows(records []map[string]any) *hybridRows {
+	fields := []pgconn.FieldDescription{
+		{Name: "id"},
+		{Name: "title"},
+		{Name: "body"},
+		{Name: "embedding"},
+	}
+	rows := make([][]any, len(records))
+	for i, record := range records {
+		rows[i] = []any{record["id"], record["title"], record["body"], record["embedding"]}
+	}
+	return &hybridRows{fields: fields, rows: rows, idx: -1}
+}
+
+func (r *hybridRows) Close() {
+	r.closed = true
+}
+
+func (r *hybridRows) Err() error {
+	return nil
+}
+
+func (r *hybridRows) CommandTag() pgconn.CommandTag {
+	return pgconn.CommandTag{}
+}
+
+func (r *hybridRows) FieldDescriptions() []pgconn.FieldDescription {
+	return r.fields
+}
+
+func (r *hybridRows) Next() bool {
+	if r.idx+1 >= len(r.rows) {
+		r.closed = true
+		return false
+	}
+	r.idx++
+	return true
+}
+
+func (r *hybridRows) Scan(dest ...any) error {
+	if r.idx < 0 || r.idx >= len(r.rows) {
+		return errors.New("scan before next")
+	}
+	for i := range dest {
+		ptr, ok := dest[i].(*any)
+		if !ok {
+			return errors.New("hybridRows only supports *any destinations")
+		}
+		*ptr = r.rows[r.idx][i]
+	}
+	return nil
+}
+
+func (r *hybridRows) Values() ([]any, error) {
+	if r.idx < 0 || r.idx >= len(r.rows) {
+		return nil, errors.New("values before next")
+	}
+	return r.rows[r.idx], nil
+}
+
+func (r *hybridRows) RawValues() [][]byte {
+	return nil
+}
+
+func (r *hybridRows) Conn() *pgx.Conn {
+	return nil
+}
+
+func TestHybridSearchPaginationEnvelopeUsesRequestedPage(t *testing.T) {
+	t.Parallel()
+	embedFn := func(_ context.Context, texts []string) ([][]float64, error) {
+		if len(texts) != 1 || texts[0] != "needle" {
+			t.Fatalf("embedding input = %v, want [needle]", texts)
+		}
+		return [][]float64{{1, 0, 0}}, nil
+	}
+	h := NewHandler(nil, testCacheHolder(hybridSchemaCache()), nil, nil, nil, nil)
+	h.ApplyOptions(WithEmbedder(embedFn))
+	fakeConn := &hybridFakeConn{}
+	req := httptest.NewRequest(http.MethodGet, "/collections/articles?search=needle&semantic=true&page=2&perPage=2", nil)
+	req = req.WithContext(tenant.ContextWithRequestConn(req.Context(), fakeConn))
+	w := httptest.NewRecorder()
+
+	h.handleHybridSearch(w, req, hybridTable(), "needle", "", "", 2, 2, "", nil)
+
+	testutil.Equal(t, http.StatusOK, w.Code)
+	var resp ListResponse
+	testutil.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
+	testutil.Equal(t, 2, resp.Page)
+	testutil.Equal(t, 2, resp.PerPage)
+	testutil.Equal(t, 4, resp.TotalItems)
+	testutil.Equal(t, 2, resp.TotalPages)
+	testutil.Equal(t, 2, len(resp.Items))
+	testutil.Equal(t, 3.0, resp.Items[0]["id"].(float64))
+	testutil.Equal(t, 4.0, resp.Items[1]["id"].(float64))
+	testutil.Equal(t, 2, fakeConn.queries)
 }

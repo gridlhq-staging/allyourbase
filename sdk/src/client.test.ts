@@ -1052,6 +1052,9 @@ describe("records params coverage", () => {
     );
     expect(typed.items[0].title).toBe("Hello world");
     expect(typed.items[0]._highlight).toBe("<b>Hello</b> world");
+    const highlightResult: Record<string, { value: string; matchLevel: string }> | undefined =
+      typed.items[0]._highlightResult;
+    expect(highlightResult).toBeUndefined();
   });
 
   it("list encodes facets as comma-separated single param", async () => {

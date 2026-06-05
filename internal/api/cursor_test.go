@@ -437,6 +437,49 @@ func TestPrepareCursorSortProjectionAvoidsRealColumnAliasCollisions(t *testing.T
 	testutil.False(t, found, "generated cursor helper alias should be removed from response items")
 }
 
+func TestPrepareCursorSortProjectionSearchRankIgnoresRealColumnCollision(t *testing.T) {
+	tbl := &schema.Table{
+		Schema: "public",
+		Name:   "articles",
+		Kind:   "table",
+		Columns: []*schema.Column{
+			{Name: "id", TypeName: "integer", IsPrimaryKey: true},
+			{Name: "title", TypeName: "text"},
+			{Name: "__cursor_search_rank", TypeName: "numeric"},
+		},
+		PrimaryKey: []string{"id"},
+	}
+	searchRank := `ts_rank(to_tsvector('simple', "title"), websearch_to_tsquery('simple', $1))`
+	fields := prependSearchRankCursorSort(searchRank, []SortField{{Column: "id", Desc: false}})
+
+	projection := prepareCursorSortProjection(tbl, nil, fields)
+	if len(projection.Selects) != 1 {
+		t.Fatalf("projection.Selects length: got %d, want 1", len(projection.Selects))
+	}
+	testutil.Contains(t, projection.Selects[0], searchRank+` AS "__cursor_sort_0"`)
+	if len(projection.HelperColumns) != 1 {
+		t.Fatalf("projection.HelperColumns length: got %d, want 1", len(projection.HelperColumns))
+	}
+	testutil.Equal(t, "__cursor_sort_0", projection.HelperColumns[0])
+	testutil.Equal(t, "__cursor_sort_0", sortFieldResultColumn(projection.Fields[0]))
+	testutil.Equal(t, "id", sortFieldResultColumn(projection.Fields[1]))
+
+	record := map[string]any{
+		"__cursor_search_rank": "real-column-value",
+		"__cursor_sort_0":      0.75,
+		"id":                   42,
+	}
+	values := extractCursorValues(projection.Fields, record)
+	testutil.SliceLen(t, values, 2)
+	testutil.Equal(t, 0.75, values[0])
+	testutil.Equal(t, 42, values[1])
+
+	stripCursorHelperFields([]map[string]any{record}, projection.HelperColumns)
+	testutil.Equal(t, "real-column-value", record["__cursor_search_rank"])
+	_, found := record["__cursor_sort_0"]
+	testutil.False(t, found, "computed search rank helper alias should be removed from response items")
+}
+
 func TestStripCursorHelperFieldsRemovesOnlyGeneratedAliases(t *testing.T) {
 	items := []map[string]any{
 		{"name": "alice", "__cursor_sort_0": "hidden", "__cursor_sort_1": "real-column-value"},
@@ -497,8 +540,11 @@ func TestBuildListWithCursor_WithCursor(t *testing.T) {
 
 func TestBuildListWithCursor_FilterSpatialSearchAndCursor(t *testing.T) {
 	tbl := testSchema().Tables["public.users"]
+	parsedSort, err := parseStructuredSort(tbl, "id", true)
+	testutil.NoError(t, err)
 	opts := listOpts{
 		perPage:     5,
+		table:       tbl,
 		filterSQL:   `"email" = $1`,
 		filterArgs:  []any{"test@example.com"},
 		spatialSQL:  `ST_Intersects("location", ST_MakeEnvelope($2, $3, $4, $5, 4326))`,
@@ -506,25 +552,44 @@ func TestBuildListWithCursor_FilterSpatialSearchAndCursor(t *testing.T) {
 		searchSQL:   `to_tsvector('simple', "name") @@ websearch_to_tsquery('simple', $6)`,
 		searchRank:  `ts_rank(to_tsvector('simple', "name"), websearch_to_tsquery('simple', $6))`,
 		searchArgs:  []any{"alice"},
+		sort:        ensureStructuredSortPKTiebreaker(tbl, parsedSort),
 	}
-	sortFields := []SortField{{Column: "id", Desc: false}}
-	cursorWhere := `"id" > $7`
-	cursorArgs := []any{"uuid-5"}
+	opts, err = resolveCursorListSort(opts)
+	testutil.NoError(t, err)
 
-	q, args := buildListWithCursor(tbl, opts, sortFields, cursorWhere, cursorArgs)
+	cursorWhere, cursorArgs, err := buildCursorWhere(
+		opts.sortFields,
+		[]any{0.42, "uuid-5"},
+		len(opts.filterArgs)+len(opts.spatialArgs)+len(opts.searchArgs)+len(opts.sortArgs)+1,
+	)
+	testutil.NoError(t, err)
+
+	q, args := buildListWithCursor(tbl, opts, opts.sortFields, cursorWhere, cursorArgs)
 
 	testutil.Contains(t, q, `"email" = $1`)
 	testutil.Contains(t, q, `ST_Intersects("location", ST_MakeEnvelope($2, $3, $4, $5, 4326))`)
 	testutil.Contains(t, q, `websearch_to_tsquery('simple', $6)`)
-	testutil.Contains(t, q, `"id" > $7`)
-	testutil.Contains(t, q, `ORDER BY "id" ASC`)
-	testutil.Contains(t, q, `LIMIT $8`)
-	testutil.SliceLen(t, args, 8)
+	testutil.Contains(t, q, `ts_rank(to_tsvector('simple', "name"), websearch_to_tsquery('simple', $6)) AS "__cursor_sort_0"`)
+	testutil.Contains(t, q, `(ts_rank(to_tsvector('simple', "name"), websearch_to_tsquery('simple', $6)) < $7)`)
+	testutil.Contains(t, q, `(ts_rank(to_tsvector('simple', "name"), websearch_to_tsquery('simple', $6)) = $7 AND "id" > $8)`)
+	testutil.Contains(t, q, `ORDER BY ts_rank(to_tsvector('simple', "name"), websearch_to_tsquery('simple', $6)) DESC, "id" ASC`)
+	testutil.Contains(t, q, `LIMIT $9`)
+	testutil.SliceLen(t, args, 9)
 	testutil.Equal(t, "test@example.com", args[0])
 	testutil.Equal(t, -1.0, args[1].(float64))
 	testutil.Equal(t, "alice", args[5])
-	testutil.Equal(t, "uuid-5", args[6])
-	testutil.Equal(t, 6, args[7])
+	testutil.Equal(t, 0.42, args[6])
+	testutil.Equal(t, "uuid-5", args[7])
+	testutil.Equal(t, 6, args[8])
+
+	record := map[string]any{"__cursor_sort_0": 0.42, "id": "uuid-5", "name": "Alice"}
+	values := extractCursorValues(opts.sortFields, record)
+	testutil.SliceLen(t, values, 2)
+	testutil.Equal(t, 0.42, values[0])
+	testutil.Equal(t, "uuid-5", values[1])
+	stripCursorHelperFields([]map[string]any{record}, opts.cursorHelperColumns)
+	_, found := record["__cursor_sort_0"]
+	testutil.False(t, found, "search rank cursor helper alias should not leak into response items")
 }
 
 func TestBuildListWithCursorDistanceSortIncludesProjectionAndOrdering(t *testing.T) {

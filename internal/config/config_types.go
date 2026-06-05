@@ -66,10 +66,11 @@ type RateLimitConfig struct {
 
 // APIConfig configures runtime API behavior.
 type APIConfig struct {
-	ImportMaxSizeMB  int  `toml:"import_max_size_mb"`
-	ImportMaxRows    int  `toml:"import_max_rows"`
-	ExportMaxRows    int  `toml:"export_max_rows"`
-	AggregateEnabled bool `toml:"aggregate_enabled"`
+	ImportMaxSizeMB  int    `toml:"import_max_size_mb"`
+	ImportMaxRows    int    `toml:"import_max_rows"`
+	ExportMaxRows    int    `toml:"export_max_rows"`
+	AggregateEnabled bool   `toml:"aggregate_enabled"`
+	TextSearchConfig string `toml:"text_search_config"`
 }
 
 type ServerConfig struct {

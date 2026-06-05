@@ -492,6 +492,49 @@ func TestBuildListWithSort(t *testing.T) {
 	testutil.Contains(t, dataQ, `ORDER BY "name" ASC, "age" DESC`)
 }
 
+func TestOrderByBodySearchRankPrecedesTieBreaker(t *testing.T) {
+	t.Parallel()
+
+	searchRank := `ts_rank(to_tsvector('simple', "name"), websearch_to_tsquery('simple', $1))`
+	tests := []struct {
+		name       string
+		searchRank string
+		tieBreaker string
+		want       string
+	}{
+		{
+			name:       "search without sort uses rank",
+			searchRank: searchRank,
+			want:       searchRank + " DESC",
+		},
+		{
+			name:       "legacy sort breaks relevance ties",
+			searchRank: searchRank,
+			tieBreaker: `"name" ASC`,
+			want:       searchRank + ` DESC, "name" ASC`,
+		},
+		{
+			name:       "structured sort breaks relevance ties",
+			searchRank: searchRank,
+			tieBreaker: sortFieldsToSQL([]SortField{{Column: "name", Desc: true}}),
+			want:       searchRank + ` DESC, "name" DESC`,
+		},
+		{
+			name:       "non-search keeps caller sort primary",
+			tieBreaker: `"name" ASC`,
+			want:       `"name" ASC`,
+		},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			testutil.Equal(t, tt.want, orderByBody(tt.searchRank, tt.tieBreaker))
+		})
+	}
+}
+
 func TestBuildListWithDistanceSortSelectsDistanceAndPreservesCountArgs(t *testing.T) {
 	t.Parallel()
 	tbl := geometryTable()

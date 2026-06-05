@@ -316,16 +316,16 @@ func buildList(tbl *schema.Table, opts listOpts) (dataQuery string, dataArgs []a
 		}
 	}
 
-	cols = appendSelectExprs(cols, []string{distanceSelect, opts.highlightSelect})
+	cols = appendSelectExprs(cols, []string{distanceSelect, opts.highlightSelect, opts.highlightResultSelect})
 
 	// Data query — when search is active, default to relevance ordering.
 	orderClause := ""
+	tieBreakerSQL := opts.sortSQL
 	if len(sortFields) > 0 {
-		orderClause = " ORDER BY " + sortFieldsToSQL(sortFields)
-	} else if opts.sortSQL != "" {
-		orderClause = " ORDER BY " + opts.sortSQL
-	} else if opts.searchRank != "" {
-		orderClause = " ORDER BY " + opts.searchRank + " DESC"
+		tieBreakerSQL = sortFieldsToSQL(sortFields)
+	}
+	if sql := orderByBody(opts.searchRank, tieBreakerSQL); sql != "" {
+		orderClause = " ORDER BY " + sql
 	}
 
 	offset := (opts.page - 1) * opts.perPage
@@ -341,28 +341,30 @@ func buildList(tbl *schema.Table, opts listOpts) (dataQuery string, dataArgs []a
 
 // listOpts holds the parsed query parameters for a list request.
 type listOpts struct {
-	table               *schema.Table
-	page                int
-	perPage             int
-	skipTotal           bool
-	fields              []string
-	sortSQL             string
-	sort                StructuredSort
-	sortFields          []SortField
-	sortArgs            []any
-	distanceSelect      string
-	cursorSelects       []string
-	cursorHelperColumns []string
-	filterSQL           string
-	filterArgs          []any
-	spatialSQL          string
-	spatialArgs         []any
-	searchSQL           string // FTS WHERE clause
-	searchRank          string // FTS ts_rank() expression for ORDER BY
-	searchArgs          []any  // search term parameter
-	highlightSelect     string
-	highlightAlias      string
-	facetCols           []string
+	table                 *schema.Table
+	page                  int
+	perPage               int
+	skipTotal             bool
+	fields                []string
+	sortSQL               string
+	sort                  StructuredSort
+	sortFields            []SortField
+	sortArgs              []any
+	distanceSelect        string
+	cursorSelects         []string
+	cursorHelperColumns   []string
+	filterSQL             string
+	filterArgs            []any
+	spatialSQL            string
+	spatialArgs           []any
+	searchSQL             string // FTS WHERE clause
+	searchRank            string // FTS ts_rank() expression for ORDER BY
+	searchArgs            []any  // search term parameter
+	highlightSelect       string
+	highlightAlias        string
+	highlightResultSelect string
+	highlightResultAlias  string
+	facetCols             []string
 }
 
 // parsePKValues splits a composite primary key value from the URL.

@@ -1,4 +1,4 @@
-openapi: 3.1.0
+openapi: 3.0.3
 info:
   title: Allyourbase API
   description: |
@@ -1164,7 +1164,14 @@ paths:
         - $ref: "#/components/parameters/Fields"
         - $ref: "#/components/parameters/Expand"
         - $ref: "#/components/parameters/SkipTotal"
+        - $ref: "#/components/parameters/Cursor"
         - $ref: "#/components/parameters/Search"
+        - $ref: "#/components/parameters/Fuzzy"
+        - $ref: "#/components/parameters/TypoThreshold"
+        - $ref: "#/components/parameters/Highlight"
+        - $ref: "#/components/parameters/Facets"
+        - $ref: "#/components/parameters/Semantic"
+        - $ref: "#/components/parameters/SemanticQuery"
       security:
         - BearerAuth: []
         - {}
@@ -1174,7 +1181,9 @@ paths:
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/ListResponse"
+                oneOf:
+                  - $ref: "#/components/schemas/ListResponse"
+                  - $ref: "#/components/schemas/CursorListResponse"
         "400":
           description: Invalid filter or search syntax
           content:
@@ -1912,10 +1921,54 @@ components:
       schema:
         type: boolean
         default: false
+    Cursor:
+      name: cursor
+      in: query
+      description: Opaque cursor for pagination (use nextCursor from previous response)
+      schema:
+        type: string
     Search:
       name: search
       in: query
-      description: "Full-text search across all text columns. Supports PostgreSQL websearch_to_tsquery syntax."
+      description: "Full-text search across all text columns. Uses PostgreSQL websearch_to_tsquery with the default English text-search configuration, so stemming is enabled by default unless the server is configured otherwise."
+      schema:
+        type: string
+    Fuzzy:
+      name: fuzzy
+      in: query
+      description: Include fuzzy trigram matches in full-text search results.
+      schema:
+        type: boolean
+    TypoThreshold:
+      name: typo_threshold
+      in: query
+      description: Similarity threshold for fuzzy search matches.
+      schema:
+        type: number
+        minimum: 0
+        maximum: 1
+    Highlight:
+      name: highlight
+      in: query
+      description: Include legacy _highlight excerpts and per-attribute _highlightResult metadata on search results.
+      schema:
+        type: boolean
+    Facets:
+      name: facets
+      in: query
+      description: "Comma-separated column names to return facet counts for."
+      schema:
+        type: string
+    Semantic:
+      name: semantic
+      in: query
+      description: Run hybrid semantic search from the search query. When semantic=true, non-vector list modifiers highlight, fuzzy, facets, and typo_threshold are rejected.
+      schema:
+        type: boolean
+    SemanticQuery:
+      name: semantic_query
+      in: query
+      description: Semantic search query text.
       schema:
         type: string
 
@@ -1944,8 +1997,16 @@ components:
         items:
           type: array
           items:
-            type: object
-            additionalProperties: true
+            allOf:
+              - type: object
+                additionalProperties: true
+              - type: object
+                properties:
+                  _highlight:
+                    type: string
+                    description: HTML-highlighted search excerpt when highlight=true
+                  _highlightResult:
+                    $ref: "#/components/schemas/SearchHighlightResult"
           description: Records for the current page
         page:
           type: integer
@@ -1961,6 +2022,76 @@ components:
           type: integer
           description: Total pages (-1 if skipTotal=true)
           example: 3
+        facets:
+          type: object
+          description: Facet counts keyed by requested facet column
+          additionalProperties:
+            type: array
+            items:
+              type: object
+              required: [value, count]
+              properties:
+                value:
+                  description: Facet value
+                count:
+                  type: integer
+                  description: Number of matching rows for this facet value
+
+    CursorListResponse:
+      type: object
+      required: [items, perPage]
+      not:
+        required: [page]
+      properties:
+        items:
+          type: array
+          items:
+            allOf:
+              - type: object
+                additionalProperties: true
+              - type: object
+                properties:
+                  _highlight:
+                    type: string
+                    description: HTML-highlighted search excerpt when highlight=true
+                  _highlightResult:
+                    $ref: "#/components/schemas/SearchHighlightResult"
+          description: Records for the current cursor page
+        perPage:
+          type: integer
+          example: 20
+        nextCursor:
+          type: string
+          description: Opaque cursor for the next page when more rows are available
+        facets:
+          type: object
+          description: Facet counts keyed by requested facet column
+          additionalProperties:
+            type: array
+            items:
+              type: object
+              required: [value, count]
+              properties:
+                value:
+                  description: Facet value
+                count:
+                  type: integer
+                  description: Number of matching rows for this facet value
+
+    SearchHighlightResult:
+      type: object
+      description: Highlight metadata keyed by searchable attribute when highlight=true
+      additionalProperties:
+        type: object
+        required: [value, matchLevel]
+        properties:
+          value:
+            type: string
+            description: HTML-escaped attribute value with matched terms wrapped in <b> tags
+          matchLevel:
+            type: string
+            enum: [full, none]
+            description: Whether the attribute matched the search query
 
     AuthRequest:
       type: object

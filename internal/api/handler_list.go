@@ -88,7 +88,7 @@ func (h *Handler) handleList(w http.ResponseWriter, r *http.Request) {
 		sqlCondition{clause: fs.filterSQL, args: fs.filterArgs},
 		sqlCondition{clause: fs.spatialSQL, args: fs.spatialArgs},
 	)
-	if h.dispatchVectorPaths(w, r, tbl, perPage, sqlCondition{clause: vectorSQL, args: vectorArgs}) {
+	if h.dispatchVectorPaths(w, r, tbl, page, perPage, sqlCondition{clause: vectorSQL, args: vectorArgs}) {
 		return
 	}
 
@@ -136,19 +136,21 @@ func (h *Handler) parseListBaseOpts(w http.ResponseWriter, tbl *schema.Table, q 
 		return listOpts{}, false
 	}
 	return listOpts{
-		table:           tbl,
-		perPage:         perPage,
-		fields:          fields,
-		filterSQL:       fs.filterSQL,
-		filterArgs:      fs.filterArgs,
-		spatialSQL:      fs.spatialSQL,
-		spatialArgs:     fs.spatialArgs,
-		searchSQL:       search.searchSQL,
-		searchRank:      search.searchRank,
-		searchArgs:      search.searchArgs,
-		highlightSelect: search.highlightSelect,
-		highlightAlias:  search.highlightAlias,
-		facetCols:       facetCols,
+		table:                 tbl,
+		perPage:               perPage,
+		fields:                fields,
+		filterSQL:             fs.filterSQL,
+		filterArgs:            fs.filterArgs,
+		spatialSQL:            fs.spatialSQL,
+		spatialArgs:           fs.spatialArgs,
+		searchSQL:             search.searchSQL,
+		searchRank:            search.searchRank,
+		searchArgs:            search.searchArgs,
+		highlightSelect:       search.highlightSelect,
+		highlightAlias:        search.highlightAlias,
+		highlightResultSelect: search.highlightResultSelect,
+		highlightResultAlias:  search.highlightResultAlias,
+		facetCols:             facetCols,
 	}, true
 }
 
@@ -156,7 +158,7 @@ func (h *Handler) parseListBaseOpts(w http.ResponseWriter, tbl *schema.Table, q 
 // dispatches to the appropriate vector handler. Returns true if a vector path
 // was handled (including error responses), false if the caller should continue
 // with the standard list flow.
-func (h *Handler) dispatchVectorPaths(w http.ResponseWriter, r *http.Request, tbl *schema.Table, perPage int, filter sqlCondition) bool {
+func (h *Handler) dispatchVectorPaths(w http.ResponseWriter, r *http.Request, tbl *schema.Table, page, perPage int, filter sqlCondition) bool {
 	q := r.URL.Query()
 	nearestRaw := q.Get("nearest")
 	semanticQuery := q.Get("semantic_query")
@@ -185,7 +187,7 @@ func (h *Handler) dispatchVectorPaths(w http.ResponseWriter, r *http.Request, tb
 			writeErrorWithDoc(w, http.StatusBadRequest, "search term too long", docURL("/guide/api-reference#full-text-search"))
 			return true
 		}
-		h.handleHybridSearch(w, r, tbl, searchStr, q.Get("vector_column"), q.Get("distance"), perPage, filter.clause, filter.args)
+		h.handleHybridSearch(w, r, tbl, searchStr, q.Get("vector_column"), q.Get("distance"), page, perPage, filter.clause, filter.args)
 		return true
 	}
 	if nearestRaw != "" {
@@ -239,7 +241,7 @@ func (h *Handler) handleOffsetList(w http.ResponseWriter, r *http.Request, tbl *
 		return
 	}
 
-	items, err := scanListItems(rows, opts.highlightAlias)
+	items, err := scanListItems(rows, opts.highlightAlias, opts.highlightResultAlias)
 	if err != nil {
 		done(err)
 		h.logger.Error("scan error", "error", err, "table", tbl.Name)
@@ -282,7 +284,8 @@ func resolveCursorListSort(opts listOpts) (listOpts, error) {
 		return opts, err
 	}
 
-	cursorProjection := prepareCursorSortProjection(opts.table, opts.fields, resolvedSort.Fields)
+	sortFields := prependSearchRankCursorSort(opts.searchRank, resolvedSort.Fields)
+	cursorProjection := prepareCursorSortProjection(opts.table, opts.fields, sortFields)
 	opts.sortFields = cursorProjection.Fields
 	opts.cursorSelects = cursorProjection.Selects
 	opts.cursorHelperColumns = cursorProjection.HelperColumns
@@ -311,27 +314,33 @@ func decodeCursorListPredicate(opts listOpts, cursorParam string) (string, []any
 	return cursorWhere, cursorArgs, nil
 }
 
-func scanListItems(rows pgx.Rows, highlightAlias string) ([]map[string]any, error) {
+func scanListItems(rows pgx.Rows, highlightAlias, highlightResultAlias string) ([]map[string]any, error) {
 	items, err := scanRows(rows)
 	rows.Close()
 	if err != nil {
 		return nil, err
 	}
-	renameListHighlightAlias(items, highlightAlias)
+	renameListHighlightAlias(items, highlightAlias, highlightResultAlias)
 	return items, nil
 }
 
-func renameListHighlightAlias(items []map[string]any, highlightAlias string) {
-	if highlightAlias == "" {
+func renameListHighlightAlias(items []map[string]any, highlightAlias, highlightResultAlias string) {
+	if highlightAlias == "" && highlightResultAlias == "" {
 		return
 	}
 	for _, item := range items {
-		highlight, ok := item[highlightAlias]
-		if !ok {
-			continue
+		if highlightAlias != "" {
+			if highlight, ok := item[highlightAlias]; ok {
+				delete(item, highlightAlias)
+				item[searchHighlightResponseField] = highlight
+			}
 		}
-		delete(item, highlightAlias)
-		item[searchHighlightResponseField] = highlight
+		if highlightResultAlias != "" {
+			if highlightResult, ok := item[highlightResultAlias]; ok {
+				delete(item, highlightResultAlias)
+				item[searchHighlightResultResponseField] = highlightResult
+			}
+		}
 	}
 }
 
@@ -395,7 +404,7 @@ func (h *Handler) handleCursorList(
 		return
 	}
 
-	items, err := scanListItems(rows, opts.highlightAlias)
+	items, err := scanListItems(rows, opts.highlightAlias, opts.highlightResultAlias)
 	if err != nil {
 		done(err)
 		h.logger.Error("scan error", "error", err, "table", tbl.Name)

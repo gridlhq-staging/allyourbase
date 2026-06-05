@@ -17,14 +17,28 @@ export interface ListResponse<T = Record<string, unknown>> {
   facets?: FacetCounts;
 }
 
+/** Per-attribute highlight metadata returned when callers pass `highlight=true`. */
+export interface SearchHighlightResultEntry {
+  value: string;
+  matchLevel: "full" | "none" | string;
+}
+
+/** Highlight metadata keyed by searchable attribute name. */
+export type SearchHighlightResult = Record<string, SearchHighlightResultEntry>;
+
 /**
- * Mixin that widens an item shape with the optional `_highlight` field the
- * backend search path returns when callers pass the `highlight` query param.
+ * Mixin that widens an item shape with optional highlight fields the backend
+ * search path returns when callers pass the `highlight` query param. `_highlight`
+ * is the legacy combined excerpt; `_highlightResult` is keyed by searchable
+ * attribute and includes each attribute's highlighted value plus match level.
  * Used as the default item shape for `RecordsClient.list` so untyped callers
- * see `_highlight` without a cast, and as an explicit wrapper for typed
+ * see highlight metadata without a cast, and as an explicit wrapper for typed
  * callers (e.g. `list<SearchHit<MyRow>>(...)`).
  */
-export type SearchHit<T = Record<string, unknown>> = T & { _highlight?: string };
+export type SearchHit<T = Record<string, unknown>> = T & {
+  _highlight?: string;
+  _highlightResult?: SearchHighlightResult;
+};
 
 /** Single GraphQL error payload item from the GraphQL `errors` envelope. */
 export interface GraphQLErrorItem {

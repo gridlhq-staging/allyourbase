@@ -17,6 +17,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/allyourbase/ayb/internal/api"
 	"github.com/allyourbase/ayb/internal/auth"
 	"github.com/allyourbase/ayb/internal/config"
 	"github.com/allyourbase/ayb/internal/migrations"
@@ -108,12 +109,13 @@ func setupTestServerWithLogger(t *testing.T, ctx context.Context, logger *slog.L
 
 	resetAndSeedDB(t, ctx)
 
+	cfg := config.Default()
 	ch := schema.NewCacheHolder(sharedPG.Pool, logger)
+	api.RegisterSearchIndexPostReloadHook(ch, sharedPG.Pool, cfg.API, logger)
 	if err := ch.Load(ctx); err != nil {
 		t.Fatalf("loading schema cache: %v", err)
 	}
 
-	cfg := config.Default()
 	srv := server.New(cfg, logger, ch, sharedPG.Pool, nil, nil)
 
 	return srv, sharedPG
@@ -122,6 +124,22 @@ func setupTestServerWithLogger(t *testing.T, ctx context.Context, logger *slog.L
 func doRequest(t *testing.T, srv *server.Server, method, path string, body any) *httptest.ResponseRecorder {
 	t.Helper()
 	return doRequestWithClaims(t, srv, method, path, body, nil)
+}
+
+func doAPIHandlerRequest(t *testing.T, h http.Handler, method, path string, body any) *httptest.ResponseRecorder {
+	t.Helper()
+	var reqBody io.Reader
+	if body != nil {
+		b, _ := json.Marshal(body)
+		reqBody = bytes.NewReader(b)
+	}
+	req := httptest.NewRequest(method, path, reqBody)
+	if body != nil {
+		req.Header.Set("Content-Type", "application/json")
+	}
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+	return w
 }
 
 func pgTrgmInstalled(t *testing.T, ctx context.Context, pg *testutil.PGContainer) bool {
@@ -193,6 +211,32 @@ func jsonItems(t *testing.T, body map[string]any) []map[string]any {
 		items[i] = v.(map[string]any)
 	}
 	return items
+}
+
+func jsonMap(t *testing.T, v any) map[string]any {
+	t.Helper()
+	m, ok := v.(map[string]any)
+	if !ok {
+		t.Fatalf("expected object, got %T: %v", v, v)
+	}
+	return m
+}
+
+func assertHighlightResultEntry(t *testing.T, item map[string]any, column, matchLevel, valueSnippet string) {
+	t.Helper()
+	highlightResult := jsonMap(t, item["_highlightResult"])
+	entry := jsonMap(t, highlightResult[column])
+	testutil.Contains(t, jsonStr(t, entry["value"]), valueSnippet)
+	testutil.Equal(t, matchLevel, jsonStr(t, entry["matchLevel"]))
+}
+
+func responseTitles(t *testing.T, items []map[string]any) []string {
+	t.Helper()
+	titles := make([]string, len(items))
+	for i, item := range items {
+		titles[i] = jsonStr(t, item["title"])
+	}
+	return titles
 }
 
 // --- List tests ---
@@ -805,6 +849,180 @@ func TestSearchWithPagination(t *testing.T) {
 	testutil.Equal(t, 3.0, jsonNum(t, body["totalPages"]))
 }
 
+func TestSearchDefaultStemmingMatchesInflectedTerms(t *testing.T) {
+	ctx := context.Background()
+	srv, pg := setupTestServer(t, ctx)
+	_, err := pg.Pool.Exec(ctx, `
+		INSERT INTO posts (title, body, author_id, status) VALUES
+			('Runner Notes', 'running around the lake', 1, 'published'),
+			('Control Notes', 'walking around the lake', 1, 'published')
+	`)
+	testutil.NoError(t, err)
+
+	w := doRequest(t, srv, "GET", "/api/collections/posts/?search=run", nil)
+	testutil.StatusCode(t, http.StatusOK, w.Code)
+	body := parseJSON(t, w)
+	items := jsonItems(t, body)
+	titles := responseTitles(t, items)
+	got := map[string]bool{}
+	for _, title := range titles {
+		got[title] = true
+	}
+	if !got["Runner Notes"] {
+		t.Fatalf("expected stemmed search=run to include running row; got %v", titles)
+	}
+	if got["Control Notes"] {
+		t.Fatalf("expected non-matching control row to stay excluded; got %v", titles)
+	}
+}
+
+func searchPlanUsesIndex(plan any) bool {
+	switch node := plan.(type) {
+	case map[string]any:
+		nodeType, _ := node["Node Type"].(string)
+		if strings.Contains(nodeType, "Index") {
+			return true
+		}
+		for _, key := range []string{"Plans", "Inner Plan", "Outer Plan"} {
+			if searchPlanUsesIndex(node[key]) {
+				return true
+			}
+		}
+	case []any:
+		for _, child := range node {
+			if searchPlanUsesIndex(child) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func searchPlanTextColumnsFromCache(t *testing.T, ch *schema.CacheHolder) []string {
+	t.Helper()
+	sc := ch.Get()
+	testutil.NotNil(t, sc)
+	tbl := sc.TableByName("posts")
+	testutil.NotNil(t, tbl)
+	var textColumns []string
+	for _, column := range tbl.Columns {
+		base := strings.ToLower(column.TypeName)
+		if idx := strings.Index(base, "("); idx > 0 {
+			base = strings.TrimSpace(base[:idx])
+		}
+		switch base {
+		case "text", "varchar", "character varying", "char", "character", "name", "citext":
+			textColumns = append(textColumns, column.Name)
+		}
+	}
+	if len(textColumns) == 0 {
+		t.Fatalf("expected posts text columns in reloaded schema cache; columns: %v", tbl.Columns)
+	}
+	return textColumns
+}
+
+func assertPostsSearchPlanUsesIndex(t *testing.T, ctx context.Context, ch *schema.CacheHolder, searchTerm string) {
+	t.Helper()
+	// Drive EXPLAIN off the exact predicate the runtime handler generates
+	// (buildSearchSQL on the reloaded schema cache's table descriptor),
+	// not a helper-reconstructed expression. If buildSearchSQL changes
+	// shape, this assertion fails attributably instead of silently passing.
+	sc := ch.Get()
+	testutil.NotNil(t, sc)
+	tbl := sc.TableByName("posts")
+	testutil.NotNil(t, tbl)
+	whereSQL, args, err := api.BuildSearchSQLForIntegrationTest(tbl, searchTerm, 1)
+	testutil.NoError(t, err)
+
+	query := fmt.Sprintf(`EXPLAIN (FORMAT JSON) SELECT id FROM posts WHERE %s`, whereSQL)
+
+	var raw []byte
+	err = sharedPG.Pool.QueryRow(ctx, query, args...).Scan(&raw)
+	testutil.NoError(t, err)
+	var explain []map[string]any
+	testutil.NoError(t, json.Unmarshal(raw, &explain))
+	if len(explain) == 0 || !searchPlanUsesIndex(explain[0]["Plan"]) {
+		t.Fatalf("expected search plan to use an index; predicate=%s plan: %s", whereSQL, string(raw))
+	}
+}
+
+func TestSearchIndexPlanSurvivesTextColumnReload(t *testing.T) {
+	ctx := context.Background()
+	_, pg := setupTestServer(t, ctx)
+	logger := testutil.DiscardLogger()
+	ch := schema.NewCacheHolder(pg.Pool, logger)
+	api.RegisterSearchIndexPostReloadHook(ch, pg.Pool, config.Default().API, logger)
+	testutil.NoError(t, ch.Load(ctx))
+	_, err := pg.Pool.Exec(ctx, `
+		INSERT INTO posts (title, body, author_id, status)
+		SELECT 'Indexed Filler ' || gs, 'search index body ' || gs, 1, 'published'
+		FROM generate_series(1, 2500) AS gs;
+		INSERT INTO posts (title, body, author_id, status)
+		VALUES ('Indexed Needle', 'rare search index body', 1, 'published');
+		ANALYZE posts;
+	`)
+	testutil.NoError(t, err)
+
+	t.Run("before_reload_uses_index", func(t *testing.T) {
+		assertPostsSearchPlanUsesIndex(t, ctx, ch, "needle")
+	})
+
+	_, err = pg.Pool.Exec(ctx, `
+		ALTER TABLE posts ADD COLUMN summary TEXT DEFAULT '';
+		UPDATE posts SET summary = 'new searchable text ' || id;
+		INSERT INTO posts (title, body, author_id, status, summary)
+		VALUES ('Runtime Summary Only', 'ordinary body', 1, 'published', 'runtimeonly');
+		ANALYZE posts;
+	`)
+	testutil.NoError(t, err)
+	testutil.NoError(t, ch.ReloadWait(ctx))
+
+	t.Run("after_reload_runtime_uses_new_text_column", func(t *testing.T) {
+		textColumns := searchPlanTextColumnsFromCache(t, ch)
+		foundSummary := false
+		for _, column := range textColumns {
+			if column == "summary" {
+				foundSummary = true
+			}
+		}
+		if !foundSummary {
+			t.Fatalf("expected reloaded schema cache to include summary in searchable text columns; got %v", textColumns)
+		}
+
+		srv := server.New(config.Default(), logger, ch, pg.Pool, nil, nil)
+		w := doRequest(t, srv, "GET", "/api/collections/posts/?search=runtimeonly", nil)
+		testutil.StatusCode(t, http.StatusOK, w.Code)
+		body := parseJSON(t, w)
+		items := jsonItems(t, body)
+		testutil.Equal(t, 1, len(items))
+		testutil.Equal(t, "Runtime Summary Only", jsonStr(t, items[0]["title"]))
+	})
+
+	t.Run("after_reload_uses_index", func(t *testing.T) {
+		assertPostsSearchPlanUsesIndex(t, ctx, ch, "needle")
+	})
+}
+
+func TestSchemaReloadHookFailureKeepsPreviousCache(t *testing.T) {
+	ctx := context.Background()
+	resetAndSeedDB(t, ctx)
+
+	logger := testutil.DiscardLogger()
+	ch := schema.NewCacheHolder(sharedPG.Pool, logger)
+	testutil.NoError(t, ch.Load(ctx))
+	testutil.True(t, ch.Get().TableByName("posts").ColumnByName("summary") == nil, "summary should not exist before reload")
+
+	ch.RegisterPostReloadHook(func(context.Context, *schema.SchemaCache) error {
+		return fmt.Errorf("boom")
+	})
+
+	_, err := sharedPG.Pool.Exec(ctx, `ALTER TABLE posts ADD COLUMN summary TEXT DEFAULT ''`)
+	testutil.NoError(t, err)
+
+	testutil.ErrorContains(t, ch.ReloadWait(ctx), "post schema reload hook: boom")
+	testutil.True(t, ch.Get().TableByName("posts").ColumnByName("summary") == nil, "failed hook must not publish partially reloaded cache")
+}
+
 func TestSearchNoTextColumnsTable(t *testing.T) {
 	ctx := context.Background()
 	srv, pg := setupTestServer(t, ctx)
@@ -909,6 +1127,8 @@ func TestSearchHighlight(t *testing.T) {
 		testutil.Equal(t, 1, len(items))
 		testutil.Equal(t, "First Post", jsonStr(t, items[0]["title"]))
 		testutil.Contains(t, jsonStr(t, items[0]["_highlight"]), "<b>Hello</b> world")
+		assertHighlightResultEntry(t, items[0], "body", "full", "<b>Hello</b> world")
+		assertHighlightResultEntry(t, items[0], "title", "none", "First Post")
 		testutil.Equal(t, "stored old highlight column", jsonStr(t, items[0]["__search_highlight"]))
 		testutil.Equal(t, "stored ayb highlight column", jsonStr(t, items[0]["__ayb_search_highlight"]))
 	})
@@ -983,6 +1203,41 @@ func TestSearchHighlightRejectsResponseFieldCollision(t *testing.T) {
 		body := parseJSON(t, w)
 		testutil.Contains(t, jsonStr(t, body["message"]), `"_highlight" column`)
 	})
+}
+
+func TestSearchHighlightRejectsHighlightResultFieldCollision(t *testing.T) {
+	ctx := context.Background()
+	resetAndSeedDB(t, ctx)
+	_, err := sharedPG.Pool.Exec(ctx, `ALTER TABLE posts ADD COLUMN "_highlightResult" JSONB DEFAULT '{}'::jsonb`)
+	testutil.NoError(t, err)
+
+	logger := testutil.DiscardLogger()
+	ch := schema.NewCacheHolder(sharedPG.Pool, logger)
+	testutil.NoError(t, ch.Load(ctx))
+	srv := server.New(config.Default(), logger, ch, sharedPG.Pool, nil, nil)
+
+	w := doRequest(t, srv, "GET", "/api/collections/posts/?search=hello&highlight=true", nil)
+	testutil.StatusCode(t, http.StatusBadRequest, w.Code)
+	body := parseJSON(t, w)
+	testutil.Contains(t, jsonStr(t, body["message"]), `"_highlightResult" column`)
+}
+
+func TestSearchRelevanceBeforeStructuredSort(t *testing.T) {
+	ctx := context.Background()
+	srv, pg := setupTestServer(t, ctx)
+	_, err := pg.Pool.Exec(ctx, `
+		INSERT INTO posts (title, body, author_id, status) VALUES
+			('More Relevant Needle', 'needle needle needle needle', 1, 'z_last'),
+			('Less Relevant Needle', 'needle', 1, 'a_first')
+	`)
+	testutil.NoError(t, err)
+
+	w := doRequest(t, srv, "GET", "/api/collections/posts/?search=needle&sort=status", nil)
+	testutil.StatusCode(t, http.StatusOK, w.Code)
+	body := parseJSON(t, w)
+	items := jsonItems(t, body)
+	testutil.True(t, len(items) >= 2, "expected both relevance fixtures, got %v", responseTitles(t, items))
+	testutil.Equal(t, "More Relevant Needle", jsonStr(t, items[0]["title"]))
 }
 
 func TestSearchTypoThreshold(t *testing.T) {
@@ -2115,6 +2370,24 @@ func TestCursorPaginationWithSearch(t *testing.T) {
 	}
 }
 
+func TestCursorSearchRelevanceBeforeStructuredSort(t *testing.T) {
+	ctx := context.Background()
+	srv := setupCursorTestServer(t, ctx)
+	_, err := sharedPG.Pool.Exec(ctx, `
+		INSERT INTO items (title, category, created_at) VALUES
+			('Needle Needle Needle', 'z_last', '2024-02-01T00:00:00Z'),
+			('Needle', 'a_first', '2024-02-02T00:00:00Z')
+	`)
+	testutil.NoError(t, err)
+
+	w := doRequest(t, srv, "GET", "/api/collections/items/?cursor=&perPage=1&sort=category&search=needle", nil)
+	testutil.StatusCode(t, http.StatusOK, w.Code)
+	body := parseJSON(t, w)
+	items := jsonItems(t, body)
+	testutil.Equal(t, 1, len(items))
+	testutil.Equal(t, "Needle Needle Needle", jsonStr(t, items[0]["title"]))
+}
+
 func TestCursorPaginationWithSearchHighlightOnPosts(t *testing.T) {
 	ctx := context.Background()
 	srv := setupCursorTestServer(t, ctx)
@@ -2127,6 +2400,8 @@ func TestCursorPaginationWithSearchHighlightOnPosts(t *testing.T) {
 	testutil.Equal(t, 1, len(items))
 	testutil.Equal(t, "First Post", jsonStr(t, items[0]["title"]))
 	testutil.Contains(t, jsonStr(t, items[0]["_highlight"]), "<b>Hello</b> world")
+	assertHighlightResultEntry(t, items[0], "body", "full", "<b>Hello</b> world")
+	assertHighlightResultEntry(t, items[0], "title", "none", "First Post")
 }
 
 func TestCursorPaginationIncludesFacetsWhenRequested(t *testing.T) {
@@ -2161,6 +2436,115 @@ func TestCursorInvalidIntegration(t *testing.T) {
 	if msg == "internal error" {
 		t.Fatal("expected user-friendly error, got 'internal error'")
 	}
+}
+
+func setupHybridSearchPaginationHandler(t *testing.T, ctx context.Context) http.Handler {
+	t.Helper()
+	resetAndSeedDB(t, ctx)
+	_, err := sharedPG.Pool.Exec(ctx, `
+		CREATE EXTENSION IF NOT EXISTS vector;
+		CREATE TABLE articles (
+			id SERIAL PRIMARY KEY,
+			title TEXT NOT NULL,
+			body TEXT NOT NULL,
+			embedding vector(3) NOT NULL
+		);
+		-- Bodies repeat "needle" decreasing times so FTS ts_rank is strictly
+		-- monotonic by id (1 highest, 5 lowest). Embeddings are also strictly
+		-- monotonic by id under the [1,0,0] query vector when requests use l2
+		-- distance; default cosine would tie these collinear vectors. Both signals agree,
+		-- so RRF produces a stable [1,2,3,4,5] merged order regardless of
+		-- tied-score sort instability, pinning page 2 = [3,4] deterministically.
+		INSERT INTO articles (title, body, embedding) VALUES
+			('Article 1', 'needle needle needle needle needle alpha', '[1,0,0]'),
+			('Article 2', 'needle needle needle needle bravo', '[0.9,0,0]'),
+			('Article 3', 'needle needle needle charlie', '[0.8,0,0]'),
+			('Article 4', 'needle needle delta', '[0.7,0,0]'),
+			('Article 5', 'needle echo', '[0.6,0,0]');
+	`)
+	testutil.NoError(t, err)
+
+	logger := testutil.DiscardLogger()
+	ch := schema.NewCacheHolder(sharedPG.Pool, logger)
+	testutil.NoError(t, ch.Load(ctx))
+	h := api.NewHandler(sharedPG.Pool, ch, logger, nil, nil, nil)
+	h.ApplyOptions(api.WithEmbedder(func(_ context.Context, texts []string) ([][]float64, error) {
+		if len(texts) != 1 || texts[0] != "needle" {
+			t.Fatalf("embedding input = %v, want [needle]", texts)
+		}
+		return [][]float64{{1, 0, 0}}, nil
+	}))
+	return h.Routes()
+}
+
+func TestHybridSearchPaginationMetadataIntegration(t *testing.T) {
+	ctx := context.Background()
+	h := setupHybridSearchPaginationHandler(t, ctx)
+
+	page1 := doAPIHandlerRequest(t, h, "GET", "/collections/articles/?search=needle&semantic=true&perPage=2&page=1&distance=l2", nil)
+	testutil.StatusCode(t, http.StatusOK, page1.Code)
+	page1Body := parseJSON(t, page1)
+	page1Items := jsonItems(t, page1Body)
+	testutil.Equal(t, 2, len(page1Items))
+
+	page2 := doAPIHandlerRequest(t, h, "GET", "/collections/articles/?search=needle&semantic=true&perPage=2&page=2&distance=l2", nil)
+	testutil.StatusCode(t, http.StatusOK, page2.Code)
+	page2Body := parseJSON(t, page2)
+	page2Items := jsonItems(t, page2Body)
+	testutil.Equal(t, 2.0, jsonNum(t, page2Body["page"]))
+	testutil.Equal(t, 2.0, jsonNum(t, page2Body["perPage"]))
+	testutil.Equal(t, 5.0, jsonNum(t, page2Body["totalItems"]))
+	testutil.Equal(t, 3.0, jsonNum(t, page2Body["totalPages"]))
+	testutil.Equal(t, 2, len(page2Items))
+
+	// Pin the exact page windows for the deterministic fixture, not just
+	// disjointness. With both signals strictly monotonic by id under the
+	// [1,0,0] query vector with l2 distance, RRF must produce [1,2,3,4,5]; page 1 = {1,2}
+	// and page 2 = {3,4}. A broken pagination that drops one expected row
+	// and returns any other disjoint pair would otherwise still pass.
+	page1IDs := collectIDSet(t, page1Items)
+	expectedPage1 := map[float64]struct{}{1: {}, 2: {}}
+	if !idSetsEqual(page1IDs, expectedPage1) {
+		t.Fatalf("page 1 ids = %v, want {1,2}; page1=%v", page1IDs, page1Items)
+	}
+	page2IDs := collectIDSet(t, page2Items)
+	expectedPage2 := map[float64]struct{}{3: {}, 4: {}}
+	if !idSetsEqual(page2IDs, expectedPage2) {
+		t.Fatalf("page 2 ids = %v, want {3,4}; page2=%v", page2IDs, page2Items)
+	}
+
+	page3 := doAPIHandlerRequest(t, h, "GET", "/collections/articles/?search=needle&semantic=true&perPage=2&page=3&distance=l2", nil)
+	testutil.StatusCode(t, http.StatusOK, page3.Code)
+	page3Body := parseJSON(t, page3)
+	page3Items := jsonItems(t, page3Body)
+	testutil.Equal(t, 1, len(page3Items))
+	page3IDs := collectIDSet(t, page3Items)
+	if _, ok := page3IDs[5]; !ok || len(page3IDs) != 1 {
+		t.Fatalf("page 3 ids = %v, want {5}; page3=%v", page3IDs, page3Items)
+	}
+}
+
+// collectIDSet pulls the integer-valued "id" field from each row into a set
+// (using float64 keys because parsed JSON numbers come back as float64).
+func collectIDSet(t *testing.T, items []map[string]any) map[float64]struct{} {
+	t.Helper()
+	out := make(map[float64]struct{}, len(items))
+	for _, item := range items {
+		out[jsonNum(t, item["id"])] = struct{}{}
+	}
+	return out
+}
+
+func idSetsEqual(a, b map[float64]struct{}) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for k := range a {
+		if _, ok := b[k]; !ok {
+			return false
+		}
+	}
+	return true
 }
 
 // --- Export tests ---
@@ -2219,6 +2603,44 @@ in title', 'normal body', 'draft');
 
 func setupExportTestServer(t *testing.T, ctx context.Context) *server.Server {
 	return setupExportTestServerWithAPILimits(t, ctx, nil)
+}
+
+func csvRecords(t *testing.T, body string) [][]string {
+	t.Helper()
+	records, err := csv.NewReader(strings.NewReader(body)).ReadAll()
+	if err != nil {
+		t.Fatalf("parsing CSV: %v\nbody:\n%s", err, body)
+	}
+	return records
+}
+
+func csvColumnIndex(t *testing.T, header []string, name string) int {
+	t.Helper()
+	for i, col := range header {
+		if col == name {
+			return i
+		}
+	}
+	t.Fatalf("column %q not found in header %v", name, header)
+	return -1
+}
+
+func TestExportSearchRelevanceBeforeLegacySort(t *testing.T) {
+	ctx := context.Background()
+	srv := setupExportTestServer(t, ctx)
+	_, err := sharedPG.Pool.Exec(ctx, `
+		INSERT INTO posts (title, body, status) VALUES
+			('More Relevant Needle', 'needle needle needle needle', 'z_last'),
+			('Less Relevant Needle', 'needle', 'a_first')
+	`)
+	testutil.NoError(t, err)
+
+	w := doRequest(t, srv, "GET", "/api/collections/posts/export.csv?search=needle&sort=status", nil)
+	testutil.StatusCode(t, http.StatusOK, w.Code)
+	records := csvRecords(t, w.Body.String())
+	testutil.True(t, len(records) >= 3, "expected header plus both relevance fixtures")
+	titleIdx := csvColumnIndex(t, records[0], "title")
+	testutil.Equal(t, "More Relevant Needle", records[1][titleIdx])
 }
 
 func TestExportCSVIntegration(t *testing.T) {
@@ -2887,6 +3309,9 @@ func TestSearchSynonymsHighlight(t *testing.T) {
 			foundMarkup = true
 			highlight := jsonStr(t, item["_highlight"])
 			testutil.Contains(t, highlight, "&lt;script&gt;alert(1)&lt;/script&gt;")
+			highlightResult := jsonMap(t, item["_highlightResult"])
+			bodyResult := jsonMap(t, highlightResult["body"])
+			testutil.Contains(t, jsonStr(t, bodyResult["value"]), "&lt;script&gt;alert(1)&lt;/script&gt;")
 			if strings.Contains(highlight, "<script>") {
 				t.Fatalf("synonym-expanded highlight leaked raw <script>: %q", highlight)
 			}

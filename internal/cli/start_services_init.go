@@ -9,6 +9,7 @@ import (
 	"os"
 	"time"
 
+	"github.com/allyourbase/ayb/internal/api"
 	"github.com/allyourbase/ayb/internal/auth"
 	"github.com/allyourbase/ayb/internal/branching"
 	"github.com/allyourbase/ayb/internal/config"
@@ -211,11 +212,13 @@ func startInitDatabaseSchemaWatcher(
 	ctx context.Context,
 	initPool initDatabasePool,
 	databaseURL string,
+	apiCfg config.APIConfig,
 	logger *slog.Logger,
 	sp *startupProgress,
 ) (*schema.CacheHolder, context.CancelFunc, error) {
 	sp.step("Loading schema...")
 	schemaCache := schema.NewCacheHolder(initPool.DB(), logger)
+	api.RegisterSearchIndexPostReloadHook(schemaCache, initPool.DB(), apiCfg, logger)
 	watcher := schema.NewWatcher(schemaCache, initPool.DB(), databaseURL, logger)
 
 	watcherCtx, watcherCancel := context.WithCancel(ctx)
@@ -305,7 +308,7 @@ func initDatabase(
 		return nil, nil, nil, nil, nil
 	}
 
-	schemaCache, watcherCancel, err := startInitDatabaseSchemaWatcher(ctx, initPool, cfg.Database.URL, logger, sp)
+	schemaCache, watcherCancel, err := startInitDatabaseSchemaWatcher(ctx, initPool, cfg.Database.URL, cfg.API, logger, sp)
 	if err != nil {
 		return nil, nil, nil, nil, err
 	}

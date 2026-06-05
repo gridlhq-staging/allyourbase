@@ -4,6 +4,7 @@ package schema_test
 
 import (
 	"context"
+	"errors"
 	"sync"
 	"testing"
 
@@ -76,6 +77,27 @@ func TestCacheHolderReady(t *testing.T) {
 		// OK
 	default:
 		t.Fatal("ready should be signaled after Load()")
+	}
+}
+
+func TestCacheHolderReadyWaitsForPostReloadHooks(t *testing.T) {
+	ctx := context.Background()
+	resetDB(t, ctx)
+	createTestSchema(t, ctx)
+
+	ch := schema.NewCacheHolder(sharedPG.Pool, testutil.DiscardLogger())
+	ch.RegisterPostReloadHook(func(context.Context, *schema.SchemaCache) error {
+		return errors.New("search index ensure failed")
+	})
+
+	err := ch.Load(ctx)
+	testutil.Error(t, err)
+	testutil.Contains(t, err.Error(), "post schema reload hook")
+
+	select {
+	case <-ch.Ready():
+		t.Fatal("ready should not be signaled when the first post-reload hook fails")
+	default:
 	}
 }
 

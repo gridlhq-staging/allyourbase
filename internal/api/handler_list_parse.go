@@ -19,11 +19,13 @@ type filterSearchResult struct {
 }
 
 type searchParamResult struct {
-	searchSQL       string
-	searchRank      string
-	searchArgs      []any
-	highlightSelect string
-	highlightAlias  string
+	searchSQL             string
+	searchRank            string
+	searchArgs            []any
+	highlightSelect       string
+	highlightAlias        string
+	highlightResultSelect string
+	highlightResultAlias  string
 }
 
 // filterSpatialResult holds parsed filter and spatial SQL fragments.
@@ -186,10 +188,12 @@ func (h *Handler) parseSearchParam(w http.ResponseWriter, tbl *schema.Table, q u
 		writeErrorWithDoc(w, http.StatusBadRequest, "search term too long", docURL("/guide/api-reference#full-text-search"))
 		return res, false
 	}
+	apiCfg := h.effectiveAPIConfig()
 	search, err := buildSearchSQL(tbl, searchStr, argOffset, searchOptions{
-		fuzzy:         fuzzy,
-		typoThreshold: typoThreshold,
-		highlight:     highlight,
+		fuzzy:            fuzzy,
+		typoThreshold:    typoThreshold,
+		highlight:        highlight,
+		textSearchConfig: apiCfg.TextSearchConfig,
 	})
 	if err != nil {
 		writeErrorWithDoc(w, http.StatusBadRequest, "search not supported: "+err.Error(), docURL("/guide/api-reference#full-text-search"))
@@ -200,6 +204,8 @@ func (h *Handler) parseSearchParam(w http.ResponseWriter, tbl *schema.Table, q u
 	res.searchArgs = search.args
 	res.highlightSelect = search.highlightSelect
 	res.highlightAlias = search.highlightAlias
+	res.highlightResultSelect = search.highlightResultSelect
+	res.highlightResultAlias = search.highlightResultAlias
 	return res, true
 }
 

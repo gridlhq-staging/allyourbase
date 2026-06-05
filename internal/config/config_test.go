@@ -73,6 +73,7 @@ func TestDefault(t *testing.T) {
 	testutil.Equal(t, 100000, cfg.API.ImportMaxRows)
 	testutil.Equal(t, 1000000, cfg.API.ExportMaxRows)
 	testutil.Equal(t, true, cfg.API.AggregateEnabled)
+	testutil.Equal(t, "english", cfg.API.TextSearchConfig)
 
 	testutil.Equal(t, "", cfg.Billing.Provider)
 	testutil.Equal(t, 3600, cfg.Billing.UsageSyncIntervalSecs)
@@ -1033,6 +1034,11 @@ func TestValidate(t *testing.T) {
 			modify:  func(c *Config) { c.API.ExportMaxRows = 0 },
 			wantErr: "api.export_max_rows must be positive",
 		},
+		{
+			name:    "invalid api.text_search_config is rejected",
+			modify:  func(c *Config) { c.API.TextSearchConfig = `english'; DROP TABLE posts; --` },
+			wantErr: "api.text_search_config",
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -1151,6 +1157,7 @@ import_max_size_mb = 12
 import_max_rows = 250
 export_max_rows = 1000
 aggregate_enabled = false
+text_search_config = "simple"
 `
 	err := os.WriteFile(tomlPath, []byte(content), 0o644)
 	testutil.NoError(t, err)
@@ -1161,6 +1168,7 @@ aggregate_enabled = false
 	testutil.Equal(t, 250, cfg.API.ImportMaxRows)
 	testutil.Equal(t, 1000, cfg.API.ExportMaxRows)
 	testutil.Equal(t, false, cfg.API.AggregateEnabled)
+	testutil.Equal(t, "simple", cfg.API.TextSearchConfig)
 }
 
 func TestLoadMissingAPISectionUsesDefaults(t *testing.T) {
@@ -1178,6 +1186,7 @@ func TestLoadMissingAPISectionUsesDefaults(t *testing.T) {
 	testutil.Equal(t, defaults.API.ImportMaxRows, cfg.API.ImportMaxRows)
 	testutil.Equal(t, defaults.API.ExportMaxRows, cfg.API.ExportMaxRows)
 	testutil.Equal(t, defaults.API.AggregateEnabled, cfg.API.AggregateEnabled)
+	testutil.Equal(t, defaults.API.TextSearchConfig, cfg.API.TextSearchConfig)
 }
 
 func TestLoadMinPasswordLengthFromFile(t *testing.T) {

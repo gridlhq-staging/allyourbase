@@ -17,12 +17,12 @@ For the canonical AYB search behavior, examples, response shape, and RLS notes, 
 | Synonyms | Per-collection synonym groups configured through admin collection settings |
 | Facets | `facets=column_a,column_b` for scalar column buckets in the list response |
 | Filters | `filter=<expr>` using AYB's safe filter syntax |
-| Highlight snippets | `highlight=true` returns `_highlight` in matching result items |
+| Highlight snippets | `highlight=true` returns `_highlight` and `_highlightResult` in matching result items |
 | SDK search request | `ayb.records.list("table", { search, fuzzy, typoThreshold, highlight, filter, facets })` |
 | Result hits | `items` in the list response |
 | Facet counts | `facets.<column>[]` buckets in the list response |
 
-AYB search and facets run through the same scoped collection query path as normal record listing. Row-level security applies to returned `items`, totals, and facet counts.
+AYB search and facets run through the same scoped collection query path as normal record listing. Row-level security applies to returned `items`, totals, and facet counts. [Search](/guide/search) owns the detailed AYB behavior for stemming, relevance-first ordering, pagination, highlight response shape, and hybrid-mode boundaries.
 
 ## Query with the REST API
 
@@ -57,12 +57,15 @@ const results = await ayb.records.list("products", {
 
 console.log(results.items);
 console.log(results.items[0]?._highlight);
+console.log(results.items[0]?._highlightResult);
 console.log(results.facets?.brand);
 ```
 
 The SDK forwards the same parameter names as the REST API. `highlight` is a
 boolean toggle, and `typoThreshold` is only accepted when `fuzzy: true`. Facets
 are returned under the optional `facets` response field, keyed by column name.
+For the exact highlight metadata shape and search-mode compatibility rules, use
+[Search](/guide/search).
 
 ## Moving your data
 
@@ -103,7 +106,7 @@ With `--include-synonyms`, AYB carries over only supported equivalent Algolia sy
 
 AYB's shipped PostgreSQL search path is useful when your application can use database-owned search, filters, facets, and RLS-scoped counts from one API. It is not an Algolia feature clone.
 
-AYB already ships typo-threshold tuning on fuzzy search, per-collection synonym groups, and `_highlight` snippets when you request `highlight=true`. The remaining gaps are:
+AYB already ships typo-threshold tuning on fuzzy search, per-collection synonym groups, and `_highlight` / `_highlightResult` snippets when you request `highlight=true`. The remaining gaps are:
 
 - Algolia ranking-rule translation
 - hosted index operations separate from PostgreSQL

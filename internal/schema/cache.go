@@ -11,6 +11,10 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
+// PostReloadHook runs after a successful schema cache rebuild and before the
+// new cache is published to readers.
+type PostReloadHook func(ctx context.Context, sc *SchemaCache) error
+
 // CacheHolder provides thread-safe access to the current SchemaCache.
 // Reads are lock-free (atomic pointer load). Writes build a new immutable
 // SchemaCache and swap it in atomically.
@@ -23,6 +27,7 @@ type CacheHolder struct {
 	ready     chan struct{} // closed after the first successful load
 	readyOnce sync.Once     // ensures ready is closed exactly once
 	readyInit sync.Once     // ensures ready channel is created exactly once
+	hooks     []PostReloadHook
 }
 
 // NewCacheHolder creates a CacheHolder. Call Load() to perform the initial introspection.
@@ -71,6 +76,17 @@ func (h *CacheHolder) SetForTesting(sc *SchemaCache) {
 	}
 }
 
+// RegisterPostReloadHook registers work that should run after every successful
+// schema cache reload. Hooks are serialized with reloads.
+func (h *CacheHolder) RegisterPostReloadHook(hook PostReloadHook) {
+	if hook == nil {
+		return
+	}
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.hooks = append(h.hooks, hook)
+}
+
 // Reload re-introspects the database and atomically swaps the cache.
 // Returns immediately if a reload is already in progress.
 func (h *CacheHolder) Reload(ctx context.Context) error {
@@ -97,7 +113,9 @@ func (h *CacheHolder) ReloadWait(ctx context.Context) error {
 	return h.reloadLocked(ctx)
 }
 
-// reloadLocked builds a new schema cache from the database and atomically swaps it in. Must be called with h.mu held. On first successful load, closes the ready channel to signal cache availability.
+// reloadLocked builds a new schema cache from the database and atomically swaps
+// it in. Must be called with h.mu held. On first successful load, closes the
+// ready channel after post-reload hooks succeed.
 func (h *CacheHolder) reloadLocked(ctx context.Context) error {
 	sc, err := BuildCache(ctx, h.pool)
 	if err != nil {
@@ -105,8 +123,16 @@ func (h *CacheHolder) reloadLocked(ctx context.Context) error {
 	}
 
 	tableCount := len(sc.Tables)
+	for _, hook := range h.hooks {
+		if err := hook(ctx, sc); err != nil {
+			return fmt.Errorf("post schema reload hook: %w", err)
+		}
+	}
+
 	h.cache.Store(sc)
-	// Signal readiness on first successful load.
+
+	// Signal readiness only after first-load lifecycle hooks complete. Startup
+	// waits on Ready(), so hook failures must remain visible to the caller.
 	h.ensureReady()
 	h.readyOnce.Do(func() { close(h.ready) })
 

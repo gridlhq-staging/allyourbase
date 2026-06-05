@@ -1930,7 +1930,7 @@ components:
     Search:
       name: search
       in: query
-      description: "Full-text search across all text columns. Supports PostgreSQL websearch_to_tsquery syntax."
+      description: "Full-text search across all text columns. Uses PostgreSQL websearch_to_tsquery with the default English text-search configuration, so stemming is enabled by default unless the server is configured otherwise."
       schema:
         type: string
     Fuzzy:
@@ -1950,7 +1950,7 @@ components:
     Highlight:
       name: highlight
       in: query
-      description: Include _highlight excerpts on search results.
+      description: Include legacy _highlight excerpts and per-attribute _highlightResult metadata on search results.
       schema:
         type: boolean
     Facets:
@@ -1962,7 +1962,7 @@ components:
     Semantic:
       name: semantic
       in: query
-      description: Run semantic search from the search query.
+      description: Run hybrid semantic search from the search query. When semantic=true, non-vector list modifiers highlight, fuzzy, facets, and typo_threshold are rejected.
       schema:
         type: boolean
     SemanticQuery:
@@ -2005,6 +2005,8 @@ components:
                   _highlight:
                     type: string
                     description: HTML-highlighted search excerpt when highlight=true
+                  _highlightResult:
+                    $ref: "#/components/schemas/SearchHighlightResult"
           description: Records for the current page
         page:
           type: integer
@@ -2052,6 +2054,8 @@ components:
                   _highlight:
                     type: string
                     description: HTML-highlighted search excerpt when highlight=true
+                  _highlightResult:
+                    $ref: "#/components/schemas/SearchHighlightResult"
           description: Records for the current cursor page
         perPage:
           type: integer
@@ -2073,6 +2077,21 @@ components:
                 count:
                   type: integer
                   description: Number of matching rows for this facet value
+
+    SearchHighlightResult:
+      type: object
+      description: Highlight metadata keyed by searchable attribute when highlight=true
+      additionalProperties:
+        type: object
+        required: [value, matchLevel]
+        properties:
+          value:
+            type: string
+            description: HTML-escaped attribute value with matched terms wrapped in <b> tags
+          matchLevel:
+            type: string
+            enum: [full, none]
+            description: Whether the attribute matched the search query
 
     AuthRequest:
       type: object

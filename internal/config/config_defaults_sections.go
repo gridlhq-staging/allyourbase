@@ -94,6 +94,7 @@ func defaultAPIConfig() APIConfig {
 		ImportMaxRows:    100000,
 		ExportMaxRows:    1000000,
 		AggregateEnabled: true,
+		TextSearchConfig: "english",
 	}
 }
 

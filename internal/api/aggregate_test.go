@@ -597,6 +597,17 @@ func TestAggregateEnabledWhenOnlyImportLimitOverridden(t *testing.T) {
 	testutil.Equal(t, http.StatusInternalServerError, w.Code)
 }
 
+func TestAggregateEnabledWhenOnlyTextSearchConfigOverridden(t *testing.T) {
+	t.Parallel()
+	h := testHandlerWithOptions(
+		aggregateTestSchema(),
+		WithAPILimits(config.APIConfig{TextSearchConfig: "simple"}),
+	)
+	w := doRequest(h, "GET", "/collections/products?aggregate=count", "")
+	// Aggregates stay enabled here; with no DB pool the request should fail at query time.
+	testutil.Equal(t, http.StatusInternalServerError, w.Code)
+}
+
 func TestAggregateSearchAllowsFuzzyWithNonEmptySearch(t *testing.T) {
 	t.Parallel()
 	h := testHandler(aggregateTestSchema())

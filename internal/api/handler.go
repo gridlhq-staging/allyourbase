@@ -131,7 +131,10 @@ func NewHandler(pool *pgxpool.Pool, schemaCache *schema.CacheHolder, logger *slo
 	}
 }
 
-// effectiveAPIConfig returns the effective API configuration by applying defaults to any unset numeric limits (ImportMaxSizeMB, ImportMaxRows, ExportMaxRows). When only some limits are configured without explicitly setting AggregateEnabled, the default aggregate behavior is preserved to maintain backward compatibility.
+// effectiveAPIConfig returns the effective API configuration by applying defaults
+// to any unset runtime API fields. When callers partially override those fields
+// without explicitly setting AggregateEnabled, the default aggregate behavior is
+// preserved to maintain backward compatibility.
 func (h *Handler) effectiveAPIConfig() config.APIConfig {
 	defaults := config.Default().API
 	apiCfg := h.apiCfg
@@ -144,18 +147,23 @@ func (h *Handler) effectiveAPIConfig() config.APIConfig {
 	if apiCfg.ExportMaxRows <= 0 {
 		apiCfg.ExportMaxRows = defaults.ExportMaxRows
 	}
-	// When callers partially override numeric limits with WithAPILimits and omit
+	if apiCfg.TextSearchConfig == "" {
+		apiCfg.TextSearchConfig = defaults.TextSearchConfig
+	}
+	// When callers partially override API defaults with WithAPILimits and omit
 	// AggregateEnabled, preserve the default aggregate behavior.
 	if !h.apiCfg.AggregateEnabled {
-		configuredLimits := configuredAPILimitCount(h.apiCfg)
-		if configuredLimits > 0 && configuredLimits < 3 {
+		configuredFields := configuredAPIDefaultFieldCount(h.apiCfg)
+		if configuredFields > 0 && configuredFields < apiDefaultFieldCount {
 			apiCfg.AggregateEnabled = defaults.AggregateEnabled
 		}
 	}
 	return apiCfg
 }
 
-func configuredAPILimitCount(cfg config.APIConfig) int {
+const apiDefaultFieldCount = 4
+
+func configuredAPIDefaultFieldCount(cfg config.APIConfig) int {
 	count := 0
 	if cfg.ImportMaxSizeMB > 0 {
 		count++
@@ -164,6 +172,9 @@ func configuredAPILimitCount(cfg config.APIConfig) int {
 		count++
 	}
 	if cfg.ExportMaxRows > 0 {
+		count++
+	}
+	if cfg.TextSearchConfig != "" {
 		count++
 	}
 	return count

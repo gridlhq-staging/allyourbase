@@ -1,3 +1,4 @@
+// Package api Stub summary for /Users/stuart/parallel_development/allyourbase_dev/jun05_pm_1_search_engine_perf_stemming_highlight/allyourbase_dev/internal/api/cursor.go.
 package api
 
 import (
@@ -12,6 +13,7 @@ import (
 
 const maxCursorLen = 4096 // max encoded cursor string length
 const cursorSortSelectAliasPrefix = "__cursor_sort_"
+const cursorSearchRankSortColumn = "__cursor_search_rank"
 
 // SortField is a parsed sort column with direction.
 type SortField struct {
@@ -19,6 +21,9 @@ type SortField struct {
 	Expr         string
 	ResultColumn string
 	Desc         bool
+	// RequiresCursorProjection forces computed sort keys through a hidden alias
+	// even if Column matches a real result column.
+	RequiresCursorProjection bool
 }
 
 type cursorSortProjection struct {
@@ -81,6 +86,16 @@ func sortFieldsToSQL(fields []SortField) string {
 	return strings.Join(parts, ", ")
 }
 
+func orderByBody(searchRank, tieBreakerSQL string) string {
+	if searchRank == "" {
+		return tieBreakerSQL
+	}
+	if tieBreakerSQL == "" {
+		return searchRank + " DESC"
+	}
+	return searchRank + " DESC, " + tieBreakerSQL
+}
+
 func sortFieldExpr(field SortField) string {
 	if field.Expr != "" {
 		return field.Expr
@@ -96,6 +111,14 @@ func sortFieldResultColumn(field SortField) string {
 }
 
 func projectedResultColumns(tbl *schema.Table, requestedFields []string) map[string]struct{} {
+	if len(requestedFields) == 0 {
+		result := make(map[string]struct{}, len(tbl.Columns))
+		for _, column := range tbl.Columns {
+			result[column.Name] = struct{}{}
+		}
+		return result
+	}
+
 	result := make(map[string]struct{}, len(requestedFields))
 	for _, field := range requestedFields {
 		if tbl.ColumnByName(field) == nil {
@@ -126,20 +149,13 @@ func nextAvailableCursorSortAlias(resultColumns map[string]struct{}, sortIndex i
 
 // prepareCursorSortProjection adds hidden SELECT aliases for sort columns that are not in the requested field list, so cursor values can be extracted from query results and then stripped before returning to the client.
 func prepareCursorSortProjection(tbl *schema.Table, requestedFields []string, sortFields []SortField) cursorSortProjection {
-	if len(requestedFields) == 0 {
-		return cursorSortProjection{Fields: sortFields}
-	}
-
 	resultColumns := projectedResultColumns(tbl, requestedFields)
 	projected := append([]SortField(nil), sortFields...)
 	extraSelects := make([]string, 0, len(sortFields))
 	helperColumns := make([]string, 0, len(sortFields))
 
 	for i, field := range projected {
-		if field.Column == distanceSortOutputColumn {
-			continue
-		}
-		if _, ok := resultColumns[field.Column]; ok {
+		if !cursorSortNeedsHelperProjection(field, resultColumns) {
 			continue
 		}
 
@@ -154,6 +170,33 @@ func prepareCursorSortProjection(tbl *schema.Table, requestedFields []string, so
 		Selects:       extraSelects,
 		HelperColumns: helperColumns,
 	}
+}
+
+func cursorSortNeedsHelperProjection(field SortField, resultColumns map[string]struct{}) bool {
+	if field.Column == distanceSortOutputColumn {
+		return false
+	}
+	if field.RequiresCursorProjection {
+		return true
+	}
+	_, ok := resultColumns[field.Column]
+	return !ok
+}
+
+func prependSearchRankCursorSort(searchRank string, sortFields []SortField) []SortField {
+	if searchRank == "" {
+		return sortFields
+	}
+
+	rankedFields := make([]SortField, 0, len(sortFields)+1)
+	rankedFields = append(rankedFields, SortField{
+		Column:                   cursorSearchRankSortColumn,
+		Expr:                     searchRank,
+		Desc:                     true,
+		RequiresCursorProjection: true,
+	})
+	rankedFields = append(rankedFields, sortFields...)
+	return rankedFields
 }
 
 // cursorPayload is the JSON structure encoded into cursor tokens.
@@ -297,7 +340,7 @@ func extractCursorValues(fields []SortField, record map[string]any) []any {
 // Uses LIMIT perPage+1 to detect whether more rows exist.
 func buildListWithCursor(tbl *schema.Table, opts listOpts, sortFields []SortField, cursorWhere string, cursorArgs []any) (string, []any) {
 	cols := buildColumnList(tbl, opts.fields)
-	cols = appendSelectExprs(cols, append([]string{opts.distanceSelect, opts.highlightSelect}, opts.cursorSelects...))
+	cols = appendSelectExprs(cols, append([]string{opts.distanceSelect, opts.highlightSelect, opts.highlightResultSelect}, opts.cursorSelects...))
 	ref := sqlutil.QuoteQualifiedName(tbl.Schema, tbl.Name)
 
 	basePredicate, baseArgs := combineSQLConditions(
@@ -325,10 +368,8 @@ func buildListWithCursor(tbl *schema.Table, opts listOpts, sortFields []SortFiel
 	}
 
 	orderClause := ""
-	if sql := sortFieldsToSQL(sortFields); sql != "" {
+	if sql := orderByBody("", sortFieldsToSQL(sortFields)); sql != "" {
 		orderClause = " ORDER BY " + sql
-	} else if opts.searchRank != "" {
-		orderClause = " ORDER BY " + opts.searchRank + " DESC"
 	}
 
 	limitArg := opts.perPage + 1

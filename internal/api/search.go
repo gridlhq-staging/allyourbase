@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/allyourbase/ayb/internal/config"
 	"github.com/allyourbase/ayb/internal/schema"
 	"github.com/allyourbase/ayb/internal/sqlutil"
 )
@@ -21,26 +22,37 @@ var textColumnTypes = map[string]bool{
 
 const defaultTypoThreshold = 0.2
 const searchHighlightSQLAlias = "__ayb_search_highlight"
+const searchHighlightResultSQLAlias = "__ayb_search_highlight_result"
 const searchHighlightResponseField = "_highlight"
+const searchHighlightResultResponseField = "_highlightResult"
 
 type searchOptions struct {
-	fuzzy         bool
-	typoThreshold float64
-	highlight     bool
+	fuzzy            bool
+	typoThreshold    float64
+	highlight        bool
+	textSearchConfig string
 }
 
 type searchSQLResult struct {
-	whereSQL        string
-	rankSQL         string
-	args            []any
-	highlightSelect string
-	highlightAlias  string
+	whereSQL              string
+	rankSQL               string
+	args                  []any
+	highlightSelect       string
+	highlightAlias        string
+	highlightResultSelect string
+	highlightResultAlias  string
+}
+
+type searchRegConfigSQL struct {
+	literal        string
+	rewriteLiteral string
 }
 
 func defaultSearchOptions(fuzzy bool) searchOptions {
 	return searchOptions{
-		fuzzy:         fuzzy,
-		typoThreshold: defaultTypoThreshold,
+		fuzzy:            fuzzy,
+		typoThreshold:    defaultTypoThreshold,
+		textSearchConfig: config.Default().API.TextSearchConfig,
 	}
 }
 
@@ -76,6 +88,27 @@ func buildSearchDocumentExpression(cols []string) string {
 	return strings.Join(parts, " || ' ' || ")
 }
 
+func effectiveSearchOptions(opts searchOptions) searchOptions {
+	if opts.typoThreshold == 0 {
+		opts.typoThreshold = defaultTypoThreshold
+	}
+	if opts.textSearchConfig == "" {
+		opts.textSearchConfig = config.Default().API.TextSearchConfig
+	}
+	return opts
+}
+
+func buildSearchRegConfigSQL(textSearchConfig string) (searchRegConfigSQL, error) {
+	if !config.IsValidTextSearchConfigName(textSearchConfig) {
+		return searchRegConfigSQL{}, fmt.Errorf("invalid text search config %q", textSearchConfig)
+	}
+	quoted := strings.ReplaceAll(textSearchConfig, "'", "''")
+	return searchRegConfigSQL{
+		literal:        "'" + quoted + "'::regconfig",
+		rewriteLiteral: "''" + quoted + "''::regconfig",
+	}, nil
+}
+
 // buildSearchQueryExpression builds the FTS tsquery expression for the user's
 // search term, expanded by any per-collection synonym groups configured in
 // _ayb_search_synonyms for (schemaRef, tableRef).
@@ -91,50 +124,78 @@ func buildSearchDocumentExpression(cols []string) string {
 // is built dynamically with quote_literal() on schema/table names rather than
 // outer-query parameters, because ts_rewrite's text variant executes the
 // SELECT in a separate planning context that does not see outer $N args.
-func buildSearchQueryExpression(paramRef, schemaRef, tableRef string) string {
+func buildSearchQueryExpression(paramRef, schemaRef, tableRef string, regConfig searchRegConfigSQL) string {
 	rewriteSQL := "" +
 		"'WITH grp AS (' " +
 		"|| 'SELECT schema_name, table_name, group_id, ' " +
-		"|| '       (string_agg(''('' || phraseto_tsquery(''simple'', term)::text || '')'', '' | ''))::tsquery AS expanded ' " +
+		"|| '       (string_agg(''('' || phraseto_tsquery(" + regConfig.rewriteLiteral + ", term)::text || '')'', '' | ''))::tsquery AS expanded ' " +
 		"|| 'FROM _ayb_search_synonyms ' " +
 		"|| 'WHERE schema_name = ' || quote_literal(" + schemaRef + ") || ' AND table_name = ' || quote_literal(" + tableRef + ") || ' ' " +
 		"|| 'GROUP BY schema_name, table_name, group_id) ' " +
-		"|| 'SELECT phraseto_tsquery(''simple'', s1.term), grp.expanded ' " +
+		"|| 'SELECT phraseto_tsquery(" + regConfig.rewriteLiteral + ", s1.term), grp.expanded ' " +
 		"|| 'FROM _ayb_search_synonyms s1 JOIN grp USING (schema_name, table_name, group_id) ' " +
 		"|| 'WHERE s1.schema_name = ' || quote_literal(" + schemaRef + ") || ' AND s1.table_name = ' || quote_literal(" + tableRef + ") || ' ' " +
 		"|| 'UNION ' " +
-		"|| 'SELECT websearch_to_tsquery(''simple'', s1.term), grp.expanded ' " +
+		"|| 'SELECT websearch_to_tsquery(" + regConfig.rewriteLiteral + ", s1.term), grp.expanded ' " +
 		"|| 'FROM _ayb_search_synonyms s1 JOIN grp USING (schema_name, table_name, group_id) ' " +
 		"|| 'WHERE s1.schema_name = ' || quote_literal(" + schemaRef + ") || ' AND s1.table_name = ' || quote_literal(" + tableRef + ")"
-	return fmt.Sprintf("ts_rewrite(websearch_to_tsquery('simple', %s), %s)", paramRef, rewriteSQL)
+	return fmt.Sprintf("(SELECT ts_rewrite(websearch_to_tsquery(%s, %s), %s))", regConfig.literal, paramRef, rewriteSQL)
 }
 
 func buildSearchHTMLEscapedExpression(docExpr string) string {
 	return fmt.Sprintf("replace(replace(replace(%s, '&', '&amp;'), '<', '&lt;'), '>', '&gt;')", docExpr)
 }
 
-func searchHighlightAliasForTable(tbl *schema.Table) string {
-	if tbl.ColumnByName(searchHighlightSQLAlias) == nil {
-		return searchHighlightSQLAlias
+func searchAliasForTable(tbl *schema.Table, baseAlias string) string {
+	if tbl.ColumnByName(baseAlias) == nil {
+		return baseAlias
 	}
 	for suffix := 1; ; suffix++ {
-		alias := fmt.Sprintf("%s_%d", searchHighlightSQLAlias, suffix)
+		alias := fmt.Sprintf("%s_%d", baseAlias, suffix)
 		if tbl.ColumnByName(alias) == nil {
 			return alias
 		}
 	}
 }
 
-func buildSearchHighlightSelect(docExpr, tsvector, tsquery, alias string) string {
+func searchHighlightAliasForTable(tbl *schema.Table) string {
+	return searchAliasForTable(tbl, searchHighlightSQLAlias)
+}
+
+func searchHighlightResultAliasForTable(tbl *schema.Table) string {
+	return searchAliasForTable(tbl, searchHighlightResultSQLAlias)
+}
+
+func buildSearchHeadlineExpression(docExpr, tsvector, tsquery string, regConfig searchRegConfigSQL) string {
 	escapedDocExpr := buildSearchHTMLEscapedExpression(docExpr)
-	return fmt.Sprintf("CASE WHEN %s @@ %s THEN ts_headline('simple', %s, %s, 'StartSel=<b>,StopSel=</b>') ELSE %s END AS %s",
+	return fmt.Sprintf("CASE WHEN %s @@ %s THEN ts_headline(%s, %s, %s, 'StartSel=<b>,StopSel=</b>') ELSE %s END",
 		tsvector,
 		tsquery,
+		regConfig.literal,
 		escapedDocExpr,
 		tsquery,
 		escapedDocExpr,
-		sqlutil.QuoteIdent(alias),
 	)
+}
+
+func buildSearchHighlightSelect(docExpr, tsvector, tsquery, alias string, regConfig searchRegConfigSQL) string {
+	return fmt.Sprintf("%s AS %s", buildSearchHeadlineExpression(docExpr, tsvector, tsquery, regConfig), sqlutil.QuoteIdent(alias))
+}
+
+func quoteSearchHighlightResultKey(columnName string) string {
+	return "'" + strings.ReplaceAll(columnName, "'", "''") + "'"
+}
+
+func buildSearchHighlightResultSelect(cols []string, tsquery, alias string, regConfig searchRegConfigSQL) string {
+	entries := make([]string, 0, len(cols))
+	for _, col := range cols {
+		columnExpr := fmt.Sprintf("coalesce(%s, '')", sqlutil.QuoteIdent(col))
+		columnVector := fmt.Sprintf("to_tsvector(%s, %s)", regConfig.literal, columnExpr)
+		headlineExpr := buildSearchHeadlineExpression(columnExpr, columnVector, tsquery, regConfig)
+		matchExpr := fmt.Sprintf("CASE WHEN %s @@ %s THEN 'full' ELSE 'none' END", columnVector, tsquery)
+		entries = append(entries, fmt.Sprintf("%s, jsonb_build_object('value', %s, 'matchLevel', %s)", quoteSearchHighlightResultKey(col), headlineExpr, matchExpr))
+	}
+	return fmt.Sprintf("jsonb_build_object(%s) AS %s", strings.Join(entries, ", "), sqlutil.QuoteIdent(alias))
 }
 
 // buildSearchSQL generates a FTS WHERE clause and an ORDER BY expression for ranking.
@@ -148,6 +209,11 @@ func buildSearchHighlightSelect(docExpr, tsvector, tsquery, alias string) string
 //   - args: the query parameter values (just the search term)
 //   - error: if no searchable text columns exist
 func buildSearchSQL(tbl *schema.Table, searchTerm string, argOffset int, opts searchOptions) (searchSQLResult, error) {
+	opts = effectiveSearchOptions(opts)
+	regConfig, err := buildSearchRegConfigSQL(opts.textSearchConfig)
+	if err != nil {
+		return searchSQLResult{}, err
+	}
 	cols := textColumns(tbl)
 	if len(cols) == 0 {
 		return searchSQLResult{}, fmt.Errorf("table %q has no text columns to search", tbl.Name)
@@ -162,8 +228,8 @@ func buildSearchSQL(tbl *schema.Table, searchTerm string, argOffset int, opts se
 	schemaRef := fmt.Sprintf("$%d", argOffset+1)
 	tableRef := fmt.Sprintf("$%d", argOffset+2)
 	docExpr := buildSearchDocumentExpression(cols)
-	tsvector := fmt.Sprintf("to_tsvector('simple', %s)", docExpr)
-	tsquery := buildSearchQueryExpression(paramRef, schemaRef, tableRef)
+	tsvector := fmt.Sprintf("to_tsvector(%s, %s)", regConfig.literal, docExpr)
+	tsquery := buildSearchQueryExpression(paramRef, schemaRef, tableRef, regConfig)
 
 	result := searchSQLResult{
 		whereSQL: fmt.Sprintf("%s @@ %s", tsvector, tsquery),
@@ -174,9 +240,15 @@ func buildSearchSQL(tbl *schema.Table, searchTerm string, argOffset int, opts se
 		if tbl.ColumnByName(searchHighlightResponseField) != nil {
 			return searchSQLResult{}, fmt.Errorf("highlight cannot be used on table %q because it has a %q column", tbl.Name, searchHighlightResponseField)
 		}
+		if tbl.ColumnByName(searchHighlightResultResponseField) != nil {
+			return searchSQLResult{}, fmt.Errorf("highlight cannot be used on table %q because it has a %q column", tbl.Name, searchHighlightResultResponseField)
+		}
 		highlightAlias := searchHighlightAliasForTable(tbl)
-		result.highlightSelect = buildSearchHighlightSelect(docExpr, tsvector, tsquery, highlightAlias)
+		highlightResultAlias := searchHighlightResultAliasForTable(tbl)
+		result.highlightSelect = buildSearchHighlightSelect(docExpr, tsvector, tsquery, highlightAlias, regConfig)
 		result.highlightAlias = highlightAlias
+		result.highlightResultSelect = buildSearchHighlightResultSelect(cols, tsquery, highlightResultAlias, regConfig)
+		result.highlightResultAlias = highlightResultAlias
 	}
 	if opts.fuzzy {
 		typoThreshold := fmt.Sprintf("%g", opts.typoThreshold)

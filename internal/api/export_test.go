@@ -59,14 +59,13 @@ func TestBuildExportQuery_WithSearch(t *testing.T) {
 		searchSQL:  `to_tsvector('simple', "name") @@ websearch_to_tsquery('simple', $1)`,
 		searchArgs: []any{"alice"},
 		searchRank: `ts_rank(to_tsvector('simple', "name"), websearch_to_tsquery('simple', $1))`,
+		sortSQL:    `"name" ASC`,
 	}
 	q, args := buildExportQuery(tbl, opts, 0)
 	if !strings.Contains(q, "WHERE") {
 		t.Fatalf("expected WHERE clause: %s", q)
 	}
-	if !strings.Contains(q, "ORDER BY") {
-		t.Fatalf("expected ORDER BY from search rank: %s", q)
-	}
+	testutil.Contains(t, q, `ORDER BY ts_rank(to_tsvector('simple', "name"), websearch_to_tsquery('simple', $1)) DESC, "name" ASC`)
 	testutil.SliceLen(t, args, 1)
 }
 
