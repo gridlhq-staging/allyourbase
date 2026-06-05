@@ -1,4 +1,4 @@
-<!-- audited 2026-03-21 -->
+<!-- audited 2026-06-05 -->
 # Flutter SDK
 
 Use the `allyourbase` package from Flutter to access auth, records, realtime SSE, storage, RPC, and push-device APIs.
@@ -7,11 +7,14 @@ The SDK itself is pure Dart (no Flutter dependency), so it also works in server-
 
 ## Install
 
-Add the SDK package:
+Preview — install from source. Registry publishing is tracked for GA.
+
+Clone the repo and point your app at the local Dart package:
 
 ```yaml
 dependencies:
-  allyourbase: ^0.1.0
+  allyourbase:
+    path: ../allyourbase/sdk_dart
 ```
 
 Optional packages used in examples below:

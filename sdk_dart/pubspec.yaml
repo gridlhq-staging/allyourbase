@@ -2,8 +2,8 @@ name: allyourbase
 description: Pure Dart SDK for the Allyourbase API.
 version: 0.1.0
 homepage: https://allyourbase.io
-repository: https://github.com/allyourbase/allyourbase
-issue_tracker: https://github.com/allyourbase/allyourbase/issues
+repository: https://github.com/griddlehq/allyourbase
+issue_tracker: https://github.com/griddlehq/allyourbase/issues
 topics:
   - dart
   - flutter

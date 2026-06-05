@@ -1,4 +1,4 @@
-<!-- audited 2026-03-20 -->
+<!-- audited 2026-06-05 -->
 
 # SSR SDK
 
@@ -6,8 +6,15 @@ The `@allyourbase/ssr` package provides server-side session and cookie helpers f
 
 ## Install
 
+Preview — install from source. Registry publishing is tracked for GA.
+
 ```bash
-npm install @allyourbase/js @allyourbase/ssr
+git clone https://github.com/griddlehq/allyourbase.git
+cd allyourbase/sdk && npm install && npm run build
+cd ../sdk_ssr && npm install && npm run build
+
+# inside your app
+npm install /absolute/path/to/allyourbase/sdk /absolute/path/to/allyourbase/sdk_ssr
 ```
 
 ## Initialize

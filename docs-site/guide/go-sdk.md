@@ -1,16 +1,18 @@
-<!-- audited 2026-03-21 -->
+<!-- audited 2026-06-05 -->
 # Go SDK
 
 Use `sdk_go` for idiomatic Go access to AYB auth, records, storage, and edge functions.
 
 ## Install
 
-Public `go get` is not available yet because the canonical public module path is still being finalized. Until that publish path is settled, use a local checkout of the public repo and point your app's module at the checked-out SDK.
+Preview - install from a local checkout. The public repo is reachable at
+`github.com/griddlehq/allyourbase`, but the SDK module currently declares
+`github.com/allyourbase/ayb/sdk_go`, and no live vanity route exposes Go import
+metadata for that module path.
 
 ```bash
 git clone https://github.com/griddlehq/allyourbase.git
-
-# inside your app module
+cd my-go-app
 go mod edit -replace=github.com/allyourbase/ayb/sdk_go=/absolute/path/to/allyourbase/sdk_go
 go get github.com/allyourbase/ayb/sdk_go
 ```

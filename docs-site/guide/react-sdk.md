@@ -1,4 +1,4 @@
-<!-- audited 2026-05-23 -->
+<!-- audited 2026-06-05 -->
 
 # React SDK
 
@@ -15,8 +15,15 @@ The `@allyourbase/react` package provides React primitives on top of `@allyourba
 
 ## Install
 
+Preview — install from source. Registry publishing is tracked for GA.
+
 ```bash
-npm install @allyourbase/js @allyourbase/react react
+git clone https://github.com/griddlehq/allyourbase.git
+cd allyourbase/sdk && npm install && npm run build
+cd ../sdk_react && npm install && npm run build
+
+# inside your app
+npm install react react-dom /absolute/path/to/allyourbase/sdk /absolute/path/to/allyourbase/sdk_react
 ```
 
 ## Initialize

@@ -3,6 +3,7 @@
  */
 import { useEffect, useMemo, useRef } from "react";
 import { useAYBClient } from "./provider";
+import type { RealtimeEventLike } from "./types";
 
 /**
  * Subscribes to real-time database updates on the specified tables. Automatically manages the subscription lifecycle, with the callback invoked for each incoming event and cleanup performed on unmount or when table subscriptions change.
@@ -11,7 +12,7 @@ import { useAYBClient } from "./provider";
  */
 export function useRealtime(
   tables: string[],
-  callback: (event: Record<string, unknown>) => void,
+  callback: (event: RealtimeEventLike) => void,
 ): void {
   const client = useAYBClient();
   const callbackRef = useRef(callback);

@@ -1,11 +1,16 @@
 import { createContext, useContext } from "react";
-import type { PropsWithChildren } from "react";
+import type { ReactNode } from "react";
 import type { AYBClientLike } from "./types";
 
 const AYBContext = createContext<AYBClientLike | null>(null);
 
-export function AYBProvider({ client, children }: PropsWithChildren<{ client: AYBClientLike }>) {
-  return <AYBContext.Provider value={client}>{children}</AYBContext.Provider>;
+export interface AYBProviderProps {
+  client: AYBClientLike;
+  children?: unknown;
+}
+
+export function AYBProvider({ client, children }: AYBProviderProps) {
+  return <AYBContext.Provider value={client}>{children as ReactNode}</AYBContext.Provider>;
 }
 
 export function useAYBClient(): AYBClientLike {

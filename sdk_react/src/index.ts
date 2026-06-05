@@ -11,6 +11,7 @@ export type {
   DemoSuggestion,
   OAuthOptions,
   OAuthProvider,
+  RealtimeEventLike,
   UseAuthResult,
   UseQueryOptions,
   UseQueryResult,

@@ -30,7 +30,13 @@ export interface UserLike {
   emailVerified?: boolean;
   createdAt?: string;
   updatedAt?: string;
-  [key: string]: unknown;
+}
+
+export interface RealtimeEventLike {
+  action: "create" | "update" | "delete" | "INSERT" | "UPDATE" | "DELETE";
+  table: string;
+  record: Record<string, unknown>;
+  oldRecord?: Record<string, unknown>;
 }
 
 /**
@@ -64,7 +70,7 @@ export interface AYBClientLike {
   realtime: {
     subscribe(
       tables: string[],
-      callback: (event: Record<string, unknown>) => void,
+      callback: (event: RealtimeEventLike) => void,
     ): () => void;
   };
 }

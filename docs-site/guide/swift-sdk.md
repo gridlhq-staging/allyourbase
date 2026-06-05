@@ -1,4 +1,4 @@
-<!-- audited 2026-03-21 -->
+<!-- audited 2026-06-05 -->
 # Swift SDK
 
 Use the Swift `Allyourbase` SDK for iOS/macOS clients with auth, records, realtime (SSE + WebSocket), and storage.
@@ -6,6 +6,8 @@ Use the Swift `Allyourbase` SDK for iOS/macOS clients with auth, records, realti
 ## Install
 
 `sdk_swift/Package.swift` defines package name `Allyourbase` and library product `Allyourbase`.
+
+Preview — install from source. Registry publishing is tracked for GA.
 
 Add `Allyourbase` to your Swift package dependencies from a local checkout of this repository (`Package.swift` is in `sdk_swift/`, not repo root).
 

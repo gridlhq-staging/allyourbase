@@ -1,15 +1,17 @@
-<!-- audited 2026-03-21 -->
+<!-- audited 2026-06-05 -->
 # Kotlin SDK
 
 Use the Kotlin SDK for AYB auth, records, storage, and realtime (SSE + WebSocket).
 
 ## Install
 
-The SDK currently lives in the repository as `sdk_kotlin`.
+Preview — install from source. Registry publishing is tracked for GA.
 
 ```kotlin
 // settings.gradle.kts
+// after cloning https://github.com/griddlehq/allyourbase.git next to your app
 include(":sdk_kotlin")
+project(":sdk_kotlin").projectDir = file("../allyourbase/sdk_kotlin")
 
 // app/build.gradle.kts
 dependencies {

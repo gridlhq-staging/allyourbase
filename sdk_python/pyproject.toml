@@ -3,6 +3,7 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
+# PyPI already has an unrelated `allyourbase` project; use `allyourbase-sdk` if/when this SDK gets a GA registry release.
 name = "allyourbase"
 version = "0.1.0"
 description = "Python SDK for AllYourBase"
