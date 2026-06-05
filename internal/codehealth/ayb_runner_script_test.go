@@ -1,6 +1,7 @@
 package codehealth
 
 import (
+	"errors"
 	"fmt"
 	"net"
 	"net/http"
@@ -172,6 +173,52 @@ func TestRunWithAYBScriptRunsCommandAfterHealthReady(t *testing.T) {
 		t.Fatalf("expected success, got error: %v output=%s", err, output)
 	}
 	requireOutputContains(t, output, "command-finished")
+}
+
+func TestRunWithAYBScriptReusesExistingHealthyServer(t *testing.T) {
+	t.Parallel()
+
+	healthPort := reserveLocalhostPort(t)
+	healthURL := fmt.Sprintf("http://127.0.0.1:%d/health", healthPort)
+	server := startHealthServer(t, healthPort)
+	defer server.Close()
+
+	output, err := runAYBScript(t, "echo command-finished",
+		"AYB_START_COMMAND=sh -c 'echo should-not-start; exit 42'",
+		"AYB_HEALTH_URL="+healthURL,
+		"AYB_ADMIN_TOKEN=test-admin-token",
+	)
+	if err != nil {
+		t.Fatalf("expected existing healthy server reuse, got error: %v output=%s", err, output)
+	}
+	requireOutputContains(t, output, "command-finished")
+	if strings.Contains(output, "should-not-start") {
+		t.Fatalf("wrapper should not start a second server when health is already ready, got: %s", output)
+	}
+}
+
+func TestRunWithAYBScriptReuseMaterializesCanonicalAdminToken(t *testing.T) {
+	t.Parallel()
+
+	homeDir := t.TempDir()
+	tokenPath := filepath.Join(homeDir, ".ayb", "admin-token")
+	healthPort := reserveLocalhostPort(t)
+	healthURL := fmt.Sprintf("http://127.0.0.1:%d/health", healthPort)
+	server := startHealthServer(t, healthPort)
+	defer server.Close()
+
+	output, err := runAYBScript(t, `test "$(cat "$HOME/.ayb/admin-token")" = test-admin-token && echo command-finished`,
+		"HOME="+homeDir,
+		"AYB_HEALTH_URL="+healthURL,
+		"AYB_ADMIN_TOKEN=test-admin-token",
+	)
+	if err != nil {
+		t.Fatalf("expected canonical token materialization during runtime reuse, got error: %v output=%s", err, output)
+	}
+	requireOutputContains(t, output, "command-finished")
+	if _, err := os.Stat(tokenPath); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("expected wrapper to restore canonical token state after reuse, stat err=%v", err)
+	}
 }
 
 func TestRunWithAYBScriptDerivesHealthAndBaseURLFromServerHostPort(t *testing.T) {
@@ -363,4 +410,37 @@ func reserveLocalhostPort(t *testing.T) int {
 		t.Fatalf("reserveLocalhostPort invalid address: %#v", listener.Addr())
 	}
 	return addr.Port
+}
+
+func startHealthServer(t *testing.T, port int) *http.Server {
+	t.Helper()
+
+	server := &http.Server{
+		Addr:              fmt.Sprintf("127.0.0.1:%d", port),
+		Handler:           http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write([]byte("ok")) }),
+		ReadHeaderTimeout: time.Second,
+	}
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- server.ListenAndServe()
+	}()
+
+	deadline := time.Now().Add(2 * time.Second)
+	client := &http.Client{Timeout: 200 * time.Millisecond}
+	for time.Now().Before(deadline) {
+		resp, err := client.Get(fmt.Sprintf("http://127.0.0.1:%d/health", port))
+		if err == nil {
+			resp.Body.Close()
+			return server
+		}
+		select {
+		case listenErr := <-errCh:
+			t.Fatalf("health server exited before readiness: %v", listenErr)
+		default:
+		}
+		time.Sleep(25 * time.Millisecond)
+	}
+
+	t.Fatalf("health server did not become ready on port %d", port)
+	return server
 }

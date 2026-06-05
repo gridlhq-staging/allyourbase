@@ -19,6 +19,35 @@ function assertSafeSQLInteger(value: number, label: string): number {
   return value;
 }
 
+interface CollectionSearchSynonymGroup {
+  terms: string[];
+}
+
+/**
+ * Seeds or replaces the full synonym-group set for a collection through the
+ * shipped admin contract instead of writing the backing table directly.
+ */
+export async function replaceCollectionSearchSynonyms(
+  request: APIRequestContext,
+  token: string,
+  tableName: string,
+  groups: CollectionSearchSynonymGroup[],
+): Promise<{ groups: CollectionSearchSynonymGroup[] }> {
+  const res = await request.put(`/api/collections/${encodeURIComponent(tableName)}/synonyms`, {
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/json",
+    },
+    data: { groups },
+  });
+  await validateResponse(res, `Replace search synonyms for ${tableName}`);
+  const body = await res.json();
+  if (!Array.isArray(body?.groups)) {
+    throw new Error(`Expected synonym groups array for collection ${tableName}`);
+  }
+  return body as { groups: CollectionSearchSynonymGroup[] };
+}
+
 export async function ensureUserByEmail(
   request: APIRequestContext,
   token: string,

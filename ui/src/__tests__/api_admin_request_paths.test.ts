@@ -1,5 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { callRpc, executeApiExplorer, getRealtimeInspectorSnapshot } from "../api";
+import {
+  callRpc,
+  executeApiExplorer,
+  getCollectionSearchSynonyms,
+  getRealtimeInspectorSnapshot,
+  updateCollectionSearchSynonyms,
+} from "../api";
 
 describe("admin API request helpers", () => {
   const fetchMock = vi.fn<typeof fetch>();
@@ -117,6 +123,67 @@ describe("admin API request helpers", () => {
         { name: "room:lobby", type: "presence", count: 1 },
       ],
       counters: { droppedMessages: 5, heartbeatFailures: 1 },
+    });
+  });
+
+  it("gets collection search synonyms through the shared admin request path", async () => {
+    fetchMock.mockResolvedValueOnce(
+      new Response(JSON.stringify({ groups: [] }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      }),
+    );
+
+    await expect(getCollectionSearchSynonyms("posts")).resolves.toEqual({
+      groups: [],
+    });
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock).toHaveBeenCalledWith("/api/collections/posts/synonyms", {
+      headers: { Authorization: "Bearer admin-token" },
+    });
+  });
+
+  it("encodes unsafe unqualified table names for collection search synonyms", async () => {
+    const table = "draft posts/2026?x=1#frag";
+    fetchMock.mockResolvedValueOnce(
+      new Response(JSON.stringify({ groups: [] }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      }),
+    );
+
+    await getCollectionSearchSynonyms(table);
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      `/api/collections/${encodeURIComponent(table)}/synonyms`,
+      { headers: { Authorization: "Bearer admin-token" } },
+    );
+  });
+
+  it("updates collection search synonyms with the canonical groups payload", async () => {
+    const payload = {
+      groups: [{ terms: ["scifi", "science fiction"] }],
+    };
+    fetchMock.mockResolvedValueOnce(
+      new Response(JSON.stringify(payload), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      }),
+    );
+
+    await expect(
+      updateCollectionSearchSynonyms("posts", payload),
+    ).resolves.toEqual(payload);
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock).toHaveBeenCalledWith("/api/collections/posts/synonyms", {
+      method: "PUT",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: "Bearer admin-token",
+      },
+      body: JSON.stringify(payload),
     });
   });
 });

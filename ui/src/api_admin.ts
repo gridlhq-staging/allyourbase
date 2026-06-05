@@ -136,6 +136,38 @@ export async function deleteApp(id: string): Promise<void> {
   });
 }
 
+// --- Collection Search Synonyms ---
+
+// Lane A contract owner: docs-site/guide/synonyms.md:21-45.
+export interface CollectionSearchSynonymGroup {
+  terms: string[];
+}
+
+export interface CollectionSearchSynonymsResponse {
+  groups: CollectionSearchSynonymGroup[];
+}
+
+function collectionSearchSynonymsPath(table: string): string {
+  return `/api/collections/${encodeURIComponent(table)}/synonyms`;
+}
+
+export async function getCollectionSearchSynonyms(
+  table: string,
+): Promise<CollectionSearchSynonymsResponse> {
+  return request(collectionSearchSynonymsPath(table));
+}
+
+export async function updateCollectionSearchSynonyms(
+  table: string,
+  payload: CollectionSearchSynonymsResponse,
+): Promise<CollectionSearchSynonymsResponse> {
+  return request(collectionSearchSynonymsPath(table), {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+}
+
 // --- OAuth Consent ---
 
 export interface OAuthConsentPrompt {

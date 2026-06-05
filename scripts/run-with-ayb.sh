@@ -111,6 +111,12 @@ admin_token_ready() {
      -s "$AYB_CANONICAL_ADMIN_TOKEN_PATH" ]]
 }
 
+stored_admin_token_ready() {
+  [[ -n "${AYB_ADMIN_TOKEN:-}" ||
+     -s "$AYB_ADMIN_TOKEN_PATH" ||
+     -s "$AYB_CANONICAL_ADMIN_TOKEN_PATH" ]]
+}
+
 prepare_canonical_admin_token_file() {
   if [[ -f "$AYB_CANONICAL_ADMIN_TOKEN_PATH" ]]; then
     CANONICAL_ADMIN_TOKEN_BACKUP_PATH="$(mktemp)"
@@ -192,9 +198,49 @@ wait_for_ayb_readiness() {
   done
 }
 
+existing_ayb_ready() {
+  curl -fsS "$AYB_HEALTH_URL" > /dev/null 2>&1 && stored_admin_token_ready
+}
+
+materialize_canonical_admin_token_file() {
+  mkdir -p "$(dirname "$AYB_CANONICAL_ADMIN_TOKEN_PATH")"
+
+  if [[ -n "${AYB_ADMIN_TOKEN:-}" ]]; then
+    printf '%s\n' "$AYB_ADMIN_TOKEN" > "$AYB_CANONICAL_ADMIN_TOKEN_PATH"
+    return 0
+  fi
+
+  if [[ -s "$AYB_ADMIN_TOKEN_PATH" && "$AYB_ADMIN_TOKEN_PATH" != "$AYB_CANONICAL_ADMIN_TOKEN_PATH" ]]; then
+    cp "$AYB_ADMIN_TOKEN_PATH" "$AYB_CANONICAL_ADMIN_TOKEN_PATH"
+    return 0
+  fi
+
+  if [[ -s "$AYB_CANONICAL_ADMIN_TOKEN_PATH" ]]; then
+    return 0
+  fi
+
+  echo "Healthy AYB runtime is missing reusable admin-token material." >&2
+  return 1
+}
+
 # Readiness includes admin-token material so SDK/load commands can authenticate
 # immediately after /health turns green.
 ensure_ayb_binary_if_needed
+
+# Shared development hosts can already have the requested AYB runtime up from a
+# previous wrapper run. Reuse it when it is healthy instead of colliding on the
+# same port; unhealthy listeners still fall through to the normal startup path
+# so callers get the underlying bind/startup failure. Materialize the canonical
+# token file first so reused runtimes preserve the same auth contract as fresh
+# wrapper-owned startups.
+if existing_ayb_ready; then
+  prepare_canonical_admin_token_file
+  trap restore_canonical_admin_token_if_needed EXIT
+  materialize_canonical_admin_token_file
+  bash -lc "$POST_HEALTH_COMMAND"
+  exit $?
+fi
+
 prepare_canonical_admin_token_file
 if [[ -z "${AYB_ADMIN_PASSWORD:-}" ]]; then
   remove_canonical_admin_token_file

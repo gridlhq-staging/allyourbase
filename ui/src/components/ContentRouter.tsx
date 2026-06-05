@@ -2,6 +2,7 @@ import type { SchemaCache, Table } from "../types";
 import { TableBrowser } from "./TableBrowser";
 import { SchemaView } from "./SchemaView";
 import { SqlEditor } from "./SqlEditor";
+import { SynonymsEditor } from "./SynonymsEditor";
 import { Webhooks } from "./Webhooks";
 import { StorageBrowser } from "./StorageBrowser";
 import { Users } from "./Users";
@@ -51,7 +52,7 @@ import { SupportTickets } from "./SupportTickets";
 import { Tenants } from "./Tenants";
 import { Organizations } from "./Organizations";
 import type { AdminView, View } from "./layout-types";
-import { Code, Columns3, Table as TableIcon, TableProperties } from "lucide-react";
+import { Code, Columns3, Tags, Table as TableIcon, TableProperties } from "lucide-react";
 import { cn } from "../lib/utils";
 
 const CONTENT_ROUTER_MAIN_CLASS = "flex-1 flex flex-col overflow-hidden bg-gray-50 dark:bg-gray-950";
@@ -206,6 +207,7 @@ function renderAdminContent(
 function renderSelectedContent(
   view: View,
   selected: Table,
+  schema: SchemaCache,
   onRefresh: () => void | Promise<void>,
 ) {
   switch (view) {
@@ -213,6 +215,8 @@ function renderSelectedContent(
       return <SchemaView table={selected} />;
     case "sql":
       return <SqlEditor onSchemaChange={onRefresh} />;
+    case "synonyms":
+      return <SynonymsEditor selected={selected} schema={schema} />;
     case "data":
     default:
       return <TableBrowser table={selected} />;
@@ -268,10 +272,16 @@ export function ContentRouter({
               label="SQL"
               onClick={() => onSetView("sql")}
             />
+            <TableViewToggleButton
+              active={view === "synonyms"}
+              icon={Tags}
+              label="Synonyms"
+              onClick={() => onSetView("synonyms")}
+            />
           </div>
         </header>
 
-        <div className="flex-1 overflow-auto">{renderSelectedContent(view, selected, onRefresh)}</div>
+        <div className="flex-1 overflow-auto">{renderSelectedContent(view, selected, schema, onRefresh)}</div>
       </main>
     );
   }
