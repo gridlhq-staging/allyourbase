@@ -1,12 +1,12 @@
 # Priorities
 
-**Last updated:** 2026-06-03
+**Last updated:** 2026-06-05
 
 This file is the single source of truth for priority ordering. For feature inventory see `_dev/FEATURES.md`, for execution phases see `_dev/PHASES.md`, for public roadmap see `ROADMAP.md`.
 
 ## Summary
 
-No P0 incidents are open. `v0.0.9-beta` is now cut and publicly validated on the no-overlay cold-machine path (release run `26872377023` on `cbf54938`, GHCR multi-arch image `ghcr.io/griddlehq/allyourbase:0.0.9-beta` at digest `sha256:8a2409ec2436df5440cf7fc57a2364fc496c6e83ee3b6acc06a8a0c71a134390`, Stage 5 runtime proof in `docs/live-state/20260603T095244Z_v009_beta_release_proof.md`), superseding the `v0.0.8-beta` runtime cut while preserving its closure of `MAY24-COLD-MACHINE-INITDB` and `MAY31-ARM64-ASSET-REBUILD`. The JUN02 wave has landed on `main`: faceted search end-to-end via the JS SDK with RLS-scoped bucket counts, dashboard `Search` view + dedicated user guide, login + WebAuthn first-factor rate-limiting at the front door, and a green integrated demo gate across local + cross-demo Playwright. Planning docs (`PRIORITIES.md`, `ROADMAP.md`, `roadmap/implemented.md`) are reconciled against `origin/main` post-release. Near-term focus stays on realtime/load evidence depth, JS SDK npm publish, targeted cleanup in high-churn oversized files, and the still-pending operator org-rename decision (`griddlehq` → `AllyourbaseHQ`).
+No P0 incidents are open. `v0.0.9-beta` is now cut and publicly validated on the no-overlay cold-machine path (release run `26872377023` on `cbf54938`, GHCR multi-arch image `ghcr.io/griddlehq/allyourbase:0.0.9-beta` at digest `sha256:8a2409ec2436df5440cf7fc57a2364fc496c6e83ee3b6acc06a8a0c71a134390`, Stage 5 runtime proof in `docs/live-state/20260603T095244Z_v009_beta_release_proof.md`), superseding the `v0.0.8-beta` runtime cut while preserving its closure of `MAY24-COLD-MACHINE-INITDB` and `MAY31-ARM64-ASSET-REBUILD`. The JUN02-JUN04 wave has landed on `main`: faceted, highlighted, fuzzy-threshold, and synonym-aware search is documented through the collection list path; search helper parity is shipped across the JavaScript, Go, Python, Dart, Kotlin, and Swift SDK list surfaces; first-factor passkey helpers are shipped in the JavaScript and React SDKs; and `@allyourbase/js@0.2.0` is published to npm. Current public docs now route shipped-but-bounded beta caveats to `docs-site/guide/beta-limitations.md`. Near-term focus stays on realtime/load evidence depth, targeted cleanup in high-churn oversized files, other-language passkey helper parity, and the still-pending operator org-rename decision (`griddlehq` -> `AllyourbaseHQ`).
 
 ## P0 — Urgent
 
@@ -23,7 +23,7 @@ Human-only steps — browser clicks, billing decisions, OAuth token grants — a
 
 ## P2 — Important, Not Urgent
 
-- **Keep code-quality guardrails at zero debt** — The live guardrails are down to 0 oversized files and 0 oversized functions after the 2026-04-08 twenty-first cleanup pass. Keep new work within guardrails by default, and prefer small companion-file splits over growing hot files or orchestration functions back onto a baseline.
+- **Keep code-quality guardrails from growing** — The live file-size gate is an allowlisted oversized Go-file baseline owned by `scripts/check-file-sizes.sh` plus `scripts/allowlist-oversized.txt`; it currently allows the existing oversized files only when their line counts do not grow past the recorded baseline. The function-size guardrail has no allowlisted oversized functions at HEAD (`internal/codehealth/funcsize_test.go` keeps `functionSizeAllowlist` empty) and should stay that way. Keep new work within guardrails by default, and prefer small companion-file splits over growing hot files or orchestration functions.
 
 ## Recently Completed
 

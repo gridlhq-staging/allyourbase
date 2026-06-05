@@ -3,12 +3,15 @@ package server
 import (
 	"context"
 	"encoding/json"
+	"io"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/allyourbase/ayb/internal/config"
 	statuspkg "github.com/allyourbase/ayb/internal/status"
 	"github.com/go-chi/chi/v5"
 )
@@ -203,6 +206,42 @@ func TestHandlePublicStatus(t *testing.T) {
 			t.Fatalf("incident status = %q, want investigating", got.Incidents[0].Status)
 		}
 	})
+}
+
+func TestHealthAndStatusRouteContract(t *testing.T) {
+	t.Parallel()
+
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	defaultSrv := New(config.Default(), logger, nil, nil, nil, nil)
+
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/status", nil)
+	defaultSrv.Router().ServeHTTP(w, req)
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("default /api/status status = %d, want 404", w.Code)
+	}
+
+	w = httptest.NewRecorder()
+	req = httptest.NewRequest(http.MethodGet, "/api/health", nil)
+	defaultSrv.Router().ServeHTTP(w, req)
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("/api/health status = %d, want 404", w.Code)
+	}
+
+	statusCfg := config.Default()
+	statusCfg.Status.Enabled = true
+	statusCfg.Status.PublicEndpointEnabled = true
+	statusSrv := New(statusCfg, logger, nil, nil, nil, nil)
+
+	w = httptest.NewRecorder()
+	req = httptest.NewRequest(http.MethodGet, "/api/status", nil)
+	statusSrv.Router().ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("enabled /api/status status = %d, want 200", w.Code)
+	}
+	if got := w.Header().Get("Content-Type"); got != "application/json" {
+		t.Fatalf("enabled /api/status content-type = %q, want application/json", got)
+	}
 }
 
 func TestAdminIncidentHandlers(t *testing.T) {

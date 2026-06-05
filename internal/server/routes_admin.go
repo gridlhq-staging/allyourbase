@@ -218,6 +218,14 @@ func (s *Server) registerAdminDataRoutes(r chi.Router) {
 		r.Post("/", s.handleAdminBranchCreate)
 		r.Delete("/{name}", s.handleAdminBranchDelete)
 	})
+	s.registerAdminBackupRoutes(r)
+	s.registerAdminStorageCDNRoutes(r)
+}
+
+// registerAdminBackupRoutes registers backup, PITR restore, and restore-job
+// management routes (all admin-auth gated). Split out of registerAdminDataRoutes
+// to keep that function within the codehealth function-size guardrail.
+func (s *Server) registerAdminBackupRoutes(r chi.Router) {
 	// Backup management (admin-auth gated).
 	r.Route("/admin/backups", func(r chi.Router) {
 		r.Use(s.requireAdminToken)
@@ -238,8 +246,6 @@ func (s *Server) registerAdminDataRoutes(r chi.Router) {
 		r.Get("/{jobId}", s.handlePITRJobGet)
 		r.Delete("/{jobId}", s.handlePITRJobAbandon)
 	})
-
-	s.registerAdminStorageCDNRoutes(r)
 }
 
 // registerAdminServicesRoutes registers incidents, support, log drains,

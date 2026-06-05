@@ -19,6 +19,7 @@ export default defineConfig({
         items: [
           { text: "Getting Started", link: "/guide/getting-started" },
           { text: "Configuration", link: "/guide/configuration" },
+          { text: "Beta Limitations", link: "/guide/beta-limitations" },
         ],
       },
       {

@@ -294,10 +294,23 @@ func idPathParam() *parameter {
 
 // listQueryParams produces the query parameters for GET list endpoints.
 // These match the actual AYB REST query engine in internal/api/handler.go.
+// The params are grouped into focused helpers (selection / pagination / search /
+// aggregation / spatial) to keep each function within the codehealth size
+// guardrail and to make the OpenAPI surface easier to scan by concern.
 func listQueryParams(tbl *schema.Table, cache *schema.SchemaCache) []*parameter {
-	minTypoThreshold := 0.0
-	maxTypoThreshold := 1.0
-	params := []*parameter{
+	params := selectionListQueryParams()
+	params = append(params, paginationListQueryParams()...)
+	params = append(params, searchListQueryParams()...)
+	params = append(params, aggregationListQueryParams(tbl, cache)...)
+	if cache != nil && cache.HasPostGIS && tbl != nil && tbl.HasGeometry() {
+		params = append(params, spatialListQueryParams()...)
+	}
+	return params
+}
+
+// selectionListQueryParams returns the column-selection / filtering / sorting params.
+func selectionListQueryParams() []*parameter {
+	return []*parameter{
 		{
 			Name:        "fields",
 			In:          "query",
@@ -316,6 +329,12 @@ func listQueryParams(tbl *schema.Table, cache *schema.SchemaCache) []*parameter 
 			Description: "Sort expression: column name with optional - prefix for descending (comma-separated for multiple)",
 			Schema:      &schemaProperty{Type: "string"},
 		},
+	}
+}
+
+// paginationListQueryParams returns the offset + cursor pagination params.
+func paginationListQueryParams() []*parameter {
+	return []*parameter{
 		{
 			Name:        "page",
 			In:          "query",
@@ -328,6 +347,32 @@ func listQueryParams(tbl *schema.Table, cache *schema.SchemaCache) []*parameter 
 			Description: "Number of rows per page (default 20, max 500)",
 			Schema:      &schemaProperty{Type: "integer"},
 		},
+		{
+			Name:        "skipTotal",
+			In:          "query",
+			Description: "Set to 'true' to skip total count for faster pagination",
+			Schema:      &schemaProperty{Type: "string"},
+		},
+		{
+			Name:        "cursor",
+			In:          "query",
+			Description: "Opaque cursor for pagination (use nextCursor from previous response)",
+			Schema:      &schemaProperty{Type: "string"},
+		},
+		{
+			Name:        "direction",
+			In:          "query",
+			Description: "Pagination direction: 'forward' or 'backward' (default forward)",
+			Schema:      &schemaProperty{Type: "string"},
+		},
+	}
+}
+
+// searchListQueryParams returns the full-text / fuzzy / facet / semantic search params.
+func searchListQueryParams() []*parameter {
+	minTypoThreshold := 0.0
+	maxTypoThreshold := 1.0
+	return []*parameter{
 		{
 			Name:        "search",
 			In:          "query",
@@ -370,24 +415,12 @@ func listQueryParams(tbl *schema.Table, cache *schema.SchemaCache) []*parameter 
 			Description: "Semantic search query text",
 			Schema:      &schemaProperty{Type: "string"},
 		},
-		{
-			Name:        "skipTotal",
-			In:          "query",
-			Description: "Set to 'true' to skip total count for faster pagination",
-			Schema:      &schemaProperty{Type: "string"},
-		},
-		{
-			Name:        "cursor",
-			In:          "query",
-			Description: "Opaque cursor for pagination (use nextCursor from previous response)",
-			Schema:      &schemaProperty{Type: "string"},
-		},
-		{
-			Name:        "direction",
-			In:          "query",
-			Description: "Pagination direction: 'forward' or 'backward' (default forward)",
-			Schema:      &schemaProperty{Type: "string"},
-		},
+	}
+}
+
+// aggregationListQueryParams returns the aggregate / group params (description is table-aware).
+func aggregationListQueryParams(tbl *schema.Table, cache *schema.SchemaCache) []*parameter {
+	return []*parameter{
 		{
 			Name:        "aggregate",
 			In:          "query",
@@ -401,35 +434,37 @@ func listQueryParams(tbl *schema.Table, cache *schema.SchemaCache) []*parameter 
 			Schema:      &schemaProperty{Type: "string"},
 		},
 	}
-	if cache != nil && cache.HasPostGIS && tbl != nil && tbl.HasGeometry() {
-		params = append(params,
-			&parameter{
-				Name:        "near",
-				In:          "query",
-				Description: "Spatial near filter format: column,lng,lat,distance (example: location,-73.9857,40.7484,1000)",
-				Schema:      &schemaProperty{Type: "string"},
-			},
-			&parameter{
-				Name:        "within",
-				In:          "query",
-				Description: "Spatial within filter format: column,{geojson} (example: location,{\"type\":\"Polygon\",\"coordinates\":[[[-74,40],[-73,40],[-73,41],[-74,40]]]})",
-				Schema:      &schemaProperty{Type: "string"},
-			},
-			&parameter{
-				Name:        "intersects",
-				In:          "query",
-				Description: "Spatial intersects filter format: column,{geojson} (example: location,{\"type\":\"LineString\",\"coordinates\":[[-74,40],[-73,41]]})",
-				Schema:      &schemaProperty{Type: "string"},
-			},
-			&parameter{
-				Name:        "bbox",
-				In:          "query",
-				Description: "Spatial bounding box filter format: column,minLng,minLat,maxLng,maxLat (example: location,-74,40,-73,41)",
-				Schema:      &schemaProperty{Type: "string"},
-			},
-		)
+}
+
+// spatialListQueryParams returns the PostGIS spatial filter params. Only appended
+// when the schema has PostGIS and the table has a geometry column.
+func spatialListQueryParams() []*parameter {
+	return []*parameter{
+		{
+			Name:        "near",
+			In:          "query",
+			Description: "Spatial near filter format: column,lng,lat,distance (example: location,-73.9857,40.7484,1000)",
+			Schema:      &schemaProperty{Type: "string"},
+		},
+		{
+			Name:        "within",
+			In:          "query",
+			Description: "Spatial within filter format: column,{geojson} (example: location,{\"type\":\"Polygon\",\"coordinates\":[[[-74,40],[-73,40],[-73,41],[-74,40]]]})",
+			Schema:      &schemaProperty{Type: "string"},
+		},
+		{
+			Name:        "intersects",
+			In:          "query",
+			Description: "Spatial intersects filter format: column,{geojson} (example: location,{\"type\":\"LineString\",\"coordinates\":[[-74,40],[-73,41]]})",
+			Schema:      &schemaProperty{Type: "string"},
+		},
+		{
+			Name:        "bbox",
+			In:          "query",
+			Description: "Spatial bounding box filter format: column,minLng,minLat,maxLng,maxLat (example: location,-74,40,-73,41)",
+			Schema:      &schemaProperty{Type: "string"},
+		},
 	}
-	return params
 }
 
 func aggregateParamDescription(tbl *schema.Table, cache *schema.SchemaCache) string {

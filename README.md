@@ -27,7 +27,7 @@ For database-owned search, the same collection list API supports full-text `sear
 
 On first run, AYB downloads a prebuilt PostgreSQL binary for your platform and manages it as a child process — no system install required.
 
-Managed PostgreSQL is the zero-config path. If you need extensions beyond the managed build's default set, such as PostGIS, use an external PostgreSQL instance unless your managed PostgreSQL build explicitly includes them.
+Current beta caveats, including managed PostgreSQL extension boundaries and passkey parity gaps, live in [Beta Limitations](https://allyourbase.io/guide/beta-limitations).
 
 Three demos ship in [`/examples`](examples/):
 
@@ -186,10 +186,10 @@ Current support:
 
 - PocketBase import path is hardened and regression-covered.
 - Supabase local CLI, hosted cloud, and self-hosted import paths have scripted live-validation evidence in-repo.
-- Algolia migrations use the existing PostgreSQL ingest paths plus AYB's shipped list-search API; there is no dedicated Algolia importer automation.
+- Algolia query-code migrations are documented against AYB's shipped list-search API, while data moves through standard PostgreSQL ingest paths.
 - Firebase live-export validation remains deferred and is not part of the public README migration promise.
 
-For Algolia query-code migration, see the [Algolia migration guide](https://allyourbase.io/guide/migrating-from-algolia). It maps Algolia concepts to AYB's `search`, `fuzzy`, `filter`, `facets`, result highlighting, typo-threshold controls, and operator-defined synonyms request path. AYB has no dedicated Algolia importer automation — data moves through the standard PostgreSQL ingest paths.
+For Algolia query-code migration, see the [Algolia migration guide](https://allyourbase.io/guide/migrating-from-algolia). It maps Algolia concepts to AYB's `search`, `fuzzy`, `filter`, `facets`, result highlighting, typo-threshold controls, and operator-defined synonyms request path. See [Beta Limitations](https://allyourbase.io/guide/beta-limitations) for migration caveats that are intentionally bounded in the beta.
 
 Fastest path (single CLI command into managed AYB Postgres):
 
@@ -218,8 +218,6 @@ ayb migrate supabase \
 ```
 
 Supabase storage files: include `--storage-export <dir>` only if you have an exported storage directory to migrate.
-
-Local-dev caveat (does not affect customer cloud/self-hosted migrations): on macOS + Colima, `supabase start` may fail on a Docker socket mount for Logflare/Vector. Workaround: `supabase start -x logflare,vector`.
 
 ## Install (Staging)
 

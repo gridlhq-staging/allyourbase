@@ -41,7 +41,7 @@ make build
 
 ### Docker
 
-Public container-image pulls are not available right now because the current GitHub Container Registry package is still private. If you need a container immediately, follow the [Deployment](/guide/deployment) guide to build the image locally from the public repo checkout.
+Public multi-arch images are published at `ghcr.io/griddlehq/allyourbase`; see [Deployment](/guide/deployment) for Docker run examples and source-build fallback commands.
 
 ## Start the server
 
@@ -55,7 +55,7 @@ ayb start
 
 The first run may take longer because AYB downloads and prepares a managed PostgreSQL binary.
 
-Managed PostgreSQL is the zero-config path. If you need extensions beyond the managed build's default set, such as PostGIS, use an external PostgreSQL instance unless your managed PostgreSQL build explicitly includes them.
+Managed PostgreSQL is the zero-config path. Extension boundaries and other beta caveats are tracked in [Beta Limitations](/guide/beta-limitations).
 
 If `admin.password` is not set, startup generates a random admin password and prints:
 

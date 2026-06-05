@@ -307,11 +307,49 @@ func TestHandleOpenAPIJSON_operationsUseComponentRefs(t *testing.T) {
 	listResp := listOp["responses"].(map[string]any)["200"].(map[string]any)
 	listContent := listResp["content"].(map[string]any)["application/json"].(map[string]any)
 	listSchema := listContent["schema"].(map[string]any)
-	listItems := listSchema["items"].(map[string]any)
 
-	if ref := listItems["$ref"]; ref == "" {
-		t.Error("list response items should use $ref to component schema")
-	} else if !strings.HasPrefix(ref.(string), "#/components/schemas/") {
-		t.Errorf("list response items $ref = %v, want #/components/schemas/...", ref)
+	// The list response is a oneOf of two paginated envelopes (offset:
+	// {items,page,perPage,totalItems,totalPages} and cursor:
+	// {items,perPage,nextCursor}) — see listResponseSchema in
+	// internal/openapi/generator_table_paths.go. Each envelope's `items` array
+	// wraps the row component in an allOf so search-only fields like `_highlight`
+	// can be layered on top of the table's component schema. The contract this
+	// test pins: the row payload is referenced via $ref to a component schema
+	// (not inlined), through that allOf, in at least one envelope variant.
+	variants, ok := listSchema["oneOf"].([]any)
+	if !ok || len(variants) == 0 {
+		t.Fatalf("list response schema should be a oneOf of paginated envelopes, got %v", listSchema)
+	}
+	foundComponentRef := false
+	for _, v := range variants {
+		props, ok := v.(map[string]any)["properties"].(map[string]any)
+		if !ok {
+			continue
+		}
+		itemsProp, ok := props["items"].(map[string]any)
+		if !ok {
+			continue
+		}
+		itemSchema, ok := itemsProp["items"].(map[string]any)
+		if !ok {
+			continue
+		}
+		allOf, ok := itemSchema["allOf"].([]any)
+		if !ok {
+			continue
+		}
+		for _, member := range allOf {
+			ref, ok := member.(map[string]any)["$ref"].(string)
+			if !ok || ref == "" {
+				continue
+			}
+			if !strings.HasPrefix(ref, "#/components/schemas/") {
+				t.Errorf("list response items $ref = %v, want #/components/schemas/...", ref)
+			}
+			foundComponentRef = true
+		}
+	}
+	if !foundComponentRef {
+		t.Error("list response items should reference a component schema via $ref through the items allOf")
 	}
 }
