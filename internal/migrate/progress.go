@@ -165,6 +165,7 @@ type AnalysisReport struct {
 	RLSPolicies   int      `json:"rlsPolicies"`
 	Files         int      `json:"files"`
 	FileSizeBytes int64    `json:"fileSizeBytes"`
+	SynonymGroups int      `json:"synonymGroups,omitempty"`
 	Warnings      []string `json:"warnings,omitempty"`
 }
 
@@ -194,6 +195,9 @@ func (r *AnalysisReport) PrintReport(w io.Writer) {
 	}
 	if r.Files > 0 {
 		fmt.Fprintf(w, "  Files:        %d (%s)\n", r.Files, FormatBytes(r.FileSizeBytes))
+	}
+	if r.SynonymGroups > 0 {
+		fmt.Fprintf(w, "  Synonyms:     %d groups\n", r.SynonymGroups)
 	}
 	fmt.Fprintln(w)
 

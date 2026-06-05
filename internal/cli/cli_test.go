@@ -402,7 +402,7 @@ func TestMigrateSubcommands(t *testing.T) {
 	for _, cmd := range migrateCmd.Commands() {
 		found[cmd.Name()] = true
 	}
-	for _, name := range []string{"up", "create", "status", "pocketbase", "supabase", "firebase"} {
+	for _, name := range []string{"up", "create", "status", "pocketbase", "supabase", "firebase", "algolia"} {
 		if !found[name] {
 			t.Errorf("expected migrate subcommand %q", name)
 		}
@@ -519,6 +519,79 @@ func TestMigrateFirebaseFlagDefinitions(t *testing.T) {
 				t.Errorf("flag %q should be bool, got %s", name, f.Value.Type())
 			}
 		}
+	}
+}
+
+func TestMigrateAlgoliaRequiresFlags(t *testing.T) {
+	cmd := newMigrateAlgoliaCommand()
+	err := cmd.Execute()
+	if err == nil {
+		t.Fatal("expected error for missing required flags")
+	}
+	if !strings.Contains(err.Error(), "required") {
+		t.Fatalf("expected required flag error, got %q", err.Error())
+	}
+}
+
+func TestMigrateAlgoliaRequiresEachRequiredFlag(t *testing.T) {
+	requiredFlags := map[string]string{
+		"app-id":       "APP123",
+		"api-key":      "key",
+		"index":        "products",
+		"database-url": "postgres://localhost/test",
+		"table":        "search_products",
+	}
+
+	for missing := range requiredFlags {
+		t.Run(missing, func(t *testing.T) {
+			cmd := newMigrateAlgoliaCommand()
+			args := []string{"migrate", "algolia"}
+			for name, value := range requiredFlags {
+				if name == missing {
+					continue
+				}
+				args = append(args, "--"+name, value)
+			}
+			cmd.SetArgs(args[2:])
+			err := cmd.Execute()
+			if err == nil {
+				t.Fatalf("expected error for missing --%s", missing)
+			}
+			if !strings.Contains(err.Error(), "required flag") || !strings.Contains(err.Error(), missing) {
+				t.Fatalf("expected Cobra required flag error for --%s, got %q", missing, err.Error())
+			}
+		})
+	}
+}
+
+func TestMigrateAlgoliaFlagDefinitions(t *testing.T) {
+	flags := migrateAlgoliaCmd.Flags()
+	for _, name := range []string{"app-id", "api-key", "index", "database-url", "table", "include-synonyms", "dry-run", "yes", "json"} {
+		f := flags.Lookup(name)
+		if f == nil {
+			t.Errorf("expected flag %q on migrate algolia command", name)
+			continue
+		}
+		switch name {
+		case "app-id", "api-key", "index", "database-url", "table":
+			if f.Value.Type() != "string" {
+				t.Errorf("flag %q should be string, got %s", name, f.Value.Type())
+			}
+		default:
+			if f.Value.Type() != "bool" {
+				t.Errorf("flag %q should be bool, got %s", name, f.Value.Type())
+			}
+		}
+	}
+}
+
+func TestMigrateAlgoliaYesFlagHasShorthand(t *testing.T) {
+	f := migrateAlgoliaCmd.Flags().ShorthandLookup("y")
+	if f == nil {
+		t.Fatal("expected -y shorthand for --yes flag")
+	}
+	if f.Name != "yes" {
+		t.Fatalf("expected -y to map to 'yes', got %q", f.Name)
 	}
 }
 
@@ -2115,8 +2188,8 @@ func TestMigratePocketbaseYesFlagHasShorthand(t *testing.T) {
 }
 
 func TestMigrateHelpDoesNotError(t *testing.T) {
-	// All three migrate subcommands should show help without error.
-	for _, sub := range []string{"firebase", "supabase", "pocketbase"} {
+	// Representative migrate subcommands should show help without error.
+	for _, sub := range []string{"firebase", "supabase", "pocketbase", "algolia"} {
 		t.Run(sub, func(t *testing.T) {
 			resetJSONFlag()
 			rootCmd.SetArgs([]string{"migrate", sub, "--help"})

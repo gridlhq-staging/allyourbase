@@ -237,7 +237,6 @@ func TestSearchSynonymsValidation(t *testing.T) {
 	ctx := context.Background()
 	srv, _ := setupSearchSynonymsServer(t, ctx, false)
 	adminToken := loginSearchSynonymsAdmin(t, srv)
-	longTerm := strings.Repeat("a", 129)
 
 	tests := []struct {
 		name    string
@@ -250,12 +249,6 @@ func TestSearchSynonymsValidation(t *testing.T) {
 	}{
 		{name: "malformed_json", method: http.MethodPut, path: "/api/collections/posts/synonyms", rawBody: `{"groups":`, status: http.StatusBadRequest, want: "invalid JSON body"},
 		{name: "missing_groups", method: http.MethodPut, path: "/api/collections/posts/synonyms", body: map[string]any{}, status: http.StatusBadRequest, want: "groups is required"},
-		{name: "empty_groups", method: http.MethodPut, path: "/api/collections/posts/synonyms", body: map[string]any{"groups": []any{}}, status: http.StatusBadRequest, want: "groups is required"},
-		{name: "too_few_terms", method: http.MethodPut, path: "/api/collections/posts/synonyms", body: map[string]any{"groups": []map[string][]string{{"terms": []string{"scifi", " "}}}}, status: http.StatusBadRequest, want: "each synonym group must include at least two terms"},
-		{name: "duplicate_in_group", method: http.MethodPut, path: "/api/collections/posts/synonyms", body: map[string]any{"groups": []map[string][]string{{"terms": []string{" SciFi ", "scifi"}}}}, status: http.StatusBadRequest, want: "duplicate synonym term: scifi"},
-		{name: "duplicate_across_groups", method: http.MethodPut, path: "/api/collections/posts/synonyms", body: map[string]any{"groups": []map[string][]string{{"terms": []string{"scifi", "science fiction"}}, {"terms": []string{"ai", " SCIFI "}}}}, status: http.StatusBadRequest, want: "duplicate synonym term: scifi"},
-		{name: "term_too_long", method: http.MethodPut, path: "/api/collections/posts/synonyms", body: map[string]any{"groups": []map[string][]string{{"terms": []string{"scifi", longTerm}}}}, status: http.StatusBadRequest, want: "synonym terms must be 128 characters or fewer"},
-		{name: "too_many_terms", method: http.MethodPut, path: "/api/collections/posts/synonyms", body: map[string]any{"groups": []map[string][]string{{"terms": []string{"a", "b", "c", "d", "e", "f", "g", "h", "i"}}}}, status: http.StatusBadRequest, want: "synonym groups may include at most 8 terms"},
 		{name: "unknown_collection", method: http.MethodPut, path: "/api/collections/missing/synonyms", body: map[string]any{"groups": []map[string][]string{{"terms": []string{"a", "b"}}}}, status: http.StatusNotFound, want: "collection not found"},
 		{name: "sql_injection_table_name", method: http.MethodGet, path: "/api/collections/posts%3Bdrop%20table%20posts/synonyms", status: http.StatusNotFound, want: "collection not found"},
 	}

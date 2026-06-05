@@ -66,14 +66,38 @@ are returned under the optional `facets` response field, keyed by column name.
 
 ## Moving your data
 
-Move Algolia records into PostgreSQL tables first, then query those tables through AYB's normal collection APIs. Current shipped ingest paths are:
+Use `ayb migrate algolia` as the primary data-move path for one Algolia index. The importer browses the source index, infers one PostgreSQL table, creates that table when needed, imports the browsed records, and then queries the table through AYB's normal collection APIs.
 
-- `POST /api/collections/{table}` for single-record creates
-- `POST /api/collections/{table}/batch` for atomic create/update/delete batches
-- `POST /api/collections/{table}/import` for CSV or JSON row import
-- `ayb.records.create` and `ayb.records.batch` from the JavaScript SDK
+Dry-run first to inspect the inferred schema and counts without writing rows:
 
-This lane does not ship `ayb migrate algolia`, a dedicated Algolia importer, Algolia ranking-rule translation, hosted index operations, or dedicated importer automation. Export from Algolia, shape the records for your PostgreSQL schema, ingest them through one of the paths above, configure any per-collection synonym groups you need, then use [Search](/guide/search) to query them.
+```bash
+ayb migrate algolia \
+  --app-id "$ALGOLIA_APP_ID" \
+  --api-key "$ALGOLIA_API_KEY" \
+  --index products \
+  --database-url "$DATABASE_URL" \
+  --table products \
+  --dry-run
+```
+
+Run a confirmed import with `-y, --yes` when the dry-run migration report matches the target table you expect:
+
+```bash
+ayb migrate algolia \
+  --app-id "$ALGOLIA_APP_ID" \
+  --api-key "$ALGOLIA_API_KEY" \
+  --index products \
+  --database-url "$DATABASE_URL" \
+  --table products \
+  --include-synonyms \
+  -y
+```
+
+Required flags are `--app-id`, `--api-key`, `--index`, `--database-url`, and `--table`. `--dry-run` previews the plan without writes, `--include-synonyms` also reads Algolia synonyms when the API key has settings access, `-y, --yes` skips the confirmation prompt, and `--json` writes machine-readable import stats instead of the human report.
+
+Human output reuses the shared migration report before the import and the validation summary after a confirmed import. JSON mode emits the importer stats directly for automation. Stage validation distinguishes live Algolia browse and synonym verification from fixture-backed acceptance: when live credentials or ACLs are unavailable, acceptance is tied to the committed browse and synonym fixtures plus the `CheckRecordParity` parity check instead of claiming a live Algolia run.
+
+With `--include-synonyms`, AYB carries over only supported equivalent Algolia synonym groups into AYB per-collection synonym groups. During synonym import, unsupported synonym types and missing settings ACL are reported as skipped rather than blocking record import.
 
 ## Non-parity boundaries
 
@@ -83,9 +107,8 @@ AYB already ships typo-threshold tuning on fuzzy search, per-collection synonym 
 
 - Algolia ranking-rule translation
 - hosted index operations separate from PostgreSQL
-- dedicated importer automation
 
-Use Algolia when you still need Algolia-specific ranking controls, hosted search operations, or importer automation that are separate from your PostgreSQL data path.
+Use Algolia when you still need Algolia-specific ranking controls or hosted search operations that are separate from your PostgreSQL data path.
 
 ## Related guides
 

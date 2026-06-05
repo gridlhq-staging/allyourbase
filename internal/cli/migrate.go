@@ -94,6 +94,7 @@ func init() {
 	migrateCmd.AddCommand(migrateEncryptColumnCmd)
 	migrateCmd.AddCommand(migrateDiffCmd)
 	migrateCmd.AddCommand(migrateGenerateCmd)
+	migrateCmd.AddCommand(migrateAlgoliaCmd)
 
 	for _, cmd := range []*cobra.Command{migrateUpCmd, migrateCreateCmd, migrateStatusCmd} {
 		cmd.Flags().String("config", "", "Path to ayb.toml config file")
