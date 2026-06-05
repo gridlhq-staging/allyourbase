@@ -23,7 +23,7 @@ Open http://localhost:5175 — you've got a real-time polling app with auth, RLS
 
 The admin dashboard is at http://localhost:8090/admin — SQL editor, API explorer, schema browser, and user management for core workflows.
 
-For database-owned search, the same collection list API supports full-text `search`, `fuzzy=true`, filters, and facet counts. Start with the [Search guide](https://allyourbase.io/guide/search); if you are moving query code from Algolia, use the [Algolia migration map](https://allyourbase.io/guide/migrating-from-algolia).
+For database-owned search, the same collection list API supports full-text `search`, `fuzzy=true` typo tolerance with tunable typo-threshold, result highlighting, operator-defined synonyms, filters, and facet counts. Start with the [Search guide](https://allyourbase.io/guide/search); if you are moving query code from Algolia, use the [Algolia migration map](https://allyourbase.io/guide/migrating-from-algolia).
 
 On first run, AYB downloads a prebuilt PostgreSQL binary for your platform and manages it as a child process — no system install required.
 
@@ -45,7 +45,7 @@ New app scaffolds also include starter list-search examples that call `records.l
 
 ## Features
 
-- **REST API** — CRUD for every table. Filter, sort, paginate, full-text `search`, `fuzzy=true`, scalar facets, FK expand. See the [Search guide](https://allyourbase.io/guide/search).
+- **REST API** — CRUD for every table. Filter, sort, paginate, full-text `search`, `fuzzy=true`, result highlighting, operator-defined synonyms, scalar facets, FK expand. See the [Search guide](https://allyourbase.io/guide/search).
 - **Auth** — email/password, JWT, OAuth (Google, GitHub, Microsoft, Apple, and more built-in providers), email verify, password reset
 - **Realtime** — SSE subscriptions per table, filtered by RLS
 - **Row-Level Security** — JWT claims mapped to Postgres session vars. Write policies in SQL.
@@ -106,7 +106,7 @@ curl -X POST http://localhost:8090/api/collections/posts \
 open http://localhost:8090/admin
 ```
 
-Every table gets CRUD, filtering, sorting, pagination, full-text search, fuzzy matching when `pg_trgm` is available, scalar facets, and FK expansion through the collection list endpoint. The [Search guide](https://allyourbase.io/guide/search) owns examples and boundaries.
+Every table gets CRUD, filtering, sorting, pagination, full-text search, fuzzy matching when `pg_trgm` is available, result highlighting, operator-defined synonyms, scalar facets, and FK expansion through the collection list endpoint. The [Search guide](https://allyourbase.io/guide/search) owns examples and boundaries.
 
 ## SDK
 
@@ -189,7 +189,7 @@ Current support:
 - Algolia migrations use the existing PostgreSQL ingest paths plus AYB's shipped list-search API; there is no dedicated Algolia importer automation.
 - Firebase live-export validation remains deferred and is not part of the public README migration promise.
 
-For Algolia query-code migration, see the [Algolia migration guide](https://allyourbase.io/guide/migrating-from-algolia). It maps Algolia concepts to AYB's current `search`, `fuzzy`, `filter`, and `facets` request path without promising synonym management, highlighting, typo-threshold controls, or importer automation.
+For Algolia query-code migration, see the [Algolia migration guide](https://allyourbase.io/guide/migrating-from-algolia). It maps Algolia concepts to AYB's `search`, `fuzzy`, `filter`, `facets`, result highlighting, typo-threshold controls, and operator-defined synonyms request path. AYB has no dedicated Algolia importer automation — data moves through the standard PostgreSQL ingest paths.
 
 Fastest path (single CLI command into managed AYB Postgres):
 
