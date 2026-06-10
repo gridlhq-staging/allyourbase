@@ -387,7 +387,7 @@ jobs:
     needs: build
     env:
       AYB_ADMIN_PASSWORD: ${{ format('ci-browser-admin-{0}-{1}', github.run_id, github.run_attempt) }}
-      AYB_START_COMMAND: ./ayb start --foreground
+      AYB_START_COMMAND: ./ayb start --foreground --host 0.0.0.0
       # The smoke + full browser suites exercise auth-gated routes
       # (/api/auth/*, /api/admin/api-keys, /api/admin/users). Auth must be
       # enabled or those routes 404 — e.g. realtime-inspector's live

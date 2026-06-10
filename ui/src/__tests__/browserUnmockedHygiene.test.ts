@@ -128,6 +128,14 @@ describe("browser-unmocked test hygiene", () => {
     );
   });
 
+  it("CI browser job starts AYB with a WebAuthn-compatible localhost public origin", () => {
+    const ciWorkflow = readProjectFile("../.github/workflows/ci.yml");
+
+    expect(ciWorkflow).toContain("AYB_START_COMMAND: ./ayb start --foreground --host 0.0.0.0");
+    expect(ciWorkflow).toContain("bash scripts/run-with-ayb.sh 'cd ui && npm run test:browser -- --project=smoke");
+    expect(ciWorkflow).toContain("bash scripts/run-with-ayb.sh 'cd ui && npm run test:browser -- --project=full");
+  });
+
   it("apps and api-keys smoke specs guard missing backend routes with endpoint probes", () => {
     const appsList = readProjectFile("browser-tests-unmocked/smoke/apps-list.spec.ts");
     const apiKeysList = readProjectFile("browser-tests-unmocked/smoke/api-keys-list.spec.ts");
