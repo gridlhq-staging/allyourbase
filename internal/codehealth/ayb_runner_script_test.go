@@ -205,6 +205,7 @@ func TestRunWithAYBScriptReuseMaterializesCanonicalAdminToken(t *testing.T) {
 
 	output, err := runAYBScript(t, `test "$(cat "$HOME/.ayb/admin-token")" = test-admin-token && echo command-finished`,
 		"HOME="+homeDir,
+		"AYB_START_COMMAND=sh -c 'echo should-not-start; exit 42'",
 		"AYB_HEALTH_URL="+healthURL,
 		"AYB_ADMIN_TOKEN=test-admin-token",
 	)

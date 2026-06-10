@@ -313,6 +313,14 @@ func TestBinariesReady_MissingVersionFileAllowsHomebrewVersionSuffix(t *testing.
 	}
 }
 
+func TestPostgresVersionTokenStripsVendorSuffix(t *testing.T) {
+	t.Parallel()
+
+	if got := postgresVersionToken("16.14-Homebrew"); got != "16.14" {
+		t.Fatalf("postgresVersionToken() = %q, want %q", got, "16.14")
+	}
+}
+
 func TestBinariesReady_MissingVersionFileMismatchedBinaryVersion(t *testing.T) {
 	t.Parallel()
 	if runtime.GOOS == "windows" {

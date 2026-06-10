@@ -3,6 +3,10 @@ import {
   expect,
   waitForDashboard,
   withRealtimeWsSubscription,
+  createLinkedEmailAuthSessionToken,
+  cleanupAuthUser,
+  fetchAuthSettings,
+  getAuthSettingsUnavailableSkipReason,
 } from "../fixtures";
 import type { Page, Response } from "@playwright/test";
 
@@ -85,42 +89,60 @@ test.describe("Smoke: Realtime Inspector", () => {
     await expect(page.getByRole("heading", { name: /Realtime Inspector/i })).toBeVisible();
   });
 
-  test("opens live realtime activity and returns to baseline after cleanup", async ({ page, adminToken }) => {
+  test("opens live realtime activity and returns to baseline after cleanup", async ({ page, request, adminToken }) => {
+    const authSettingsSkipReason = await getAuthSettingsUnavailableSkipReason(request, adminToken);
+    test.skip(Boolean(authSettingsSkipReason), authSettingsSkipReason ?? "");
+
+    const settings = await fetchAuthSettings(request, adminToken);
+    test.skip(!settings.anonymous_auth_enabled, "Anonymous auth is disabled in this environment");
+
+    const runId = Date.now();
+    const email = `smoke-realtime-${runId}@example.test`;
+    const clientToken = await createLinkedEmailAuthSessionToken(
+      request,
+      email,
+      `Sm0keRealtime!${runId}`,
+    );
+
     await page.goto("/admin/");
     await waitForDashboard(page);
     await page.locator("aside").getByRole("button", { name: /Realtime Inspector/i }).click();
     await expect(page.getByRole("heading", { name: /Realtime Inspector/i })).toBeVisible({ timeout: 15_000 });
 
-    const baseline = await readInspectorMetrics(page);
-    await withRealtimeWsSubscription(page, page.url(), adminToken, "users", async () => {
-      const withActivity = await waitForInspectorMetrics(
+    try {
+      const baseline = await readInspectorMetrics(page);
+      await withRealtimeWsSubscription(page, page.url(), clientToken, "users", async () => {
+        const withActivity = await waitForInspectorMetrics(
+          page,
+          "WebSocket activity to appear in inspector metrics",
+          (snapshot) =>
+            snapshot.ws >= baseline.ws + 1 &&
+            snapshot.total >= baseline.total + 1 &&
+            snapshot.usersTableSubscriptions >= baseline.usersTableSubscriptions + 1,
+        );
+
+        expect(withActivity.ws).toBeGreaterThanOrEqual(baseline.ws + 1);
+        expect(withActivity.total).toBeGreaterThanOrEqual(baseline.total + 1);
+        expect(withActivity.usersTableSubscriptions).toBeGreaterThanOrEqual(
+          baseline.usersTableSubscriptions + 1,
+        );
+      });
+
+      const afterCleanup = await waitForInspectorMetrics(
         page,
-        "WebSocket activity to appear in inspector metrics",
+        "WebSocket activity cleanup to return inspector metrics to baseline",
         (snapshot) =>
-          snapshot.ws >= baseline.ws + 1 &&
-          snapshot.total >= baseline.total + 1 &&
-          snapshot.usersTableSubscriptions >= baseline.usersTableSubscriptions + 1,
+          snapshot.ws === baseline.ws &&
+          snapshot.total === baseline.total &&
+          snapshot.usersTableSubscriptions === baseline.usersTableSubscriptions,
       );
 
-      expect(withActivity.ws).toBeGreaterThanOrEqual(baseline.ws + 1);
-      expect(withActivity.total).toBeGreaterThanOrEqual(baseline.total + 1);
-      expect(withActivity.usersTableSubscriptions).toBeGreaterThanOrEqual(
-        baseline.usersTableSubscriptions + 1,
-      );
-    });
-
-    const afterCleanup = await waitForInspectorMetrics(
-      page,
-      "WebSocket activity cleanup to return inspector metrics to baseline",
-      (snapshot) =>
-        snapshot.ws === baseline.ws &&
-        snapshot.total === baseline.total &&
-        snapshot.usersTableSubscriptions === baseline.usersTableSubscriptions,
-    );
-
-    expect(afterCleanup.ws).toBe(baseline.ws);
-    expect(afterCleanup.total).toBe(baseline.total);
-    expect(afterCleanup.usersTableSubscriptions).toBe(baseline.usersTableSubscriptions);
+      expect(afterCleanup.ws).toBe(baseline.ws);
+      expect(afterCleanup.total).toBe(baseline.total);
+      expect(afterCleanup.usersTableSubscriptions).toBe(baseline.usersTableSubscriptions);
+    } finally {
+      await cleanupAuthUser(request, adminToken, email).catch(() => {});
+    }
   });
 });
 

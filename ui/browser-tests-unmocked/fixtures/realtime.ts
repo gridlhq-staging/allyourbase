@@ -193,21 +193,48 @@ async function openRealtimeWsSubscription(
   table: string,
 ): Promise<string> {
   const handle = `__aybRealtimeSmokeWs${Date.now()}${Math.random().toString(36).slice(2)}`;
+  const subscribeRef = `inspect-${table}-${Date.now()}${Math.random().toString(36).slice(2)}`;
   const wsURL = buildRealtimeWsUrl(currentPageUrl, token);
   await page.evaluate(
-    async ({ wsURL: evaluateWsUrl, table: evaluateTable, handle: evaluateHandle }) => {
+    async ({
+      wsURL: evaluateWsUrl,
+      table: evaluateTable,
+      handle: evaluateHandle,
+      ref: evaluateRef,
+    }) => {
       const registry = globalThis as typeof globalThis & Record<string, WebSocket | undefined>;
       await new Promise<void>((resolve, reject) => {
         const ws = new WebSocket(evaluateWsUrl);
         const timeout = setTimeout(() => {
           cleanup();
-          reject(new Error("Timed out waiting for WebSocket to open"));
+          reject(new Error("Timed out waiting for WebSocket subscription acknowledgement"));
         }, 5000);
         const onOpen = () => {
           try {
             ws.send(
-              JSON.stringify({ type: "subscribe", ref: "inspect-users", tables: [evaluateTable] }),
+              JSON.stringify({ type: "subscribe", ref: evaluateRef, tables: [evaluateTable] }),
             );
+          } catch (error) {
+            cleanup();
+            reject(error);
+          }
+        };
+        const onMessage = (event: MessageEvent<string>) => {
+          try {
+            const message = JSON.parse(event.data) as {
+              type?: string;
+              ref?: string;
+              status?: string;
+              message?: string;
+            };
+            if (message.type !== "reply" || message.ref !== evaluateRef) {
+              return;
+            }
+            if (message.status !== "ok") {
+              cleanup();
+              reject(new Error(message.message ?? "WebSocket subscribe failed"));
+              return;
+            }
             registry[evaluateHandle] = ws;
             cleanup();
             resolve();
@@ -227,15 +254,17 @@ async function openRealtimeWsSubscription(
         const cleanup = () => {
           clearTimeout(timeout);
           ws.removeEventListener("open", onOpen);
+          ws.removeEventListener("message", onMessage);
           ws.removeEventListener("error", onError);
           ws.removeEventListener("close", onClose);
         };
         ws.addEventListener("open", onOpen);
+        ws.addEventListener("message", onMessage);
         ws.addEventListener("error", onError);
         ws.addEventListener("close", onClose);
       });
     },
-    { wsURL, table, handle },
+    { wsURL, table, handle, ref: subscribeRef },
   );
   return handle;
 }
