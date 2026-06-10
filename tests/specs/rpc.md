@@ -3,7 +3,7 @@
 **Purpose:** Detailed test cases for calling PostgreSQL functions via REST API (BDD Tier 1: B-RPC-001)
 
 **Related BDD Stories:**
-- [B-RPC-001: Call PostgreSQL Function](../../docs/BDD_SPECIFICATIONS.md#b-rpc-001-call-postgresql-function)
+- [B-RPC-001: Call PostgreSQL Function](../../docs/reference/bdd/rpc_and_admin_extensions.md#b-rpc-001-call-postgresql-function)
 
 ---
 

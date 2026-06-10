@@ -3,8 +3,8 @@
 **Purpose:** Detailed test cases for realtime Server-Sent Events functionality (BDD Tier 1: B-REAL-001, B-REAL-002)
 
 **Related BDD Stories:**
-- [B-REAL-001: Subscribe to Table Changes](../../docs/BDD_SPECIFICATIONS.md#b-real-001-subscribe-to-table-changes)
-- [B-REAL-002: OAuth SSE Channel](../../docs/BDD_SPECIFICATIONS.md#b-real-002-oauth-sse-channel)
+- [B-REAL-001: Subscribe to Table Changes](../../docs/reference/bdd/realtime.md#b-real-001-subscribe-to-table-changes)
+- [B-REAL-002: OAuth SSE Channel](../../docs/reference/bdd/realtime.md#b-real-002-oauth-sse-channel)
 
 ---
 

@@ -172,6 +172,6 @@ jobs:
 
 ## Further Reading
 
-- [AYB Testing Strategy](../../TESTING.md)
+- [AYB Testing Strategy](../../docs/howto/testing.md)
 - [OAuth Test Spec](../specs/oauth.md)
-- [BDD Specifications](../../docs/BDD_SPECIFICATIONS.md)
+- [BDD Specifications](../../docs/reference/BDD_SPECIFICATIONS.md)

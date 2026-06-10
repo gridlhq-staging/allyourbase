@@ -3,10 +3,10 @@
 **Purpose:** Detailed test cases for migrating from PocketBase, Supabase, and Firebase to AYB (BDD Tier 1: B-MIG-001 through B-MIG-004)
 
 **Related BDD Stories:**
-- [B-MIG-001: Migrate from PocketBase](../../docs/BDD_SPECIFICATIONS.md#b-mig-001-migrate-from-pocketbase)
-- [B-MIG-002: Migrate from Supabase](../../docs/BDD_SPECIFICATIONS.md#b-mig-002-migrate-from-supabase)
-- [B-MIG-003: Migrate from Firebase](../../docs/BDD_SPECIFICATIONS.md#b-mig-003-migrate-from-firebase)
-- [B-MIG-004: Auto-Detect Migration Source](../../docs/BDD_SPECIFICATIONS.md#b-mig-004-auto-detect-migration-source)
+- [B-MIG-001: Migrate from PocketBase](../../docs/reference/bdd/migration.md#b-mig-001-migrate-from-pocketbase)
+- [B-MIG-002: Migrate from Supabase](../../docs/reference/bdd/migration.md#b-mig-002-migrate-from-supabase)
+- [B-MIG-003: Migrate from Firebase](../../docs/reference/bdd/migration.md#b-mig-003-migrate-from-firebase)
+- [B-MIG-004: Auto-Detect Migration Source](../../docs/reference/bdd/migration.md#b-mig-004-auto-detect-migration-source)
 
 ---
 

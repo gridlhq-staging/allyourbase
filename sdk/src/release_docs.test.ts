@@ -36,8 +36,24 @@ describe("0.2.0 release metadata", () => {
         default: "./dist/index.cjs",
       },
     });
+    expect(manifest.exports["./instantsearch"]).toEqual({
+      import: {
+        types: "./dist/instantsearch.d.ts",
+        default: "./dist/instantsearch.js",
+      },
+      require: {
+        types: "./dist/instantsearch.d.cts",
+        default: "./dist/instantsearch.cjs",
+      },
+    });
     expect(manifest.files).toEqual(["dist"]);
     expect(manifest.scripts.prepublishOnly).toBe("npm run build");
+  });
+
+  it("builds the InstantSearch subpath from its single SDK source owner", () => {
+    const tsupConfig = readSDKFile("tsup.config.ts");
+
+    expect(tsupConfig).toContain('entry: ["src/index.ts", "src/instantsearch.ts"]');
   });
 
   it("documents only the shipped search and passkey surfaces for 0.2.0", () => {
@@ -62,6 +78,11 @@ describe("0.2.0 release metadata", () => {
     expect(changelog).toContain("signInWithPasskey");
     expect(changelog).toContain("enrollPasskey");
     expect(changelog).toContain("verifyPasskey");
+    expect(changelog).toContain("@allyourbase/js/instantsearch");
+    expect(changelog).toContain("objectIDField");
+    expect(changelog).toContain("records.list");
+    expect(changelog).toContain("empty query");
+    expect(changelog).toContain("searchForFacetValues");
 
     expect(readme).toContain("SearchHit");
     expect(readme).toContain("ayb.records.list<SearchHit");
@@ -73,5 +94,10 @@ describe("0.2.0 release metadata", () => {
     expect(readme).toContain("verifyPasskey");
     expect(readme).toContain("FacetCounts");
     expect(readme).toContain("WebAuthnLoginBeginResponse");
+    expect(readme).toContain("@allyourbase/js/instantsearch");
+    expect(readme).toContain("createInstantSearchClient");
+    expect(readme).toContain("objectIDField");
+    expect(readme).toContain("facetFilters");
+    expect(readme).toContain("searchForFacetValues");
   });
 });

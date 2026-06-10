@@ -3,8 +3,8 @@
 **Purpose:** Detailed test cases for admin dashboard functionality (BDD Tier 1: B-ADMIN-001, B-ADMIN-002)
 
 **Related BDD Stories:**
-- [B-ADMIN-001: Admin Login](../../docs/BDD_SPECIFICATIONS.md#b-admin-001-admin-login)
-- [B-ADMIN-002: Execute SQL Query](../../docs/BDD_SPECIFICATIONS.md#b-admin-002-execute-sql-query)
+- [B-ADMIN-001: Admin Login](../../docs/reference/bdd/admin_dashboard.md#b-admin-001-admin-login)
+- [B-ADMIN-002: Execute SQL Query](../../docs/reference/bdd/admin_dashboard.md#b-admin-002-execute-sql-query)
 
 ---
 

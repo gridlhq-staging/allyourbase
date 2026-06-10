@@ -107,7 +107,7 @@ func TestPlanImportBuildsDeterministicDDL(t *testing.T) {
 func loadBrowseFixtureRecords(t *testing.T) []Record {
 	t.Helper()
 
-	raw, err := os.ReadFile("../../docs/research/algolia_browse_sample.json")
+	raw, err := os.ReadFile("../../docs/reference/research/algolia_browse_sample.json")
 	if err != nil {
 		t.Fatalf("read fixture: %v", err)
 	}

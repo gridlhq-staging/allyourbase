@@ -4,6 +4,7 @@ import { resolve } from "node:path";
 import { AYBClient } from "./client";
 import { AYBError } from "./errors";
 import { AYBClient as PublicAYBClient } from "./index";
+import { createInstantSearchClient } from "./instantsearch";
 import type {
   AuthResponse as PublicAuthResponse,
   ListResponse as PublicListResponse,
@@ -21,6 +22,11 @@ import type {
   User,
   WebAuthnLoginBeginResponse,
 } from "./types";
+import type {
+  InstantSearchClient,
+  InstantSearchResponse,
+  InstantSearchSearchRequest,
+} from "./instantsearch";
 
 function loadContractFixture(name: string): unknown {
   const fixturePath = resolve(__dirname, "../../tests/contract/fixtures/sdk_contract", name);
@@ -54,6 +60,36 @@ describe("SDK contract fixtures", () => {
     assertStorageType({} as PublicStorageObject);
     assertUserType({} as PublicUser);
     assertWebAuthnBeginType({} as PublicWebAuthnLoginBeginResponse);
+  });
+
+  it("InstantSearch subpath owner exposes the adapter factory and local types", () => {
+    const client = {
+      records: {
+        list: async () => ({
+          items: [],
+          page: 1,
+          perPage: 20,
+          totalItems: 0,
+          totalPages: 0,
+        }),
+      },
+    };
+
+    const searchClient = createInstantSearchClient({
+      client,
+      objectIDField: "id",
+      defaultIndexName: "posts",
+    });
+
+    const assertSearchClient = (_value: InstantSearchClient): void => {};
+    const assertRequest = (_value: InstantSearchSearchRequest): void => {};
+    const assertResponse = (_value: InstantSearchResponse): void => {};
+
+    assertSearchClient(searchClient);
+    assertRequest({ indexName: "posts", params: { query: "postgres" } });
+    assertResponse({ results: [] });
+    expect(typeof searchClient.search).toBe("function");
+    expect(typeof searchClient.searchForFacetValues).toBe("function");
   });
 
   it("auth response fixture normalizes user aliases", async () => {

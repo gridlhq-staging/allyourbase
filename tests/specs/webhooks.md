@@ -3,11 +3,11 @@
 **Purpose:** Detailed test cases for webhook event notification functionality (BDD Tier 1: B-HOOK-001 through B-HOOK-005)
 
 **Related BDD Stories:**
-- [B-HOOK-001: Create Webhook](../../docs/BDD_SPECIFICATIONS.md#b-hook-001-create-webhook)
-- [B-HOOK-002: List Webhooks](../../docs/BDD_SPECIFICATIONS.md#b-hook-002-list-webhooks)
-- [B-HOOK-003: Update Webhook](../../docs/BDD_SPECIFICATIONS.md#b-hook-003-update-webhook)
-- [B-HOOK-004: Delete Webhook](../../docs/BDD_SPECIFICATIONS.md#b-hook-004-delete-webhook)
-- [B-HOOK-005: Webhook Delivery](../../docs/BDD_SPECIFICATIONS.md#b-hook-005-webhook-delivery)
+- [B-HOOK-001: Create Webhook](../../docs/reference/bdd/webhooks.md#b-hook-001-create-webhook)
+- [B-HOOK-002: List Webhooks](../../docs/reference/bdd/webhooks.md#b-hook-002-list-webhooks)
+- [B-HOOK-003: Update Webhook](../../docs/reference/bdd/webhooks.md#b-hook-003-update-webhook)
+- [B-HOOK-004: Delete Webhook](../../docs/reference/bdd/webhooks.md#b-hook-004-delete-webhook)
+- [B-HOOK-005: Webhook Delivery](../../docs/reference/bdd/webhooks.md#b-hook-005-webhook-delivery)
 
 ---
 

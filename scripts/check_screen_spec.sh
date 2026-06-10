@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Reusable screen-spec format gate for docs/screen_specs/*.md.
+# Reusable screen-spec format gate for docs/reference/screen_specs/*.md.
 #
 # Validates structure (not loose substring presence): the six mandatory
 # top-level sections must appear in canonical order, and the "## State contract"
 # block must contain the "### Loading" and "### Error" subsections. This lets
 # downstream stages fail on structure before debating spec content.
 #
-# Format contract source of truth: docs/screen_specs/_template.md and
+# Format contract source of truth: docs/reference/screen_specs/_template.md and
 # guides/ui_screen_specs.md ("Every screen spec has six core sections").
 
 if [[ $# -ne 1 ]]; then

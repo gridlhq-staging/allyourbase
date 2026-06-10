@@ -8,7 +8,7 @@ Managed PostgreSQL is the zero-config local path. If you need extensions beyond 
 
 ## Algolia importer automation
 
-Algolia query-code migration is documented through AYB's shipped collection list API: `search`, `fuzzy`, `filter`, `facets`, result highlighting, typo-threshold controls, and operator-defined synonyms. AYB does not ship dedicated Algolia importer automation; data migration uses the standard PostgreSQL ingest paths.
+`ayb migrate algolia` ships for one-index Algolia record imports into PostgreSQL, with dry-run planning, JSON output, and optional supported synonym import. Algolia query-code migration is documented through AYB's shipped collection list API: `search`, `fuzzy`, `filter`, `facets`, result highlighting, typo-threshold controls, and operator-defined synonyms. AYB does not translate Algolia ranking rules or hosted index operations.
 
 ## Passkey resident-key registration
 

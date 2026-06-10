@@ -150,7 +150,7 @@ curl "http://localhost:8090/api/collections/posts?search=postgres&filter=status=
 `typo_threshold` tunes fuzzy matching on non-vector collection list search, must be a number between `0` and `1`, and is only accepted when `fuzzy=true`.
 
 `typo_threshold` without `fuzzy=true` returns `400 Bad Request`.
-Vector list modes reject `typo_threshold` along with other non-vector search modifiers; see [Search](/guide/search) for hybrid and vector-mode boundaries.
+Vector list modes reject `typo_threshold` along with other non-vector search modifiers. See [Search](/guide/search) for hybrid and vector-mode boundaries.
 
 `highlight=true` asks AYB to return legacy `_highlight` snippets and per-attribute
 `_highlightResult` metadata on matching rows. See [Search](/guide/search) for
@@ -158,7 +158,7 @@ escaping behavior and the full response shape.
 
 `facets=column_a,column_b` requests per-column facet counts in the same list response. Requested columns must exist on the target table.
 
-Unsupported query-mode combinations return `400`; [Search](/guide/search) owns the compatibility matrix for semantic, vector, fuzzy, facet, typo-threshold, and highlight parameters.
+Unsupported query-mode combinations return `400` (for example `semantic=true` with `nearest` or `semantic_query`). [Search](/guide/search) owns the compatibility matrix for semantic, vector, fuzzy, facet, typo-threshold, and highlight parameters.
 
 When `facets` is requested, list responses include an additional `facets` object:
 

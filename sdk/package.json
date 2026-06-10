@@ -16,6 +16,16 @@
         "types": "./dist/index.d.cts",
         "default": "./dist/index.cjs"
       }
+    },
+    "./instantsearch": {
+      "import": {
+        "types": "./dist/instantsearch.d.ts",
+        "default": "./dist/instantsearch.js"
+      },
+      "require": {
+        "types": "./dist/instantsearch.d.cts",
+        "default": "./dist/instantsearch.cjs"
+      }
     }
   },
   "files": [
@@ -41,13 +51,14 @@
   "license": "MIT",
   "devDependencies": {
     "@eslint/js": "^10.0.1",
-    "eventsource": "^3.0.7",
     "eslint": "^10.4.1",
+    "eventsource": "^3.0.7",
     "globals": "^17.6.0",
     "jsdom": "^27.0.1",
     "tsup": "^8.0.0",
-    "typescript-eslint": "^8.60.1",
     "typescript": "^5.5.0",
+    "typescript-eslint": "^8.60.1",
+    "vite": "^7.3.5",
     "vitest": "^4.1.0"
   }
 }

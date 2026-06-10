@@ -59,6 +59,7 @@ export default defineConfig({
         text: "SDK & Tutorials",
         items: [
           { text: "JavaScript SDK", link: "/guide/javascript-sdk" },
+          { text: "InstantSearch", link: "/guide/instantsearch" },
           { text: "React SDK", link: "/guide/react-sdk" },
           { text: "SSR SDK", link: "/guide/ssr-sdk" },
           { text: "Flutter SDK", link: "/guide/flutter-sdk" },

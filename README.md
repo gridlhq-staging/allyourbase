@@ -186,10 +186,10 @@ Current support:
 
 - PocketBase import path is hardened and regression-covered.
 - Supabase local CLI, hosted cloud, and self-hosted import paths have scripted live-validation evidence in-repo.
-- Algolia query-code migrations are documented against AYB's shipped list-search API, while data moves through standard PostgreSQL ingest paths.
+- Algolia one-index data imports use `ayb migrate algolia`, with dry-run planning, JSON automation output, and optional supported synonym import.
 - Firebase live-export validation remains deferred and is not part of the public README migration promise.
 
-For Algolia query-code migration, see the [Algolia migration guide](https://allyourbase.io/guide/migrating-from-algolia). It maps Algolia concepts to AYB's `search`, `fuzzy`, `filter`, `facets`, result highlighting, typo-threshold controls, and operator-defined synonyms request path. See [Beta Limitations](https://allyourbase.io/guide/beta-limitations) for migration caveats that are intentionally bounded in the beta.
+For Algolia data and query-code migration, see the [Algolia migration guide](https://allyourbase.io/guide/migrating-from-algolia). It covers `ayb migrate algolia` as the primary data-move path and maps Algolia query concepts to AYB's `search`, `fuzzy`, `filter`, `facets`, result highlighting, typo-threshold controls, and operator-defined synonyms request path. See [Beta Limitations](https://allyourbase.io/guide/beta-limitations) for migration caveats that are intentionally bounded in the beta.
 
 Fastest path (single CLI command into managed AYB Postgres):
 
@@ -215,6 +215,15 @@ ayb migrate supabase \
   --source-url "postgresql://postgres:<password>@db.<ref>.supabase.co:5432/postgres" \
   --database-url "postgresql://user:pass@host:5432/mydb" \
   -y
+
+# Algolia one-index import -> specific target DB
+ayb migrate algolia \
+  --app-id "$ALGOLIA_APP_ID" \
+  --api-key "$ALGOLIA_API_KEY" \
+  --index products \
+  --database-url "postgresql://user:pass@host:5432/mydb" \
+  --table products \
+  --dry-run
 ```
 
 Supabase storage files: include `--storage-export <dir>` only if you have an exported storage directory to migrate.
@@ -231,7 +240,7 @@ git clone https://github.com/gridlhq-staging/allyourbase.git && cd allyourbase &
 
 # Specific version
 curl -fsSLo /tmp/ayb-install.sh https://staging.allyourbase.io/install.sh
-sh /tmp/ayb-install.sh v0.0.9-beta
+sh /tmp/ayb-install.sh v0.0.10-beta
 ```
 
 ## vs. PocketBase vs. Supabase

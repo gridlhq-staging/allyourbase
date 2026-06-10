@@ -178,9 +178,7 @@ func TestRunWithAYBScriptRunsCommandAfterHealthReady(t *testing.T) {
 func TestRunWithAYBScriptReusesExistingHealthyServer(t *testing.T) {
 	t.Parallel()
 
-	healthPort := reserveLocalhostPort(t)
-	healthURL := fmt.Sprintf("http://127.0.0.1:%d/health", healthPort)
-	server := startHealthServer(t, healthPort)
+	server, healthURL := startHealthServerOnRandomPort(t)
 	defer server.Close()
 
 	output, err := runAYBScript(t, "echo command-finished",
@@ -202,9 +200,7 @@ func TestRunWithAYBScriptReuseMaterializesCanonicalAdminToken(t *testing.T) {
 
 	homeDir := t.TempDir()
 	tokenPath := filepath.Join(homeDir, ".ayb", "admin-token")
-	healthPort := reserveLocalhostPort(t)
-	healthURL := fmt.Sprintf("http://127.0.0.1:%d/health", healthPort)
-	server := startHealthServer(t, healthPort)
+	server, healthURL := startHealthServerOnRandomPort(t)
 	defer server.Close()
 
 	output, err := runAYBScript(t, `test "$(cat "$HOME/.ayb/admin-token")" = test-admin-token && echo command-finished`,
@@ -412,35 +408,49 @@ func reserveLocalhostPort(t *testing.T) int {
 	return addr.Port
 }
 
-func startHealthServer(t *testing.T, port int) *http.Server {
+func startHealthServerOnRandomPort(t *testing.T) (*http.Server, string) {
 	t.Helper()
 
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("startHealthServerOnRandomPort listen: %v", err)
+	}
+
+	addr, ok := listener.Addr().(*net.TCPAddr)
+	if !ok || addr.Port <= 0 {
+		listener.Close()
+		t.Fatalf("startHealthServerOnRandomPort invalid address: %#v", listener.Addr())
+	}
+	healthURL := fmt.Sprintf("http://127.0.0.1:%d/health", addr.Port)
+
 	server := &http.Server{
-		Addr:              fmt.Sprintf("127.0.0.1:%d", port),
 		Handler:           http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write([]byte("ok")) }),
 		ReadHeaderTimeout: time.Second,
 	}
 	errCh := make(chan error, 1)
 	go func() {
-		errCh <- server.ListenAndServe()
+		errCh <- server.Serve(listener)
 	}()
 
 	deadline := time.Now().Add(2 * time.Second)
 	client := &http.Client{Timeout: 200 * time.Millisecond}
 	for time.Now().Before(deadline) {
-		resp, err := client.Get(fmt.Sprintf("http://127.0.0.1:%d/health", port))
+		resp, err := client.Get(healthURL)
 		if err == nil {
 			resp.Body.Close()
-			return server
+			return server, healthURL
 		}
 		select {
 		case listenErr := <-errCh:
+			if errors.Is(listenErr, http.ErrServerClosed) {
+				t.Fatalf("health server closed before readiness")
+			}
 			t.Fatalf("health server exited before readiness: %v", listenErr)
 		default:
 		}
 		time.Sleep(25 * time.Millisecond)
 	}
 
-	t.Fatalf("health server did not become ready on port %d", port)
-	return server
+	t.Fatalf("health server did not become ready at %s", healthURL)
+	return server, healthURL
 }

@@ -125,6 +125,35 @@ await ayb.records.delete("posts", "abc123");
 `_highlight` snippets, and omit it otherwise. `typoThreshold` requires
 `fuzzy: true`.
 
+### InstantSearch adapter
+
+```ts
+import { createInstantSearchClient } from "@allyourbase/js/instantsearch";
+
+const searchClient = createInstantSearchClient({
+  client: ayb,
+  objectIDField: "id",
+  defaultIndexName: "posts",
+});
+```
+
+`@allyourbase/js/instantsearch` is a thin adapter over `records.list`; it does
+not add a second search transport. `objectIDField` is required because AYB rows
+are arbitrary PostgreSQL records, and the adapter fails closed when a returned
+row is missing that field or has a `null` value.
+
+The adapter supports one-index `search(requests)` calls with `query`, zero-based
+`page`, `hitsPerPage`, concrete `facets`, `facetFilters` in `attribute:value`
+form, and the documented `filters` comparison subset. Empty query strings are
+sent as browsable list calls with no `search` parameter so first-render facets
+remain available. Set `highlight: false` in the adapter options to omit the
+backend `highlight=true` request flag.
+
+Unsupported cases throw before AYB is called: mixed index requests,
+`searchForFacetValues`, wildcard facets, vector/search tuning params,
+`skipTotal`, negative `facetFilters`, nested attributes, tag filters, numeric
+ranges, arrays, `NOT`, and unlisted Algolia request parameters.
+
 ### Auth
 
 ```ts

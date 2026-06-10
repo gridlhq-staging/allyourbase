@@ -100,5 +100,5 @@ export PLAYWRIGHT_BASE_URL=https://staging.<your-domain>
 
 - [Browser Testing Standards](../../_dev/BROWSER_TESTING_STANDARDS.md)
 - [Playwright Docs](https://playwright.dev)
-- [BDD Specifications](../../docs/BDD_SPECIFICATIONS.md)
+- [BDD Specifications](../../docs/reference/BDD_SPECIFICATIONS.md)
 - [Test Specs](../../tests/specs/)

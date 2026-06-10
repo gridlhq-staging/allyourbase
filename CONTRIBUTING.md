@@ -16,7 +16,7 @@ Run automated checks and include exact commands you ran in your PR test plan. Ex
 make test
 ```
 
-Use additional commands from `TESTING.md` when your change touches broader surfaces.
+Use additional commands from `docs/howto/testing.md` when your change touches broader surfaces.
 
 Manual-only verification is not sufficient for contributions.
 

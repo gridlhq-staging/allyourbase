@@ -3,8 +3,8 @@
 **Purpose:** Detailed test cases for schema introspection and TypeScript type generation (BDD Tier 1: B-SCHEMA-001, B-SCHEMA-002)
 
 **Related BDD Stories:**
-- [B-SCHEMA-001: Get Full Schema](../../docs/BDD_SPECIFICATIONS.md#b-schema-001-get-full-schema)
-- [B-SCHEMA-002: Generate TypeScript Types](../../docs/BDD_SPECIFICATIONS.md#b-schema-002-generate-typescript-types)
+- [B-SCHEMA-001: Get Full Schema](../../docs/reference/bdd/schema.md#b-schema-001-get-full-schema)
+- [B-SCHEMA-002: Generate TypeScript Types](../../docs/reference/bdd/schema.md#b-schema-002-generate-typescript-types)
 
 ---
 

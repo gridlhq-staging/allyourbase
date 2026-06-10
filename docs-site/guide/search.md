@@ -9,7 +9,7 @@ It is based on:
 - `internal/api/aggregate.go`, `internal/api/handler_list_facets.go`
 - `ui/src/api_search.ts`, `ui/src/components/Search.tsx`, `ui/src/types/common.ts`
 - Tests: `internal/api/search_test.go`, `internal/api/integration_rls_test.go`, `ui/browser-tests-unmocked/full/search-playground-journey.spec.ts`
-- Screen spec: `docs/screen_specs/search_playground.md`
+- Screen spec: `docs/reference/screen_specs/search_playground.md`
 
 ## What search runs on
 
@@ -67,7 +67,7 @@ const response = await ayb.records.list("posts", {
 
 Admin setup and replacement semantics are documented in [Search Synonyms](/guide/synonyms).
 
-Hybrid search with `search=<text>&semantic=true` uses the same full-text search builder for its text leg, so stemming and configured synonym groups also apply to that text leg. Hybrid results are ranked by the fused text/vector rank and then paginated from the fused set. The vector leg and fusion rules remain documented in [AI and Vector Search](/guide/ai-vector).
+Hybrid search with `search=<text>&semantic=true` uses the same full-text search builder for its text leg, so configured synonym groups also expand that text leg. Hybrid results are ranked by the fused text/vector rank and then paginated from the fused set. The vector leg and fusion rules remain documented in [AI and Vector Search](/guide/ai-vector).
 
 ## Fuzzy matching
 

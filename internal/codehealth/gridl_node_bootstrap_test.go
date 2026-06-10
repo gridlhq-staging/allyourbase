@@ -115,7 +115,7 @@ func TestGridlNodeReadmeReferencesContractDoc(t *testing.T) {
 	content := readGridlNodeFile(t, "README.md")
 
 	requireContainsAll(t, content, []string{
-		"docs/gridl-integration-contract.md",
+		"docs/reference/gridl-integration-contract.md",
 		"/health",
 		"/api/admin/status",
 		"/api/admin/auth",
@@ -154,7 +154,7 @@ func TestGridlNodeContractDocExists(t *testing.T) {
 	t.Parallel()
 	skipIfGridlNodePackageAbsent(t)
 
-	requireRepoFilesExist(t, "docs/gridl-integration-contract.md")
+	requireRepoFilesExist(t, "docs/reference/gridl-integration-contract.md")
 }
 
 func TestGridlNodeContractDocMatchesServerBehavior(t *testing.T) {
