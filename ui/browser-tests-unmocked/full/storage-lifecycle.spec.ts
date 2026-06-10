@@ -172,9 +172,9 @@ test.describe("Storage Lifecycle (Full E2E)", () => {
     );
 
     // Close preview
-    const closePreviewBtn = page.getByRole("button", { name: "Close" });
-    await expect(closePreviewBtn.first()).toBeVisible({ timeout: 1000 });
-    await closePreviewBtn.first().click();
+    const previewDialog = page.getByRole("dialog", { name: imgFileName });
+    await previewDialog.getByRole("button", { name: "Close" }).click();
+    await expect(previewDialog).toBeHidden();
 
     // ============================================================
     // SIGNED URL: Generate signed URL for text file

@@ -381,7 +381,12 @@ export function StorageBrowser() {
       {/* Preview Modal */}
       {modal.kind === "preview" && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-          <div className="bg-white dark:bg-gray-800 rounded-lg shadow-xl max-w-2xl w-full mx-4">
+          <div
+            aria-label={modal.file.name}
+            aria-modal="true"
+            role="dialog"
+            className="bg-white dark:bg-gray-800 rounded-lg shadow-xl max-w-2xl w-full mx-4"
+          >
             <div className="flex items-center justify-between px-5 py-3 border-b">
               <h3 className="font-semibold text-sm truncate">{modal.file.name}</h3>
               <button

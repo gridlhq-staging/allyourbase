@@ -58,7 +58,7 @@ export function MFAEnrollment() {
       let authToken = getAuthToken();
       let isAnonymousToken = readIsAnonymousFromAuthToken(authToken);
 
-      if (authToken && isAnonymousToken === false) {
+      if (authToken && isAnonymousToken !== true) {
         return authToken;
       }
 

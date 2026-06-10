@@ -275,9 +275,9 @@ test.describe("Webhooks Lifecycle (Full E2E)", () => {
     await expect(page.getByText(updatedUrl).first()).toBeVisible({ timeout: 3000 });
 
     // Close the modal
-    const closeBtn = page.getByRole("button", { name: "Close" });
-    await expect(closeBtn.first()).toBeVisible({ timeout: 1000 });
-    await closeBtn.first().click();
+    const historyDialog = page.getByRole("dialog", { name: "Delivery History" });
+    await historyDialog.getByRole("button", { name: "Close" }).click();
+    await expect(historyDialog).toBeHidden();
 
     // ============================================================
     // DELETE: Remove webhook

@@ -62,6 +62,12 @@ const BACKUP_CODES = [
   "cde78-fgh90",
 ];
 
+function buildAuthToken(payload: Record<string, unknown>): string {
+  const header = Buffer.from(JSON.stringify({ alg: "HS256", typ: "JWT" })).toString("base64url");
+  const body = Buffer.from(JSON.stringify(payload)).toString("base64url");
+  return `${header}.${body}.signature`;
+}
+
 describe("MFAEnrollment", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -331,5 +337,17 @@ describe("MFAEnrollment", () => {
       expect(screen.getByRole("heading", { name: /multi-factor authentication/i })).toBeInTheDocument();
     });
     expect(screen.getByText(/no mfa methods enrolled/i)).toBeInTheDocument();
+  });
+
+  it("reuses linked auth tokens that omit the optional anonymous-session claim", async () => {
+    mockGetAuthToken.mockReturnValue(buildAuthToken({ sub: "linked-user", aal: "aal1" }));
+
+    render(<MFAEnrollment />);
+
+    await waitFor(() => {
+      expect(mockGetMFAFactors).toHaveBeenCalledTimes(1);
+    });
+    expect(mockCreateAnonymousSession).not.toHaveBeenCalled();
+    expect(mockLinkEmail).not.toHaveBeenCalled();
   });
 });

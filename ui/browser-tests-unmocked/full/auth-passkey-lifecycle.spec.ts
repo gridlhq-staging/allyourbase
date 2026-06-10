@@ -54,7 +54,13 @@ test.describe("Auth Passkey Lifecycle (Full E2E)", () => {
         await expect(page.getByRole("button", { name: /Register Passkey/i })).toBeVisible({ timeout: 5000 });
 
         await page.getByTestId("passkey-display-name-input").fill(passkeyName);
+        const factorsRefresh = page.waitForResponse((response) =>
+          response.request().method() === "GET"
+          && response.url().includes("/api/auth/mfa/factors")
+          && response.ok()
+        );
         await page.getByTestId("passkey-register-button").click();
+        await factorsRefresh;
         await expect(page.getByTestId("passkey-name")).toContainText(passkeyName, { timeout: 10000 });
       });
 

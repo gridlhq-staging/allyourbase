@@ -107,8 +107,14 @@ test.describe("Auth MFA Lifecycle (Full E2E)", () => {
       // Generate valid TOTP code and enter it
       const code = generateTOTPCode(totpSecret);
       await page.getByTestId("totp-confirm-code").fill(code);
+      const factorsRefresh = page.waitForResponse((response) =>
+        response.request().method() === "GET"
+        && response.url().includes("/api/auth/mfa/factors")
+        && response.ok()
+      );
       await page.getByRole("button", { name: /Verify Code/i }).click();
       await expect(page.getByText("TOTP MFA enrolled successfully")).toBeVisible({ timeout: 10000 });
+      await factorsRefresh;
 
       // Verify TOTP now appears in enrolled methods (label text can vary by backend formatting)
       await expect(page.getByTestId("mfa-factor-totp")).toBeVisible();
