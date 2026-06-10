@@ -7,7 +7,7 @@ linters:
     - staticcheck
   exclusions:
     paths:
-      - examples/.*/node_modules/.*
+      - (^|/)node_modules/.*
   settings:
     staticcheck:
       checks:
