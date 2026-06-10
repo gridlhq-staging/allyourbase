@@ -194,7 +194,7 @@ describe("useAuth", () => {
     expect(client.auth.me).toHaveBeenCalledTimes(1);
   });
 
-  it("delegates confirmMagicLink and reloads the current user", async () => {
+  it("delegates confirmMagicLink and syncs the returned user", async () => {
     const { client } = createAuthClient();
     const wrapper = ({ children }: { children: React.ReactNode }) => <AYBProvider client={client}>{children}</AYBProvider>;
     const { result } = renderHook(() => useAuth(), { wrapper });
@@ -206,10 +206,11 @@ describe("useAuth", () => {
     });
 
     expect(client.auth.confirmMagicLink).toHaveBeenCalledWith("magic-link-token");
-    expect(client.auth.me).toHaveBeenCalledTimes(2);
+    expect(client.auth.me).toHaveBeenCalledTimes(1);
+    expect(result.current.user?.email).toBe(magicLinkConfirmSuccessFixture.user.email);
   });
 
-  it("delegates signInWithPasskey and reloads the current user after session issuance", async () => {
+  it("delegates signInWithPasskey and syncs the returned user after session issuance", async () => {
     const { client } = createAuthClient();
     const wrapper = ({ children }: { children: React.ReactNode }) => <AYBProvider client={client}>{children}</AYBProvider>;
     const { result } = renderHook(() => useAuth(), { wrapper });
@@ -221,7 +222,8 @@ describe("useAuth", () => {
     });
 
     expect(client.auth.signInWithPasskey).toHaveBeenCalledWith("passkey@example.com");
-    expect(client.auth.me).toHaveBeenCalledTimes(2);
+    expect(client.auth.me).toHaveBeenCalledTimes(1);
+    expect(result.current.user?.email).toBe("passkey@example.com");
   });
 
   it("preserves auth object binding for passkey sign-in", async () => {
@@ -250,10 +252,11 @@ describe("useAuth", () => {
     });
 
     expect(auth.signInWithPasskeyCalledWithBoundThis).toBe(true);
-    expect(client.auth.me).toHaveBeenCalledTimes(2);
+    expect(client.auth.me).toHaveBeenCalledTimes(1);
+    expect(result.current.user?.email).toBe("bound-passkey@example.com");
   });
 
-  it("delegates anonymous sign-in and reloads the current user after session issuance", async () => {
+  it("delegates anonymous sign-in and syncs the returned user after session issuance", async () => {
     const { client } = createAuthClient();
     const wrapper = ({ children }: { children: React.ReactNode }) => <AYBProvider client={client}>{children}</AYBProvider>;
     const { result } = renderHook(() => useAuth(), { wrapper });
@@ -265,7 +268,8 @@ describe("useAuth", () => {
     });
 
     expect(client.auth.signInAnonymously).toHaveBeenCalledTimes(1);
-    expect(client.auth.me).toHaveBeenCalledTimes(2);
+    expect(client.auth.me).toHaveBeenCalledTimes(1);
+    expect(result.current.user?.id).toBe("guest");
   });
 
   it("keeps legacy AYBClientLike consumers compatible and throws only when passkey login is invoked", async () => {

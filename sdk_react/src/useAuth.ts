@@ -13,6 +13,18 @@ function isUnauthorizedError(err: unknown): boolean {
   return status === 401 || status === 403;
 }
 
+function authUserFromResponse(response: unknown): UserLike | null {
+  if (!response || typeof response !== "object") {
+    return null;
+  }
+  const user = (response as { user?: unknown }).user;
+  if (!user || typeof user !== "object") {
+    return null;
+  }
+  const id = (user as { id?: unknown }).id;
+  return typeof id === "string" ? (user as UserLike) : null;
+}
+
 /**
  * Manages authentication state and automatically syncs with the client's auth provider. Loads the current user on mount and resubscribes to auth state changes, handling token updates and session management. Returns current user data, tokens, loading/error states, and authentication methods.
  */
@@ -50,6 +62,22 @@ export function useAuth(): UseAuthResult {
       setRefreshToken(unauthorizedSession ? null : client.refreshToken);
     }
   }, [client]);
+
+  const syncAuthResponse = useCallback(
+    async (response: unknown) => {
+      const responseUser = authUserFromResponse(response);
+      if (!responseUser) {
+        await loadMe();
+        return;
+      }
+      setUser(responseUser);
+      setError(null);
+      setLoading(false);
+      setToken(client.token);
+      setRefreshToken(client.refreshToken);
+    },
+    [client, loadMe],
+  );
 
   useEffect(() => {
     let mounted = true;
@@ -93,24 +121,24 @@ export function useAuth(): UseAuthResult {
 
   const login = useCallback(
     async (email: string, password: string) => {
-      await client.auth.login(email, password);
-      await loadMe();
+      const response = await client.auth.login(email, password);
+      await syncAuthResponse(response);
     },
-    [client, loadMe],
+    [client, syncAuthResponse],
   );
 
   const register = useCallback(
     async (email: string, password: string) => {
-      await client.auth.register(email, password);
-      await loadMe();
+      const response = await client.auth.register(email, password);
+      await syncAuthResponse(response);
     },
-    [client, loadMe],
+    [client, syncAuthResponse],
   );
 
   const signInAnonymously = useCallback(async () => {
-    await client.auth.signInAnonymously();
-    await loadMe();
-  }, [client, loadMe]);
+    const response = await client.auth.signInAnonymously();
+    await syncAuthResponse(response);
+  }, [client, syncAuthResponse]);
 
   const signInWithPasskey = useCallback(
     async (email: string) => {
@@ -118,10 +146,10 @@ export function useAuth(): UseAuthResult {
       if (!signInWithPasskeyRequest) {
         throw new Error("Passkey sign-in is not available for this client");
       }
-      await signInWithPasskeyRequest.call(client.auth, email);
-      await loadMe();
+      const response = await signInWithPasskeyRequest.call(client.auth, email);
+      await syncAuthResponse(response);
     },
-    [client, loadMe],
+    [client, syncAuthResponse],
   );
 
   const requestMagicLink = useCallback(
@@ -133,24 +161,26 @@ export function useAuth(): UseAuthResult {
 
   const confirmMagicLink = useCallback(
     async (token: string) => {
-      await client.auth.confirmMagicLink(token);
-      await loadMe();
+      const response = await client.auth.confirmMagicLink(token);
+      await syncAuthResponse(response);
     },
-    [client, loadMe],
+    [client, syncAuthResponse],
   );
 
   const linkEmail = useCallback(
     async (email: string, password: string) => {
-      await client.auth.linkEmail(email, password);
+      const response = await client.auth.linkEmail(email, password);
+      await syncAuthResponse(response);
     },
-    [client],
+    [client, syncAuthResponse],
   );
 
   const signInWithOAuth = useCallback(
     async (provider: OAuthProvider, options?: OAuthOptions) => {
-      await client.auth.signInWithOAuth(provider, options);
+      const response = await client.auth.signInWithOAuth(provider, options);
+      await syncAuthResponse(response);
     },
-    [client],
+    [client, syncAuthResponse],
   );
 
   const logout = useCallback(async () => {
@@ -162,9 +192,9 @@ export function useAuth(): UseAuthResult {
   }, [client]);
 
   const refresh = useCallback(async () => {
-    await client.auth.refresh();
-    await loadMe();
-  }, [client, loadMe]);
+    const response = await client.auth.refresh();
+    await syncAuthResponse(response);
+  }, [client, syncAuthResponse]);
 
   return {
     loading,

@@ -3,7 +3,7 @@
 > Single source of truth for **view-level** browser-test coverage across all admin UI views.
 > Consumed by Workstream 3 Stages 2-7. Do not maintain parallel coverage lists.
 >
-> Generated from Stage 1 audit. Source: `ui/src/components/layout-types.ts` (51 View literals),
+> Generated from Stage 1 audit. Source: `ui/src/components/layout-types.ts` (53 View literals),
 > cross-checked against `ContentRouter.tsx` routes and `Sidebar.tsx` nav buttons.
 >
 > Last updated: 2026-03-24 (after MAR24 PM-1 reconciliation; deploy subflow row status lives in `_dev/AUDIT_LEDGER.md` R25-R31)
@@ -32,6 +32,7 @@
 | `data` | content-verified | exists | yes | not | collections-create, table-browser-crud, collections-crud, table-browser-advanced, blog-platform-journey |
 | `schema` | content-verified | not | N/A | not | schema-view |
 | `sql` | content-verified | exists | yes | not | sql-view, sql-lifecycle |
+| `synonyms` | content-verified | exists | yes | not | collection_synonyms_editor |
 | `webhooks` | content-verified | exists | yes | exists | webhooks-crud, webhooks-lifecycle, dashboard-webhook-delivery-journey (secondary), webhooks-error-flows (mocked) |
 | `storage` | content-verified | exists | yes | exists | storage-upload, storage-lifecycle, storage-error-flows (mocked) |
 | `sites` | content-verified | exists | yes | not | sites-hosting, sites-lifecycle (view-level Sites coverage; deploy subflow row status lives in `_dev/AUDIT_LEDGER.md` `R25`-`R31`) |
@@ -70,6 +71,7 @@
 | `saml` | content-verified | exists | yes | not | saml, saml-lifecycle |
 | `custom-domains` | content-verified | exists | yes | not | custom-domains, custom-domains-lifecycle |
 | `extensions` | content-verified | exists | yes | not | extensions, extensions-lifecycle |
+| `search` | content-verified | exists | N/A | not | search-playground-journey |
 | `vector-indexes` | content-verified | exists | yes | not | vector-indexes, vector-indexes-lifecycle |
 | `log-drains` | content-verified | exists | yes | not | log-drains, log-drains-lifecycle |
 | `stats` | content-verified | not | N/A | not | stats |
@@ -85,14 +87,14 @@
 
 | Metric | Count |
 |---|---|
-| Total views | 51 |
+| Total views | 53 |
 | Smoke = none | 0 |
 | Smoke = heading-only | 0 |
-| Smoke = content-verified | 51 |
-| All views with smoke coverage | 51/51 (100%) |
-| Views with full lifecycle specs | 47 |
+| Smoke = content-verified | 53 |
+| All views with smoke coverage | 53/53 (100%) |
+| Views with full lifecycle specs | 49 |
 | CRUD-capable views missing full lifecycle | 0 |
-| Views missing mocked coverage | 26 |
+| Views missing mocked coverage | 28 |
 
 ## Stage Gap Lists
 
@@ -102,7 +104,7 @@
 
 ### Stage 4 — Admin views with no smoke spec
 
-**COMPLETED.** All 51 views (48 admin + 3 data) now have dedicated smoke specs. Admin views closed in commits `330fd97`–`be00895`; data views `schema` and `sql` closed in `2a2c6aa`.
+**COMPLETED.** All 53 views (49 admin + 4 data) now have smoke coverage. Admin views closed in commits `330fd97`–`be00895`; data views `schema`, `sql`, and `synonyms` closed in `2a2c6aa` plus `collection_synonyms_editor`; `search` is covered by `search-playground-journey`.
 
 #### Stage 4 upgrade pass — 14 weak smoke specs upgraded to content-verified quality
 
@@ -169,7 +171,7 @@ The previously tracked Stage 5 closeout remains true for the original 22-row aud
 
 ### Stage 6 — Views missing mocked coverage
 
-26 views remaining (down from 35). 10 highest-priority mutation surfaces now covered:
+28 views remaining. 10 highest-priority mutation surfaces now covered:
 `api-keys`, `oauth-clients`, `webhooks`, `storage`, `secrets`, `sql-editor`, `notifications`, `support-tickets`, `incidents`, `fdw`.
 
 ## Prioritization (product-surface-first)
