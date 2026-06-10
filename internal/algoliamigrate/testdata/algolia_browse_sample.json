@@ -1,0 +1,49 @@
+{
+  "hits": [
+    {
+      "objectID": "product_001",
+      "title": "Desk Lamp",
+      "subtitle": "Adjustable LED task lamp",
+      "inventory_count": 42,
+      "price": 39.95,
+      "published": true,
+      "tags": ["lighting", "office"],
+      "dimensions": {
+        "width_cm": 14,
+        "height_cm": 48,
+        "depth_cm": 18
+      }
+    },
+    {
+      "objectID": "product_002",
+      "title": "Notebook Set",
+      "inventory_count": 7,
+      "price": 12,
+      "published": false,
+      "tags": ["paper", "office"],
+      "dimensions": {
+        "width_cm": 15,
+        "height_cm": 21,
+        "depth_cm": 2
+      }
+    },
+    {
+      "objectID": "product_003",
+      "title": "Monitor Stand",
+      "subtitle": "Walnut desk riser",
+      "inventory_count": 0,
+      "price": 64.5,
+      "published": true,
+      "tags": ["furniture", "office", "wood"],
+      "dimensions": {
+        "width_cm": 55,
+        "height_cm": 9,
+        "depth_cm": 24
+      }
+    }
+  ],
+  "processingTimeMS": 7,
+  "query": "",
+  "params": "filters=published%3Dtrue",
+  "cursor": "ARJmaWx0ZXJzPXB1Ymxpc2hlZCUzRHRydWU="
+}

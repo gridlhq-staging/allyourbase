@@ -1,0 +1,34 @@
+{
+  "hits": [
+    {
+      "objectID": "regular-office-supplies",
+      "type": "synonym",
+      "synonyms": ["office supplies", "stationery", "desk supplies"]
+    },
+    {
+      "objectID": "one-way-tablet",
+      "type": "oneWaySynonym",
+      "input": "tablet",
+      "synonyms": ["ipad", "galaxy tab"]
+    },
+    {
+      "objectID": "alt-correction-one-trousers",
+      "type": "altCorrection1",
+      "word": "trousers",
+      "corrections": ["pants"]
+    },
+    {
+      "objectID": "alt-correction-two-trousers",
+      "type": "altCorrection2",
+      "word": "trousers",
+      "corrections": ["pants"]
+    },
+    {
+      "objectID": "placeholder-model",
+      "type": "placeholder",
+      "placeholder": "<model>",
+      "replacements": ["13", "14"]
+    }
+  ],
+  "nbHits": 5
+}

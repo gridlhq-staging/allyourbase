@@ -103,7 +103,7 @@ func TestMapAlgoliaSynonymsKeepsValidGroupsWhenLaterGroupDuplicatesTerm(t *testi
 func loadSynonymFixtureInput(t *testing.T) SynonymInput {
 	t.Helper()
 
-	raw, err := os.ReadFile("../../docs/reference/research/algolia_synonyms_sample.json")
+	raw, err := os.ReadFile("testdata/algolia_synonyms_sample.json")
 	if err != nil {
 		t.Fatalf("read synonym fixture: %v", err)
 	}

@@ -207,6 +207,8 @@ func TestPublishedDockerImageManifestContractMatchesDockerWorkflowTarget(t *test
 	t.Parallel()
 
 	repoRoot := findRepoRoot(t)
+	releaseOwner := readGoreleaserGitHubOwner(t, repoRoot)
+	expectedImageRepository := "ghcr.io/" + releaseOwner + "/allyourbase"
 	workflowPath := filepath.Join(repoRoot, ".github", "workflows", "docker.yml")
 	workflowData, err := os.ReadFile(workflowPath)
 	if err != nil {
@@ -214,8 +216,39 @@ func TestPublishedDockerImageManifestContractMatchesDockerWorkflowTarget(t *test
 	}
 
 	requireContainsAll(t, string(workflowData), []string{
-		"images: " + publishedDockerImageRepository,
+		"images: " + expectedImageRepository,
 	})
+}
+
+func readGoreleaserGitHubOwner(t *testing.T, repoRoot string) string {
+	t.Helper()
+
+	path := filepath.Join(repoRoot, ".goreleaser.yaml")
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read %s failed: %v", path, err)
+	}
+
+	lines := strings.Split(string(data), "\n")
+	for i, line := range lines {
+		if strings.TrimSpace(line) != "github:" {
+			continue
+		}
+		for _, candidate := range lines[i+1:] {
+			if candidate == "" {
+				continue
+			}
+			if !strings.HasPrefix(candidate, "    ") {
+				break
+			}
+			trimmed := strings.TrimSpace(candidate)
+			if strings.HasPrefix(trimmed, "owner: ") {
+				return strings.TrimSpace(strings.TrimPrefix(trimmed, "owner: "))
+			}
+		}
+	}
+	t.Fatalf("missing release.github.owner in %s", path)
+	return ""
 }
 
 func inspectPublishedDockerImageManifestPlatforms(t *testing.T) (string, []string) {
