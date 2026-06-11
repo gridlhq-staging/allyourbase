@@ -13,20 +13,20 @@ Open http://localhost:5175, register an account, and start creating polls!
 ### Manual Setup
 
 ```bash
-printf '\n[graphql]\nenabled = true\n' >> ayb.toml
 ayb start
 ayb sql < schema.sql
 npm install
 npm run dev
 ```
 
-Verify GraphQL is mounted before running the frontend or E2E tests:
+The demo uses the REST API by default, so GraphQL is optional for normal local
+development. Enable GraphQL in `ayb.toml` only when running Playwright or
+advanced GraphQL-specific checks:
 
-```bash
-curl -s -o /dev/null -w %{http_code} http://localhost:8090/api/graphql
+```toml
+[graphql]
+enabled = true
 ```
-
-The status must be non-`404`.
 
 ## Features
 
@@ -44,6 +44,7 @@ The status must be non-`404`.
 | REST API | CRUD for polls, options; list votes for bar charts |
 | Auth | Email/password registration and login |
 | Realtime SSE | Live vote count updates across all connected clients |
+| GraphQL | Optional — REST is the default data path; GraphQL is available when enabled |
 | RLS | Public read; only creator can update polls; one vote per user |
 | Database RPC | `cast_vote()` function for atomic vote with duplicate enforcement |
 
@@ -54,7 +55,7 @@ npm test            # 26 unit/component tests (vitest)
 npm run test:watch  # watch mode
 ```
 
-Playwright assumes GraphQL is enabled before the frontend starts (see Manual Setup above).
+Playwright requires GraphQL to be enabled before the frontend starts, but the demo itself uses REST by default.
 
 ## Architecture
 

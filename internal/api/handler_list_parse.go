@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"fmt"
 	"math"
 	"net/http"
@@ -9,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/allyourbase/ayb/internal/schema"
+	"github.com/allyourbase/ayb/internal/searchsettings"
 )
 
 // filterSearchResult holds parsed filter and search SQL fragments.
@@ -32,6 +34,7 @@ type searchParamResult struct {
 type filterSpatialResult struct {
 	filterSQL   string
 	filterArgs  []any
+	rawFilter   string
 	spatialSQL  string
 	spatialArgs []any
 }
@@ -108,6 +111,13 @@ func hasPgTrgm(sc *schema.SchemaCache) bool {
 	return sc != nil && sc.HasPgTrgm
 }
 
+func (h *Handler) loadSearchSettings(tbl *schema.Table) (searchsettings.Settings, error) {
+	if h.pool == nil || tbl == nil {
+		return searchsettings.Settings{}, nil
+	}
+	return searchsettings.NewStore(h.pool).Load(context.Background(), tbl.Schema, tbl.Name)
+}
+
 // parseFilterParam validates and parses the filter query parameter.
 // On validation failure it writes the error response and returns false.
 func (h *Handler) parseFilterParam(w http.ResponseWriter, tbl *schema.Table, q url.Values) (string, []any, bool) {
@@ -141,6 +151,7 @@ func (h *Handler) parseFilterAndSpatial(w http.ResponseWriter, tbl *schema.Table
 		ok  bool
 		err error
 	)
+	res.rawFilter = q.Get("filter")
 	res.filterSQL, res.filterArgs, ok = h.parseFilterParam(w, tbl, q)
 	if !ok {
 		return res, false
@@ -188,12 +199,25 @@ func (h *Handler) parseSearchParam(w http.ResponseWriter, tbl *schema.Table, q u
 		writeErrorWithDoc(w, http.StatusBadRequest, "search term too long", docURL("/guide/api-reference#full-text-search"))
 		return res, false
 	}
+	settings, err := h.loadSearchSettings(tbl)
+	if err != nil {
+		h.logger.Error("load search settings error", "error", err, "schema", tbl.Schema, "table", tbl.Name)
+		writeError(w, http.StatusInternalServerError, "failed to load search settings")
+		return res, false
+	}
+	settings, err = searchsettings.ValidateForTable(tbl, settings)
+	if err != nil {
+		h.logger.Error("invalid search settings", "error", err, "schema", tbl.Schema, "table", tbl.Name)
+		writeError(w, http.StatusInternalServerError, "failed to load search settings")
+		return res, false
+	}
 	apiCfg := h.effectiveAPIConfig()
 	search, err := buildSearchSQL(tbl, searchStr, argOffset, searchOptions{
 		fuzzy:            fuzzy,
 		typoThreshold:    typoThreshold,
 		highlight:        highlight,
 		textSearchConfig: apiCfg.TextSearchConfig,
+		settings:         settings,
 	})
 	if err != nil {
 		writeErrorWithDoc(w, http.StatusBadRequest, "search not supported: "+err.Error(), docURL("/guide/api-reference#full-text-search"))

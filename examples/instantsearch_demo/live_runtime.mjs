@@ -1,14 +1,19 @@
 import { spawn, spawnSync } from "node:child_process";
 import { accessSync, constants, mkdtempSync, readFileSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 export const INSTANTSEARCH_COLLECTION = "instantsearch_products";
 export const INSTANTSEARCH_OBJECT_ID_FIELD = "slug";
 
-const API_PORT = 8090;
-const APP_PORT = 8096;
+const API_PORT = parseConfiguredPort("AYB_API_PORT", "8090");
+const APP_PORT = parseConfiguredPort("AYB_APP_PORT", "8096");
+const MANAGED_PG_PORT = parseConfiguredPort(
+  "AYB_DATABASE_EMBEDDED_PORT",
+  process.env.AYB_API_PORT || process.env.AYB_APP_PORT
+    ? String(API_PORT + 2)
+    : "15432",
+);
 const API_URL = `http://127.0.0.1:${API_PORT}`;
 const APP_URL = `http://127.0.0.1:${APP_PORT}`;
 const API_HEALTH_URL = `${API_URL}/health`;
@@ -18,14 +23,17 @@ const POLL_INTERVAL_MS = 500;
 const GRACEFUL_EXIT_TIMEOUT_MS = 10_000;
 const DEMO_ROOT = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = join(DEMO_ROOT, "..", "..");
+const RUNTIME_TMP_ROOT = process.env.AYB_RUNTIME_TMPDIR ?? "/tmp";
 
 export async function startInstantSearchRuntime(options = {}) {
   const includeApp = options.includeApp === true;
-  const requiredPorts = includeApp ? [API_PORT, APP_PORT] : [API_PORT];
+  const requiredPorts = includeApp
+    ? [API_PORT, APP_PORT, MANAGED_PG_PORT]
+    : [API_PORT, MANAGED_PG_PORT];
   assertPortsAvailable(requiredPorts);
 
   const aybCommand = resolveAybCommand();
-  const runtimeHome = mkdtempSync(join(tmpdir(), "ayb-instantsearch-runtime-"));
+  const runtimeHome = mkdtempSync(join(RUNTIME_TMP_ROOT, "ayb-instantsearch-runtime-"));
   const runtimeEnv = createInstantSearchProcessEnv(runtimeHome);
   const managedProcesses = [];
 
@@ -33,7 +41,7 @@ export async function startInstantSearchRuntime(options = {}) {
     const apiProcess = spawnManagedProcess(
       "api",
       aybCommand.command,
-      [...aybCommand.args, "start", "--foreground"],
+      [...aybCommand.args, "start", "--foreground", "--port", String(API_PORT)],
       REPO_ROOT,
       runtimeEnv,
     );
@@ -69,11 +77,24 @@ export async function startInstantSearchRuntime(options = {}) {
 }
 
 export function createInstantSearchProcessEnv(runtimeHome) {
-  const env = { ...process.env, ...resolveGoCacheEnv(), HOME: runtimeHome };
+  const env = {
+    ...process.env,
+    ...resolveGoCacheEnv(),
+    HOME: runtimeHome,
+    AYB_DATABASE_EMBEDDED_PORT: String(MANAGED_PG_PORT),
+  };
   delete env.AYB_ADMIN_TOKEN;
   delete env.AYB_DATABASE_URL;
   delete env.DATABASE_URL;
   return env;
+}
+
+function parseConfiguredPort(envName, fallbackValue) {
+  const port = Number.parseInt(process.env[envName] ?? fallbackValue, 10);
+  if (!Number.isFinite(port) || port <= 0) {
+    throw new Error(`${envName} must be a positive integer port`);
+  }
+  return port;
 }
 
 function resolveGoCacheEnv() {

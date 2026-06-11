@@ -1,5 +1,5 @@
 /**
- * @module Stub summary for /Users/stuart/parallel_development/allyourbase_dev/MAR18_WS_C_phase5_features_and_phase6/allyourbase_dev/ui/src/types/ai.ts.
+ * @module ui/src/types/ai.ts
  */
 export interface CallLog {
   id: string;

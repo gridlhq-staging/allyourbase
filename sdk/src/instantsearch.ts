@@ -1,5 +1,5 @@
 /**
- * @module Stub summary for /Users/stuart/parallel_development/allyourbase_dev/jun05_pm_5_instantsearch_adapter_and_example/allyourbase_dev/sdk/src/instantsearch.ts.
+ * @module InstantSearch adapter for @allyourbase/js.ts.
  */
 import type {
   ListParams,
@@ -11,6 +11,7 @@ import type {
 type InstantSearchRecord = SearchHit<Record<string, unknown>>;
 
 type FacetFilterInput = string | Array<string | string[]>;
+type NumericFilterInput = string | Array<string | string[]>;
 
 interface InstantSearchRecordsOwner {
   records: {
@@ -21,20 +22,30 @@ interface InstantSearchRecordsOwner {
   };
 }
 
+interface ParsedFacetFilter {
+  attribute: string;
+  filter: string;
+}
+
 export interface CreateInstantSearchClientOptions {
   client: InstantSearchRecordsOwner;
   objectIDField: string;
   defaultIndexName?: string;
   highlight?: boolean;
+  disjunctiveFacets?: string[];
 }
 
 export interface InstantSearchSearchParams {
   query?: string;
   page?: number;
   hitsPerPage?: number;
-  facets?: string[];
+  facets?: string[] | string;
+  disjunctiveFacets?: string[];
   facetFilters?: FacetFilterInput;
+  numericFilters?: NumericFilterInput;
   filters?: string;
+  analytics?: boolean;
+  clickAnalytics?: boolean;
   highlightPreTag?: string;
   highlightPostTag?: string;
   [key: string]: unknown;
@@ -52,6 +63,9 @@ export interface InstantSearchHit extends InstantSearchRecord {
 export interface InstantSearchResult {
   hits: InstantSearchHit[];
   facets?: Record<string, Record<string, number>>;
+  disjunctiveFacets?: InstantSearchDisjunctiveFacet[];
+  facetStats?: Record<string, { min: number; max: number }>;
+  facets_stats?: Record<string, { min: number; max: number }>;
   page: number;
   nbHits: number;
   nbPages: number;
@@ -60,6 +74,12 @@ export interface InstantSearchResult {
   query: string;
   params: string;
   exhaustiveNbHits: boolean;
+}
+
+export interface InstantSearchDisjunctiveFacet {
+  name: string;
+  data: Record<string, number>;
+  stats?: { min: number; max: number };
 }
 
 export interface InstantSearchResponse {
@@ -76,8 +96,12 @@ const SUPPORTED_PARAM_KEYS = new Set([
   "page",
   "hitsPerPage",
   "facets",
+  "disjunctiveFacets",
   "facetFilters",
+  "numericFilters",
   "filters",
+  "analytics",
+  "clickAnalytics",
   "highlightPreTag",
   "highlightPostTag",
 ]);
@@ -102,7 +126,7 @@ export function createInstantSearchClient(
 
       const results: InstantSearchResult[] = [];
       for (const [index, request] of requests.entries()) {
-        const translated = translateRequest(request);
+        const translated = translateRequest(request, options);
         const startedAt = Date.now();
         const list = await options.client.records.list<InstantSearchRecord>(
           indexNames[index],
@@ -127,6 +151,7 @@ function validateOptions(options: CreateInstantSearchClientOptions): void {
   if (!options.objectIDField || typeof options.objectIDField !== "string") {
     throw new Error("objectIDField is required");
   }
+  validateFacetArray(options.disjunctiveFacets);
 }
 
 function resolveIndexName(
@@ -147,20 +172,35 @@ function ensureSingleIndexName(indexNames: string[]): void {
   }
 }
 
-function translateRequest(request: InstantSearchSearchRequest): RequiredRequest {
+function translateRequest(
+  request: InstantSearchSearchRequest,
+  options: CreateInstantSearchClientOptions,
+): RequiredRequest {
   const params = request.params ?? {};
   rejectUnsupportedParams(params);
   validatePage(params.page);
   validateHitsPerPage(params.hitsPerPage);
-  validateFacets(params.facets);
+  const facets = normalizeFacets(params.facets);
+  const requestDisjunctiveFacets = normalizeFacets(params.disjunctiveFacets);
   validateHighlightTags(params);
+
+  const disjunctiveFacets = mergeDisjunctiveFacets(
+    mergeDisjunctiveFacets(options.disjunctiveFacets, requestDisjunctiveFacets),
+    deriveDisjunctiveFacets(facets, params.facetFilters),
+  );
 
   return {
     query: params.query ?? "",
     page: params.page ?? 0,
     hitsPerPage: params.hitsPerPage,
-    facets: params.facets,
-    filter: combineFilters(params.facetFilters, params.filters),
+    facets,
+    disjunctiveFacets,
+    filter: combineFilters(
+      params.facetFilters,
+      params.numericFilters,
+      params.filters,
+      disjunctiveFacets,
+    ),
     highlightPreTag: params.highlightPreTag,
     highlightPostTag: params.highlightPostTag,
     echoedParams: buildEchoedParams(params),
@@ -172,6 +212,7 @@ interface RequiredRequest {
   page: number;
   hitsPerPage?: number;
   facets?: string[];
+  disjunctiveFacets?: string[];
   filter?: string;
   highlightPreTag?: string;
   highlightPostTag?: string;
@@ -190,6 +231,12 @@ function rejectUnsupportedParams(params: InstantSearchSearchParams): void {
   if (params.filters != null && typeof params.filters !== "string") {
     throw new Error("filters must be a string");
   }
+  if (params.analytics != null && typeof params.analytics !== "boolean") {
+    throw new Error("analytics must be a boolean");
+  }
+  if (params.clickAnalytics != null && typeof params.clickAnalytics !== "boolean") {
+    throw new Error("clickAnalytics must be a boolean");
+  }
 }
 
 function validatePage(page: unknown): void {
@@ -201,12 +248,16 @@ function validatePage(page: unknown): void {
 
 function validateHitsPerPage(hitsPerPage: unknown): void {
   if (hitsPerPage == null) return;
-  if (!Number.isInteger(hitsPerPage) || Number(hitsPerPage) <= 0) {
-    throw new Error("hitsPerPage must be a positive integer");
+  if (!Number.isInteger(hitsPerPage) || Number(hitsPerPage) < 0) {
+    throw new Error("hitsPerPage must be a non-negative integer");
   }
 }
 
 function validateFacets(facets: unknown): void {
+  normalizeFacets(facets);
+}
+
+function validateFacetArray(facets: unknown): void {
   if (facets == null) return;
   if (!Array.isArray(facets) || facets.some((facet) => typeof facet !== "string")) {
     throw new Error("facets must be an array of concrete attribute names");
@@ -214,6 +265,13 @@ function validateFacets(facets: unknown): void {
   if (facets.includes("*")) {
     throw new Error('wildcard facets ["*"] are not supported');
   }
+}
+
+function normalizeFacets(facets: unknown): string[] | undefined {
+  if (facets == null) return;
+  const normalized = typeof facets === "string" ? [facets] : facets;
+  validateFacetArray(normalized);
+  return normalized as string[];
 }
 
 function validateHighlightTags(params: InstantSearchSearchParams): void {
@@ -253,49 +311,74 @@ function toListParams(
   options: CreateInstantSearchClientOptions,
 ): ListParams {
   const params: ListParams = { page: request.page + 1 };
-  if (request.hitsPerPage != null) params.perPage = request.hitsPerPage;
+  if (request.hitsPerPage != null) {
+    params.perPage = request.hitsPerPage === 0 ? 1 : request.hitsPerPage;
+  }
   if (request.query !== "") params.search = request.query;
   if (request.facets?.length) params.facets = request.facets;
+  if (request.disjunctiveFacets?.length) {
+    params.disjunctiveFacets = request.disjunctiveFacets;
+  }
   if (request.filter) params.filter = request.filter;
   if (options.highlight ?? true) params.highlight = true;
   return params;
 }
 
-function combineFilters(facetFilters: unknown, filters: unknown): string | undefined {
+function combineFilters(
+  facetFilters: unknown,
+  numericFilters: unknown,
+  filters: unknown,
+  disjunctiveFacets: string[] | undefined,
+): string | undefined {
   const translated = [
-    translateFacetFilters(facetFilters),
+    translateFacetFilters(facetFilters, disjunctiveFacets),
+    translateNumericFilters(numericFilters),
     translateFilters(filters),
   ].filter((filter): filter is string => Boolean(filter));
   return translated.length ? translated.join(" AND ") : undefined;
 }
 
-function translateFacetFilters(input: unknown): string | undefined {
+function translateFacetFilters(
+  input: unknown,
+  disjunctiveFacets: string[] | undefined,
+): string | undefined {
   if (input == null) return undefined;
   if (typeof input === "string") return translateFacetFilterValue(input);
   if (!Array.isArray(input)) {
     throw new Error("facetFilters must be a string or array");
   }
+  const disjunctiveFacetSet = new Set(disjunctiveFacets ?? []);
+  const groupedFilters = new Map<string, string[]>();
   const clauses = input.map((entry) => {
-    if (typeof entry === "string") return translateFacetFilterValue(entry);
+    if (typeof entry === "string") {
+      const parsed = parseFacetFilter(entry);
+      if (!disjunctiveFacetSet.has(parsed.attribute)) return parsed.filter;
+      if (!groupedFilters.has(parsed.attribute)) groupedFilters.set(parsed.attribute, []);
+      groupedFilters.get(parsed.attribute)?.push(parsed.filter);
+      return { attribute: parsed.attribute };
+    }
     if (!Array.isArray(entry)) {
       throw new Error("facetFilters entries must be strings or one-level arrays");
     }
-    if (entry.some((nested) => Array.isArray(nested))) {
-      throw new Error("nested facetFilters deeper than one level are not supported");
-    }
-    if (entry.some((nested) => typeof nested !== "string")) {
-      throw new Error("facetFilters arrays must contain strings");
-    }
-    if (entry.length === 0) {
-      throw new Error("facetFilters OR groups must not be empty");
-    }
-    const orClauses = entry.map((nested) => translateFacetFilterValue(nested));
+    const group = validateFacetFilterGroup(entry);
+    const orClauses = group.map((nested) => translateFacetFilterValue(nested));
     return orClauses.length === 1 ? orClauses[0] : `(${orClauses.join(" OR ")})`;
   });
-  return clauses.join(" AND ");
+  return clauses
+    .map((clause) => {
+      if (typeof clause === "string") return clause;
+      const filters = groupedFilters.get(clause.attribute) ?? [];
+      return filters.length === 1 ? filters[0] : `(${filters.join(" OR ")})`;
+    })
+    .filter((clause, index, allClauses) => allClauses.indexOf(clause) === index)
+    .join(" AND ");
 }
 
 function translateFacetFilterValue(input: string): string {
+  return parseFacetFilter(input).filter;
+}
+
+function parseFacetFilter(input: string): ParsedFacetFilter {
   const separator = input.indexOf(":");
   if (separator <= 0) {
     throw new Error("facetFilters must use attribute:value form");
@@ -306,7 +389,97 @@ function translateFacetFilterValue(input: string): string {
   if (value.startsWith("-") || value.startsWith("\\-")) {
     throw new Error("negative facetFilters are not supported");
   }
-  return `${attribute}=${emitLiteral(value, "=")}`;
+  return {
+    attribute,
+    filter: `${attribute}=${emitLiteral(value, "=")}`,
+  };
+}
+
+function validateFacetFilterGroup(entry: unknown[]): string[] {
+  if (entry.some((nested) => Array.isArray(nested))) {
+    throw new Error("nested facetFilters deeper than one level are not supported");
+  }
+  if (entry.some((nested) => typeof nested !== "string")) {
+    throw new Error("facetFilters arrays must contain strings");
+  }
+  if (entry.length === 0) {
+    throw new Error("facetFilters OR groups must not be empty");
+  }
+  return entry as string[];
+}
+
+function deriveDisjunctiveFacets(
+  facets: string[] | undefined,
+  facetFilters: unknown,
+): string[] | undefined {
+  if (!facets?.length || !Array.isArray(facetFilters)) return undefined;
+
+  const requestedFacets = new Set(facets);
+  const disjunctiveFacets: string[] = [];
+  for (const entry of facetFilters) {
+    if (!Array.isArray(entry)) continue;
+    const group = validateFacetFilterGroup(entry);
+    for (const filter of group) {
+      const attribute = parseFacetFilter(filter).attribute;
+      if (requestedFacets.has(attribute) && !disjunctiveFacets.includes(attribute)) {
+        disjunctiveFacets.push(attribute);
+      }
+    }
+  }
+  return disjunctiveFacets.length ? disjunctiveFacets : undefined;
+}
+
+function mergeDisjunctiveFacets(
+  explicitFacets: string[] | undefined,
+  derivedFacets: string[] | undefined,
+): string[] | undefined {
+  const merged = [...(explicitFacets ?? []), ...(derivedFacets ?? [])];
+  return merged.length ? Array.from(new Set(merged)) : undefined;
+}
+
+function translateNumericFilters(input: unknown): string | undefined {
+  if (input == null) return undefined;
+  if (typeof input === "string") return translateNumericFilterValue(input);
+  if (!Array.isArray(input)) {
+    throw new Error("numericFilters must be a string or array");
+  }
+  const clauses = input.map((entry) => {
+    if (typeof entry === "string") return translateNumericFilterValue(entry);
+    if (!Array.isArray(entry)) {
+      throw new Error("numericFilters entries must be strings or one-level arrays");
+    }
+    const group = validateNumericFilterGroup(entry);
+    const orClauses = group.map((nested) => translateNumericFilterValue(nested));
+    return orClauses.length === 1 ? orClauses[0] : `(${orClauses.join(" OR ")})`;
+  });
+  return clauses.join(" AND ");
+}
+
+function translateNumericFilterValue(input: string): string {
+  const compact = input.replace(/\s+/g, "");
+  const match = compact.match(/^([A-Za-z_][A-Za-z0-9_]*)(<=|>=|<|>)(-?\d+(\.\d+)?)$/);
+  if (!match) {
+    if (/^[A-Za-z_][A-Za-z0-9_]*(=|!=)/.test(compact)) {
+      throw new Error("numericFilters must use range comparison operators");
+    }
+    throw new Error("numericFilters must use attribute<op>number form");
+  }
+  const [, attribute, operator, rawValue] = match;
+  validateAttribute(attribute);
+  return `${attribute}${operator}${emitNumericLiteral(rawValue)}`;
+}
+
+function validateNumericFilterGroup(entry: unknown[]): string[] {
+  if (entry.some((nested) => Array.isArray(nested))) {
+    throw new Error("nested numericFilters deeper than one level are not supported");
+  }
+  if (entry.some((nested) => typeof nested !== "string")) {
+    throw new Error("numericFilters arrays must contain strings");
+  }
+  if (entry.length === 0) {
+    throw new Error("numericFilters OR groups must not be empty");
+  }
+  return entry as string[];
 }
 
 function translateFilters(input: unknown): string | undefined {
@@ -375,10 +548,33 @@ function parseFilterComparison(tokens: string[], index: number): ParsedFilterExp
   if (attribute.toLowerCase() === "_tags") {
     throw new Error("_tags filters are not supported");
   }
+  if (tokens[index + 3]?.toUpperCase() === "TO") {
+    return parseNumericRangeComparison(attribute, operator, value, tokens[index + 4], index);
+  }
   validateFilterOperator(operator);
   return {
     emitted: [`${attribute}${operator === ":" ? "=" : operator}${emitLiteral(value, operator)}`],
     nextIndex: index + 3,
+  };
+}
+
+function parseNumericRangeComparison(
+  attribute: string,
+  operator: string,
+  lowerBoundRaw: string,
+  upperBoundRaw: string | undefined,
+  index: number,
+): ParsedFilterExpression {
+  if (operator !== ":" || upperBoundRaw == null) {
+    throw new Error("numeric range filters must use attribute:value TO value");
+  }
+  return {
+    emitted: [
+      `(${attribute}>=${emitNumericLiteral(lowerBoundRaw)}`,
+      "AND",
+      `${attribute}<=${emitNumericLiteral(upperBoundRaw)})`,
+    ],
+    nextIndex: index + 5,
   };
 }
 
@@ -388,7 +584,6 @@ function throwMalformedBooleanFilter(): never {
 
 function rejectUnsupportedFilterSyntax(filter: string): void {
   if (/\bNOT\b/i.test(filter)) throw new Error("NOT filters are not supported");
-  if (/\bTO\b/i.test(filter)) throw new Error("numeric range filters are not supported");
   if (filter.includes("[") || filter.includes("]")) {
     throw new Error("array filters are not supported");
   }
@@ -442,6 +637,14 @@ function emitLiteral(rawValue: string, operator: string): string {
   return `'${escapeAYBString(value)}'`;
 }
 
+function emitNumericLiteral(rawValue: string): string {
+  const value = stripQuotes(rawValue);
+  if (!/^-?\d+(\.\d+)?$/.test(value)) {
+    throw new Error("numeric range filters require numeric bounds");
+  }
+  return value;
+}
+
 function stripQuotes(value: string): string {
   if (
     (value.startsWith("'") && value.endsWith("'")) ||
@@ -462,8 +665,14 @@ function buildEchoedParams(params: InstantSearchSearchParams): string {
   if (params.page != null) echoed.set("page", String(params.page));
   if (params.hitsPerPage != null) echoed.set("hitsPerPage", String(params.hitsPerPage));
   if (params.facets != null) echoed.set("facets", JSON.stringify(params.facets));
+  if (params.disjunctiveFacets != null) {
+    echoed.set("disjunctiveFacets", JSON.stringify(params.disjunctiveFacets));
+  }
   if (params.facetFilters != null) {
     echoed.set("facetFilters", JSON.stringify(params.facetFilters));
+  }
+  if (params.numericFilters != null) {
+    echoed.set("numericFilters", JSON.stringify(params.numericFilters));
   }
   if (params.filters != null) echoed.set("filters", params.filters);
   if (params.highlightPreTag != null) echoed.set("highlightPreTag", params.highlightPreTag);
@@ -478,19 +687,35 @@ function toInstantSearchResult(
   processingTimeMS: number,
 ): InstantSearchResult {
   const result: InstantSearchResult = {
-    hits: list.items.map((item) =>
-      toInstantSearchHit(item, options.objectIDField, request),
-    ),
+    hits:
+      request.hitsPerPage === 0
+        ? []
+        : list.items.map((item) =>
+            toInstantSearchHit(item, options.objectIDField, request),
+          ),
     page: list.page - 1,
     nbHits: list.totalItems,
-    nbPages: list.totalPages,
-    hitsPerPage: list.perPage,
+    nbPages: request.hitsPerPage === 0 ? 0 : list.totalPages,
+    hitsPerPage: request.hitsPerPage ?? list.perPage,
     processingTimeMS,
     query: request.query,
     params: request.echoedParams,
     exhaustiveNbHits: true,
   };
-  if (list.facets) result.facets = mapFacets(list.facets);
+  const mappedFacets = list.facets ? mapFacets(list.facets) : undefined;
+  if (mappedFacets) result.facets = mappedFacets;
+  if (list.facetStats) {
+    const mappedFacetStats = mapFacetStats(list.facetStats);
+    result.facetStats = mappedFacetStats;
+    result.facets_stats = mappedFacetStats;
+  }
+  if (request.disjunctiveFacets?.length) {
+    result.disjunctiveFacets = mapDisjunctiveFacets(
+      request.disjunctiveFacets,
+      mappedFacets,
+      result.facetStats,
+    );
+  }
   return result;
 }
 
@@ -554,4 +779,31 @@ function mapFacets(
     }
   }
   return mapped;
+}
+
+function mapFacetStats(
+  facetStats: NonNullable<ListResponse<InstantSearchRecord>["facetStats"]>,
+): Record<string, { min: number; max: number }> {
+  const mapped: Record<string, { min: number; max: number }> = {};
+  for (const [name, bounds] of Object.entries(facetStats)) {
+    const min = Number(bounds.min);
+    const max = Number(bounds.max);
+    if (!Number.isFinite(min) || !Number.isFinite(max)) {
+      throw new Error("facetStats bounds must be numeric");
+    }
+    mapped[name] = { min, max };
+  }
+  return mapped;
+}
+
+function mapDisjunctiveFacets(
+  facetNames: string[],
+  facets: Record<string, Record<string, number>> | undefined,
+  facetStats: Record<string, { min: number; max: number }> | undefined,
+): InstantSearchDisjunctiveFacet[] {
+  return facetNames.map((name) => ({
+    name,
+    data: facets?.[name] ?? {},
+    ...(facetStats?.[name] ? { stats: facetStats[name] } : {}),
+  }));
 }

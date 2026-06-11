@@ -1,6 +1,3 @@
-"""
-Stub summary for /Users/stuart/parallel_development/allyourbase_dev/jun04_pm_3_sdk_parity_go_python_openapi/allyourbase_dev/sdk_python/src/allyourbase/records.py.
-"""
 
 from __future__ import annotations
 

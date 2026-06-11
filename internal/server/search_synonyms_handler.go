@@ -1,13 +1,11 @@
-// Package server Stub summary for /Users/stuart/parallel_development/allyourbase_dev/jun04_pm_1_search_synonyms/allyourbase_dev/internal/server/search_synonyms_handler.go.
+// Package server.
 package server
 
 import (
 	"net/http"
 
 	"github.com/allyourbase/ayb/internal/httputil"
-	"github.com/allyourbase/ayb/internal/schema"
 	"github.com/allyourbase/ayb/internal/searchsynonyms"
-	"github.com/go-chi/chi/v5"
 )
 
 type searchSynonymsRequest struct {
@@ -23,7 +21,7 @@ type searchSynonymsResponse struct {
 }
 
 func (s *Server) handleSearchSynonymsGet(w http.ResponseWriter, r *http.Request) {
-	tbl := resolveSearchSynonymCollection(w, r, s.schema)
+	tbl := resolveAdminCollection(w, r, s.schema)
 	if tbl == nil {
 		return
 	}
@@ -39,7 +37,7 @@ func (s *Server) handleSearchSynonymsGet(w http.ResponseWriter, r *http.Request)
 }
 
 func (s *Server) handleSearchSynonymsPut(w http.ResponseWriter, r *http.Request) {
-	tbl := resolveSearchSynonymCollection(w, r, s.schema)
+	tbl := resolveAdminCollection(w, r, s.schema)
 	if tbl == nil {
 		return
 	}
@@ -61,25 +59,6 @@ func (s *Server) handleSearchSynonymsPut(w http.ResponseWriter, r *http.Request)
 	}
 
 	httputil.WriteJSON(w, http.StatusOK, searchSynonymsResponse{Groups: fromSearchSynonymGroups(groups)})
-}
-
-func resolveSearchSynonymCollection(w http.ResponseWriter, r *http.Request, holder *schema.CacheHolder) *schema.Table {
-	tableName := chi.URLParam(r, "table")
-	if holder == nil {
-		httputil.WriteError(w, http.StatusServiceUnavailable, "schema cache not ready")
-		return nil
-	}
-	sc := holder.Get()
-	if sc == nil {
-		httputil.WriteError(w, http.StatusServiceUnavailable, "schema cache not ready")
-		return nil
-	}
-	tbl := sc.TableByName(tableName)
-	if tbl == nil {
-		httputil.WriteError(w, http.StatusNotFound, "collection not found")
-		return nil
-	}
-	return tbl
 }
 
 func toSearchSynonymGroups(groups []searchSynonymGroup) searchsynonyms.Groups {

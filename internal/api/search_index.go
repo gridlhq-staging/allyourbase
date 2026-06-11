@@ -1,4 +1,4 @@
-// Package api Stub summary for /Users/stuart/parallel_development/allyourbase_dev/jun05_pm_1_search_engine_perf_stemming_highlight/allyourbase_dev/internal/api/search_index.go.
+// Package api.
 package api
 
 import (
@@ -12,6 +12,7 @@ import (
 
 	"github.com/allyourbase/ayb/internal/config"
 	"github.com/allyourbase/ayb/internal/schema"
+	"github.com/allyourbase/ayb/internal/searchsettings"
 	"github.com/allyourbase/ayb/internal/sqlutil"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -38,11 +39,16 @@ func EnsureSearchIndexes(ctx context.Context, pool *pgxpool.Pool, sc *schema.Sch
 	if pool == nil || sc == nil {
 		return nil
 	}
+	store := searchsettings.NewStore(pool)
 	for _, tbl := range sc.TableList() {
 		if tbl.Kind != "table" {
 			continue
 		}
-		spec, ok, err := buildSearchIndexSpec(tbl, apiCfg.TextSearchConfig)
+		settings, err := store.Load(ctx, tbl.Schema, tbl.Name)
+		if err != nil {
+			return fmt.Errorf("load search settings for %s.%s: %w", tbl.Schema, tbl.Name, err)
+		}
+		spec, ok, err := buildSearchIndexSpec(tbl, apiCfg.TextSearchConfig, settings)
 		if err != nil {
 			return err
 		}
@@ -71,7 +77,12 @@ type searchIndexSpec struct {
 	createSQL  string
 }
 
-func buildSearchIndexSpec(tbl *schema.Table, textSearchConfig string) (searchIndexSpec, bool, error) {
+func buildSearchIndexSpec(tbl *schema.Table, textSearchConfig string, settings searchsettings.Settings) (searchIndexSpec, bool, error) {
+	normalizedSettings, err := searchsettings.ValidateForTable(tbl, settings)
+	if err != nil {
+		return searchIndexSpec{}, false, err
+	}
+	settings = normalizedSettings
 	cols := textColumns(tbl)
 	if len(cols) == 0 {
 		return searchIndexSpec{}, false, nil
@@ -80,14 +91,16 @@ func buildSearchIndexSpec(tbl *schema.Table, textSearchConfig string) (searchInd
 	if err != nil {
 		return searchIndexSpec{}, false, err
 	}
-	docExpr := buildSearchDocumentExpression(cols)
-	indexExpr := fmt.Sprintf("to_tsvector(%s, %s)", regConfig.literal, docExpr)
+	indexExpr, err := buildSearchVectorExpression(cols, regConfig, settings)
+	if err != nil {
+		return searchIndexSpec{}, false, err
+	}
 	namePrefix := truncateSearchIndexNamePrefix(buildSearchIndexNamePrefix(tbl))
 	name := buildSearchIndexName(namePrefix, tbl, indexExpr)
 	createSQL := fmt.Sprintf(`CREATE INDEX CONCURRENTLY IF NOT EXISTS %s ON %s USING gin (%s)`,
 		sqlutil.QuoteIdent(name),
 		sqlutil.QuoteQualifiedName(tbl.Schema, tbl.Name),
-		indexExpr,
+		"("+indexExpr+")",
 	)
 	return searchIndexSpec{name: name, namePrefix: namePrefix, createSQL: createSQL}, true, nil
 }

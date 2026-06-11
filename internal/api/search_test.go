@@ -156,15 +156,15 @@ func TestBuildSearchSQLWithHighlightUsesCanonicalDocument(t *testing.T) {
 	// expansion; the same expression must be reused by where, rank, and the
 	// highlight CASE/ELSE branches so all three score against the same query.
 	tsqueryPrefix := "(SELECT ts_rewrite(websearch_to_tsquery('english'::regconfig, $1),"
-	testutil.Contains(t, search.whereSQL, "to_tsvector('english'::regconfig, "+docExpr+") @@ "+tsqueryPrefix)
+	testutil.Contains(t, search.whereSQL, "(to_tsvector('english'::regconfig, "+docExpr+")) @@ "+tsqueryPrefix)
 	testutil.Contains(t, search.rankSQL, "ts_rank(to_tsvector('english'::regconfig, "+docExpr+"), "+tsqueryPrefix)
-	testutil.Contains(t, search.highlightSelect, "CASE WHEN to_tsvector('english'::regconfig, "+docExpr+") @@ "+tsqueryPrefix)
+	testutil.Contains(t, search.highlightSelect, "CASE WHEN (to_tsvector('english'::regconfig, "+docExpr+")) @@ "+tsqueryPrefix)
 	escapedDocExpr := "replace(replace(replace(" + docExpr + ", '&', '&amp;'), '<', '&lt;'), '>', '&gt;')"
 	testutil.Contains(t, search.highlightSelect, "ts_headline('english'::regconfig, "+escapedDocExpr+", "+tsqueryPrefix)
 	testutil.Contains(t, search.highlightSelect, "ELSE "+escapedDocExpr)
 	testutil.Contains(t, search.highlightSelect, `AS "`+searchHighlightSQLAlias+`"`)
 	testutil.Equal(t, searchHighlightSQLAlias, search.highlightAlias)
-	testutil.Contains(t, search.highlightResultSelect, `jsonb_build_object('title', jsonb_build_object('value', CASE WHEN to_tsvector('english'::regconfig, coalesce("title", '')) @@ `+tsqueryPrefix)
+	testutil.Contains(t, search.highlightResultSelect, `jsonb_build_object('title', jsonb_build_object('value', CASE WHEN (to_tsvector('english'::regconfig, coalesce("title", ''))) @@ `+tsqueryPrefix)
 	testutil.Contains(t, search.highlightResultSelect, `ts_headline('english'::regconfig, replace(replace(replace(coalesce("body", ''), '&', '&amp;'), '<', '&lt;'), '>', '&gt;'), `+tsqueryPrefix)
 	testutil.Contains(t, search.highlightResultSelect, `'matchLevel', CASE WHEN to_tsvector('english'::regconfig, coalesce("status", '')) @@ `+tsqueryPrefix)
 	testutil.Contains(t, search.highlightResultSelect, `AS "`+searchHighlightResultSQLAlias+`"`)

@@ -1,5 +1,5 @@
 /**
- * @module Stub summary for /Users/stuart/parallel_development/allyourbase_dev/mar21_03_dashboard_dx_polish_and_e2e_playwright_journeys/allyourbase_dev/ui/src/api_client.ts.
+ * @module ui/src/api_client.ts
  */
 const ADMIN_TOKEN_KEY = "ayb_admin_token";
 const AUTH_TOKEN_KEY = "ayb_auth_token";

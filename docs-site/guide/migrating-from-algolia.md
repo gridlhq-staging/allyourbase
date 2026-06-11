@@ -1,4 +1,4 @@
-<!-- audited 2026-06-04 -->
+<!-- audited 2026-06-09 -->
 
 # Migrating from Algolia
 
@@ -110,8 +110,10 @@ AYB already ships typo-threshold tuning on fuzzy search, per-collection synonym 
 
 - Algolia ranking-rule translation
 - hosted index operations separate from PostgreSQL
+- Algolia geo controls: `aroundLatLng`, `insideBoundingBox`, and other geo / spatial filters are not shipped through the AYB collection list endpoint
+- Synonym-type parity: `--include-synonyms` carries over only equivalent Algolia synonym groups into AYB per-collection synonym groups; unsupported synonym types are reported as skipped rather than blocking record import
 
-Use Algolia when you still need Algolia-specific ranking controls or hosted search operations that are separate from your PostgreSQL data path.
+Use Algolia when you still need Algolia-specific ranking controls, geo / spatial search, or hosted search operations that are separate from your PostgreSQL data path.
 
 ## Related guides
 

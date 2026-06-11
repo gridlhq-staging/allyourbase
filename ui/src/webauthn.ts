@@ -1,5 +1,5 @@
 /**
- * @module Stub summary for /Users/stuart/parallel_development/allyourbase_dev/may31_pm_10_webauthn_passkeys_ui_e2e/allyourbase_dev/ui/src/webauthn.ts.
+ * @module ui/src/webauthn.ts
  */
 interface PublicKeyCredentialDescriptorJSON {
   id: string;

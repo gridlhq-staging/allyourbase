@@ -1,4 +1,4 @@
-// Package scaffold Stub summary for /Users/stuart/parallel_development/allyourbase_dev/jun03_pm_3_algolia_migration_and_search_onboarding/allyourbase_dev/internal/scaffold/scaffold_templates_common.go.
+// Package scaffold.
 package scaffold
 
 import (
@@ -168,7 +168,7 @@ func packageJSON(opts Options, tmpl string) string {
     "preview": "vite preview"
   },
   "dependencies": {
-    "@allyourbase/js": "^0.1.0",
+    "@allyourbase/js": "^0.2.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0"
   },
@@ -192,7 +192,7 @@ func packageJSON(opts Options, tmpl string) string {
     "start": "next start"
   },
   "dependencies": {
-    "@allyourbase/js": "^0.1.0",
+    "@allyourbase/js": "^0.2.0",
     "next": "^15.0.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0"
@@ -221,7 +221,7 @@ func nodePackageJSON(name string) string {
     "start": "node dist/index.js"
   },
   "dependencies": {
-    "@allyourbase/js": "^0.1.0"
+    "@allyourbase/js": "^0.2.0"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",

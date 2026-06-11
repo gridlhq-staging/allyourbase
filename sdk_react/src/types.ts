@@ -1,5 +1,5 @@
 /**
- * @module Stub summary for /Users/stuart/parallel_development/allyourbase_dev/jun01_pm_2_passwordless_passkey_login/allyourbase_dev/sdk_react/src/types.ts.
+ * @module sdk_react/src/types.ts
  */
 export type AuthStateEvent = "SIGNED_IN" | "SIGNED_OUT" | "TOKEN_REFRESHED";
 export type OAuthProvider = "google" | "github";

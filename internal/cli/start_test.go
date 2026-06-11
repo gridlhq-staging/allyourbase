@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -273,15 +274,23 @@ func TestPortErrorAddressInUse(t *testing.T) {
 
 	msg := err.Error()
 	testutil.Contains(t, msg, "port 8090 is already in use")
-	testutil.Contains(t, msg, "Try:")
-	testutil.Contains(t, msg, "--port 8091")
-	testutil.Contains(t, msg, "ayb stop")
+	testutil.False(t, strings.Contains(msg, "Try:"))
+
+	var suggested interface{ Suggestions() []string }
+	testutil.True(t, errors.As(err, &suggested))
+	suggestions := suggested.Suggestions()
+	testutil.SliceLen(t, suggestions, 2)
+	testutil.Contains(t, suggestions[0], "--port 8091")
+	testutil.Contains(t, suggestions[1], "ayb stop")
 }
 
 func TestPortErrorSuggestsNextPort(t *testing.T) {
 	err := portError(3000, fmt.Errorf("address already in use"))
-	msg := err.Error()
-	testutil.Contains(t, msg, "--port 3001")
+	var suggested interface{ Suggestions() []string }
+	testutil.True(t, errors.As(err, &suggested))
+	suggestions := suggested.Suggestions()
+	testutil.SliceLen(t, suggestions, 2)
+	testutil.Contains(t, suggestions[0], "--port 3001")
 }
 
 // --- startupProgress ---

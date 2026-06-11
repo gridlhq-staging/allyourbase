@@ -1,5 +1,5 @@
 /**
- * @module Stub summary for /Users/stuart/parallel_development/allyourbase_dev/may31_pm_11_coverage_load_truth_closeout/allyourbase_dev/ui/browser-tests-unmocked/fixtures/jobs.ts.
+ * @module ui/browser-tests-unmocked/fixtures/jobs.ts
  */
 import type { APIRequestContext } from "@playwright/test";
 import { execSQL, sqlLiteral, validateResponse } from "./core";

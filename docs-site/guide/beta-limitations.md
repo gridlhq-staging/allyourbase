@@ -21,3 +21,15 @@ Search helper parity is shipped across the JavaScript, Go, Python, Dart, Kotlin,
 ## Local Supabase Export Caveat
 
 This caveat only affects local development on macOS with Colima and does not affect customer cloud or self-hosted migrations. `supabase start` may fail on a Docker socket mount for Logflare/Vector; the local workaround is `supabase start -x logflare,vector`.
+
+## Collection list endpoint scope
+
+Geo / spatial search is not a shipped parity target on `GET /api/collections/{table}`; PostGIS-backed geo queries remain an external-extension path rather than a list-endpoint parameter. `distinct` / dedup is likewise not a shipped list-endpoint parameter; consumers needing distinct result sets rely on SQL views or post-processing.
+
+## Dashboard search administration
+
+The dashboard search-settings UI is limited to the shipped Search Playground and the per-collection Synonyms tab. A broader admin search configuration screen (index-wide ranking knobs, tokenizer overrides, etc.) is not shipped today.
+
+## Screen-spec coverage
+
+Screen-spec backfill in `docs/reference/screen_specs/` remains partial across the dashboard surface; not every shipped screen has a matching spec yet.

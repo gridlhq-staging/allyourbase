@@ -1,5 +1,5 @@
 /**
- * @module Stub summary for /Users/stuart/parallel_development/allyourbase_dev/MAR18_WS_C_phase5_features_and_phase6/allyourbase_dev/ui/src/api_orgs.ts.
+ * @module ui/src/api_orgs.ts
  */
 import { request, requestNoBody } from "./api_client";
 import { asInteger, asRecord, asString, asStringOrNull, withQueryString } from "./lib/normalize";

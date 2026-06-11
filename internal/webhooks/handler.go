@@ -1,4 +1,4 @@
-// Package webhooks Stub summary for /Users/stuart/parallel_development/allyourbase_dev/may31_pm_7_webhook_replay_deadletter/allyourbase_dev/internal/webhooks/handler.go.
+// Package webhooks.
 package webhooks
 
 import (

@@ -592,6 +592,55 @@ func TestBuildListWithCursor_FilterSpatialSearchAndCursor(t *testing.T) {
 	testutil.False(t, found, "search rank cursor helper alias should not leak into response items")
 }
 
+func TestPrependSearchRankCursorSortWithCustomDescendingSortBuildsCursorQuery(t *testing.T) {
+	tbl := &schema.Table{
+		Schema: "public",
+		Name:   "posts",
+		Kind:   "table",
+		Columns: []*schema.Column{
+			{Name: "id", TypeName: "integer", IsPrimaryKey: true},
+			{Name: "title", TypeName: "text"},
+			{Name: "popularity", TypeName: "integer"},
+		},
+		PrimaryKey: []string{"id"},
+	}
+	parsedSort, err := parseStructuredSort(tbl, "-popularity", true)
+	testutil.NoError(t, err)
+	searchRank := `ts_rank(to_tsvector('simple', "title"), websearch_to_tsquery('simple', $1))`
+	opts := listOpts{
+		perPage:    2,
+		table:      tbl,
+		searchSQL:  `to_tsvector('simple', "title") @@ websearch_to_tsquery('simple', $1)`,
+		searchRank: searchRank,
+		searchArgs: []any{"needle"},
+		sort:       ensureStructuredSortPKTiebreaker(tbl, parsedSort),
+	}
+	opts, err = resolveCursorListSort(opts)
+	testutil.NoError(t, err)
+	testutil.SliceLen(t, opts.sortFields, 3)
+	testutil.Equal(t, cursorSearchRankSortColumn, opts.sortFields[0].Column)
+	testutil.Equal(t, "popularity", opts.sortFields[1].Column)
+	testutil.Equal(t, "id", opts.sortFields[2].Column)
+
+	cursorWhere, cursorArgs, err := buildCursorWhere(opts.sortFields, []any{0.75, float64(99), float64(12)}, 2)
+	testutil.NoError(t, err)
+	q, args := buildListWithCursor(tbl, opts, opts.sortFields, cursorWhere, cursorArgs)
+
+	testutil.Contains(t, q, searchRank+` AS "__cursor_sort_0"`)
+	testutil.Contains(t, q, `(ts_rank(to_tsvector('simple', "title"), websearch_to_tsquery('simple', $1)) < $2)`)
+	testutil.Contains(t, q, `(ts_rank(to_tsvector('simple', "title"), websearch_to_tsquery('simple', $1)) = $2 AND "popularity" < $3)`)
+	testutil.Contains(t, q, `(ts_rank(to_tsvector('simple', "title"), websearch_to_tsquery('simple', $1)) = $2 AND "popularity" = $3 AND "id" > $4)`)
+	testutil.Contains(t, q, `ORDER BY ts_rank(to_tsvector('simple', "title"), websearch_to_tsquery('simple', $1)) DESC, "popularity" DESC, "id" ASC`)
+	testutil.Contains(t, q, `LIMIT $5`)
+	testutil.SliceLen(t, args, 5)
+	testutil.Equal(t, "needle", args[0])
+	testutil.Equal(t, 0.75, args[1])
+	testutil.Equal(t, float64(99), args[2].(float64))
+	testutil.Equal(t, float64(12), args[3].(float64))
+	testutil.Equal(t, 3, args[4])
+	testutil.SliceLen(t, cursorArgs, 3)
+}
+
 func TestBuildListWithCursorDistanceSortIncludesProjectionAndOrdering(t *testing.T) {
 	tbl := cursorSpatialTable()
 	opts := listOpts{
@@ -783,6 +832,9 @@ func TestCursorListResponse_OmitEmptyNextCursor(t *testing.T) {
 	if _, ok := m["facets"]; ok {
 		t.Fatal("expected facets to be omitted when empty")
 	}
+	if _, ok := m["facetStats"]; ok {
+		t.Fatal("expected facetStats to be omitted when empty")
+	}
 }
 
 func TestCursorListResponse_WithFacets(t *testing.T) {
@@ -800,4 +852,31 @@ func TestCursorListResponse_WithFacets(t *testing.T) {
 	if _, ok := m["facets"]; !ok {
 		t.Fatal("expected facets in JSON when requested")
 	}
+}
+
+func TestCursorListResponseSerializesFacetStatsBesideFacets(t *testing.T) {
+	resp := CursorListResponse{
+		PerPage: 10,
+		Items:   []map[string]any{{"id": "1"}},
+		Facets: FacetCounts{
+			"price": []FacetValueCount{{Value: 10, Count: 1}},
+		},
+		FacetStats: FacetStats{
+			"price": FacetMinMax{Min: json.Number("10"), Max: json.Number("20")},
+		},
+	}
+	data, err := json.Marshal(resp)
+	testutil.NoError(t, err)
+	var m map[string]any
+	testutil.NoError(t, json.Unmarshal(data, &m))
+	if _, ok := m["facets"]; !ok {
+		t.Fatal("expected facets in JSON")
+	}
+	rawStats, ok := m["facetStats"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected facetStats object, got %T", m["facetStats"])
+	}
+	priceStats := rawStats["price"].(map[string]any)
+	testutil.Equal(t, 10.0, priceStats["min"])
+	testutil.Equal(t, 20.0, priceStats["max"])
 }

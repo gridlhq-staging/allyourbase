@@ -470,13 +470,52 @@ func TestBuildFacetCountQueriesUsesSharedPredicateAndArgs(t *testing.T) {
 		searchArgs:  []any{"widget"},
 		facetCols:   []string{"category"},
 	}
-	queries, args := buildFacetCountQueries(tbl, opts)
+	queries := buildFacetCountQueries(tbl, opts)
+	query := queries["category"]
+	args := query.args
 	testutil.SliceLen(t, args, 6)
 	testutil.Equal(t, "electronics", args[0])
 	testutil.Equal(t, "widget", args[5])
-	testutil.Contains(t, queries["category"], `"category" = $1`)
-	testutil.Contains(t, queries["category"], `ST_Intersects("location", ST_MakeEnvelope($2, $3, $4, $5, 4326))`)
-	testutil.Contains(t, queries["category"], `websearch_to_tsquery('simple', $6)`)
+	testutil.Contains(t, query.sql, `"category" = $1`)
+	testutil.Contains(t, query.sql, `ST_Intersects("location", ST_MakeEnvelope($2, $3, $4, $5, 4326))`)
+	testutil.Contains(t, query.sql, `websearch_to_tsquery('simple', $6)`)
+}
+
+func TestBuildFacetStatsQueriesUsesNumericFacetsAndSharedPredicate(t *testing.T) {
+	t.Parallel()
+	sc := aggregateTestSchema()
+	tbl := sc.TableByName("products")
+	opts := listOpts{
+		filterSQL:            `"category" = $1 AND "price" = $2`,
+		filterArgs:           []any{"electronics", 10.0},
+		spatialSQL:           `ST_Intersects("location", ST_MakeEnvelope($3, $4, $5, $6, 4326))`,
+		spatialArgs:          []any{-1.0, -2.0, 3.0, 4.0},
+		searchSQL:            `to_tsvector('simple', "name") @@ websearch_to_tsquery('simple', $7)`,
+		searchArgs:           []any{"widget"},
+		facetCols:            []string{"category", "price", "quantity", "weight"},
+		disjunctiveFacetCols: []string{"price"},
+		rawFilter:            `category='electronics' && price=10`,
+	}
+
+	queries := buildFacetStatsQueries(tbl, opts)
+	testutil.Equal(t, 3, len(queries))
+	if _, ok := queries["category"]; ok {
+		t.Fatal("expected non-numeric category facet to be skipped")
+	}
+
+	priceQuery := queries["price"]
+	assertNotContains(t, priceQuery.sql, `"price" =`)
+	testutil.Contains(t, priceQuery.sql, `SELECT (MIN("price"))::text AS min, (MAX("price"))::text AS max FROM "public"."products"`)
+	testutil.Contains(t, priceQuery.sql, `"category" = $1`)
+	testutil.Contains(t, priceQuery.sql, `ST_MakeEnvelope($2, $3, $4, $5, 4326)`)
+	testutil.Contains(t, priceQuery.sql, `websearch_to_tsquery('simple', $6)`)
+	assertAnySlice(t, priceQuery.args, []any{"electronics", -1.0, -2.0, 3.0, 4.0, "widget"})
+
+	quantityQuery := queries["quantity"]
+	testutil.Contains(t, quantityQuery.sql, `"category" = $1 AND "price" = $2`)
+	testutil.Contains(t, quantityQuery.sql, `ST_MakeEnvelope($3, $4, $5, $6, 4326)`)
+	testutil.Contains(t, quantityQuery.sql, `websearch_to_tsquery('simple', $7)`)
+	assertAnySlice(t, quantityQuery.args[:2], opts.filterArgs)
 }
 
 // --- Handler-level aggregate validation tests ---

@@ -1,6 +1,7 @@
 package scaffold
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -359,6 +360,50 @@ func TestPackageNameLowercase(t *testing.T) {
 	testutil.Contains(t, content, `"name": "myapp"`)
 	// Should NOT contain the original casing
 	testutil.False(t, strings.Contains(content, `"name": "MyApp"`))
+}
+
+func TestPackageJSONPinsShippedSDKVersion(t *testing.T) {
+	t.Parallel()
+
+	expected := "^" + shippedSDKVersion(t)
+	cases := []struct {
+		name    string
+		content string
+	}{
+		{name: "react", content: packageJSON(Options{Name: "demo"}, "react")},
+		{name: "next", content: packageJSON(Options{Name: "demo"}, "next")},
+		{name: "node", content: packageJSON(Options{Name: "demo"}, "plain")},
+	}
+
+	for _, tc := range cases {
+		var pkg struct {
+			Dependencies map[string]string `json:"dependencies"`
+		}
+		if err := json.Unmarshal([]byte(tc.content), &pkg); err != nil {
+			t.Fatalf("%s package.json should parse: %v", tc.name, err)
+		}
+
+		got := pkg.Dependencies["@allyourbase/js"]
+		testutil.Equal(t, expected, got)
+	}
+}
+
+func shippedSDKVersion(t *testing.T) string {
+	t.Helper()
+
+	data, err := os.ReadFile(filepath.Join("..", "..", "sdk", "package.json"))
+	testutil.NoError(t, err)
+
+	var pkg struct {
+		Version string `json:"version"`
+	}
+	if err := json.Unmarshal(data, &pkg); err != nil {
+		t.Fatalf("parse sdk/package.json: %v", err)
+	}
+	if pkg.Version == "" {
+		t.Fatal("sdk/package.json version is empty")
+	}
+	return pkg.Version
 }
 
 // helpers

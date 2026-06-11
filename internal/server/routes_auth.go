@@ -1,4 +1,4 @@
-// Package server Stub summary for /Users/stuart/parallel_development/allyourbase_dev/jun02_pm_3_auth_login_rate_limiting/allyourbase_dev/internal/server/routes_auth.go.
+// Package server.
 package server
 
 import (

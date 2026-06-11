@@ -47,6 +47,86 @@ curl -s "http://127.0.0.1:8090/api/collections/posts?search=postgres&filter=stat
   -H "Authorization: Bearer $AYB_TOKEN" | jq '{totalItems, items}'
 ```
 
+## Per-attribute relevance weighting
+
+By default, AYB gives all searchable text columns equal weight. Collections with no search settings configured keep that existing behavior.
+
+Admins can opt into per-attribute weighting through the admin API:
+
+```text
+GET /api/collections/{table}/search-settings
+PUT /api/collections/{table}/search-settings
+```
+
+The request and response body shape is:
+
+```json
+{
+  "attributes": [
+    { "column": "title", "weight": "high" },
+    { "column": "body", "weight": "low" }
+  ]
+}
+```
+
+An unset collection returns the same shape with an empty array:
+
+```json
+{
+  "attributes": []
+}
+```
+
+Example update:
+
+```bash
+curl -s -X PUT "http://127.0.0.1:8090/api/collections/posts/search-settings" \
+  -H "Authorization: Bearer $AYB_ADMIN_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"attributes":[{"column":"title","weight":"high"},{"column":"body","weight":"low"}]}' | jq
+```
+
+AYB maps the configured weights onto PostgreSQL's weighted full-text labels and ranks matches with `ts_rank_cd`:
+
+- `high` -> `A`
+- `medium` -> `B`
+- `low` -> `C`
+- `lowest` -> `D`
+
+Configured attributes use their mapped weight. Any other searchable text columns remain searchable and are appended at weight `D`, so those columns still match but rank behind configured attributes.
+
+```bash
+curl -s "http://127.0.0.1:8090/api/collections/posts/search-settings" \
+  -H "Authorization: Bearer $AYB_ADMIN_TOKEN" | jq
+```
+
+A dashboard editor for search settings is coming; for now configure via the admin API.
+
+## Custom ranking (secondary sort)
+
+Algolia's `customRanking` pattern maps to AYB's existing `sort` parameter on the same search request. Search relevance stays first, and the custom sort only breaks ties between equally relevant rows.
+
+Use:
+
+```text
+GET /api/collections/{table}?search=<term>&sort=-<column>
+```
+
+Example:
+
+```bash
+curl -s "http://127.0.0.1:8090/api/collections/posts?search=postgres&sort=-popularity" \
+  -H "Authorization: Bearer $AYB_TOKEN" | jq '.items'
+```
+
+Multiple custom ranking columns chain through the existing comma-separated sort grammar:
+
+```text
+?search=<term>&sort=-popularity,published_at
+```
+
+For this beta, searchable-attribute weighting and custom ranking are API-only. Geo ranking, `distinct`, and query-rules-style behavior remain unsupported; see [Beta Limitations](/guide/beta-limitations) for the current boundary list.
+
 ## Synonym expansion
 
 Admins can configure synonym groups for one collection at a time. When a group exists, AYB expands matching search terms before evaluating the normal full-text predicate. A row that stores `science fiction` can therefore match a caller searching for `scifi` when that collection has a `["scifi", "science fiction"]` group.

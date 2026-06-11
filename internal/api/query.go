@@ -353,6 +353,7 @@ type listOpts struct {
 	distanceSelect        string
 	cursorSelects         []string
 	cursorHelperColumns   []string
+	rawFilter             string
 	filterSQL             string
 	filterArgs            []any
 	spatialSQL            string
@@ -365,6 +366,7 @@ type listOpts struct {
 	highlightResultSelect string
 	highlightResultAlias  string
 	facetCols             []string
+	disjunctiveFacetCols  []string
 }
 
 // parsePKValues splits a composite primary key value from the URL.

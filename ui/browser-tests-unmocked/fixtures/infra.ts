@@ -1,5 +1,5 @@
 /**
- * @module Stub summary for /Users/stuart/parallel_development/allyourbase_dev/mar24_pm_6_test_verification_and_lint/allyourbase_dev/ui/browser-tests-unmocked/fixtures/infra.ts.
+ * @module ui/browser-tests-unmocked/fixtures/infra.ts
  */
 import type { APIRequestContext } from "@playwright/test";
 import { execSQL, sqlLiteral, validateResponse } from "./core";

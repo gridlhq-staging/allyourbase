@@ -33,6 +33,9 @@ func defaultTestConfig() *config.Config {
 			Enabled: true,
 			Path:    "/admin",
 		},
+		Auth: config.AuthConfig{
+			Enabled: true,
+		},
 	}
 }
 
@@ -164,6 +167,67 @@ func TestBannerHidesPasswordWarningAboveDefault(t *testing.T) {
 	cfg.Auth.MinPasswordLength = 12
 	out := bannerToString(cfg, false, false)
 	testutil.False(t, strings.Contains(out, "WARNING"))
+}
+
+func TestBannerWarnsForPublicBindWithAuthDisabled(t *testing.T) {
+	cfg := defaultTestConfig()
+	cfg.Server.Host = "0.0.0.0"
+	cfg.Auth.Enabled = false
+
+	out := bannerToString(cfg, false, false)
+
+	testutil.Contains(t, out, "WARNING")
+	testutil.Contains(t, out, "public")
+	testutil.Contains(t, out, "auth disabled")
+	testutil.Contains(t, out, "read and write the database")
+}
+
+func TestBannerWarnsForIPv6WildcardWithAuthDisabled(t *testing.T) {
+	cfg := defaultTestConfig()
+	cfg.Server.Host = "::"
+	cfg.Auth.Enabled = false
+
+	out := bannerToString(cfg, false, false)
+
+	testutil.Contains(t, out, "public")
+	testutil.Contains(t, out, "auth disabled")
+}
+
+func TestBannerWarnsForNonLocalhostNameWithAuthDisabled(t *testing.T) {
+	cfg := defaultTestConfig()
+	cfg.Server.Host = "lan.example.test"
+	cfg.Auth.Enabled = false
+
+	out := bannerToString(cfg, false, false)
+
+	testutil.Contains(t, out, "public")
+	testutil.Contains(t, out, "auth disabled")
+}
+
+func TestBannerSkipsPublicBindWarningWhenAuthEnabled(t *testing.T) {
+	cfg := defaultTestConfig()
+	cfg.Server.Host = "0.0.0.0"
+	cfg.Auth.Enabled = true
+
+	out := bannerToString(cfg, false, false)
+
+	testutil.False(t, strings.Contains(out, "public bind with auth disabled"))
+	testutil.False(t, strings.Contains(out, "read and write the database"))
+}
+
+func TestBannerSkipsPublicBindWarningForLoopbackWithAuthDisabled(t *testing.T) {
+	for _, host := range []string{"127.0.0.1", "localhost", "::1"} {
+		t.Run(host, func(t *testing.T) {
+			cfg := defaultTestConfig()
+			cfg.Server.Host = host
+			cfg.Auth.Enabled = false
+
+			out := bannerToString(cfg, false, false)
+
+			testutil.False(t, strings.Contains(out, "public bind with auth disabled"))
+			testutil.False(t, strings.Contains(out, "read and write the database"))
+		})
+	}
 }
 
 func TestBannerStripsDoubleV(t *testing.T) {

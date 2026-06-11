@@ -14,9 +14,14 @@ The package mirrors `@allyourbase/js` and supports:
 
 ## Install
 
+Preview — install from source. Registry publishing is tracked for GA.
+
+Clone the repo and point your app at the local Dart package:
+
 ```yaml
 dependencies:
-  allyourbase: ^0.1.0
+  allyourbase:
+    path: ../allyourbase/sdk_dart
 ```
 
 ## Quick start

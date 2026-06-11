@@ -1,4 +1,4 @@
-// Package api Stub summary for /Users/stuart/parallel_development/allyourbase_dev/jun05_pm_1_search_engine_perf_stemming_highlight/allyourbase_dev/internal/api/cursor.go.
+// Package api.
 package api
 
 import (

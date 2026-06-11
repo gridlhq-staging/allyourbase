@@ -1,5 +1,5 @@
 /**
- * @module Stub summary for /Users/stuart/parallel_development/allyourbase_dev/mar24_pm_2_auth_jwt_and_private_function_proof/allyourbase_dev/ui/browser-tests-unmocked/admin-bootstrap.ts.
+ * @module ui/browser-tests-unmocked/admin-bootstrap.ts
  */
 import type { APIRequestContext } from "@playwright/test";
 import { readFileSync } from "fs";

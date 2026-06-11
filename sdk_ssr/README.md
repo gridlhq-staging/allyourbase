@@ -2,6 +2,21 @@
 
 Server-side cookie/session helpers for Allyourbase.
 
+## Install
+
+Preview — install from source. Registry publishing is tracked for GA.
+
+```bash
+git clone https://github.com/gridlhq-staging/allyourbase.git
+cd allyourbase/sdk && npm install && npm run build
+cd ../sdk_ssr && npm install && npm run build
+
+# inside your app
+npm install /absolute/path/to/allyourbase/sdk /absolute/path/to/allyourbase/sdk_ssr
+```
+
+Full guide: [docs-site/guide/ssr-sdk.md](../docs-site/guide/ssr-sdk.md).
+
 ## Quick start
 
 ```ts

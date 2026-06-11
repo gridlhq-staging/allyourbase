@@ -1,5 +1,5 @@
 /**
- * @module Stub summary for /Users/stuart/parallel_development/allyourbase_dev/mar24_pm_3_webhook_and_trigger_proof/allyourbase_dev/ui/browser-tests-unmocked/fixtures/edge-functions.ts.
+ * @module ui/browser-tests-unmocked/fixtures/edge-functions.ts
  */
 import type { APIRequestContext, APIResponse } from "@playwright/test";
 import { validateResponse } from "./core";

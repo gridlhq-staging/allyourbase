@@ -1,4 +1,4 @@
-// Package jobs Stub summary for /Users/stuart/parallel_development/allyourbase_dev/may31_pm_8_job_run_history/allyourbase_dev/internal/jobs/store.go.
+// Package jobs.
 package jobs
 
 import (

@@ -1,3 +1,4 @@
+// Package api Stub summary for /Users/stuart/parallel_development/allyourbase_dev/jun09_pm_5_search_disjunctive_facets_and_stats/allyourbase_dev/internal/api/filter.go.
 package api
 
 import (
@@ -12,32 +13,16 @@ import (
 // parseFilter parses a filter expression string and returns parameterized SQL.
 // Example: "status='active' && age>25" → ("status" = $1 AND "age" > $2), ["active", 25]
 func parseFilter(tbl *schema.Table, input string) (string, []any, error) {
-	tokens, err := tokenize(input)
+	node, err := parseFilterNode(tbl, input)
 	if err != nil {
 		return "", nil, err
 	}
-	if len(tokens) == 0 {
+	if node == nil {
 		return "", nil, nil
 	}
-
-	p := &parser{
-		tokens: tokens,
-		pos:    0,
-		tbl:    tbl,
-		args:   make([]any, 0),
-	}
-
-	node, err := p.parseExpression()
-	if err != nil {
-		return "", nil, err
-	}
-
-	if p.pos < len(p.tokens) {
-		return "", nil, fmt.Errorf("unexpected token at position %d: %s", p.pos, p.tokens[p.pos].value)
-	}
-
-	sql := node.toSQL()
-	return sql, p.args, nil
+	args := make([]any, 0)
+	sql := node.toSQLWithArgs(&args)
+	return sql, args, nil
 }
 
 // Token types
@@ -66,6 +51,7 @@ type token struct {
 // AST node types.
 type filterNode interface {
 	toSQL() string
+	toSQLWithArgs(args *[]any) string
 }
 
 type andNode struct {
@@ -76,6 +62,10 @@ func (n *andNode) toSQL() string {
 	return "(" + n.left.toSQL() + " AND " + n.right.toSQL() + ")"
 }
 
+func (n *andNode) toSQLWithArgs(args *[]any) string {
+	return "(" + n.left.toSQLWithArgs(args) + " AND " + n.right.toSQLWithArgs(args) + ")"
+}
+
 type orNode struct {
 	left, right filterNode
 }
@@ -84,28 +74,51 @@ func (n *orNode) toSQL() string {
 	return "(" + n.left.toSQL() + " OR " + n.right.toSQL() + ")"
 }
 
+func (n *orNode) toSQLWithArgs(args *[]any) string {
+	return "(" + n.left.toSQLWithArgs(args) + " OR " + n.right.toSQLWithArgs(args) + ")"
+}
+
 type comparisonNode struct {
-	column   string
-	op       string
-	paramRef string // e.g., "$1"
+	columnName string
+	column     string
+	op         string
+	paramRef   string // e.g., "$1"
+	value      any
 }
 
 func (n *comparisonNode) toSQL() string {
 	return n.column + " " + n.op + " " + n.paramRef
 }
 
+func (n *comparisonNode) toSQLWithArgs(args *[]any) string {
+	*args = append(*args, n.value)
+	return n.column + " " + n.op + " " + fmt.Sprintf("$%d", len(*args))
+}
+
 type inNode struct {
-	column    string
-	paramRefs []string
+	columnName string
+	column     string
+	paramRefs  []string
+	values     []any
 }
 
 func (n *inNode) toSQL() string {
 	return n.column + " IN (" + strings.Join(n.paramRefs, ", ") + ")"
 }
 
+func (n *inNode) toSQLWithArgs(args *[]any) string {
+	paramRefs := make([]string, 0, len(n.values))
+	for _, value := range n.values {
+		*args = append(*args, value)
+		paramRefs = append(paramRefs, fmt.Sprintf("$%d", len(*args)))
+	}
+	return n.column + " IN (" + strings.Join(paramRefs, ", ") + ")"
+}
+
 type isNullNode struct {
-	column string
-	isNull bool
+	columnName string
+	column     string
+	isNull     bool
 }
 
 func (n *isNullNode) toSQL() string {
@@ -113,6 +126,92 @@ func (n *isNullNode) toSQL() string {
 		return n.column + " IS NULL"
 	}
 	return n.column + " IS NOT NULL"
+}
+
+func (n *isNullNode) toSQLWithArgs(_ *[]any) string {
+	return n.toSQL()
+}
+
+func buildFilterExcludingFacetColumn(tbl *schema.Table, input, facetColumn string) (string, []any, error) {
+	node, err := parseFilterNode(tbl, input)
+	if err != nil || node == nil {
+		return "", nil, err
+	}
+	remaining := removeTopLevelFacetEquality(node, facetColumn)
+	if remaining == nil {
+		return "", nil, nil
+	}
+	args := make([]any, 0)
+	return remaining.toSQLWithArgs(&args), args, nil
+}
+
+func parseFilterNode(tbl *schema.Table, input string) (filterNode, error) {
+	tokens, err := tokenize(input)
+	if err != nil {
+		return nil, err
+	}
+	if len(tokens) == 0 {
+		return nil, nil
+	}
+
+	p := &parser{
+		tokens: tokens,
+		pos:    0,
+		tbl:    tbl,
+		args:   make([]any, 0),
+	}
+	node, err := p.parseExpression()
+	if err != nil {
+		return nil, err
+	}
+	if p.pos < len(p.tokens) {
+		return nil, fmt.Errorf("unexpected token at position %d: %s", p.pos, p.tokens[p.pos].value)
+	}
+	return node, nil
+}
+
+func removeTopLevelFacetEquality(node filterNode, facetColumn string) filterNode {
+	terms := flattenTopLevelAnd(node)
+	kept := make([]filterNode, 0, len(terms))
+	for _, term := range terms {
+		if isFacetEqualityOrNullCheck(term, facetColumn) {
+			continue
+		}
+		kept = append(kept, term)
+	}
+	return joinAndTerms(kept)
+}
+
+func flattenTopLevelAnd(node filterNode) []filterNode {
+	if and, ok := node.(*andNode); ok {
+		left := flattenTopLevelAnd(and.left)
+		return append(left, flattenTopLevelAnd(and.right)...)
+	}
+	return []filterNode{node}
+}
+
+func joinAndTerms(terms []filterNode) filterNode {
+	if len(terms) == 0 {
+		return nil
+	}
+	node := terms[0]
+	for _, term := range terms[1:] {
+		node = &andNode{left: node, right: term}
+	}
+	return node
+}
+
+func isFacetEqualityOrNullCheck(node filterNode, facetColumn string) bool {
+	switch n := node.(type) {
+	case *comparisonNode:
+		return n.columnName == facetColumn && n.op == "="
+	case *inNode:
+		return n.columnName == facetColumn
+	case *isNullNode:
+		return n.columnName == facetColumn && n.isNull
+	default:
+		return false
+	}
 }
 
 const maxFilterDepth = 50 // max nesting depth for parenthesized expressions
@@ -253,6 +352,7 @@ func (p *parser) parseComparison() (filterNode, error) {
 		p.advance()
 
 		var paramRefs []string
+		var values []any
 		for {
 			val, err := p.parseValue()
 			if err != nil {
@@ -260,6 +360,7 @@ func (p *parser) parseComparison() (filterNode, error) {
 			}
 			ref := p.addArg(val)
 			paramRefs = append(paramRefs, ref)
+			values = append(values, val)
 
 			next := p.peek()
 			if next == nil {
@@ -275,7 +376,7 @@ func (p *parser) parseComparison() (filterNode, error) {
 			p.advance()
 		}
 
-		return &inNode{column: quotedCol, paramRefs: paramRefs}, nil
+		return &inNode{columnName: ident.value, column: quotedCol, paramRefs: paramRefs, values: values}, nil
 	}
 
 	// Regular comparison operator.
@@ -295,9 +396,9 @@ func (p *parser) parseComparison() (filterNode, error) {
 	if val == nil {
 		switch op.value {
 		case "=":
-			return &isNullNode{column: quotedCol, isNull: true}, nil
+			return &isNullNode{columnName: ident.value, column: quotedCol, isNull: true}, nil
 		case "!=":
-			return &isNullNode{column: quotedCol, isNull: false}, nil
+			return &isNullNode{columnName: ident.value, column: quotedCol, isNull: false}, nil
 		default:
 			return nil, fmt.Errorf("null can only be compared with = or !=")
 		}
@@ -313,7 +414,7 @@ func (p *parser) parseComparison() (filterNode, error) {
 	}
 
 	ref := p.addArg(val)
-	return &comparisonNode{column: quotedCol, op: sqlOp, paramRef: ref}, nil
+	return &comparisonNode{columnName: ident.value, column: quotedCol, op: sqlOp, paramRef: ref, value: val}, nil
 }
 
 // parseValue parses a literal value token.

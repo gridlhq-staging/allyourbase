@@ -46,6 +46,9 @@ export class RecordsClient {
     if (params?.typoThreshold != null) qs.set("typo_threshold", String(params.typoThreshold));
     if (params?.highlight === true) qs.set("highlight", "true");
     if (params?.facets?.length) qs.set("facets", params.facets.join(","));
+    if (params?.disjunctiveFacets?.length) {
+      qs.set("disjunctiveFacets", params.disjunctiveFacets.join(","));
+    }
     if (params?.semantic === true) qs.set("semantic", "true");
     if (params?.semanticQuery) qs.set("semantic_query", params.semanticQuery);
     if (params?.nearest) qs.set("nearest", JSON.stringify(params.nearest));

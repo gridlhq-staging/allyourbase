@@ -2,6 +2,21 @@
 
 React integration helpers for Allyourbase.
 
+## Install
+
+Preview — install from source. Registry publishing is tracked for GA.
+
+```bash
+git clone https://github.com/gridlhq-staging/allyourbase.git
+cd allyourbase/sdk && npm install && npm run build
+cd ../sdk_react && npm install && npm run build
+
+# inside your app
+npm install react react-dom /absolute/path/to/allyourbase/sdk /absolute/path/to/allyourbase/sdk_react
+```
+
+Full guide: [docs-site/guide/react-sdk.md](../docs-site/guide/react-sdk.md).
+
 ## Quick start
 
 ```tsx

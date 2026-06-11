@@ -1,6 +1,6 @@
 import { test, expect } from "../fixtures";
 
-test("load-and-verify, query highlighting, facet filtering, and pagination all work against live AYB search", async ({
+test("load-and-verify, query highlighting, facet filtering, range filtering, and pagination all work against live AYB search", async ({
   page,
   appURL,
 }) => {
@@ -33,4 +33,21 @@ test("load-and-verify, query highlighting, facet filtering, and pagination all w
   await expect(page.getByTestId("hit-ceramic-coffee-mug")).toBeVisible();
   await expect(page.getByTestId("hit-glass-water-bottle")).toBeVisible();
   await expect(page.getByTestId("hit-steel-cable-tray")).toBeHidden();
+
+  await page.goto(appURL);
+  await expect(page.getByTestId("results-summary")).toContainText("14 results");
+  await expect(page.getByTestId("hit-brass-desk-lamp")).toBeVisible();
+
+  const priceRange = page.getByRole("region", { name: "Price range" });
+  const rangeInputs = priceRange.getByRole("spinbutton");
+  await expect(rangeInputs.first()).toHaveAttribute("placeholder", "799");
+  await expect(rangeInputs.nth(1)).toHaveAttribute("placeholder", "8999");
+  await rangeInputs.first().fill("4000");
+  await rangeInputs.nth(1).fill("5000");
+  await expect(rangeInputs.first()).toHaveValue("4000");
+  await expect(rangeInputs.nth(1)).toHaveValue("5000");
+  await priceRange.getByRole("button", { name: "Go" }).click();
+  await expect(page.getByTestId("results-summary")).toContainText("1 result");
+  await expect(page.getByTestId("hit-brass-desk-lamp")).toBeVisible();
+  await expect(page.getByTestId("hit-ceramic-coffee-mug")).toBeHidden();
 });

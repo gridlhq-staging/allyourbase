@@ -1,5 +1,5 @@
 /**
- * @module Stub summary for /Users/stuart/parallel_development/allyourbase_dev/MAR18_WS_C_phase5_features_and_phase6/allyourbase_dev/ui/browser-tests-mocked/fixtures/apps.ts.
+ * @module ui/browser-tests-mocked/fixtures/apps.ts
  */
 import type { Page } from "@playwright/test";
 import { json, handleCommonAdminRoutes, unhandledMockedApiRoute, type MockApiResponse } from "./core";

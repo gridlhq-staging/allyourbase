@@ -1,4 +1,4 @@
-// Package openapi Stub summary for /Users/stuart/parallel_development/allyourbase_dev/jun04_pm_3_sdk_parity_go_python_openapi/allyourbase_dev/internal/openapi/generator_table_paths.go.
+// Package openapi.
 package openapi
 
 import (

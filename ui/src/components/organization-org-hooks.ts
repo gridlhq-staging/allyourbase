@@ -1,5 +1,5 @@
 /**
- * @module Stub summary for /Users/stuart/parallel_development/allyourbase_dev/MAR18_WS_C_phase5_features_and_phase6/allyourbase_dev/ui/src/components/organization-org-hooks.ts.
+ * @module ui/src/components/organization-org-hooks.ts
  */
 import { useCallback, useEffect, useState } from "react";
 import {

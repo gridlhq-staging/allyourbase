@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"net"
 	"os"
 	"path/filepath"
 	"strings"
@@ -235,6 +236,9 @@ func printBannerBodyTo(w io.Writer, cfg *config.Config, embeddedPG bool, useColo
 		fmt.Fprintf(w, "  %s %s\n", padLabel("Admin:", 10), cyan(adminURL, useColor))
 	}
 	fmt.Fprintf(w, "  %s %s\n", padLabel("Database:", 10), dbMode)
+	if isNonLoopbackBindHost(cfg.Server.Host) && !cfg.Auth.Enabled {
+		printPublicAuthDisabledWarning(w, useColor)
+	}
 	if cfg.Auth.MinPasswordLength > 0 && cfg.Auth.MinPasswordLength < 8 {
 		fmt.Fprintln(w)
 		fmt.Fprintf(w, "  %s\n", yellow(fmt.Sprintf(
@@ -268,6 +272,25 @@ func printBannerBodyTo(w io.Writer, cfg *config.Config, embeddedPG bool, useColo
 		fmt.Fprintln(w, line)
 	}
 	fmt.Fprintln(w)
+}
+
+func isNonLoopbackBindHost(host string) bool {
+	host = strings.TrimSpace(host)
+	if host == "" || strings.EqualFold(host, "localhost") {
+		return false
+	}
+	ip := net.ParseIP(host)
+	if ip == nil {
+		return true
+	}
+	return !ip.IsLoopback()
+}
+
+func printPublicAuthDisabledWarning(w io.Writer, useColor bool) {
+	fmt.Fprintln(w)
+	fmt.Fprintf(w, "  %s\n", yellow("WARNING: public bind with auth disabled.", useColor))
+	fmt.Fprintf(w, "  %s\n", yellow("Reachable clients can read and write the database.", useColor))
+	fmt.Fprintf(w, "  %s\n", yellow("Bind to 127.0.0.1 or enable auth before exposing this server.", useColor))
 }
 
 // bannerVersion extracts a clean semver string for the startup banner.

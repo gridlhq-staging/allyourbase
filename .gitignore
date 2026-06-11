@@ -1,5 +1,7 @@
 # Dev artifacts
 /testpg
+/rebuild
+/validation_cache.jsonl
 .scrai/codemap_graph_cache.json
 .scrai/state.json
 .scrai/summaries.json

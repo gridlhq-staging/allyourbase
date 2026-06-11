@@ -1,4 +1,4 @@
-// Package allyourbase Stub summary for /Users/stuart/parallel_development/allyourbase_dev/MAR18_WS_C_phase5_features_and_phase6/allyourbase_dev/sdk_go/records.go.
+// Package allyourbase.
 package allyourbase
 
 import (

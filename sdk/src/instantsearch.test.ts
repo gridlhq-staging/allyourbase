@@ -43,6 +43,12 @@ describe("createInstantSearchClient", () => {
             ],
             brand: [{ value: "Apple", count: 4 }],
           },
+          facetStats: {
+            price_cents: {
+              min: 1299,
+              max: 4599,
+            },
+          },
         },
       },
     ]);
@@ -104,11 +110,549 @@ describe("createInstantSearchClient", () => {
       status: { published: 7, null: 2 },
       brand: { Apple: 4 },
     });
+    expect(result.facetStats).toEqual({
+      price_cents: { min: 1299, max: 4599 },
+    });
     const echoedParams = new URLSearchParams(result.params);
     expect(echoedParams.get("query")).toBe("postgres");
     expect(echoedParams.get("page")).toBe("2");
     expect(echoedParams.get("hitsPerPage")).toBe("5");
     expect(echoedParams.get("facets")).toBe(JSON.stringify(["status", "brand"]));
+  });
+
+  it("requests disjunctive facets for OR facet groups", async () => {
+    const fetchFn = mockFetchSequence([
+      {
+        status: 200,
+        body: {
+          items: [],
+          page: 1,
+          perPage: 20,
+          totalItems: 0,
+          totalPages: 0,
+        },
+      },
+    ]);
+    const client = new AYBClient("https://api.example.com", { fetch: fetchFn });
+    const searchClient = createInstantSearchClient({
+      client,
+      objectIDField: "id",
+    });
+
+    await searchClient.search([
+      {
+        indexName: "products",
+        params: {
+          facets: ["category", "brand"],
+          facetFilters: [["category:Books", "category:Games"], "brand:Acme"],
+        },
+      },
+    ]);
+
+    const url = requestedURL(fetchFn);
+    expect(url.searchParams.get("facets")).toBe("category,brand");
+    expect(url.searchParams.get("disjunctiveFacets")).toBe("category");
+    expect(url.searchParams.get("filter")).toBe(
+      "(category='Books' OR category='Games') AND brand='Acme'",
+    );
+  });
+
+  it("requests disjunctive facets for a single selected OR facet", async () => {
+    const fetchFn = mockFetchSequence([
+      {
+        status: 200,
+        body: {
+          items: [],
+          page: 1,
+          perPage: 20,
+          totalItems: 0,
+          totalPages: 0,
+        },
+      },
+    ]);
+    const client = new AYBClient("https://api.example.com", { fetch: fetchFn });
+    const searchClient = createInstantSearchClient({
+      client,
+      objectIDField: "id",
+    });
+
+    await searchClient.search([
+      {
+        indexName: "products",
+        params: {
+          facets: ["category", "brand"],
+          facetFilters: [["category:Books"], "brand:Acme"],
+        },
+      },
+    ]);
+
+    const url = requestedURL(fetchFn);
+    expect(url.searchParams.get("facets")).toBe("category,brand");
+    expect(url.searchParams.get("disjunctiveFacets")).toBe("category");
+    expect(url.searchParams.get("filter")).toBe("category='Books' AND brand='Acme'");
+  });
+
+  it("passes explicit disjunctive facets through for single selected facet refinements", async () => {
+    const fetchFn = mockFetchSequence([
+      {
+        status: 200,
+        body: {
+          items: [],
+          page: 1,
+          perPage: 20,
+          totalItems: 0,
+          totalPages: 0,
+        },
+      },
+    ]);
+    const client = new AYBClient("https://api.example.com", { fetch: fetchFn });
+    const searchClient = createInstantSearchClient({
+      client,
+      objectIDField: "id",
+    });
+
+    await searchClient.search([
+      {
+        indexName: "products",
+        params: {
+          facets: ["category", "brand"],
+          disjunctiveFacets: ["category"],
+          facetFilters: ["category:Books", "brand:Acme"],
+        },
+      },
+    ]);
+
+    const url = requestedURL(fetchFn);
+    expect(url.searchParams.get("facets")).toBe("category,brand");
+    expect(url.searchParams.get("disjunctiveFacets")).toBe("category");
+    expect(url.searchParams.get("filter")).toBe("category='Books' AND brand='Acme'");
+  });
+
+  it("passes adapter-level disjunctive facets through for widget refinements", async () => {
+    const fetchFn = mockFetchSequence([
+      {
+        status: 200,
+        body: {
+          items: [],
+          page: 1,
+          perPage: 20,
+          totalItems: 0,
+          totalPages: 0,
+        },
+      },
+    ]);
+    const client = new AYBClient("https://api.example.com", { fetch: fetchFn });
+    const searchClient = createInstantSearchClient({
+      client,
+      objectIDField: "id",
+      disjunctiveFacets: ["category"],
+    });
+
+    await searchClient.search([
+      {
+        indexName: "products",
+        params: {
+          facets: ["category", "brand"],
+          facetFilters: ["category:Books", "brand:Acme"],
+        },
+      },
+    ]);
+
+    const url = requestedURL(fetchFn);
+    expect(url.searchParams.get("facets")).toBe("category,brand");
+    expect(url.searchParams.get("disjunctiveFacets")).toBe("category");
+    expect(url.searchParams.get("filter")).toBe("category='Books' AND brand='Acme'");
+  });
+
+  it("groups repeated flat filters for adapter-level disjunctive facets", async () => {
+    const fetchFn = mockFetchSequence([
+      {
+        status: 200,
+        body: {
+          items: [],
+          page: 1,
+          perPage: 20,
+          totalItems: 0,
+          totalPages: 0,
+        },
+      },
+    ]);
+    const client = new AYBClient("https://api.example.com", { fetch: fetchFn });
+    const searchClient = createInstantSearchClient({
+      client,
+      objectIDField: "id",
+      disjunctiveFacets: ["category"],
+    });
+
+    await searchClient.search([
+      {
+        indexName: "products",
+        params: {
+          facets: ["category", "brand"],
+          facetFilters: ["category:Books", "category:Games", "brand:Acme"],
+        },
+      },
+    ]);
+
+    const url = requestedURL(fetchFn);
+    expect(url.searchParams.get("disjunctiveFacets")).toBe("category");
+    expect(url.searchParams.get("filter")).toBe(
+      "(category='Books' OR category='Games') AND brand='Acme'",
+    );
+  });
+
+  it("preserves backend disjunctive facet counts in InstantSearch results", async () => {
+    const client = createListOnlyClient({
+      items: [],
+      page: 1,
+      perPage: 20,
+      totalItems: 0,
+      totalPages: 0,
+      facets: {
+        category: [
+          { value: "Books", count: 12 },
+          { value: "Games", count: 7 },
+          { value: "Electronics", count: 3 },
+        ],
+      },
+    });
+    const searchClient = createInstantSearchClient({
+      client,
+      objectIDField: "id",
+      defaultIndexName: "products",
+    });
+
+    const response = await searchClient.search([
+      {
+        params: {
+          facets: ["category"],
+          facetFilters: [["category:Books", "category:Games"]],
+        },
+      },
+    ]);
+
+    expect(response.results[0].facets?.category).toEqual({
+      Books: 12,
+      Games: 7,
+      Electronics: 3,
+    });
+  });
+
+  it("keeps conjunctive facet filters out of disjunctive facets", async () => {
+    const client = createListOnlyClient({
+      items: [],
+      page: 1,
+      perPage: 20,
+      totalItems: 0,
+      totalPages: 0,
+    });
+    const searchClient = createInstantSearchClient({
+      client,
+      objectIDField: "id",
+      defaultIndexName: "products",
+    });
+
+    await searchClient.search([
+      {
+        params: {
+          facets: ["category", "brand"],
+          facetFilters: ["category:Books", "brand:Acme"],
+        },
+      },
+    ]);
+
+    expect(client.records.list).toHaveBeenCalledWith("products", {
+      page: 1,
+      facets: ["category", "brand"],
+      filter: "category='Books' AND brand='Acme'",
+      highlight: true,
+    });
+  });
+
+  it("translates numeric range filters into AYB comparisons", async () => {
+    const client = createListOnlyClient({
+      items: [],
+      page: 1,
+      perPage: 20,
+      totalItems: 0,
+      totalPages: 0,
+      facetStats: {
+        price_cents: {
+          min: "1299",
+          max: "8999",
+        },
+      },
+    });
+    const searchClient = createInstantSearchClient({
+      client,
+      objectIDField: "id",
+      defaultIndexName: "products",
+    });
+
+    const response = await searchClient.search([
+      {
+        params: {
+          filters: "price_cents:1000 TO 5000",
+          facets: ["price_cents"],
+        },
+      },
+    ]);
+
+    expect(client.records.list).toHaveBeenCalledWith("products", {
+      page: 1,
+      facets: ["price_cents"],
+      filter: "(price_cents>=1000 AND price_cents<=5000)",
+      highlight: true,
+    });
+    expect(response.results[0].facetStats).toEqual({
+      price_cents: { min: 1299, max: 8999 },
+    });
+  });
+
+  it("translates InstantSearch numericFilters into AYB comparisons", async () => {
+    const client = createListOnlyClient({
+      items: [],
+      page: 1,
+      perPage: 20,
+      totalItems: 0,
+      totalPages: 0,
+    });
+    const searchClient = createInstantSearchClient({
+      client,
+      objectIDField: "id",
+      defaultIndexName: "products",
+    });
+
+    const response = await searchClient.search([
+      {
+        params: {
+          facets: ["price_cents"],
+          numericFilters: ["price_cents>=1000", "price_cents<=5000"],
+        },
+      },
+    ]);
+
+    expect(client.records.list).toHaveBeenCalledWith("products", {
+      page: 1,
+      facets: ["price_cents"],
+      filter: "price_cents>=1000 AND price_cents<=5000",
+      highlight: true,
+    });
+    const [, params] = client.records.list.mock.calls[0];
+    expect(params).not.toHaveProperty("numericFilters");
+    const echoedParams = new URLSearchParams(response.results[0].params);
+    expect(echoedParams.get("numericFilters")).toBe(
+      JSON.stringify(["price_cents>=1000", "price_cents<=5000"]),
+    );
+  });
+
+  it("ignores Algolia analytics params while preserving numeric range filters", async () => {
+    const client = createListOnlyClient({
+      items: [],
+      page: 1,
+      perPage: 20,
+      totalItems: 0,
+      totalPages: 0,
+    });
+    const searchClient = createInstantSearchClient({
+      client,
+      objectIDField: "id",
+      defaultIndexName: "products",
+    });
+
+    await searchClient.search([
+      {
+        params: {
+          analytics: false,
+          clickAnalytics: false,
+          facets: ["price_cents"],
+          numericFilters: ["price_cents>=4000", "price_cents<=5000"],
+        },
+      },
+    ]);
+
+    expect(client.records.list).toHaveBeenCalledWith("products", {
+      page: 1,
+      facets: ["price_cents"],
+      filter: "price_cents>=4000 AND price_cents<=5000",
+      highlight: true,
+    });
+  });
+
+  it("supports InstantSearch facet-only requests with zero hits per page", async () => {
+    const client = createListOnlyClient({
+      items: [{ id: "ignored_hit" }],
+      page: 1,
+      perPage: 1,
+      totalItems: 14,
+      totalPages: 14,
+      facets: {
+        price_cents: [{ value: 4599, count: 1 }],
+      },
+      facetStats: {
+        price_cents: { min: 4599, max: 4599 },
+      },
+    });
+    const searchClient = createInstantSearchClient({
+      client,
+      objectIDField: "id",
+      defaultIndexName: "products",
+    });
+
+    const response = await searchClient.search([
+      {
+        params: {
+          hitsPerPage: 0,
+          facets: "price_cents",
+          disjunctiveFacets: ["price_cents"],
+          numericFilters: ["price_cents>=4000", "price_cents<=5000"],
+        },
+      },
+    ]);
+
+    expect(client.records.list).toHaveBeenCalledWith("products", {
+      page: 1,
+      perPage: 1,
+      facets: ["price_cents"],
+      disjunctiveFacets: ["price_cents"],
+      filter: "price_cents>=4000 AND price_cents<=5000",
+      highlight: true,
+    });
+    expect(response.results[0].hits).toEqual([]);
+    expect(response.results[0].hitsPerPage).toBe(0);
+    expect(response.results[0].nbPages).toBe(0);
+    expect(response.results[0].disjunctiveFacets).toEqual([
+      {
+        name: "price_cents",
+        data: { "4599": 1 },
+        stats: { min: 4599, max: 4599 },
+      },
+    ]);
+  });
+
+  it("combines numericFilters with facetFilters into one AYB filter", async () => {
+    const client = createListOnlyClient({
+      items: [],
+      page: 1,
+      perPage: 20,
+      totalItems: 0,
+      totalPages: 0,
+    });
+    const searchClient = createInstantSearchClient({
+      client,
+      objectIDField: "id",
+      defaultIndexName: "products",
+    });
+
+    await searchClient.search([
+      {
+        params: {
+          facetFilters: [["brand:Acme", "brand:Zen"], "status:active"],
+          numericFilters: ["price_cents>=1000", "price_cents<=5000"],
+        },
+      },
+    ]);
+
+    expect(client.records.list).toHaveBeenCalledWith("products", {
+      page: 1,
+      filter:
+        "(brand='Acme' OR brand='Zen') AND status='active' AND price_cents>=1000 AND price_cents<=5000",
+      highlight: true,
+    });
+    const [, params] = client.records.list.mock.calls[0];
+    expect(params).not.toHaveProperty("numericFilters");
+  });
+
+  it("maps backend facetStats into InstantSearch facets_stats", async () => {
+    const client = createListOnlyClient({
+      items: [],
+      page: 1,
+      perPage: 20,
+      totalItems: 0,
+      totalPages: 0,
+      facetStats: {
+        price_cents: {
+          min: "799",
+          max: "8999",
+        },
+      },
+    });
+    const searchClient = createInstantSearchClient({
+      client,
+      objectIDField: "id",
+      defaultIndexName: "products",
+    });
+
+    const response = await searchClient.search([{ params: {} }]);
+
+    const result = response.results[0];
+    expect(result.facets_stats?.price_cents).toEqual({ min: 799, max: 8999 });
+    expect(result.facetStats?.price_cents).toEqual({ min: 799, max: 8999 });
+    expect(result.facets_stats).toBe(result.facetStats);
+  });
+
+  it("maps backend facetStats into disjunctive facet stats for RangeInput", async () => {
+    const client = createListOnlyClient({
+      items: [],
+      page: 1,
+      perPage: 20,
+      totalItems: 0,
+      totalPages: 0,
+      facetStats: {
+        price_cents: {
+          min: "799",
+          max: "8999",
+        },
+      },
+    });
+    const searchClient = createInstantSearchClient({
+      client,
+      objectIDField: "id",
+      defaultIndexName: "products",
+    });
+
+    const response = await searchClient.search([
+      {
+        params: {
+          facets: ["price_cents"],
+          disjunctiveFacets: ["price_cents"],
+        },
+      },
+    ]);
+
+    expect(response.results[0].disjunctiveFacets).toEqual([
+      {
+        name: "price_cents",
+        data: {},
+        stats: { min: 799, max: 8999 },
+      },
+    ]);
+  });
+
+  it("rejects malformed numericFilters before calling AYB", async () => {
+    const client = createListOnlyClient({
+      items: [],
+      page: 1,
+      perPage: 20,
+      totalItems: 0,
+      totalPages: 0,
+    });
+    const searchClient = createInstantSearchClient({
+      client,
+      objectIDField: "id",
+      defaultIndexName: "products",
+    });
+
+    await expect(
+      searchClient.search([{ params: { numericFilters: ["price_cents=1000"] } }]),
+    ).rejects.toThrow("numericFilters must use range comparison operators");
+    await expect(
+      searchClient.search([{ params: { numericFilters: ["price_cents:1000"] } }]),
+    ).rejects.toThrow("numericFilters must use attribute<op>number form");
+    await expect(
+      searchClient.search([{ params: { numericFilters: ["price_cents>=cheap"] } }]),
+    ).rejects.toThrow("numericFilters must use attribute<op>number form");
+    expect(client.records.list).not.toHaveBeenCalled();
   });
 
   it("uses the configured default index and sends empty queries as browsable list calls", async () => {
@@ -305,11 +849,11 @@ describe("createInstantSearchClient", () => {
       ]),
     ).rejects.toThrow("_tags filters are not supported");
     await expect(
-      searchClient.search([{ indexName: "posts", params: { filters: "price:10 TO 20" } }]),
-    ).rejects.toThrow("numeric range filters are not supported");
-    await expect(
       searchClient.search([{ indexName: "posts", params: { filters: "author.name:stuart" } }]),
     ).rejects.toThrow("nested attributes are not supported");
+    await expect(
+      searchClient.search([{ indexName: "posts", params: { filters: "price:cheap TO 20" } }]),
+    ).rejects.toThrow("numeric range filters require numeric bounds");
     await expect(
       searchClient.search([{ indexName: "posts", params: { filters: "status:active AND" } }]),
     ).rejects.toThrow("malformed boolean filters are not supported");

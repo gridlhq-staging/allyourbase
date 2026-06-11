@@ -1,5 +1,5 @@
 /**
- * @module Stub summary for /Users/stuart/parallel_development/allyourbase_dev/jun04_am_2_dashboard_highlight_showcase/allyourbase_dev/ui/src/api_search.ts.
+ * @module ui/src/api_search.ts
  */
 import { request } from "./api_client";
 import { asRecord } from "./lib/normalize";

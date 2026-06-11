@@ -1,5 +1,5 @@
 /**
- * @module Stub summary for /Users/stuart/parallel_development/allyourbase_dev/jun02_pm_2_demos_green_browser_standards/allyourbase_dev/examples/live-polls/e2e/helpers.ts.
+ * @module examples/live-polls/e2e/helpers.ts
  */
 import { type Page, type Locator, type CDPSession, type Request, expect } from "@playwright/test";
 

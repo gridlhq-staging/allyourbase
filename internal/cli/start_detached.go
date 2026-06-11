@@ -12,7 +12,6 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/allyourbase/ayb/internal/cli/ui"
 	"github.com/allyourbase/ayb/internal/config"
 	"github.com/spf13/cobra"
 )
@@ -430,14 +429,29 @@ func portInUse(port int) bool {
 	return false
 }
 
+type errorWithSuggestions struct {
+	message     string
+	suggestions []string
+}
+
+func (e *errorWithSuggestions) Error() string {
+	return e.message
+}
+
+func (e *errorWithSuggestions) Suggestions() []string {
+	return append([]string(nil), e.suggestions...)
+}
+
 // portError wraps common listen errors with actionable suggestions.
 func portError(port int, err error) error {
 	if strings.Contains(err.Error(), "address already in use") {
-		return fmt.Errorf("%s", ui.FormatError(
-			fmt.Sprintf("port %d is already in use", port),
-			fmt.Sprintf("ayb start --port %d   # use a different port", port+1),
-			"ayb stop                # stop the running server",
-		))
+		return &errorWithSuggestions{
+			message: fmt.Sprintf("port %d is already in use", port),
+			suggestions: []string{
+				fmt.Sprintf("ayb start --port %d   # use a different port", port+1),
+				"ayb stop                # stop the running server",
+			},
+		}
 	}
 	return err
 }

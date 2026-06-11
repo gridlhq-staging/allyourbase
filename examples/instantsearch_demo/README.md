@@ -27,6 +27,6 @@ npm run test:browser-tests
 
 ## Scope
 
-The widget tree supplies the `instantsearch_products` index name. `src/lib/ayb.ts` owns only the AYB base URL, `AYBClient` construction, and adapter options for `objectIDField` and highlighting.
+The widget tree supplies the `instantsearch_products` index name. The demo proves category facets, a numeric `price_cents` range filter, highlighting, and pagination through the shared `@allyourbase/js/instantsearch` adapter. `src/lib/ayb.ts` owns only the AYB base URL, `AYBClient` construction, and adapter options for `objectIDField` and highlighting.
 
 Keep this example source-only. Do not register it in `examples/embed.go` or `internal/cli/demo.go`; bundled demo ownership belongs to a later stage.

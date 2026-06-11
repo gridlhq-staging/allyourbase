@@ -211,3 +211,54 @@ func TestFriendlyTypeError(t *testing.T) {
 		})
 	}
 }
+
+func TestListResponseOmitsEmptyFacetStats(t *testing.T) {
+	t.Parallel()
+	resp := ListResponse{
+		Page:       1,
+		PerPage:    20,
+		TotalItems: 0,
+		TotalPages: 0,
+		Items:      []map[string]any{},
+	}
+	data, err := json.Marshal(resp)
+	testutil.NoError(t, err)
+
+	var m map[string]any
+	testutil.NoError(t, json.Unmarshal(data, &m))
+	if _, ok := m["facetStats"]; ok {
+		t.Fatal("expected facetStats to be omitted when empty")
+	}
+}
+
+func TestListResponseSerializesFacetStatsBesideFacets(t *testing.T) {
+	t.Parallel()
+	resp := ListResponse{
+		Page:       1,
+		PerPage:    20,
+		TotalItems: 2,
+		TotalPages: 1,
+		Items:      []map[string]any{{"id": 1}},
+		Facets: FacetCounts{
+			"price": []FacetValueCount{{Value: 10, Count: 1}},
+		},
+		FacetStats: FacetStats{
+			"price": FacetMinMax{Min: json.Number("10"), Max: json.Number("20")},
+		},
+	}
+	data, err := json.Marshal(resp)
+	testutil.NoError(t, err)
+
+	var m map[string]any
+	testutil.NoError(t, json.Unmarshal(data, &m))
+	if _, ok := m["facets"]; !ok {
+		t.Fatal("expected facets in JSON")
+	}
+	rawStats, ok := m["facetStats"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected facetStats object, got %T", m["facetStats"])
+	}
+	priceStats := rawStats["price"].(map[string]any)
+	testutil.Equal(t, 10.0, priceStats["min"])
+	testutil.Equal(t, 20.0, priceStats["max"])
+}

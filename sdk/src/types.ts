@@ -15,6 +15,7 @@ export interface ListResponse<T = Record<string, unknown>> {
   totalItems: number;
   totalPages: number;
   facets?: FacetCounts;
+  facetStats?: Record<string, { min: string | number; max: string | number }>;
 }
 
 /** Per-attribute highlight metadata returned when callers pass `highlight=true`. */
@@ -66,6 +67,7 @@ export interface ListParams {
   typoThreshold?: number;
   highlight?: boolean;
   facets?: string[];
+  disjunctiveFacets?: string[];
   semantic?: boolean;
   semanticQuery?: string;
   nearest?: number[];

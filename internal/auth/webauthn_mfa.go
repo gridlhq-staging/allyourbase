@@ -1,4 +1,4 @@
-// Package auth Stub summary for /Users/stuart/parallel_development/allyourbase_dev/may31_pm_9_webauthn_passkeys_backend/allyourbase_dev/internal/auth/webauthn_mfa.go.
+// Package auth.
 package auth
 
 import (

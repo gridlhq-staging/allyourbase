@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strings"
 	"testing"
 	"time"
 
@@ -1522,6 +1523,8 @@ func TestGenerateDefault(t *testing.T) {
 	content := string(data)
 
 	testutil.Contains(t, content, "[server]")
+	testutil.Contains(t, content, "https://allyourbase.io/guide/configuration")
+	testutil.False(t, strings.Contains(content, "https://allyourbase.io/docs/config"), "generated config must not point to the retired docs route")
 	testutil.Contains(t, content, "[database]")
 	testutil.Contains(t, content, "[admin]")
 	testutil.Contains(t, content, "[auth]")

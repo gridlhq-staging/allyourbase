@@ -1,7 +1,7 @@
 package config
 
 const defaultTOML = `# Allyourbase (AYB) Configuration
-# Documentation: https://allyourbase.io/docs/config
+# Documentation: https://allyourbase.io/guide/configuration
 
 [server]
 # Address to listen on.

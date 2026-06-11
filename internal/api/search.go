@@ -1,3 +1,4 @@
+// Package api Stub summary for /Users/stuart/parallel_development/allyourbase_dev/jun09_pm_4_search_relevance_weighting_and_custom_ranking/allyourbase_dev/internal/api/search.go.
 package api
 
 import (
@@ -6,19 +7,9 @@ import (
 
 	"github.com/allyourbase/ayb/internal/config"
 	"github.com/allyourbase/ayb/internal/schema"
+	"github.com/allyourbase/ayb/internal/searchsettings"
 	"github.com/allyourbase/ayb/internal/sqlutil"
 )
-
-// textColumnTypes are PostgreSQL type names that should be included in full-text search.
-var textColumnTypes = map[string]bool{
-	"text":              true,
-	"varchar":           true,
-	"character varying": true,
-	"char":              true,
-	"character":         true,
-	"name":              true,
-	"citext":            true,
-}
 
 const defaultTypoThreshold = 0.2
 const searchHighlightSQLAlias = "__ayb_search_highlight"
@@ -31,6 +22,7 @@ type searchOptions struct {
 	typoThreshold    float64
 	highlight        bool
 	textSearchConfig string
+	settings         searchsettings.Settings
 }
 
 type searchSQLResult struct {
@@ -56,28 +48,12 @@ func defaultSearchOptions(fuzzy bool) searchOptions {
 	}
 }
 
-// isTextColumn returns true if a column is a text type suitable for FTS.
 func isTextColumn(col *schema.Column) bool {
-	if col.IsJSON || col.IsArray || col.IsEnum {
-		return false
-	}
-	// Normalize: strip modifiers like (255).
-	base := strings.ToLower(col.TypeName)
-	if idx := strings.Index(base, "("); idx > 0 {
-		base = strings.TrimSpace(base[:idx])
-	}
-	return textColumnTypes[base]
+	return searchsettings.IsSearchableTextColumn(col)
 }
 
-// textColumns returns the names of all text columns in a table.
 func textColumns(tbl *schema.Table) []string {
-	var cols []string
-	for _, c := range tbl.Columns {
-		if isTextColumn(c) {
-			cols = append(cols, c.Name)
-		}
-	}
-	return cols
+	return searchsettings.SearchableTextColumns(tbl)
 }
 
 func buildSearchDocumentExpression(cols []string) string {
@@ -86,6 +62,45 @@ func buildSearchDocumentExpression(cols []string) string {
 		parts[i] = fmt.Sprintf("coalesce(%s, '')", sqlutil.QuoteIdent(col))
 	}
 	return strings.Join(parts, " || ' ' || ")
+}
+
+// buildSearchVectorExpression returns the collection tsvector used by both
+// runtime search predicates and the matching GIN index definition.
+func buildSearchVectorExpression(cols []string, regConfig searchRegConfigSQL, settings searchsettings.Settings) (string, error) {
+	if len(settings.Attributes) == 0 {
+		return fmt.Sprintf("to_tsvector(%s, %s)", regConfig.literal, buildSearchDocumentExpression(cols)), nil
+	}
+
+	textCols := make(map[string]struct{}, len(cols))
+	for _, col := range cols {
+		textCols[col] = struct{}{}
+	}
+
+	parts := make([]string, 0, len(cols))
+	used := make(map[string]struct{}, len(settings.Attributes))
+	for _, attr := range settings.Attributes {
+		if _, ok := textCols[attr.Column]; !ok {
+			continue
+		}
+		label, err := searchsettings.PostgresWeightLabel(attr.Weight)
+		if err != nil {
+			return "", err
+		}
+		parts = append(parts, buildWeightedSearchColumnVector(attr.Column, label, regConfig.literal))
+		used[attr.Column] = struct{}{}
+	}
+	for _, col := range cols {
+		if _, ok := used[col]; ok {
+			continue
+		}
+		parts = append(parts, buildWeightedSearchColumnVector(col, "D", regConfig.literal))
+	}
+	return strings.Join(parts, " || "), nil
+}
+
+func buildWeightedSearchColumnVector(column, label, regConfigLiteral string) string {
+	columnExpr := fmt.Sprintf("coalesce(%s, '')", sqlutil.QuoteIdent(column))
+	return fmt.Sprintf("setweight(to_tsvector(%s, %s), '%s')", regConfigLiteral, columnExpr, label)
 }
 
 func effectiveSearchOptions(opts searchOptions) searchOptions {
@@ -168,7 +183,7 @@ func searchHighlightResultAliasForTable(tbl *schema.Table) string {
 
 func buildSearchHeadlineExpression(docExpr, tsvector, tsquery string, regConfig searchRegConfigSQL) string {
 	escapedDocExpr := buildSearchHTMLEscapedExpression(docExpr)
-	return fmt.Sprintf("CASE WHEN %s @@ %s THEN ts_headline(%s, %s, %s, 'StartSel=<b>,StopSel=</b>') ELSE %s END",
+	return fmt.Sprintf("CASE WHEN (%s) @@ %s THEN ts_headline(%s, %s, %s, 'StartSel=<b>,StopSel=</b>') ELSE %s END",
 		tsvector,
 		tsquery,
 		regConfig.literal,
@@ -210,6 +225,11 @@ func buildSearchHighlightResultSelect(cols []string, tsquery, alias string, regC
 //   - error: if no searchable text columns exist
 func buildSearchSQL(tbl *schema.Table, searchTerm string, argOffset int, opts searchOptions) (searchSQLResult, error) {
 	opts = effectiveSearchOptions(opts)
+	normalizedSettings, err := searchsettings.ValidateForTable(tbl, opts.settings)
+	if err != nil {
+		return searchSQLResult{}, err
+	}
+	opts.settings = normalizedSettings
 	regConfig, err := buildSearchRegConfigSQL(opts.textSearchConfig)
 	if err != nil {
 		return searchSQLResult{}, err
@@ -228,12 +248,19 @@ func buildSearchSQL(tbl *schema.Table, searchTerm string, argOffset int, opts se
 	schemaRef := fmt.Sprintf("$%d", argOffset+1)
 	tableRef := fmt.Sprintf("$%d", argOffset+2)
 	docExpr := buildSearchDocumentExpression(cols)
-	tsvector := fmt.Sprintf("to_tsvector(%s, %s)", regConfig.literal, docExpr)
+	tsvector, err := buildSearchVectorExpression(cols, regConfig, opts.settings)
+	if err != nil {
+		return searchSQLResult{}, err
+	}
 	tsquery := buildSearchQueryExpression(paramRef, schemaRef, tableRef, regConfig)
+	rankFn := "ts_rank"
+	if len(opts.settings.Attributes) > 0 {
+		rankFn = "ts_rank_cd"
+	}
 
 	result := searchSQLResult{
-		whereSQL: fmt.Sprintf("%s @@ %s", tsvector, tsquery),
-		rankSQL:  fmt.Sprintf("ts_rank(%s, %s)", tsvector, tsquery),
+		whereSQL: fmt.Sprintf("(%s) @@ %s", tsvector, tsquery),
+		rankSQL:  fmt.Sprintf("%s(%s, %s)", rankFn, tsvector, tsquery),
 		args:     args,
 	}
 	if opts.highlight {

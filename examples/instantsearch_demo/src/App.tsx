@@ -4,6 +4,7 @@ import {
   Hits,
   InstantSearch,
   Pagination,
+  RangeInput,
   RefinementList,
   SearchBox,
   Stats,
@@ -15,7 +16,7 @@ import "./App.css";
 
 const COLLECTION_NAME = "instantsearch_products";
 const HITS_PER_PAGE = 6;
-const FACETS = ["category"];
+const FACETS = ["category", "price_cents"];
 const instantSearchClient = searchClient as unknown as ComponentProps<
   typeof InstantSearch
 >["searchClient"];
@@ -112,7 +113,11 @@ export default function App() {
         <section className="content">
           <aside className="filters" aria-label="Filters">
             <h2>Category</h2>
-            <RefinementList attribute="category" searchable={false} />
+            <RefinementList attribute="category" operator="or" searchable={false} />
+            <section className="price-range" aria-label="Price range">
+              <h2>Price range</h2>
+              <RangeInput attribute="price_cents" />
+            </section>
           </aside>
           <section className="results" aria-label="Search results">
             <Hits hitComponent={ProductCard} />

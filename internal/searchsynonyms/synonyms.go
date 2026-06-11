@@ -1,4 +1,4 @@
-// Package searchsynonyms Stub summary for /Users/stuart/parallel_development/allyourbase_dev/jun05_pm_2_algolia_importer_cli/allyourbase_dev/internal/searchsynonyms/synonyms.go.
+// Package searchsynonyms.
 package searchsynonyms
 
 import (

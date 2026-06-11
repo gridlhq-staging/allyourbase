@@ -9,4 +9,5 @@ export const searchClient = createInstantSearchClient({
   client: ayb,
   objectIDField: "slug",
   highlight: true,
+  disjunctiveFacets: ["category"],
 });

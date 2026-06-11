@@ -241,7 +241,7 @@ func validateBinaryInstall(binDir, version string) error {
 	if err != nil {
 		return err
 	}
-	if binaryVersion != version && !strings.HasPrefix(binaryVersion, version+".") {
+	if binaryVersion != version && !strings.HasPrefix(binaryVersion, version+".") && !strings.HasPrefix(binaryVersion, version+"-") {
 		return fmt.Errorf("postgres binary version mismatch: got %s, want %s", binaryVersion, version)
 	}
 
@@ -330,5 +330,5 @@ func postgresBinaryMatchesVersion(pgBin, version string) bool {
 	if err != nil {
 		return false
 	}
-	return ver == version || strings.HasPrefix(ver, version+".")
+	return ver == version || strings.HasPrefix(ver, version+".") || strings.HasPrefix(ver, version+"-")
 }

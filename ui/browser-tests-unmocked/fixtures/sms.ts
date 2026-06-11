@@ -1,5 +1,5 @@
 /**
- * @module Stub summary for /Users/stuart/parallel_development/allyourbase_dev/MAR18_WS_C_phase5_features_and_phase6/allyourbase_dev/ui/browser-tests-unmocked/fixtures/sms.ts.
+ * @module ui/browser-tests-unmocked/fixtures/sms.ts
  */
 import type { APIRequestContext, TestInfo } from "@playwright/test";
 import { execSQL, sqlLiteral } from "./core";

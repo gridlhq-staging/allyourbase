@@ -1,5 +1,5 @@
 /**
- * @module Stub summary for /Users/stuart/parallel_development/allyourbase_dev/MAR18_WS_C_phase5_features_and_phase6/allyourbase_dev/ui/browser-tests-unmocked/fixtures/auth.ts.
+ * @module ui/browser-tests-unmocked/fixtures/auth.ts
  */
 import type { APIRequestContext, CDPSession, Page } from "@playwright/test";
 import { createHmac } from "crypto";

@@ -73,6 +73,41 @@ input {
   font-size: 0.95rem;
 }
 
+.price-range {
+  margin-top: 24px;
+}
+
+.price-range h2 {
+  margin: 0 0 12px;
+  font-size: 0.95rem;
+}
+
+.price-range-form {
+  display: grid;
+  gap: 10px;
+}
+
+.price-range-field {
+  display: grid;
+  gap: 6px;
+  color: #263241;
+  font-size: 0.9rem;
+}
+
+.price-range-field input,
+.price-range-form button {
+  min-height: 40px;
+  border: 1px solid #c7ced8;
+  border-radius: 6px;
+  padding: 0 12px;
+  background: #fff;
+  color: #17202a;
+}
+
+.price-range-form button {
+  font-weight: 600;
+}
+
 .ais-RefinementList-list,
 .ais-Hits-list,
 .ais-Pagination-list {

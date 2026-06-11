@@ -316,6 +316,14 @@ assert_install_script_match "Getting-started instructions in success output" "No
 # Test: PATH reminder when binary not in PATH
 assert_install_script_match "PATH reminder for new installs" "No PATH reminder" 'Restart your terminal'
 
+# Test: Get-started hint switches to the full binary path when PATH is not active yet
+assert_install_script_match "Get-started hint checks for ayb on PATH" "Get-started hint does not check command availability" 'command -v "$BINARY_NAME"'
+assert_install_script_match "Get-started hint checks install dir in PATH" "Get-started hint does not check INSTALL_DIR in PATH" ':\${INSTALL_DIR}:'
+assert_install_script_match "Get-started hint includes full binary path for off-PATH installs" "Get-started hint does not include full binary path fallback" '\${INSTALL_DIR}/\${BINARY_NAME} start'
+assert_install_script_match "Get-started hint includes full binary database-url fallback" "Get-started hint does not include full binary database-url fallback" '\${INSTALL_DIR}/\${BINARY_NAME} start --database-url URL'
+assert_install_script_match "Get-started hint keeps bare ayb start when on PATH" "Get-started hint no longer includes bare ayb start branch" 'start_command="ayb start"'
+assert_install_script_match "Get-started hint keeps bare database-url command when on PATH" "Get-started hint no longer includes bare database-url branch" 'database_command="ayb start --database-url URL"'
+
 # Test: Archive name uses goreleaser format
 assert_install_script_match "Archive name matches goreleaser format (ayb_{ver}_{os}_{arch}.tar.gz)" "Archive name doesn't match goreleaser format" 'ayb_.*_.*_.*\.tar\.gz'
 

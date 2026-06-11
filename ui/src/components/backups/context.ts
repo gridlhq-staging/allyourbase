@@ -1,5 +1,5 @@
 /**
- * @module Stub summary for /Users/stuart/parallel_development/allyourbase_dev/MAR18_WS_C_phase5_features_and_phase6/allyourbase_dev/ui/src/components/backups/context.ts.
+ * @module ui/src/components/backups/context.ts
  */
 export interface BackupContextSource {
   project_id?: string;

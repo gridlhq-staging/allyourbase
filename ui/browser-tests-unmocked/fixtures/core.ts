@@ -1,5 +1,5 @@
 /**
- * @module Stub summary for /Users/stuart/parallel_development/allyourbase_dev/mar24_pm_6_test_verification_and_lint/allyourbase_dev/ui/browser-tests-unmocked/fixtures/core.ts.
+ * @module ui/browser-tests-unmocked/fixtures/core.ts
  */
 import { expect, type APIRequestContext, type Page } from "@playwright/test";
 

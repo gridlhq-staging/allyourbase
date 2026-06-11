@@ -1,5 +1,5 @@
 /**
- * @module Stub summary for /Users/stuart/parallel_development/allyourbase_dev/MAR18_WS_C_phase5_features_and_phase6/allyourbase_dev/ui/src/components/tenants-hooks.ts.
+ * @module ui/src/components/tenants-hooks.ts
  */
 import { useCallback, useEffect, useRef, useState } from "react";
 import {

@@ -6,7 +6,7 @@
 #   sh /tmp/ayb-install.sh
 #
 #   curl -fsSLo /tmp/ayb-install.sh https://staging.allyourbase.io/install.sh      # pinned version
-#   sh /tmp/ayb-install.sh v0.0.10-beta
+#   sh /tmp/ayb-install.sh v0.0.9-beta
 #
 # Environment variables:
 #   AYB_INSTALL    - Install directory (default: ~/.ayb)
@@ -271,7 +271,7 @@ download_and_verify() {
   archive_name="ayb_${version_num}_${os}_${arch}.tar.gz"
 
   tmpdir=$(mktemp -d)
-  trap "rm -rf '$tmpdir'" EXIT
+  trap 'rm -rf "$tmpdir"' EXIT
 
   info "Downloading ${archive_name}..."
   download_release_asset "$archive_name" "${tmpdir}/${archive_name}"
@@ -299,7 +299,7 @@ download_and_verify() {
   fi
 
   if [ "$actual" = "$expected" ]; then
-    printf "  ${GREEN}Checksum verified${NC}\n"
+    printf '  %sChecksum verified%s\n' "$GREEN" "$NC"
   else
     error "Checksum verification FAILED! The download may be corrupted."
     error "  expected: $expected"
@@ -395,8 +395,8 @@ main() {
   validate_config
 
   printf "\n"
-  printf "  ${BOLD}Allyourbase Installer${NC}\n"
-  printf "  ${BLUE}https://github.com/${REPO}${NC}\n"
+  printf '  %sAllyourbase Installer%s\n' "$BOLD" "$NC"
+  printf '  %shttps://github.com/%s%s\n' "$BLUE" "$REPO" "$NC"
   printf "\n"
 
   detect_platform
@@ -407,13 +407,28 @@ main() {
   setup_path
 
   printf "\n"
-  printf "  ${GREEN}${BOLD}ayb ${version} installed successfully!${NC}\n"
+  printf '  %s%sayb %s installed successfully!%s\n' "$GREEN" "$BOLD" "$version" "$NC"
   printf "\n"
-  printf "  Binary:  ${INSTALL_DIR}/${BINARY_NAME}\n"
+  printf '  Binary:  %s/%s\n' "$INSTALL_DIR" "$BINARY_NAME"
   printf "\n"
   printf "  Get started:\n"
-  printf "    ${BOLD}ayb start${NC}                     # managed Postgres, zero config\n"
-  printf "    ${BOLD}ayb start --database-url URL${NC}  # external Postgres\n"
+  start_command="ayb start"
+  database_command="ayb start --database-url URL"
+  if command -v "$BINARY_NAME" > /dev/null 2>&1; then
+    :
+  else
+    case ":${PATH}:" in
+      *":${INSTALL_DIR}:"*)
+        :
+        ;;
+      *)
+        start_command="${INSTALL_DIR}/${BINARY_NAME} start"
+        database_command="${INSTALL_DIR}/${BINARY_NAME} start --database-url URL"
+        ;;
+    esac
+  fi
+  printf '    %s%s%s                     # managed Postgres, zero config\n' "$BOLD" "$start_command" "$NC"
+  printf '    %s%s%s  # external Postgres\n' "$BOLD" "$database_command" "$NC"
 
   # Check if we need to remind about PATH
   if ! command -v "$BINARY_NAME" > /dev/null 2>&1; then
@@ -422,7 +437,7 @@ main() {
         ;;
       *)
         printf "\n"
-        printf "  ${YELLOW}Restart your terminal to update your PATH.${NC}\n"
+        printf '  %sRestart your terminal to update your PATH.%s\n' "$YELLOW" "$NC"
         ;;
     esac
   fi

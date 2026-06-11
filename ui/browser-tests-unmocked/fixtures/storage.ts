@@ -1,5 +1,5 @@
 /**
- * @module Stub summary for /Users/stuart/parallel_development/allyourbase_dev/mar22_01_dashboard_journey_e2e_tests/allyourbase_dev/ui/browser-tests-unmocked/fixtures/storage.ts.
+ * @module ui/browser-tests-unmocked/fixtures/storage.ts
  */
 import type { APIRequestContext } from "@playwright/test";
 import { validateResponse } from "./core";

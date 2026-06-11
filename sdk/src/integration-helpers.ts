@@ -1,5 +1,5 @@
 /**
- * @module Stub summary for /Users/stuart/parallel_development/allyourbase_dev/jun04_pm_5_dashboard_synonyms_editor/allyourbase_dev/sdk/src/integration-helpers.ts.
+ * @module sdk/src/integration-helpers.ts
  */
 /**
  * Shared helpers, types, and constants for SDK integration tests.

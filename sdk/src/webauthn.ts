@@ -1,5 +1,5 @@
 /**
- * @module Stub summary for /Users/stuart/parallel_development/allyourbase_dev/jun01_pm_5_js_sdk_search_passkey/allyourbase_dev/sdk/src/webauthn.ts.
+ * @module sdk/src/webauthn.ts
  */
 import type {
   PublicKeyCredentialCreationOptionsJSON,

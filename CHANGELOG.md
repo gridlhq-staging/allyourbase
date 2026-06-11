@@ -6,6 +6,23 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added
+
+- Search relevance weighting: opt-in per-collection searchable-attributes config (`GET/PUT /api/collections/{table}/search-settings`) drives weighted `to_tsvector` ranking (`ts_rank_cd`), so a title match can outrank a body match; equal-weight behavior is unchanged when unconfigured. Custom-ranking secondary sort after relevance is supported.
+- Disjunctive (OR) faceting: new `disjunctiveFacets` list parameter computes each listed facet's counts with its own equality predicate removed (multi-select RefinementList no longer collapses), plus per-numeric-facet `min`/`max` stats for range UIs.
+- InstantSearch adapter depth: `@allyourbase/js/instantsearch` now wires OR-facets through `disjunctiveFacets` and translates numeric range refinements into `>=`/`<=` filters; the `examples/instantsearch_demo` app exercises multi-select facets + a range filter under browser-unmocked coverage.
+- SDK install truthfulness: added READMEs for the Go, Python, Swift, and Kotlin SDKs and install sections for the React/SSR SDKs, each documenting the working from-source install.
+- Public-exposure safety: the startup banner now warns when the server binds a non-loopback interface (e.g. `0.0.0.0`) with auth disabled — the open-database footgun. Auth remains open-by-default for local dev; this is a warning only.
+
+### Changed
+
+- `ayb demo` auto-recovers when it detects an AYB-owned auth-disabled server on its target port (the README quickstart sequence now works end-to-end). `ayb init` scaffolds the current `@allyourbase/js` major.
+
+### Fixed
+
+- Removed leaked absolute developer worktree paths from shipped source headers; fixed the docs-site GitHub links (`gridlhq` → `griddlehq`) and the default `ayb.toml` documentation URL; corrected the Dart SDK README's unresolvable pub.dev install claim; refreshed the two stale search screen specs.
+- Eliminated a duplicated `Error:` prefix on the port-in-use CLI path.
+
 ## [0.0.10-beta] - 2026-06-09
 
 ### Added

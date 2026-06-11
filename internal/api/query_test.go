@@ -453,10 +453,12 @@ func TestBuildListAndFacetQueriesSharePredicateArgs(t *testing.T) {
 		facetCols:   []string{"status"},
 	}
 	_, _, countQ, countArgs := buildList(tbl, opts)
-	facetQueries, facetArgs := buildFacetCountQueries(tbl, opts)
+	facetQueries := buildFacetCountQueries(tbl, opts)
+	facetQuery := facetQueries["status"]
+	facetArgs := facetQuery.args
 
 	testutil.Contains(t, countQ, `"status" = $1`)
-	testutil.Contains(t, facetQueries["status"], `"status" = $1`)
+	testutil.Contains(t, facetQuery.sql, `"status" = $1`)
 	testutil.SliceLen(t, countArgs, 6)
 	testutil.SliceLen(t, facetArgs, 6)
 	testutil.Equal(t, countArgs[0], facetArgs[0])
@@ -490,6 +492,61 @@ func TestBuildListWithSort(t *testing.T) {
 
 	dataQ, _, _, _ := buildList(tbl, opts)
 	testutil.Contains(t, dataQ, `ORDER BY "name" ASC, "age" DESC`)
+}
+
+func TestBuildListSearchSortRanksBeforeCustomSort(t *testing.T) {
+	t.Parallel()
+	tbl := testTable()
+	tbl.Columns = append(tbl.Columns, &schema.Column{Name: "popularity", Position: 5, TypeName: "integer"})
+	searchRank := `ts_rank(to_tsvector('simple', coalesce("name", '')), websearch_to_tsquery('simple', $1))`
+
+	tests := []struct {
+		name      string
+		sortParam string
+		wantOrder string
+	}{
+		{
+			name:      "descending custom sort",
+			sortParam: "-popularity",
+			wantOrder: `ORDER BY ts_rank(to_tsvector('simple', coalesce("name", '')), websearch_to_tsquery('simple', $1)) DESC, "popularity" DESC, "id" ASC`,
+		},
+		{
+			name:      "ascending custom sort",
+			sortParam: "popularity",
+			wantOrder: `ORDER BY ts_rank(to_tsvector('simple', coalesce("name", '')), websearch_to_tsquery('simple', $1)) DESC, "popularity" ASC, "id" ASC`,
+		},
+		{
+			name:      "multi-column custom sort",
+			sortParam: "-name,popularity",
+			wantOrder: `ORDER BY ts_rank(to_tsvector('simple', coalesce("name", '')), websearch_to_tsquery('simple', $1)) DESC, "name" DESC, "popularity" ASC, "id" ASC`,
+		},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			parsedSort, err := parseStructuredSort(tbl, tt.sortParam, true)
+			testutil.NoError(t, err)
+
+			opts := listOpts{
+				page:       1,
+				perPage:    20,
+				searchSQL:  `to_tsvector('simple', coalesce("name", '')) @@ websearch_to_tsquery('simple', $1)`,
+				searchRank: searchRank,
+				searchArgs: []any{"needle"},
+				sort:       ensureStructuredSortPKTiebreaker(tbl, parsedSort),
+			}
+
+			dataQ, dataArgs, _, _ := buildList(tbl, opts)
+			testutil.Contains(t, dataQ, tt.wantOrder)
+			testutil.Contains(t, dataQ, "LIMIT $2 OFFSET $3")
+			testutil.SliceLen(t, dataArgs, 3)
+			testutil.Equal(t, "needle", dataArgs[0])
+			testutil.Equal(t, 20, dataArgs[1])
+			testutil.Equal(t, 0, dataArgs[2])
+		})
+	}
 }
 
 func TestOrderByBodySearchRankPrecedesTieBreaker(t *testing.T) {

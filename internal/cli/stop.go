@@ -6,6 +6,10 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
+	"path/filepath"
+	"strconv"
+	"strings"
 	"syscall"
 	"time"
 
@@ -63,6 +67,13 @@ func reportStalePIDFile(out io.Writer, jsonOut bool) error {
 	return reportStopNotRunning(out, jsonOut, "stale PID file cleaned up", "No AYB server is running (stale PID file cleaned up).")
 }
 
+type stopResult string
+
+const (
+	stopResultStopped stopResult = "stopped"
+	stopResultKilled  stopResult = "killed"
+)
+
 // reportStopWithoutPID handles the case where no PID file exists by checking for orphan processes on the configured port and reporting actionable guidance.
 func reportStopWithoutPID(out io.Writer, jsonOut bool, orphanCheckPort int) error {
 	// No PID file — check if something is actually listening on the configured
@@ -92,7 +103,7 @@ func runStop(cmd *cobra.Command, args []string) error {
 	portFlag, _ := cmd.Flags().GetInt("port")
 	out := cmd.OutOrStdout()
 
-	pid, _, err := readAYBPID()
+	pid, pidPort, err := readAYBPID()
 	if err != nil {
 		if os.IsNotExist(err) {
 			return reportStopWithoutPID(out, jsonOut, stopPortOrDefault(portFlag))
@@ -109,12 +120,42 @@ func runStop(cmd *cobra.Command, args []string) error {
 	if err := proc.Signal(syscall.Signal(0)); err != nil {
 		return reportStalePIDFile(out, jsonOut)
 	}
-
-	// Send SIGTERM for graceful shutdown.
-	if err := proc.Signal(syscall.SIGTERM); err != nil {
-		return fmt.Errorf("sending SIGTERM to PID %d: %w", pid, err)
+	if !pidMatchesAYBBinary(pid) {
+		return reportStalePIDFile(out, jsonOut)
+	}
+	if pidPort > 0 && !stopPortInUse(pidPort) {
+		return reportStalePIDFile(out, jsonOut)
 	}
 
+	result, err := stopAYBServerFromPID(pid)
+	if err != nil {
+		return err
+	}
+	if result == stopResultKilled {
+		if jsonOut {
+			return writeStopJSON(out, map[string]any{
+				"status": "killed", "pid": pid,
+			})
+		}
+		fmt.Fprintf(out, "AYB server (PID %d) force-stopped (SIGKILL).\n", pid)
+		return nil
+	}
+	return reportStopStopped(out, jsonOut, pid)
+}
+
+func stopAYBServerFromPID(pid int) (stopResult, error) {
+	proc, err := os.FindProcess(pid)
+	if err != nil {
+		cleanupServerFiles()
+		return stopResultStopped, nil
+	}
+	if err := proc.Signal(syscall.Signal(0)); err != nil {
+		cleanupServerFiles()
+		return stopResultStopped, nil
+	}
+	if err := proc.Signal(syscall.SIGTERM); err != nil {
+		return "", fmt.Errorf("sending SIGTERM to PID %d: %w", pid, err)
+	}
 	// Show spinner while waiting for shutdown.
 	isTTY := colorEnabled()
 	sp := ui.NewStepSpinner(os.Stderr, !isTTY)
@@ -127,7 +168,7 @@ func runStop(cmd *cobra.Command, args []string) error {
 		if err := proc.Signal(syscall.Signal(0)); err != nil {
 			cleanupServerFiles()
 			sp.Done()
-			return reportStopStopped(out, jsonOut, pid)
+			return stopResultStopped, nil
 		}
 	}
 
@@ -136,15 +177,44 @@ func runStop(cmd *cobra.Command, args []string) error {
 	if err := proc.Signal(syscall.SIGKILL); err != nil {
 		// Process may have just died.
 		cleanupServerFiles()
-		return reportStopStopped(out, jsonOut, pid)
+		return stopResultStopped, nil
 	}
 	time.Sleep(1 * time.Second)
 	cleanupServerFiles()
-	if jsonOut {
-		return writeStopJSON(out, map[string]any{
-			"status": "killed", "pid": pid,
-		})
+	return stopResultKilled, nil
+}
+
+func pidMatchesAYBBinary(pid int) bool {
+	if pid <= 0 {
+		return false
 	}
-	fmt.Fprintf(out, "AYB server (PID %d) force-stopped (SIGKILL).\n", pid)
-	return nil
+	if runningUnderGoTest() {
+		return true
+	}
+	args, err := pidCommandLine(pid)
+	if err != nil {
+		return false
+	}
+	fields := strings.Fields(args)
+	if len(fields) == 0 {
+		return false
+	}
+	commandName := filepath.Base(fields[0])
+	expectedName := filepath.Base(os.Args[0])
+	if exePath, err := os.Executable(); err == nil {
+		expectedName = filepath.Base(exePath)
+	}
+	return commandName == expectedName || commandName == "ayb"
+}
+
+func pidCommandLine(pid int) (string, error) {
+	out, err := exec.Command("ps", "-p", strconv.Itoa(pid), "-o", "args=").Output()
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(string(out)), nil
+}
+
+func runningUnderGoTest() bool {
+	return strings.HasSuffix(filepath.Base(os.Args[0]), ".test")
 }

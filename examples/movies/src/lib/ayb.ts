@@ -1,5 +1,5 @@
 /**
- * @module Stub summary for /Users/stuart/parallel_development/allyourbase_dev/jun04_pm_2_movies_instant_search_showcase/allyourbase_dev/examples/movies/src/lib/ayb.ts.
+ * @module examples/movies/src/lib/ayb.ts
  */
 import { AYBClient } from "@allyourbase/js";
 import type { ListResponse } from "@allyourbase/js";

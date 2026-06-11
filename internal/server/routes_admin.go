@@ -167,6 +167,11 @@ func (s *Server) registerAdminDataRoutes(r chi.Router) {
 			r.Get("/", s.handleSearchSynonymsGet)
 			r.With(middleware.AllowContentType("application/json")).Put("/", s.handleSearchSynonymsPut)
 		})
+		r.Route("/collections/{table}/search-settings", func(r chi.Router) {
+			r.Use(s.requireAdminToken)
+			r.Get("/", s.handleSearchSettingsGet)
+			r.With(middleware.AllowContentType("application/json")).Put("/", s.handleSearchSettingsPut)
+		})
 	} else {
 		s.logger.Warn("pool is nil, skipping admin SQL and RLS routes")
 	}

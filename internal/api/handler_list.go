@@ -1,4 +1,4 @@
-// Package api Stub summary for /Users/stuart/parallel_development/allyourbase_dev/jun01_pm_4_search_dashboard_playground/allyourbase_dev/internal/api/handler_list.go.
+// Package api.
 package api
 
 import (
@@ -135,10 +135,16 @@ func (h *Handler) parseListBaseOpts(w http.ResponseWriter, tbl *schema.Table, q 
 		writeError(w, http.StatusBadRequest, err.Error())
 		return listOpts{}, false
 	}
+	disjunctiveFacetCols, err := parseDisjunctiveFacetColumns(tbl, q.Get("disjunctiveFacets"))
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return listOpts{}, false
+	}
 	return listOpts{
 		table:                 tbl,
 		perPage:               perPage,
 		fields:                fields,
+		rawFilter:             fs.rawFilter,
 		filterSQL:             fs.filterSQL,
 		filterArgs:            fs.filterArgs,
 		spatialSQL:            fs.spatialSQL,
@@ -151,6 +157,7 @@ func (h *Handler) parseListBaseOpts(w http.ResponseWriter, tbl *schema.Table, q 
 		highlightResultSelect: search.highlightResultSelect,
 		highlightResultAlias:  search.highlightResultAlias,
 		facetCols:             facetCols,
+		disjunctiveFacetCols:  disjunctiveFacetCols,
 	}, true
 }
 
@@ -256,7 +263,7 @@ func (h *Handler) handleOffsetList(w http.ResponseWriter, r *http.Request, tbl *
 	}
 	h.expandListItems(r, querier, tbl, items)
 
-	facets, err := executeFacetQueries(r.Context(), querier, tbl, opts)
+	facets, facetStats, err := executeFacetQueries(r.Context(), querier, tbl, opts)
 	if err != nil {
 		done(err)
 		h.logger.Error("facet count error", "error", err, "table", tbl.Name)
@@ -275,6 +282,7 @@ func (h *Handler) handleOffsetList(w http.ResponseWriter, r *http.Request, tbl *
 		TotalPages: totalPages,
 		Items:      items,
 		Facets:     facets,
+		FacetStats: facetStats,
 	})
 }
 
@@ -419,7 +427,7 @@ func (h *Handler) handleCursorList(
 	}
 	h.expandListItems(r, querier, tbl, items)
 
-	facets, err := executeFacetQueries(r.Context(), querier, tbl, opts)
+	facets, facetStats, err := executeFacetQueries(r.Context(), querier, tbl, opts)
 	if err != nil {
 		done(err)
 		h.logger.Error("facet count error", "error", err, "table", tbl.Name)
@@ -446,5 +454,6 @@ func (h *Handler) handleCursorList(
 		NextCursor: nextCursor,
 		Items:      items,
 		Facets:     facets,
+		FacetStats: facetStats,
 	})
 }

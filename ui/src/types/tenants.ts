@@ -1,5 +1,5 @@
 /**
- * @module Stub summary for /Users/stuart/parallel_development/allyourbase_dev/MAR18_WS_C_phase5_features_and_phase6/allyourbase_dev/ui/src/types/tenants.ts.
+ * @module ui/src/types/tenants.ts
  */
 export const TENANT_STATE_VALUES = ["provisioning", "active", "suspended", "deleting", "deleted"] as const;
 export type TenantState = (typeof TENANT_STATE_VALUES)[number];

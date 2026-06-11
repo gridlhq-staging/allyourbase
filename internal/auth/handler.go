@@ -1,4 +1,4 @@
-// Package auth Stub summary for /Users/stuart/parallel_development/allyourbase_dev/jun01_pm_6_release_readiness_closeout/allyourbase_dev/internal/auth/handler.go.
+// Package auth.
 package auth
 
 import (

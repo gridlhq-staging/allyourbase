@@ -2,6 +2,7 @@
 package api
 
 import (
+	"encoding/json"
 	"errors"
 	"net/http"
 	"strings"
@@ -19,6 +20,7 @@ type ListResponse struct {
 	TotalPages int              `json:"totalPages"`
 	Items      []map[string]any `json:"items"`
 	Facets     FacetCounts      `json:"facets,omitempty"`
+	FacetStats FacetStats       `json:"facetStats,omitempty"`
 }
 
 // AggregateResponse is the envelope for aggregate query results.
@@ -32,6 +34,7 @@ type CursorListResponse struct {
 	NextCursor string           `json:"nextCursor,omitempty"`
 	Items      []map[string]any `json:"items"`
 	Facets     FacetCounts      `json:"facets,omitempty"`
+	FacetStats FacetStats       `json:"facetStats,omitempty"`
 }
 
 type FacetValueCount struct {
@@ -40,6 +43,13 @@ type FacetValueCount struct {
 }
 
 type FacetCounts map[string][]FacetValueCount
+
+type FacetMinMax struct {
+	Min json.Number `json:"min"`
+	Max json.Number `json:"max"`
+}
+
+type FacetStats map[string]FacetMinMax
 
 // ImportResponse is the envelope for bulk import results.
 type ImportResponse struct {

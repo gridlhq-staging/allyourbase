@@ -1,5 +1,5 @@
 /**
- * @module Stub summary for /Users/stuart/parallel_development/allyourbase_dev/MAR18_WS_C_phase5_features_and_phase6/allyourbase_dev/ui/src/api_audit.ts.
+ * @module ui/src/api_audit.ts
  */
 import { request } from "./api_client";
 import type { AuditLogListResponse } from "./types/audit";

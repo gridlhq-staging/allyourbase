@@ -4,10 +4,9 @@ set -euo pipefail
 # shellcheck source=tests/bash_assert_helpers.sh
 source "$(dirname "$0")/bash_assert_helpers.sh"
 
-ORIGINAL_HOME="$HOME"
-AYB_BIN="$ORIGINAL_HOME/.ayb/bin/ayb"
-AYB_BASE_URL="http://localhost:8090"
+AYB_BASE_URL="http://localhost:8101"
 AYB_HEALTH_URL="${AYB_BASE_URL}/health"
+AUTH_ME_URL="${AYB_BASE_URL}/api/auth/me"
 DEMO_URL="http://localhost:5175/"
 LOGIN_URL="${AYB_BASE_URL}/api/auth/login"
 DEMO_JWT_SECRET="quickstart-e2e-demo-jwt-secret-0123456789abcdef"
@@ -17,18 +16,11 @@ RETRY_SLEEP_SECONDS=1
 TMP_DIR="$(mktemp -d)"
 RUNTIME_HOME="$TMP_DIR/home"
 RUNTIME_WORKDIR="$TMP_DIR/workdir"
-START_PID=""
+AYB_BIN="$RUNTIME_HOME/.ayb/bin/ayb"
 DEMO_PID=""
 
 cleanup() {
-  HOME="$RUNTIME_HOME" "$AYB_BIN" stop >/dev/null 2>&1 || true
-
-  if [ -n "$START_PID" ]; then
-    if kill -0 "$START_PID" 2>/dev/null; then
-      kill "$START_PID" 2>/dev/null || true
-    fi
-    wait "$START_PID" 2>/dev/null || true
-  fi
+  HOME="$RUNTIME_HOME" AYB_SERVER_PORT=8101 "$AYB_BIN" stop >/dev/null 2>&1 || true
 
   if [ -n "$DEMO_PID" ]; then
     if kill -0 "$DEMO_PID" 2>/dev/null; then
@@ -86,20 +78,33 @@ wait_for_demo_http_200_with_body() {
   return 1
 }
 
-if [ ! -x "$AYB_BIN" ]; then
-  fail "missing AYB binary at $AYB_BIN. Install via README quickstart: curl -fsSLo /tmp/ayb-install.sh https://install.allyourbase.io/install.sh && sh /tmp/ayb-install.sh"
-fi
+assert_auth_me_disabled() {
+  local body_file="$1"
+  local http_code=""
 
-mkdir -p "$RUNTIME_HOME" "$RUNTIME_WORKDIR"
+  http_code="$(curl -sS -m 5 -o "$body_file" -w "%{http_code}" "$AUTH_ME_URL" || true)"
+  if [ "$http_code" != "404" ]; then
+    echo "expected auth-disabled /api/auth/me to return HTTP 404, got ${http_code:-<none>}" >&2
+    [ -f "$body_file" ] && cat "$body_file" >&2
+    fail "pre-demo auth-disabled check failed"
+  fi
+}
+
+mkdir -p "$(dirname "$AYB_BIN")" "$RUNTIME_WORKDIR"
+go build -o "$AYB_BIN" ./cmd/ayb
 export HOME="$RUNTIME_HOME"
 cd "$RUNTIME_WORKDIR"
 
-"$AYB_BIN" stop >/dev/null 2>&1 || true
+AYB_SERVER_PORT=8101 "$AYB_BIN" stop >/dev/null 2>&1 || true
 
-AYB_AUTH_ENABLED=true \
+AYB_SERVER_PORT=8101 \
+AYB_AUTH_ENABLED=false \
 AYB_AUTH_JWT_SECRET="$DEMO_JWT_SECRET" \
-"$AYB_BIN" start >"$TMP_DIR/ayb_start.stdout" 2>"$TMP_DIR/ayb_start.stderr" &
-START_PID="$!"
+"$AYB_BIN" start >"$TMP_DIR/ayb_start.stdout" 2>"$TMP_DIR/ayb_start.stderr" || {
+  cat "$TMP_DIR/ayb_start.stdout" >&2 || true
+  cat "$TMP_DIR/ayb_start.stderr" >&2 || true
+  fail "documented ayb start command failed"
+}
 
 wait_for_ready_health "$TMP_DIR/health.json" || {
   cat "$TMP_DIR/ayb_start.stdout" >&2 || true
@@ -108,7 +113,10 @@ wait_for_ready_health "$TMP_DIR/health.json" || {
 }
 
 assert_contains "$TMP_DIR/health.json" '"status":"ok"' "health response missing status ok"
+assert_auth_me_disabled "$TMP_DIR/auth_me_disabled.json"
 
+AYB_SERVER_PORT=8101 \
+AYB_AUTH_JWT_SECRET="$DEMO_JWT_SECRET" \
 "$AYB_BIN" demo live-polls >"$TMP_DIR/demo.stdout" 2>"$TMP_DIR/demo.stderr" &
 DEMO_PID="$!"
 
