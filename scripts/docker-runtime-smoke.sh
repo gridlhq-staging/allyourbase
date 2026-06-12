@@ -13,7 +13,11 @@ AYB_SMOKE_PASSWORD="${AYB_SMOKE_PASSWORD:-DockerSmokeUserPass123!}"
 # Keep all mutable runtime state outside the repo tree by default so smoke runs
 # never create Git noise under _dev/release/evidence or local data folders.
 RUNTIME_ROOT="${AYB_DOCKER_RUNTIME_ROOT:-$(mktemp -d /tmp/ayb-docker-smoke.XXXXXX)}"
-PGDATA_DIR="${AYB_DOCKER_PGDATA_DIR:-$RUNTIME_ROOT/pgdata}"
+AYB_STATE_ROOT="${AYB_DOCKER_STATE_ROOT:-$RUNTIME_ROOT/ayb_state}"
+MANAGED_PG_DATA_DIR="${AYB_DOCKER_PGDATA_DIR:-$AYB_STATE_ROOT/data}"
+MANAGED_PG_CACHE_DIR="${AYB_DOCKER_PGCACHE_DIR:-$AYB_STATE_ROOT/pg}"
+LOG_DIR="${AYB_DOCKER_LOG_DIR:-$AYB_STATE_ROOT/logs}"
+RUN_DIR="${AYB_DOCKER_RUN_DIR:-$AYB_STATE_ROOT/run}"
 STORAGE_DIR="${AYB_DOCKER_STORAGE_DIR:-$RUNTIME_ROOT/storage}"
 
 cleanup() {
@@ -21,8 +25,8 @@ cleanup() {
 }
 trap cleanup EXIT
 
-mkdir -p "$PGDATA_DIR" "$STORAGE_DIR"
-chmod 0777 "$PGDATA_DIR" "$STORAGE_DIR"
+mkdir -p "$MANAGED_PG_DATA_DIR" "$MANAGED_PG_CACHE_DIR" "$LOG_DIR" "$RUN_DIR" "$STORAGE_DIR"
+chmod 0777 "$MANAGED_PG_DATA_DIR" "$MANAGED_PG_CACHE_DIR" "$LOG_DIR" "$RUN_DIR" "$STORAGE_DIR"
 
 BASE_URL="http://127.0.0.1:${AYB_DOCKER_PORT}"
 
@@ -58,9 +62,11 @@ start_container() {
     -e "AYB_AUTH_ENABLED=true" \
     -e "AYB_AUTH_JWT_SECRET=${AYB_AUTH_JWT_SECRET}" \
     -e "AYB_STORAGE_ENABLED=true" \
-    -e "AYB_DATABASE_EMBEDDED_DATA_DIR=/ayb_pgdata" \
     -e "AYB_STORAGE_LOCAL_PATH=/ayb_storage" \
-    -v "${PGDATA_DIR}:/ayb_pgdata" \
+    -v "${MANAGED_PG_DATA_DIR}:/home/ayb/.ayb/data" \
+    -v "${MANAGED_PG_CACHE_DIR}:/home/ayb/.ayb/pg" \
+    -v "${LOG_DIR}:/home/ayb/.ayb/logs" \
+    -v "${RUN_DIR}:/home/ayb/.ayb/run" \
     -v "${STORAGE_DIR}:/ayb_storage" \
     "$AYB_DOCKER_IMAGE" >/dev/null
 }
