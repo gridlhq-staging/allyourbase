@@ -159,6 +159,17 @@ From `internal/server/middleware.go`:
   - `Referrer-Policy: strict-origin-when-cross-origin`
 - AYB does not currently set CSP, HSTS, or other browser hardening headers in this middleware path.
 
+### CORS in production
+
+`server.cors_allowed_origins` (env: `AYB_CORS_ORIGINS`) is wired into `corsMiddleware`
+in `internal/server/middleware.go`. The default `*` is fine for local development,
+but production deployments should pin the exact frontend origins (for example
+`https://app.example.com,https://admin.example.com`). When multiple origins are
+configured, `corsMiddleware` echoes back only the request's matched origin and
+adds `Vary: Origin` so caches key correctly. See
+[Configuration](/guide/configuration) for the full configuration and environment
+mapping.
+
 ## Secrets management endpoints
 
 Admin secrets endpoints:

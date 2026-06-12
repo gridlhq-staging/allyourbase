@@ -1,4 +1,4 @@
-// Package api Stub summary for /Users/stuart/parallel_development/allyourbase_dev/jun09_pm_4_search_relevance_weighting_and_custom_ranking/allyourbase_dev/internal/api/search.go.
+// Package api implements collection REST query parsing and execution.
 package api
 
 import (

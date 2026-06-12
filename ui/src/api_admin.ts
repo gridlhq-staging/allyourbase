@@ -168,6 +168,63 @@ export async function updateCollectionSearchSynonyms(
   });
 }
 
+// --- Collection Search Settings ---
+
+export type CollectionSearchWeight = "high" | "medium" | "low" | "lowest";
+
+export type CollectionSearchRankingOrder = "asc" | "desc";
+
+export interface CollectionSearchSettingsAttribute {
+  column: string;
+  weight: CollectionSearchWeight;
+}
+
+export interface CollectionSearchSettingsCustomRanking {
+  column: string;
+  order: CollectionSearchRankingOrder;
+}
+
+export interface CollectionSearchSettingsPayload {
+  attributes: CollectionSearchSettingsAttribute[];
+  customRanking: CollectionSearchSettingsCustomRanking[];
+}
+
+export type CollectionSearchSettingsResponse = CollectionSearchSettingsPayload;
+
+function normalizeCollectionSearchSettingsResponse(
+  response: Partial<CollectionSearchSettingsPayload>,
+): CollectionSearchSettingsResponse {
+  return {
+    attributes: Array.isArray(response.attributes) ? response.attributes : [],
+    customRanking: Array.isArray(response.customRanking) ? response.customRanking : [],
+  };
+}
+
+function collectionSearchSettingsPath(table: string): string {
+  return `/api/collections/${encodeURIComponent(table)}/search-settings`;
+}
+
+export async function getCollectionSearchSettings(
+  table: string,
+): Promise<CollectionSearchSettingsResponse> {
+  return normalizeCollectionSearchSettingsResponse(
+    await request<Partial<CollectionSearchSettingsPayload>>(collectionSearchSettingsPath(table)),
+  );
+}
+
+export async function updateCollectionSearchSettings(
+  table: string,
+  payload: CollectionSearchSettingsPayload,
+): Promise<CollectionSearchSettingsResponse> {
+  return normalizeCollectionSearchSettingsResponse(
+    await request<Partial<CollectionSearchSettingsPayload>>(collectionSearchSettingsPath(table), {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    }),
+  );
+}
+
 // --- OAuth Consent ---
 
 export interface OAuthConsentPrompt {

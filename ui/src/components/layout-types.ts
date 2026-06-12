@@ -5,7 +5,7 @@
  * String literal inventories used to derive the view unions and the runtime
  * admin-view guard from the same source of truth.
  */
-type DataView = "data" | "schema" | "sql" | "synonyms";
+type DataView = "data" | "schema" | "sql" | "synonyms" | "search-settings";
 
 const ADMIN_VIEWS = [
   "webhooks",

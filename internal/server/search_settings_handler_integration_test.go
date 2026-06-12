@@ -26,7 +26,8 @@ const searchSettingsAdminPassword = "search-settings-admin-pass"
 const searchSettingsJWTSecret = "search-settings-secret-that-is-at-least-32-chars"
 
 type searchSettingsResponse struct {
-	Attributes []searchSettingsAttribute `json:"attributes"`
+	Attributes    []searchSettingsAttribute     `json:"attributes"`
+	CustomRanking []searchSettingsCustomRanking `json:"customRanking,omitempty"`
 }
 
 type searchSettingsAttribute struct {
@@ -34,15 +35,26 @@ type searchSettingsAttribute struct {
 	Weight string `json:"weight"`
 }
 
+type searchSettingsCustomRanking struct {
+	Column string `json:"column"`
+	Order  string `json:"order"`
+}
+
 func TestSearchSettingsPutAndGetRoundTrip(t *testing.T) {
 	ctx := context.Background()
 	srv, _ := setupSearchSettingsServer(t, ctx, false)
 	adminToken := loginSearchSettingsAdmin(t, srv)
 
-	want := searchSettingsResponse{Attributes: []searchSettingsAttribute{
-		{Column: "title", Weight: "high"},
-		{Column: "body", Weight: "low"},
-	}}
+	want := searchSettingsResponse{
+		Attributes: []searchSettingsAttribute{
+			{Column: "title", Weight: "high"},
+			{Column: "body", Weight: "low"},
+		},
+		CustomRanking: []searchSettingsCustomRanking{
+			{Column: "published_at", Order: "desc"},
+			{Column: "priority", Order: "asc"},
+		},
+	}
 	w := doSearchSettingsJSON(t, srv, http.MethodPut, "/api/collections/posts/search-settings", want, adminToken)
 	testutil.StatusCode(t, http.StatusOK, w.Code)
 	assertSearchSettings(t, want, decodeSearchSettings(t, w))
@@ -78,6 +90,10 @@ func TestSearchSettingsValidationAndCollectionErrors(t *testing.T) {
 	}{
 		{name: "malformed_json", method: http.MethodPut, path: "/api/collections/posts/search-settings", rawBody: `{"attributes":`, status: http.StatusBadRequest, want: "invalid JSON body"},
 		{name: "unknown_weight", method: http.MethodPut, path: "/api/collections/posts/search-settings", body: searchSettingsResponse{Attributes: []searchSettingsAttribute{{Column: "title", Weight: "heavy"}}}, status: http.StatusBadRequest, want: "unknown search setting attribute weight: heavy"},
+		{name: "unknown_custom_ranking_order", method: http.MethodPut, path: "/api/collections/posts/search-settings", body: searchSettingsResponse{CustomRanking: []searchSettingsCustomRanking{{Column: "published_at", Order: "sideways"}}}, status: http.StatusBadRequest, want: "unknown search setting custom ranking order: sideways"},
+		{name: "duplicate_custom_ranking_column", method: http.MethodPut, path: "/api/collections/posts/search-settings", body: searchSettingsResponse{CustomRanking: []searchSettingsCustomRanking{{Column: "published_at", Order: "desc"}, {Column: "published_at", Order: "asc"}}}, status: http.StatusBadRequest, want: "duplicate search setting custom ranking column: published_at"},
+		{name: "non_rankable_custom_ranking_column", method: http.MethodPut, path: "/api/collections/posts/search-settings", body: searchSettingsResponse{CustomRanking: []searchSettingsCustomRanking{{Column: "metadata", Order: "desc"}}}, status: http.StatusBadRequest, want: "search setting custom ranking column \"metadata\" is not rankable on table \"posts\""},
+		{name: "missing_custom_ranking_column", method: http.MethodPut, path: "/api/collections/posts/search-settings", body: searchSettingsResponse{CustomRanking: []searchSettingsCustomRanking{{Column: "missing", Order: "desc"}}}, status: http.StatusBadRequest, want: "search setting custom ranking column \"missing\" was not found on table \"posts\""},
 		{name: "unknown_collection", method: http.MethodPut, path: "/api/collections/missing/search-settings", body: searchSettingsResponse{Attributes: []searchSettingsAttribute{{Column: "title", Weight: "high"}}}, status: http.StatusNotFound, want: "collection not found"},
 		{name: "sql_injection_table_name", method: http.MethodGet, path: "/api/collections/posts%3Bdrop%20table%20posts/search-settings", status: http.StatusNotFound, want: "collection not found"},
 	}
@@ -156,7 +172,10 @@ func resetSearchSettingsSchema(t *testing.T, ctx context.Context) {
 			title TEXT NOT NULL,
 			body TEXT,
 			author_id INTEGER REFERENCES authors(id),
-			status TEXT DEFAULT 'draft'
+			status TEXT DEFAULT 'draft',
+			published_at TIMESTAMPTZ,
+			priority INTEGER,
+			metadata JSONB
 		);
 	`)
 	testutil.NoError(t, err)

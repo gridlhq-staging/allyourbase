@@ -8,6 +8,7 @@ import {
 } from "../api_admin";
 import type { SchemaCache, Table } from "../types";
 import { cn } from "../lib/utils";
+import { collectionLabel, selectedHasUnsafeDuplicateName } from "./selected_collection_helpers";
 
 const MAX_TERM_LENGTH = 128;
 
@@ -30,10 +31,6 @@ interface ValidationResult {
   payload: CollectionSearchSynonymsResponse | null;
 }
 
-function collectionLabel(table: Table): string {
-  return table.schema === "public" ? table.name : `${table.schema}.${table.name}`;
-}
-
 function cloneGroups(groups: CollectionSearchSynonymGroup[]): CollectionSearchSynonymGroup[] {
   return groups.map((group) => ({ terms: [...group.terms] }));
 }
@@ -53,17 +50,6 @@ function groupsEqual(
 
 function extractErrorMessage(error: unknown, fallback: string): string {
   return error instanceof Error && error.message ? error.message : fallback;
-}
-
-function selectedHasUnsafeDuplicateName(selected: Table, schema: SchemaCache): boolean {
-  if (selected.schema === "public") {
-    return false;
-  }
-  return Object.values(schema.tables).some(
-    (table) =>
-      table.name === selected.name &&
-      (table.schema !== selected.schema || table.kind !== selected.kind),
-  );
 }
 
 function validateDraft(groups: CollectionSearchSynonymGroup[]): ValidationResult {

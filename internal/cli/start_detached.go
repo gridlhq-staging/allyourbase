@@ -417,15 +417,21 @@ func isFirstRun() bool {
 }
 
 // portInUse returns true if the given port is already bound on the local machine.
+// It probes both the IPv4 loopback and the wildcard interface because Go's
+// net.Listen("tcp", ":PORT") binds to IPv6 [::]:PORT on macOS without
+// IPV6_V6ONLY=0, which would succeed even when a server is already listening on
+// 127.0.0.1:PORT — the default AYB bind address.
 func portInUse(port int) bool {
 	if port <= 0 {
 		return false
 	}
-	ln, err := net.Listen("tcp", fmt.Sprintf(":%d", port))
-	if err != nil {
-		return true
+	for _, host := range []string{"127.0.0.1", ""} {
+		ln, err := net.Listen("tcp", fmt.Sprintf("%s:%d", host, port))
+		if err != nil {
+			return true
+		}
+		ln.Close()
 	}
-	ln.Close()
 	return false
 }
 

@@ -16,7 +16,7 @@ import "./App.css";
 
 const COLLECTION_NAME = "instantsearch_products";
 const HITS_PER_PAGE = 6;
-const FACETS = ["category", "price_cents"];
+const FACETS = ["category", "brand", "price_cents"];
 const instantSearchClient = searchClient as unknown as ComponentProps<
   typeof InstantSearch
 >["searchClient"];
@@ -31,6 +31,7 @@ interface ProductFields {
   title: string;
   description: string;
   category: string;
+  brand: string;
   price_cents: number;
   _highlightResult?: {
     title?: HighlightEntry;
@@ -114,8 +115,11 @@ export default function App() {
           <aside className="filters" aria-label="Filters">
             <h2>Category</h2>
             <RefinementList attribute="category" operator="or" searchable={false} />
+            <h2>Brand</h2>
+            <RefinementList attribute="brand" operator="or" searchable={false} />
             <section className="price-range" aria-label="Price range">
               <h2>Price range</h2>
+              {/* Stage 3 will evaluate deterministic RangeSlider driving under Playwright. */}
               <RangeInput attribute="price_cents" />
             </section>
           </aside>

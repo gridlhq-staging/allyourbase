@@ -172,16 +172,18 @@ func TestAnalysisReport_PrintReport(t *testing.T) {
 		t.Parallel()
 		var buf bytes.Buffer
 		report := &AnalysisReport{
-			SourceType:    "PocketBase",
-			SourceInfo:    "SQLite 7.2 MB",
-			Tables:        12,
-			Views:         2,
-			Records:       8432,
-			AuthUsers:     347,
-			RLSPolicies:   8,
-			Files:         1204,
-			FileSizeBytes: 89 * 1024 * 1024, // 89 MB
-			Warnings:      []string{"4 RLS policies use @collection references"},
+			SourceType:         "PocketBase",
+			SourceInfo:         "SQLite 7.2 MB",
+			Tables:             12,
+			Views:              2,
+			Records:            8432,
+			AuthUsers:          347,
+			RLSPolicies:        8,
+			Files:              1204,
+			FileSizeBytes:      89 * 1024 * 1024, // 89 MB
+			SettingsAttributes: 3,
+			SettingsRanking:    2,
+			Warnings:           []string{"4 RLS policies use @collection references"},
 		}
 
 		report.PrintReport(&buf)
@@ -196,6 +198,7 @@ func TestAnalysisReport_PrintReport(t *testing.T) {
 		testutil.Contains(t, output, "RLS policies: 8")
 		testutil.Contains(t, output, "Files:        1204")
 		testutil.Contains(t, output, "89.0 MB")
+		testutil.Contains(t, output, "Settings:     3 attributes, 2 ranking")
 		testutil.Contains(t, output, "Warnings:")
 		testutil.Contains(t, output, "@collection references")
 	})
@@ -223,6 +226,9 @@ func TestAnalysisReport_PrintReport(t *testing.T) {
 		}
 		if bytes.Contains(buf.Bytes(), []byte("Files:")) {
 			t.Error("should not show Files when 0")
+		}
+		if bytes.Contains(buf.Bytes(), []byte("Settings:")) {
+			t.Error("should not show Settings when 0")
 		}
 	})
 }

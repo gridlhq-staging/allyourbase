@@ -19,7 +19,6 @@ import {
   getCachedAdminToken,
   makeUniqueAuthEmail,
   primeIntegrationSuite,
-  putCollectionSearchSynonyms,
   sqlStringLiteral,
   toCount,
   trackAuthUser,
@@ -694,7 +693,8 @@ describe("SDK integration smoke + auth suite", () => {
         });
         expect(baseline.items.map((item) => item.title)).not.toContain("Foundation");
 
-        const update = await putCollectionSearchSynonyms(synonymsTableName, [
+        client.setApiKey(await getAdminToken());
+        const update = await client.searchSettings.setSynonyms(synonymsTableName, [
           { terms: ["scifi", "science fiction"] },
         ]);
         expect(update.groups).toEqual([{ terms: ["science fiction", "scifi"] }]);

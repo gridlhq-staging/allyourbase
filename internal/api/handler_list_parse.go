@@ -24,6 +24,7 @@ type searchParamResult struct {
 	searchSQL             string
 	searchRank            string
 	searchArgs            []any
+	customRankingSort     []SortField
 	highlightSelect       string
 	highlightAlias        string
 	highlightResultSelect string
@@ -226,11 +227,26 @@ func (h *Handler) parseSearchParam(w http.ResponseWriter, tbl *schema.Table, q u
 	res.searchSQL = search.whereSQL
 	res.searchRank = search.rankSQL
 	res.searchArgs = search.args
+	res.customRankingSort = customRankingSortFields(settings.CustomRanking)
 	res.highlightSelect = search.highlightSelect
 	res.highlightAlias = search.highlightAlias
 	res.highlightResultSelect = search.highlightResultSelect
 	res.highlightResultAlias = search.highlightResultAlias
 	return res, true
+}
+
+func customRankingSortFields(customRanking []searchsettings.CustomRanking) []SortField {
+	if len(customRanking) == 0 {
+		return nil
+	}
+	fields := make([]SortField, 0, len(customRanking))
+	for _, ranking := range customRanking {
+		fields = append(fields, SortField{
+			Column: ranking.Column,
+			Desc:   ranking.Order == searchsettings.RankingOrderDesc,
+		})
+	}
+	return fields
 }
 
 // parseFilterAndSearch validates and parses filter and search query parameters.

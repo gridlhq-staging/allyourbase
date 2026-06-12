@@ -361,6 +361,7 @@ type listOpts struct {
 	searchSQL             string // FTS WHERE clause
 	searchRank            string // FTS ts_rank() expression for ORDER BY
 	searchArgs            []any  // search term parameter
+	customRankingSort     []SortField
 	highlightSelect       string
 	highlightAlias        string
 	highlightResultSelect string

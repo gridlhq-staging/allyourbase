@@ -207,6 +207,7 @@ func (h *Handler) Routes() chi.Router {
 		r.Get("/export.csv", h.handleExportCSV)
 		r.Get("/export.json", h.handleExportJSON)
 		r.With(middleware.AllowContentType("application/json", "text/csv")).Post("/import", h.handleImport)
+		r.Get("/facets/{column}/search", h.handleFacetValueSearch)
 		r.Get("/{id}", h.handleRead)
 		r.With(middleware.AllowContentType("application/json")).Patch("/{id}", h.handleUpdate)
 		r.Delete("/{id}", h.handleDelete)

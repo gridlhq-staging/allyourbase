@@ -5,6 +5,7 @@ import (
 	"context"
 	"net/http"
 
+	"github.com/allyourbase/ayb/internal/searchsettings"
 	"github.com/allyourbase/ayb/internal/searchsynonyms"
 )
 
@@ -63,6 +64,7 @@ type ImportOptions struct {
 	TargetTable   string
 	DryRun        bool
 	BatchSize     int
+	Settings      *AlgoliaSettings
 	Synonyms      *SynonymInput
 	SynonymClient SynonymSearcher
 }
@@ -95,17 +97,36 @@ type ImportPlan struct {
 	Schema   Schema
 	Target   TargetPlan
 	DryRun   DryRunStats
+	Settings SettingsPlan
 	Synonyms SynonymPlan
+}
+
+// SettingsPlan is the pure AYB search-settings projection of Algolia settings.
+type SettingsPlan struct {
+	Settings searchsettings.Settings
+	Stats    SettingsStats
+}
+
+// SettingsStats reports supported attributes and advisory mapping skips.
+type SettingsStats struct {
+	SupportedAttributes    int               `json:"supportedAttributes,omitempty"`
+	SkippedAttributes      int               `json:"skippedAttributes,omitempty"`
+	SupportedCustomRanking int               `json:"supportedCustomRanking,omitempty"`
+	SkippedCustomRanking   int               `json:"skippedCustomRanking,omitempty"`
+	SkippedFacets          int               `json:"skippedFacets,omitempty"`
+	SkippedReasons         map[string]int    `json:"skippedReasons,omitempty"`
+	SkippedMessages        map[string]string `json:"skippedMessages,omitempty"`
 }
 
 // ImportStats is the machine-readable result of a record import.
 type ImportStats struct {
-	Tables   int          `json:"tables"`
-	Records  int          `json:"records"`
-	Skipped  int          `json:"skipped,omitempty"`
-	Errors   []string     `json:"errors,omitempty"`
-	DryRun   bool         `json:"dryRun,omitempty"`
-	Synonyms SynonymStats `json:"synonyms,omitempty,omitzero"`
+	Tables   int           `json:"tables"`
+	Records  int           `json:"records"`
+	Skipped  int           `json:"skipped,omitempty"`
+	Errors   []string      `json:"errors,omitempty"`
+	DryRun   bool          `json:"dryRun,omitempty"`
+	Settings SettingsStats `json:"settings,omitempty,omitzero"`
+	Synonyms SynonymStats  `json:"synonyms,omitempty,omitzero"`
 }
 
 // ParityResult compares source browse count and inserted target count.
@@ -119,6 +140,15 @@ type ParityResult struct {
 // SynonymSearcher is the optional Algolia settings-ACL client used by imports.
 type SynonymSearcher interface {
 	SearchSynonyms(ctx context.Context) (*SynonymInput, error)
+}
+
+// AlgoliaSettings captures the Algolia getSettings fields the importer reads.
+// The decoder accepts the legacy attributesToIndex alias for searchableAttributes
+// so AlgoliaSettings remains the single canonical source of truth.
+type AlgoliaSettings struct {
+	SearchableAttributes  []string `json:"searchableAttributes,omitempty"`
+	CustomRanking         []string `json:"customRanking,omitempty"`
+	AttributesForFaceting []string `json:"attributesForFaceting,omitempty"`
 }
 
 // AlgoliaSynonymHit is one decoded Algolia synonym search hit.

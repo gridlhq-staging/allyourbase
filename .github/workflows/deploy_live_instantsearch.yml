@@ -1,0 +1,53 @@
+name: Deploy Live InstantSearch
+
+on:
+  workflow_dispatch: {}
+  push:
+    branches: [main]
+    paths:
+      - "examples/instantsearch_demo/**"
+      - "sdk/**"
+      - ".github/workflows/deploy_live_instantsearch.yml"
+
+permissions:
+  contents: read
+  deployments: write
+
+jobs:
+  deploy-live-instantsearch:
+    runs-on: ubuntu-latest
+    steps:
+      # Do not leave the repo-scoped token available to later npm script hooks.
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6
+        with:
+          node-version: "22"
+
+      # InstantSearch links the in-repo JS SDK via a file: dependency.
+      # Build it first so dist exports exist on a clean runner.
+      - name: Install SDK dependencies
+        run: npm ci
+        working-directory: sdk
+
+      - name: Build SDK
+        run: npm run build
+        working-directory: sdk
+
+      - name: Install InstantSearch dependencies
+        run: npm ci
+        working-directory: examples/instantsearch_demo
+
+      - name: Build InstantSearch
+        run: VITE_AYB_URL=https://api.allyourbase.io npm run build
+        working-directory: examples/instantsearch_demo
+
+      - name: Deploy to Cloudflare Pages
+        uses: cloudflare/wrangler-action@9acf94ace14e7dc412b076f2c5c20b8ce93c79cd # v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          command: pages deploy dist --project-name=ayb-demo-instantsearch
+          workingDirectory: examples/instantsearch_demo

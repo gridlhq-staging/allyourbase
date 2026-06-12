@@ -12,6 +12,7 @@ const search = vi.fn(async (_requests) => {
             title: "Red Notebook",
             description: "Paper pages for research notes",
             category: "Stationery",
+            brand: "Apex",
             price_cents: 1299,
             _highlightResult: {
               title: {
@@ -30,6 +31,7 @@ const search = vi.fn(async (_requests) => {
             title: "Brass Desk Lamp",
             description: "Focused light for workspaces",
             category: "Lighting",
+            brand: "Beacon",
             price_cents: 4599,
             _highlightResult: {
               title: { value: "Brass Desk Lamp", matchLevel: "none" },
@@ -41,6 +43,10 @@ const search = vi.fn(async (_requests) => {
           category: {
             Stationery: 7,
             Lighting: 5,
+          },
+          brand: {
+            Apex: 6,
+            Beacon: 4,
           },
           price_cents: {
             799: 1,
@@ -86,7 +92,7 @@ describe("InstantSearch demo", () => {
     expect(search.mock.calls[0][0][0]).toMatchObject({
       indexName: "instantsearch_products",
       params: {
-        facets: expect.arrayContaining(["category", "price_cents"]),
+        facets: expect.arrayContaining(["category", "brand", "price_cents"]),
         highlightPostTag: "__/ais-highlight__",
         highlightPreTag: "__ais-highlight__",
         hitsPerPage: 6,
@@ -101,6 +107,11 @@ describe("InstantSearch demo", () => {
     expect(filters.getByText("7")).toBeInTheDocument();
     expect(filters.getByText("Lighting")).toBeInTheDocument();
     expect(filters.getByText("5")).toBeInTheDocument();
+    expect(filters.getByText("Brand")).toBeInTheDocument();
+    expect(filters.getByText("Apex")).toBeInTheDocument();
+    expect(filters.getByText("6")).toBeInTheDocument();
+    expect(filters.getByText("Beacon")).toBeInTheDocument();
+    expect(filters.getByText("4")).toBeInTheDocument();
     expect(filters.getByText("Price range")).toBeInTheDocument();
     const rangeInputs = within(screen.getByLabelText("Price range")).getAllByRole(
       "spinbutton",

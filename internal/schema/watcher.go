@@ -20,9 +20,19 @@ const (
 	listenTimeout  = 30 * time.Second
 )
 
-// Watcher listens for DDL change notifications and triggers schema cache reloads.
-// If event triggers cannot be installed (insufficient privileges), it falls back
-// to periodic polling.
+// ReloadNotifySQL returns the PostgreSQL NOTIFY statement consumed by Watcher.
+func ReloadNotifySQL() string {
+	return "NOTIFY " + notifyChannel + ", 'reload'"
+}
+
+// ReloadNotifyChannel returns the PostgreSQL channel consumed by Watcher.
+func ReloadNotifyChannel() string {
+	return notifyChannel
+}
+
+// Watcher listens for schema change notifications and triggers schema cache
+// reloads. If event triggers cannot be installed, it still listens for explicit
+// reload notifications and also falls back to periodic polling.
 type Watcher struct {
 	cache      *CacheHolder
 	pool       *pgxpool.Pool
@@ -58,24 +68,22 @@ func (w *Watcher) Start(ctx context.Context) error {
 		w.logger.Info("DDL event triggers installed, listening for schema changes")
 	}
 
-	// For LISTEN/NOTIFY mode, establish the listener BEFORE the initial cache load
-	// so we don't miss any notifications that fire right after Ready() is signaled.
+	// Establish the listener BEFORE the initial cache load so explicit reload
+	// notifications are not missed right after Ready() is signaled.
 	var listenerConn *pgx.Conn
-	if !w.pollMode {
-		conn, err := pgx.Connect(ctx, w.connString)
-		if err != nil {
-			w.logger.Warn("could not establish listener connection, falling back to polling",
-				"error", err)
+	conn, err := pgx.Connect(ctx, w.connString)
+	if err != nil {
+		w.logger.Warn("could not establish listener connection, falling back to polling",
+			"error", err)
+		w.pollMode = true
+	} else {
+		if _, err := conn.Exec(ctx, "LISTEN "+notifyChannel); err != nil {
+			conn.Close(ctx)
+			w.logger.Warn("LISTEN failed, falling back to polling", "error", err)
 			w.pollMode = true
 		} else {
-			if _, err := conn.Exec(ctx, "LISTEN "+notifyChannel); err != nil {
-				conn.Close(ctx)
-				w.logger.Warn("LISTEN failed, falling back to polling", "error", err)
-				w.pollMode = true
-			} else {
-				listenerConn = conn
-				w.logger.Debug("listening on channel", "channel", notifyChannel)
-			}
+			listenerConn = conn
+			w.logger.Debug("listening on channel", "channel", notifyChannel)
 		}
 	}
 
@@ -87,8 +95,14 @@ func (w *Watcher) Start(ctx context.Context) error {
 		return fmt.Errorf("initial schema load: %w", err)
 	}
 
-	// Start background listener/poller.
 	if w.pollMode {
+		if listenerConn != nil {
+			go func() {
+				if err := w.runListenerWithConn(ctx, listenerConn); err != nil && ctx.Err() == nil {
+					w.logger.Warn("schema listener stopped while polling", "error", err)
+				}
+			}()
+		}
 		return w.runPoller(ctx)
 	}
 	return w.runListenerWithConn(ctx, listenerConn)

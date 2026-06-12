@@ -1,4 +1,4 @@
-// Package api.
+// Package api implements collection listing, pagination, and search-aware sort handling.
 package api
 
 import (
@@ -108,7 +108,7 @@ func (h *Handler) handleList(w http.ResponseWriter, r *http.Request) {
 	// Cursor pagination path.
 	cursorParam, cursorMode := q.Get("cursor"), q.Has("cursor")
 	if cursorMode {
-		baseOpts.sort = ensureStructuredSortPKTiebreaker(tbl, parsedSort)
+		baseOpts = applyListSort(tbl, baseOpts, parsedSort, q.Has("sort"), true)
 		h.handleCursorList(w, r, tbl, cursorParam, baseOpts)
 		return
 	}
@@ -116,10 +116,28 @@ func (h *Handler) handleList(w http.ResponseWriter, r *http.Request) {
 	// Offset pagination path.
 	baseOpts.page = page
 	baseOpts.skipTotal = skipTotal
-	if len(parsedSort.Terms) > 0 {
-		baseOpts.sort = ensureStructuredSortPKTiebreaker(tbl, parsedSort)
-	}
+	baseOpts = applyListSort(tbl, baseOpts, parsedSort, q.Has("sort"), false)
 	h.handleOffsetList(w, r, tbl, baseOpts)
+}
+
+func applyListSort(tbl *schema.Table, opts listOpts, parsedSort StructuredSort, explicitSort bool, cursorMode bool) listOpts {
+	if len(parsedSort.Terms) > 0 {
+		opts.sort = ensureStructuredSortPKTiebreaker(tbl, parsedSort)
+		opts.sortFields = nil
+		return opts
+	}
+	if opts.searchRank != "" {
+		if explicitSort {
+			opts.sortFields = ensurePKTiebreaker(tbl, nil)
+		} else {
+			opts.sortFields = ensurePKTiebreaker(tbl, opts.customRankingSort)
+		}
+		return opts
+	}
+	if cursorMode {
+		opts.sort = ensureStructuredSortPKTiebreaker(tbl, parsedSort)
+	}
+	return opts
 }
 
 // parseListBaseOpts parses the non-vector list inputs (search, facets) and
@@ -152,6 +170,7 @@ func (h *Handler) parseListBaseOpts(w http.ResponseWriter, tbl *schema.Table, q 
 		searchSQL:             search.searchSQL,
 		searchRank:            search.searchRank,
 		searchArgs:            search.searchArgs,
+		customRankingSort:     search.customRankingSort,
 		highlightSelect:       search.highlightSelect,
 		highlightAlias:        search.highlightAlias,
 		highlightResultSelect: search.highlightResultSelect,
@@ -292,7 +311,11 @@ func resolveCursorListSort(opts listOpts) (listOpts, error) {
 		return opts, err
 	}
 
-	sortFields := prependSearchRankCursorSort(opts.searchRank, resolvedSort.Fields)
+	sortFields := resolvedSort.Fields
+	if len(sortFields) == 0 {
+		sortFields = opts.sortFields
+	}
+	sortFields = prependSearchRankCursorSort(opts.searchRank, sortFields)
 	cursorProjection := prepareCursorSortProjection(opts.table, opts.fields, sortFields)
 	opts.sortFields = cursorProjection.Fields
 	opts.cursorSelects = cursorProjection.Selects

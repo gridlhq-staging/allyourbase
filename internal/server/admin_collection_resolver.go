@@ -1,4 +1,4 @@
-// Package server Stub summary for /Users/stuart/parallel_development/allyourbase_dev/jun09_pm_4_search_relevance_weighting_and_custom_ranking/allyourbase_dev/internal/server/admin_collection_resolver.go.
+// Package server wires HTTP handlers for the AYB runtime.
 package server
 
 import (

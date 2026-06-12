@@ -3,12 +3,16 @@ CREATE TABLE IF NOT EXISTS instantsearch_products (
   title TEXT NOT NULL CHECK (length(title) > 0),
   description TEXT NOT NULL CHECK (length(description) > 0),
   category TEXT NOT NULL CHECK (length(category) > 0),
+  brand TEXT NOT NULL CHECK (length(brand) > 0),
   price_cents INTEGER NOT NULL CHECK (price_cents >= 0),
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
 CREATE INDEX IF NOT EXISTS idx_instantsearch_products_category
   ON instantsearch_products(category);
+
+CREATE INDEX IF NOT EXISTS idx_instantsearch_products_brand
+  ON instantsearch_products(brand);
 
 CREATE INDEX IF NOT EXISTS idx_instantsearch_products_search_doc
   ON instantsearch_products

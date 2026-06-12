@@ -284,6 +284,19 @@ func TestPortErrorAddressInUse(t *testing.T) {
 	testutil.Contains(t, suggestions[1], "ayb stop")
 }
 
+func TestPortInUseDetectsIPv4LoopbackBind(t *testing.T) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("seeding loopback listener: %v", err)
+	}
+	defer ln.Close()
+	port := ln.Addr().(*net.TCPAddr).Port
+
+	if !portInUse(port) {
+		t.Fatalf("portInUse(%d) returned false while a listener is bound to 127.0.0.1:%d", port, port)
+	}
+}
+
 func TestPortErrorSuggestsNextPort(t *testing.T) {
 	err := portError(3000, fmt.Errorf("address already in use"))
 	var suggested interface{ Suggestions() []string }

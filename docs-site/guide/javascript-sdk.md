@@ -98,6 +98,43 @@ const results = await ayb.records.batch<Post>("posts", [
 
 All operations succeed or fail together. Max 1000 operations per request.
 
+## Search settings
+
+`ayb.searchSettings` is the admin configuration sub-client for persisted
+collection search settings and collection synonym groups. Normal search
+consumption stays on `ayb.records.list(..., { search })`.
+
+```ts
+const settings = await ayb.searchSettings.getSearchSettings("posts");
+
+await ayb.searchSettings.setSearchSettings("posts", {
+  attributes: [
+    { column: "title", weight: "high" },
+    { column: "body", weight: "medium" },
+  ],
+  customRanking: [
+    { column: "published_at", order: "desc" },
+  ],
+});
+```
+
+`attributes` is required and uses `SearchableAttribute[]`. `customRanking` is
+optional and uses `CustomRankingTie[]`.
+
+```ts
+const synonyms = await ayb.searchSettings.getSynonyms("posts");
+
+await ayb.searchSettings.setSynonyms("posts", [
+  { terms: ["scifi", "science fiction"] },
+  { terms: ["nyc", "new york"] },
+]);
+```
+
+Synonym reads and writes use the `{ groups: [{ terms }] }` envelope through
+`SearchSynonymsResponse` and `SearchSynonymsRequest`. Other-language SDK parity
+for search settings and synonyms remains a documented follow-up; this lane ships
+the JavaScript SDK surface only.
+
 ## Auth
 
 ```ts
@@ -342,6 +379,13 @@ import type {
   // RPC
   RpcOptions,
   RpcNotifyOption,
+  // Search settings
+  SearchSettings,
+  SearchableAttribute,
+  CustomRankingTie,
+  SearchSynonymGroup,
+  SearchSynonymsRequest,
+  SearchSynonymsResponse,
   // Realtime
   RealtimeEvent,
   // Storage

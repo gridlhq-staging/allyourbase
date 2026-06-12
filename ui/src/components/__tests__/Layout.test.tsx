@@ -27,6 +27,12 @@ vi.mock("../SqlEditor", () => ({
   SqlEditor: () => <div data-testid="sql-editor" />,
 }));
 
+vi.mock("../SearchSettingsEditor", () => ({
+  SearchSettingsEditor: ({ selected }: { selected: { name: string } }) => (
+    <div data-testid="search-settings-view">{selected.name}</div>
+  ),
+}));
+
 vi.mock("../Webhooks", () => ({
   Webhooks: () => <div data-testid="webhooks-view" />,
 }));
@@ -226,6 +232,15 @@ describe("Layout", () => {
     expect(screen.getByTestId("sql-editor")).toBeInTheDocument();
   });
 
+  it("switches to Search Settings view", async () => {
+    renderWithTheme(
+      <Layout schema={twoTableSchema} onLogout={onLogout} onRefresh={onRefresh} />,
+    );
+    const user = userEvent.setup();
+    await user.click(screen.getByText("Search Settings"));
+    expect(screen.getByTestId("search-settings-view")).toHaveTextContent("posts");
+  });
+
   it("switching tables resets view to data", async () => {
     renderWithTheme(
       <Layout schema={twoTableSchema} onLogout={onLogout} onRefresh={onRefresh} />,
@@ -239,6 +254,19 @@ describe("Layout", () => {
     // Click another table — should go back to data.
     await user.click(screen.getByText("users"));
     expect(screen.getByTestId("table-browser")).toBeInTheDocument();
+  });
+
+  it("switching tables from Search Settings resets view to data", async () => {
+    renderWithTheme(
+      <Layout schema={twoTableSchema} onLogout={onLogout} onRefresh={onRefresh} />,
+    );
+    const user = userEvent.setup();
+
+    await user.click(screen.getByText("Search Settings"));
+    expect(screen.getByTestId("search-settings-view")).toHaveTextContent("posts");
+
+    await user.click(screen.getByText("users"));
+    expect(screen.getByTestId("table-browser")).toHaveTextContent("users");
   });
 
   it("calls onLogout when logout button clicked", async () => {

@@ -81,6 +81,34 @@ export interface GetParams {
   expand?: string;
 }
 
+/**
+ * Single bucket returned by the facet-value-search endpoint. The route only
+ * supports text facet columns, so `value` is always a non-null string.
+ * `highlighted` wraps the matched prefix in `<mark>...</mark>` on the server.
+ */
+export interface FacetValueSearchHit {
+  value: string;
+  highlighted: string;
+  count: number;
+}
+
+/** Response envelope for GET /api/collections/{table}/facets/{column}/search. */
+export interface FacetValueSearchResponse {
+  facetHits: FacetValueSearchHit[];
+  exhaustiveFacetsCount: boolean;
+}
+
+/**
+ * Parameters for `RecordsClient.searchFacetValues`. `filter` and `search` mirror
+ * the same-named fields on `ListParams` so callers can reuse list query strings.
+ */
+export interface FacetValueSearchParams {
+  q?: string;
+  maxFacetHits?: number;
+  filter?: string;
+  search?: string;
+}
+
 /** Auth tokens returned by login/register. */
 export interface AuthResponse {
   token: string;
@@ -426,3 +454,38 @@ export type AuthStateListener = (
   event: AuthStateEvent,
   session: AuthSession | null,
 ) => void;
+
+// Collection search settings
+
+/** Searchable text column and ranking weight used by collection search. */
+export interface SearchableAttribute {
+  column: string;
+  weight: "high" | "medium" | "low" | "lowest";
+}
+
+/** Deterministic tie-breaker ranking used after text relevance. */
+export interface CustomRankingTie {
+  column: string;
+  order: "asc" | "desc";
+}
+
+/** Collection search settings returned by the admin search-settings endpoint. */
+export interface SearchSettings {
+  attributes: SearchableAttribute[];
+  customRanking?: CustomRankingTie[];
+}
+
+/** A single equivalence group of terms expanded against each other at query time. */
+export interface SearchSynonymGroup {
+  terms: string[];
+}
+
+/** Request body for PUT /api/collections/{table}/synonyms/. */
+export interface SearchSynonymsRequest {
+  groups: SearchSynonymGroup[];
+}
+
+/** Response body for GET and PUT /api/collections/{table}/synonyms/. */
+export interface SearchSynonymsResponse {
+  groups: SearchSynonymGroup[];
+}

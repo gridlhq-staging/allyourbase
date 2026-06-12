@@ -8,6 +8,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- Dashboard collection Search Settings UI now edits weighted searchable attributes and custom-ranking order.
+- `ayb migrate algolia --include-settings` fetches Algolia index search settings and persists `searchableAttributes` as AYB search attribute weights and `customRanking` as persisted secondary sort through the existing `GET/PUT /api/collections/{table}/search-settings` owner; `attributesForFaceting` are reported as advisory-only skips.
+- Persisted `customRanking` on `GET/PUT /api/collections/{table}/search-settings` now provides the default tie-break after search relevance, while a request-level `?sort=` overrides that saved ranking chain for that one request.
+- JavaScript SDK `ayb.searchSettings` now exposes persisted collection search settings and synonym group management with typed `SearchSettings`, `SearchableAttribute`, `CustomRankingTie`, `SearchSynonymGroup`, `SearchSynonymsRequest`, and `SearchSynonymsResponse` exports.
+- Facet value search: new `GET /api/collections/{table}/facets/{column}/search` endpoint returns prefix-matched bucket values with backend `<mark>` highlighting, RLS-scoped counts, and `maxFacetHits`/`filter`/`search` scoping; JS SDK `records.searchFacetValues()` and the InstantSearch adapter's `searchForFacetValues(requests)` ship over this endpoint, unlocking `RefinementList` searchable facet widgets against AYB.
+
+### Changed
+
+### Fixed
+
+## [0.0.11-beta] - 2026-06-09
+
+### Added
+
 - Search relevance weighting: opt-in per-collection searchable-attributes config (`GET/PUT /api/collections/{table}/search-settings`) drives weighted `to_tsvector` ranking (`ts_rank_cd`), so a title match can outrank a body match; equal-weight behavior is unchanged when unconfigured. Custom-ranking secondary sort after relevance is supported.
 - Disjunctive (OR) faceting: new `disjunctiveFacets` list parameter computes each listed facet's counts with its own equality predicate removed (multi-select RefinementList no longer collapses), plus per-numeric-facet `min`/`max` stats for range UIs.
 - InstantSearch adapter depth: `@allyourbase/js/instantsearch` now wires OR-facets through `disjunctiveFacets` and translates numeric range refinements into `>=`/`<=` filters; the `examples/instantsearch_demo` app exercises multi-select facets + a range filter under browser-unmocked coverage.
@@ -22,6 +36,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 - Removed leaked absolute developer worktree paths from shipped source headers; fixed the docs-site GitHub links (`gridlhq` → `griddlehq`) and the default `ayb.toml` documentation URL; corrected the Dart SDK README's unresolvable pub.dev install claim; refreshed the two stale search screen specs.
 - Eliminated a duplicated `Error:` prefix on the port-in-use CLI path.
+- Path-leak hygiene: leaked worktree paths are now guarded out of shipped source-doc surfaces (Go doc-comment headers, generated `DIRMAP.md` rows) by the codehealth `TestNoLeakedWorktreePaths` guard, and a `make check-hygiene` / `make hygiene` flow wraps `scripts/strip-leaked-paths.sh` so contributors can re-strip leaks idempotently before pushing.
 
 ## [0.0.10-beta] - 2026-06-09
 

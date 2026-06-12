@@ -2,6 +2,7 @@ import type { SchemaCache, Table } from "../types";
 import { TableBrowser } from "./TableBrowser";
 import { SchemaView } from "./SchemaView";
 import { SqlEditor } from "./SqlEditor";
+import { SearchSettingsEditor } from "./SearchSettingsEditor";
 import { SynonymsEditor } from "./SynonymsEditor";
 import { Webhooks } from "./Webhooks";
 import { StorageBrowser } from "./StorageBrowser";
@@ -52,7 +53,7 @@ import { SupportTickets } from "./SupportTickets";
 import { Tenants } from "./Tenants";
 import { Organizations } from "./Organizations";
 import type { AdminView, View } from "./layout-types";
-import { Code, Columns3, Tags, Table as TableIcon, TableProperties } from "lucide-react";
+import { Code, Columns3, SlidersHorizontal, Tags, Table as TableIcon, TableProperties } from "lucide-react";
 import { cn } from "../lib/utils";
 
 const CONTENT_ROUTER_MAIN_CLASS = "flex-1 flex flex-col overflow-hidden bg-gray-50 dark:bg-gray-950";
@@ -217,6 +218,8 @@ function renderSelectedContent(
       return <SqlEditor onSchemaChange={onRefresh} />;
     case "synonyms":
       return <SynonymsEditor selected={selected} schema={schema} />;
+    case "search-settings":
+      return <SearchSettingsEditor selected={selected} schema={schema} />;
     case "data":
     default:
       return <TableBrowser table={selected} />;
@@ -277,6 +280,12 @@ export function ContentRouter({
               icon={Tags}
               label="Synonyms"
               onClick={() => onSetView("synonyms")}
+            />
+            <TableViewToggleButton
+              active={view === "search-settings"}
+              icon={SlidersHorizontal}
+              label="Search Settings"
+              onClick={() => onSetView("search-settings")}
             />
           </div>
         </header>

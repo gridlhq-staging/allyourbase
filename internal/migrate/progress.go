@@ -165,8 +165,10 @@ type AnalysisReport struct {
 	RLSPolicies   int      `json:"rlsPolicies"`
 	Files         int      `json:"files"`
 	FileSizeBytes int64    `json:"fileSizeBytes"`
-	SynonymGroups int      `json:"synonymGroups,omitempty"`
-	Warnings      []string `json:"warnings,omitempty"`
+	SynonymGroups      int      `json:"synonymGroups,omitempty"`
+	SettingsAttributes int      `json:"settingsAttributes,omitempty"`
+	SettingsRanking    int      `json:"settingsRanking,omitempty"`
+	Warnings           []string `json:"warnings,omitempty"`
 }
 
 // PrintReport writes a formatted pre-flight report to w.
@@ -195,6 +197,9 @@ func (r *AnalysisReport) PrintReport(w io.Writer) {
 	}
 	if r.Files > 0 {
 		fmt.Fprintf(w, "  Files:        %d (%s)\n", r.Files, FormatBytes(r.FileSizeBytes))
+	}
+	if r.SettingsAttributes > 0 || r.SettingsRanking > 0 {
+		fmt.Fprintf(w, "  Settings:     %d attributes, %d ranking\n", r.SettingsAttributes, r.SettingsRanking)
 	}
 	if r.SynonymGroups > 0 {
 		fmt.Fprintf(w, "  Synonyms:     %d groups\n", r.SynonymGroups)

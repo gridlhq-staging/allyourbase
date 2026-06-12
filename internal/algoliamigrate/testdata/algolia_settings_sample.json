@@ -1,0 +1,22 @@
+{
+  "searchableAttributes": [
+    "title",
+    "unordered(subtitle)",
+    "tags"
+  ],
+  "customRanking": [
+    "desc(inventory_count)",
+    "asc(price)"
+  ],
+  "attributesForFaceting": [
+    "tags",
+    "searchable(published)"
+  ],
+  "minWordSizefor1Typo": 4,
+  "hitsPerPage": 20,
+  "queryType": "prefixLast",
+  "highlightPreTag": "<em>",
+  "highlightPostTag": "</em>",
+  "unknownStage1Key": "ignored-by-decoder",
+  "advancedSyntax": false
+}

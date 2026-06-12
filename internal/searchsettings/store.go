@@ -1,13 +1,21 @@
-// Package searchsettings Stub summary for /Users/stuart/parallel_development/allyourbase_dev/jun09_pm_4_search_relevance_weighting_and_custom_ranking/allyourbase_dev/internal/searchsettings/store.go.
+// Package searchsettings stores and validates per-table search ranking settings.
 package searchsettings
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
+
+const saveSettingsSQL = `
+	INSERT INTO _ayb_search_settings (schema_name, table_name, settings)
+	VALUES ($1, $2, $3::jsonb)
+	ON CONFLICT (schema_name, table_name)
+	DO UPDATE SET settings = EXCLUDED.settings
+`
 
 type Store struct {
 	pool *pgxpool.Pool
@@ -39,20 +47,28 @@ func (s Store) Load(ctx context.Context, schemaName, tableName string) (Settings
 }
 
 func (s Store) Save(ctx context.Context, schemaName, tableName string, settings Settings) error {
+	payload, err := settingsPayload(settings)
+	if err != nil {
+		return err
+	}
+	_, err = s.pool.Exec(ctx, saveSettingsSQL, schemaName, tableName, payload)
+	return err
+}
+
+// SaveSQLTx saves one collection's search settings inside the caller's tx.
+func SaveSQLTx(ctx context.Context, tx *sql.Tx, schemaName, tableName string, settings Settings) error {
+	payload, err := settingsPayload(settings)
+	if err != nil {
+		return err
+	}
+	_, err = tx.ExecContext(ctx, saveSettingsSQL, schemaName, tableName, payload)
+	return err
+}
+
+func settingsPayload(settings Settings) ([]byte, error) {
 	normalized, err := Validate(settings)
 	if err != nil {
-		return err
+		return nil, err
 	}
-	payload, err := json.Marshal(normalized)
-	if err != nil {
-		return err
-	}
-
-	_, err = s.pool.Exec(ctx, `
-		INSERT INTO _ayb_search_settings (schema_name, table_name, settings)
-		VALUES ($1, $2, $3::jsonb)
-		ON CONFLICT (schema_name, table_name)
-		DO UPDATE SET settings = EXCLUDED.settings
-	`, schemaName, tableName, payload)
-	return err
+	return json.Marshal(normalized)
 }

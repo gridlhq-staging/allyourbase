@@ -1,7 +1,16 @@
-import type { SearchHit } from "./index";
+import type {
+  FacetValueSearchHit,
+  FacetValueSearchParams,
+  FacetValueSearchResponse,
+  SearchHit,
+} from "./index";
 import {
   createInstantSearchClient,
   type InstantSearchClient,
+  type InstantSearchFacetValueHit,
+  type InstantSearchFacetValueRequest,
+  type InstantSearchFacetValueResponse,
+  type InstantSearchFacetValueResult,
   type InstantSearchResponse,
   type InstantSearchSearchRequest,
 } from "./instantsearch";
@@ -53,3 +62,44 @@ const instantSearchResponse: Promise<InstantSearchResponse> = instantSearchClien
 ]);
 
 void instantSearchResponse;
+
+const facetValueParams: FacetValueSearchParams = {
+  q: "ac",
+  maxFacetHits: 5,
+  filter: "category='books'",
+  search: "guide",
+};
+
+const facetValueResponse: FacetValueSearchResponse = {
+  facetHits: [
+    { value: "Acme", highlighted: "<mark>Ac</mark>me", count: 12 },
+  ] satisfies FacetValueSearchHit[],
+  exhaustiveFacetsCount: true,
+};
+
+void facetValueParams;
+void facetValueResponse;
+
+const facetValueAdapterRequest: InstantSearchFacetValueRequest = {
+  indexName: "products",
+  params: {
+    facetName: "brand",
+    facetQuery: "ac",
+    maxFacetHits: 3,
+  },
+};
+
+const facetValueAdapterPromise: Promise<InstantSearchFacetValueResponse> =
+  instantSearchClient.searchForFacetValues([facetValueAdapterRequest]);
+
+void facetValueAdapterPromise;
+
+const facetValueAdapterResult: InstantSearchFacetValueResult = {
+  facetHits: [
+    { value: "Acme", highlighted: "__ais-highlight__Ac__/ais-highlight__me", count: 12 },
+  ] satisfies InstantSearchFacetValueHit[],
+  exhaustiveFacetsCount: true,
+  processingTimeMS: 0,
+};
+
+void facetValueAdapterResult;

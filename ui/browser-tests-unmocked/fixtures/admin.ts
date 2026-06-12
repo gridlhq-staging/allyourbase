@@ -3,6 +3,7 @@
  */
 import type { APIRequestContext } from "@playwright/test";
 import { randomUUID } from "crypto";
+import type { CollectionSearchSettingsPayload } from "../../src/api_admin";
 import { execSQL, sqlLiteral, validateResponse } from "./core";
 
 const TEST_PASSWORD_HASH = "$argon2id$v=19$m=65536,t=3,p=4$dGVzdHNhbHQ$dGVzdGhhc2g";
@@ -46,6 +47,31 @@ export async function replaceCollectionSearchSynonyms(
     throw new Error(`Expected synonym groups array for collection ${tableName}`);
   }
   return body as { groups: CollectionSearchSynonymGroup[] };
+}
+
+/**
+ * Seeds or replaces the full search-settings payload for a collection through
+ * the shipped admin contract instead of writing the backing table directly.
+ */
+export async function replaceCollectionSearchSettings(
+  request: APIRequestContext,
+  token: string,
+  tableName: string,
+  payload: CollectionSearchSettingsPayload,
+): Promise<CollectionSearchSettingsPayload> {
+  const res = await request.put(`/api/collections/${encodeURIComponent(tableName)}/search-settings`, {
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/json",
+    },
+    data: payload,
+  });
+  await validateResponse(res, `Replace search settings for ${tableName}`);
+  const body = await res.json();
+  if (!Array.isArray(body?.attributes) || !Array.isArray(body?.customRanking)) {
+    throw new Error(`Expected search settings arrays for collection ${tableName}`);
+  }
+  return body as CollectionSearchSettingsPayload;
 }
 
 export async function ensureUserByEmail(

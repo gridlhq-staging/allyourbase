@@ -77,15 +77,17 @@ func TestCLI_E2E_HarnessBearerTokenCanReadSchema(t *testing.T) {
 	}
 }
 
-// runCLIE2E invokes the compiled ayb binary with the given args, automatically
-// appending --url and --admin-token flags (which are subcommand-local flags
-// and must follow the subcommand name). Returns captured stdout, stderr, and
-// the process exit code. Stages 2-5 reuse this helper.
+// runCLIE2E invokes the compiled ayb binary with the given args. For
+// server-backed commands, it appends --url and --admin-token flags after the
+// subcommand args. Returns captured stdout, stderr, and the process exit code.
+// Stages 2-5 reuse this helper.
 func runCLIE2E(t *testing.T, args ...string) (stdout, stderr string, exitCode int) {
 	t.Helper()
 
-	// Append auth/url flags after the caller's subcommand args.
-	fullArgs := append(args, "--url", cliE2EHarnessBaseURL, "--admin-token", cliE2EHarnessBearerToken)
+	fullArgs := append([]string(nil), args...)
+	if cliE2ECommandUsesHarnessAuth(args) {
+		fullArgs = append(fullArgs, "--url", cliE2EHarnessBaseURL, "--admin-token", cliE2EHarnessBearerToken)
+	}
 
 	var outBuf, errBuf bytes.Buffer
 	cmd := exec.Command(cliE2EHarnessBinaryPath, fullArgs...)
@@ -105,4 +107,8 @@ func runCLIE2E(t *testing.T, args ...string) (stdout, stderr string, exitCode in
 		}
 	}
 	return stdout, stderr, exitCode
+}
+
+func cliE2ECommandUsesHarnessAuth(args []string) bool {
+	return len(args) < 2 || args[0] != "migrate" || args[1] != "algolia"
 }

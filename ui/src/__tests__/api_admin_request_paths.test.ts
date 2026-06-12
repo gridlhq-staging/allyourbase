@@ -2,8 +2,10 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   callRpc,
   executeApiExplorer,
+  getCollectionSearchSettings,
   getCollectionSearchSynonyms,
   getRealtimeInspectorSnapshot,
+  updateCollectionSearchSettings,
   updateCollectionSearchSynonyms,
 } from "../api";
 
@@ -178,6 +180,100 @@ describe("admin API request helpers", () => {
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(fetchMock).toHaveBeenCalledWith("/api/collections/posts/synonyms", {
+      method: "PUT",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: "Bearer admin-token",
+      },
+      body: JSON.stringify(payload),
+    });
+  });
+
+  it("gets collection search settings through the shared admin request path", async () => {
+    const response = {
+      attributes: [
+        { column: "title", weight: "high" },
+        { column: "summary", weight: "medium" },
+        { column: "description", weight: "low" },
+        { column: "notes", weight: "lowest" },
+      ],
+      customRanking: [
+        { column: "published_at", order: "desc" },
+        { column: "title", order: "asc" },
+      ],
+    };
+    fetchMock.mockResolvedValueOnce(
+      new Response(JSON.stringify(response), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      }),
+    );
+
+    await expect(getCollectionSearchSettings("posts")).resolves.toEqual(response);
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock).toHaveBeenCalledWith("/api/collections/posts/search-settings", {
+      headers: { Authorization: "Bearer admin-token" },
+    });
+  });
+
+  it("normalizes omitted custom ranking arrays from collection search settings responses", async () => {
+    fetchMock.mockResolvedValueOnce(
+      new Response(JSON.stringify({ attributes: [{ column: "title", weight: "high" }] }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      }),
+    );
+
+    await expect(getCollectionSearchSettings("posts")).resolves.toEqual({
+      attributes: [{ column: "title", weight: "high" }],
+      customRanking: [],
+    });
+  });
+
+  it("encodes unsafe unqualified table names for collection search settings", async () => {
+    const table = "draft posts/2026?x=1#frag";
+    fetchMock.mockResolvedValueOnce(
+      new Response(JSON.stringify({ attributes: [], customRanking: [] }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      }),
+    );
+
+    await getCollectionSearchSettings(table);
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      `/api/collections/${encodeURIComponent(table)}/search-settings`,
+      { headers: { Authorization: "Bearer admin-token" } },
+    );
+  });
+
+  it("updates collection search settings with the canonical settings payload", async () => {
+    const payload = {
+      attributes: [
+        { column: "title", weight: "high" },
+        { column: "summary", weight: "medium" },
+        { column: "description", weight: "low" },
+        { column: "notes", weight: "lowest" },
+      ],
+      customRanking: [
+        { column: "published_at", order: "desc" },
+        { column: "title", order: "asc" },
+      ],
+    };
+    fetchMock.mockResolvedValueOnce(
+      new Response(JSON.stringify(payload), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      }),
+    );
+
+    await expect(
+      updateCollectionSearchSettings("posts", payload),
+    ).resolves.toEqual(payload);
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock).toHaveBeenCalledWith("/api/collections/posts/search-settings", {
       method: "PUT",
       headers: {
         "Content-Type": "application/json",

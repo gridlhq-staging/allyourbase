@@ -1,4 +1,4 @@
-// Package server Stub summary for /Users/stuart/parallel_development/allyourbase_dev/jun09_pm_4_search_relevance_weighting_and_custom_ranking/allyourbase_dev/internal/server/search_settings_handler.go.
+// Package server provides admin handlers for persisted search settings.
 package server
 
 import (
@@ -9,7 +9,8 @@ import (
 )
 
 type searchSettingsRequest struct {
-	Attributes []searchSettingAttribute `json:"attributes"`
+	Attributes    []searchSettingAttribute     `json:"attributes"`
+	CustomRanking []searchSettingCustomRanking `json:"customRanking,omitempty"`
 }
 
 type searchSettingAttribute struct {
@@ -17,8 +18,14 @@ type searchSettingAttribute struct {
 	Weight string `json:"weight"`
 }
 
+type searchSettingCustomRanking struct {
+	Column string `json:"column"`
+	Order  string `json:"order"`
+}
+
 type searchSettingsResponse struct {
-	Attributes []searchSettingAttribute `json:"attributes"`
+	Attributes    []searchSettingAttribute     `json:"attributes"`
+	CustomRanking []searchSettingCustomRanking `json:"customRanking,omitempty"`
 }
 
 func (s *Server) handleSearchSettingsGet(w http.ResponseWriter, r *http.Request) {
@@ -81,7 +88,14 @@ func toSearchSettings(req searchSettingsRequest) searchsettings.Settings {
 			Weight: searchsettings.Weight(attr.Weight),
 		})
 	}
-	return searchsettings.Settings{Attributes: attrs}
+	rankings := make([]searchsettings.CustomRanking, 0, len(req.CustomRanking))
+	for _, ranking := range req.CustomRanking {
+		rankings = append(rankings, searchsettings.CustomRanking{
+			Column: ranking.Column,
+			Order:  searchsettings.RankingOrder(ranking.Order),
+		})
+	}
+	return searchsettings.Settings{Attributes: attrs, CustomRanking: rankings}
 }
 
 func fromSearchSettings(settings searchsettings.Settings) searchSettingsResponse {
@@ -92,5 +106,12 @@ func fromSearchSettings(settings searchsettings.Settings) searchSettingsResponse
 			Weight: string(attr.Weight),
 		})
 	}
-	return searchSettingsResponse{Attributes: attrs}
+	rankings := make([]searchSettingCustomRanking, 0, len(settings.CustomRanking))
+	for _, ranking := range settings.CustomRanking {
+		rankings = append(rankings, searchSettingCustomRanking{
+			Column: ranking.Column,
+			Order:  string(ranking.Order),
+		})
+	}
+	return searchSettingsResponse{Attributes: attrs, CustomRanking: rankings}
 }

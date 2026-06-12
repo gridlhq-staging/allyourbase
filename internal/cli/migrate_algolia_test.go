@@ -51,6 +51,7 @@ func newAlgoliaTestCommand(t *testing.T, values map[string]string) *cobra.Comman
 	cmd.Flags().String("database-url", "", "")
 	cmd.Flags().String("table", "", "")
 	cmd.Flags().Bool("include-synonyms", false, "")
+	cmd.Flags().Bool("include-settings", false, "")
 	cmd.Flags().Bool("dry-run", false, "")
 	cmd.Flags().Bool("yes", false, "")
 	cmd.Flags().Bool("json", false, "")
@@ -300,6 +301,129 @@ func TestRunMigrateAlgoliaJSONOutputsOnlyStats(t *testing.T) {
 	testutil.NoError(t, json.Unmarshal([]byte(stdout), &stats))
 	testutil.Equal(t, 1, stats.Tables)
 	testutil.Equal(t, 2, stats.Records)
+}
+
+func TestRunMigrateAlgoliaForwardsIncludeSettings(t *testing.T) {
+	oldFactory := newAlgoliaMigrator
+	t.Cleanup(func() { newAlgoliaMigrator = oldFactory })
+
+	var got algoliaMigrationOptions
+	newAlgoliaMigrator = func(opts algoliaMigrationOptions) (algoliaMigrator, error) {
+		got = opts
+		return fakeAlgoliaMigrator{}, nil
+	}
+
+	cmd := newAlgoliaTestCommand(t, map[string]string{
+		"app-id":           "APP123",
+		"api-key":          "key",
+		"index":            "products",
+		"database-url":     "postgres://target",
+		"table":            "search_products",
+		"include-settings": "true",
+		"yes":              "true",
+	})
+
+	_ = captureStderr(t, func() {
+		err := runMigrateAlgolia(cmd, nil)
+		testutil.NoError(t, err)
+	})
+
+	testutil.True(t, got.IncludeSettings, "expected include-settings to be forwarded")
+}
+
+func TestRunMigrateAlgoliaUsesAPIKeyFromEnvironment(t *testing.T) {
+	oldFactory := newAlgoliaMigrator
+	oldEnv := os.Getenv(algoliaAPIKeyEnv)
+	t.Cleanup(func() {
+		newAlgoliaMigrator = oldFactory
+		testutil.NoError(t, os.Setenv(algoliaAPIKeyEnv, oldEnv))
+	})
+
+	var got algoliaMigrationOptions
+	newAlgoliaMigrator = func(opts algoliaMigrationOptions) (algoliaMigrator, error) {
+		got = opts
+		return fakeAlgoliaMigrator{}, nil
+	}
+	testutil.NoError(t, os.Setenv(algoliaAPIKeyEnv, "env-secret"))
+
+	values := requiredAlgoliaFlagValues()
+	delete(values, "api-key")
+	values["yes"] = "true"
+	cmd := newAlgoliaTestCommand(t, values)
+
+	_ = captureStderr(t, func() {
+		err := runMigrateAlgolia(cmd, nil)
+		testutil.NoError(t, err)
+	})
+
+	testutil.Equal(t, "env-secret", got.APIKey)
+}
+
+func TestRunMigrateAlgoliaRejectsMissingAPIKeyWhenFlagAndEnvAbsent(t *testing.T) {
+	oldFactory := newAlgoliaMigrator
+	oldEnv := os.Getenv(algoliaAPIKeyEnv)
+	t.Cleanup(func() {
+		newAlgoliaMigrator = oldFactory
+		testutil.NoError(t, os.Setenv(algoliaAPIKeyEnv, oldEnv))
+	})
+
+	newAlgoliaMigrator = func(opts algoliaMigrationOptions) (algoliaMigrator, error) {
+		t.Fatal("migrator factory should not run without an API key")
+		return nil, nil
+	}
+	testutil.NoError(t, os.Unsetenv(algoliaAPIKeyEnv))
+
+	values := requiredAlgoliaFlagValues()
+	delete(values, "api-key")
+	cmd := newAlgoliaTestCommand(t, values)
+
+	err := runMigrateAlgolia(cmd, nil)
+	if err == nil {
+		t.Fatal("expected missing API key to fail")
+	}
+	testutil.Contains(t, err.Error(), "ALGOLIA_API_KEY")
+}
+
+func TestRunMigrateAlgoliaJSONOutputsSettingsStats(t *testing.T) {
+	oldFactory := newAlgoliaMigrator
+	t.Cleanup(func() { newAlgoliaMigrator = oldFactory })
+
+	newAlgoliaMigrator = func(opts algoliaMigrationOptions) (algoliaMigrator, error) {
+		return fakeAlgoliaMigrator{
+			analyzeFn: func(context.Context) (*migrate.AnalysisReport, error) {
+				return &migrate.AnalysisReport{SourceType: "Algolia", Tables: 1, Records: 2}, nil
+			},
+			migrateFn: func(context.Context) (*algoliamigrate.ImportStats, error) {
+				return &algoliamigrate.ImportStats{
+					Tables:  1,
+					Records: 2,
+					Settings: algoliamigrate.SettingsStats{
+						SupportedAttributes:    3,
+						SupportedCustomRanking: 2,
+						SkippedFacets:          1,
+					},
+				}, nil
+			},
+		}, nil
+	}
+
+	values := requiredAlgoliaFlagValues()
+	values["json"] = "true"
+	cmd := newAlgoliaTestCommand(t, values)
+	var stdout string
+	stderr := captureStderr(t, func() {
+		stdout = captureStdout(t, func() {
+			err := runMigrateAlgolia(cmd, nil)
+			testutil.NoError(t, err)
+		})
+	})
+
+	testutil.Equal(t, "", strings.TrimSpace(stderr))
+	var stats algoliamigrate.ImportStats
+	testutil.NoError(t, json.Unmarshal([]byte(stdout), &stats))
+	testutil.Equal(t, 3, stats.Settings.SupportedAttributes)
+	testutil.Equal(t, 2, stats.Settings.SupportedCustomRanking)
+	testutil.Equal(t, 1, stats.Settings.SkippedFacets)
 }
 
 func requiredAlgoliaFlagValues() map[string]string {

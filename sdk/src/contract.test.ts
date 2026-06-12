@@ -7,6 +7,9 @@ import { AYBClient as PublicAYBClient } from "./index";
 import { createInstantSearchClient } from "./instantsearch";
 import type {
   AuthResponse as PublicAuthResponse,
+  FacetValueSearchHit as PublicFacetValueSearchHit,
+  FacetValueSearchParams as PublicFacetValueSearchParams,
+  FacetValueSearchResponse as PublicFacetValueSearchResponse,
   ListResponse as PublicListResponse,
   SearchHit as PublicSearchHit,
   StorageObject as PublicStorageObject,
@@ -16,6 +19,9 @@ import type {
 import { mockFetchSequence } from "./test_utils/mockFetchSequence";
 import type {
   AuthResponse,
+  FacetValueSearchHit,
+  FacetValueSearchParams,
+  FacetValueSearchResponse,
   ListResponse,
   SearchHit,
   StorageObject,
@@ -24,6 +30,9 @@ import type {
 } from "./types";
 import type {
   InstantSearchClient,
+  InstantSearchFacetValueRequest,
+  InstantSearchFacetValueResponse,
+  InstantSearchFacetValueResult,
   InstantSearchResponse,
   InstantSearchSearchRequest,
 } from "./instantsearch";
@@ -53,6 +62,9 @@ describe("SDK contract fixtures", () => {
     const assertStorageType = (_value: StorageObject): void => {};
     const assertUserType = (_value: User): void => {};
     const assertWebAuthnBeginType = (_value: WebAuthnLoginBeginResponse): void => {};
+    const assertFacetHitType = (_value: FacetValueSearchHit): void => {};
+    const assertFacetParamsType = (_value: FacetValueSearchParams): void => {};
+    const assertFacetResponseType = (_value: FacetValueSearchResponse): void => {};
 
     assertAuthType({} as PublicAuthResponse);
     assertListType({} as PublicListResponse<Record<string, unknown>>);
@@ -60,6 +72,9 @@ describe("SDK contract fixtures", () => {
     assertStorageType({} as PublicStorageObject);
     assertUserType({} as PublicUser);
     assertWebAuthnBeginType({} as PublicWebAuthnLoginBeginResponse);
+    assertFacetHitType({} as PublicFacetValueSearchHit);
+    assertFacetParamsType({} as PublicFacetValueSearchParams);
+    assertFacetResponseType({} as PublicFacetValueSearchResponse);
   });
 
   it("InstantSearch subpath owner exposes the adapter factory and local types", () => {
@@ -84,11 +99,46 @@ describe("SDK contract fixtures", () => {
     const assertSearchClient = (_value: InstantSearchClient): void => {};
     const assertRequest = (_value: InstantSearchSearchRequest): void => {};
     const assertResponse = (_value: InstantSearchResponse): void => {};
+    const assertFacetRequest = (_value: InstantSearchFacetValueRequest): void => {};
+    const assertFacetResponse = (_value: InstantSearchFacetValueResponse): void => {};
+    const assertFacetResult = (_value: InstantSearchFacetValueResult): void => {};
 
     assertSearchClient(searchClient);
     assertRequest({ indexName: "posts", params: { query: "postgres" } });
     assertResponse({ results: [] });
+    assertFacetRequest({
+      indexName: "products",
+      params: { facetName: "brand", facetQuery: "ac" },
+    });
+    assertFacetResponse([]);
+    assertFacetResult({ facetHits: [], exhaustiveFacetsCount: true, processingTimeMS: 0 });
     expect(typeof searchClient.search).toBe("function");
+    expect(typeof searchClient.searchForFacetValues).toBe("function");
+  });
+
+  it("InstantSearch adapter accepts a records owner that ALSO exposes searchFacetValues", () => {
+    const client = {
+      records: {
+        list: async () => ({
+          items: [],
+          page: 1,
+          perPage: 20,
+          totalItems: 0,
+          totalPages: 0,
+        }),
+        searchFacetValues: async () => ({
+          facetHits: [],
+          exhaustiveFacetsCount: true,
+        }),
+      },
+    };
+
+    const searchClient = createInstantSearchClient({
+      client,
+      objectIDField: "id",
+      defaultIndexName: "products",
+    });
+
     expect(typeof searchClient.searchForFacetValues).toBe("function");
   });
 

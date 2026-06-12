@@ -557,6 +557,12 @@ func TestMigrateAlgoliaRequiresEachRequiredFlag(t *testing.T) {
 			if err == nil {
 				t.Fatalf("expected error for missing --%s", missing)
 			}
+			if missing == "api-key" {
+				if !strings.Contains(err.Error(), "ALGOLIA_API_KEY") {
+					t.Fatalf("expected API key env guidance for --%s, got %q", missing, err.Error())
+				}
+				return
+			}
 			if !strings.Contains(err.Error(), "required flag") || !strings.Contains(err.Error(), missing) {
 				t.Fatalf("expected Cobra required flag error for --%s, got %q", missing, err.Error())
 			}
@@ -566,7 +572,7 @@ func TestMigrateAlgoliaRequiresEachRequiredFlag(t *testing.T) {
 
 func TestMigrateAlgoliaFlagDefinitions(t *testing.T) {
 	flags := migrateAlgoliaCmd.Flags()
-	for _, name := range []string{"app-id", "api-key", "index", "database-url", "table", "include-synonyms", "dry-run", "yes", "json"} {
+	for _, name := range []string{"app-id", "api-key", "index", "database-url", "table", "include-synonyms", "include-settings", "dry-run", "yes", "json"} {
 		f := flags.Lookup(name)
 		if f == nil {
 			t.Errorf("expected flag %q on migrate algolia command", name)

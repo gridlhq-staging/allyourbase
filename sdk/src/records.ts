@@ -4,6 +4,8 @@
 import type {
   BatchOperation,
   BatchResult,
+  FacetValueSearchParams,
+  FacetValueSearchResponse,
   GetParams,
   ListParams,
   ListResponse,
@@ -108,6 +110,31 @@ export class RecordsClient {
       {
         method: "DELETE",
       },
+    );
+  }
+
+  /**
+   * Search facet values matching an optional `q` prefix, scoped by the same
+   * filter/search predicates the list endpoint accepts. Backed by
+   * GET /api/collections/{collection}/facets/{column}/search.
+   */
+  async searchFacetValues(
+    collection: string,
+    column: string,
+    params?: FacetValueSearchParams,
+  ): Promise<FacetValueSearchResponse> {
+    const safeCollection = encodePathSegment(collection);
+    const safeColumn = encodePathSegment(column);
+    const qs = new URLSearchParams();
+    if (params?.q != null) qs.set("q", params.q);
+    if (params?.maxFacetHits != null) {
+      qs.set("maxFacetHits", String(params.maxFacetHits));
+    }
+    if (params?.filter != null) qs.set("filter", params.filter);
+    if (params?.search != null) qs.set("search", params.search);
+    const suffix = qs.toString() ? `?${qs}` : "";
+    return this.client.request(
+      `/api/collections/${safeCollection}/facets/${safeColumn}/search${suffix}`,
     );
   }
 

@@ -2,7 +2,13 @@ import { describe, expect, it, vi } from "vitest";
 import { AYBClient } from "./client";
 import { createInstantSearchClient } from "./instantsearch";
 import { mockFetchSequence } from "./test_utils/mockFetchSequence";
-import type { ListParams, ListResponse, SearchHit } from "./types";
+import type {
+  FacetValueSearchParams,
+  FacetValueSearchResponse,
+  ListParams,
+  ListResponse,
+  SearchHit,
+} from "./types";
 
 function requestedURL(fetchFn: typeof globalThis.fetch): URL {
   const call = (fetchFn as ReturnType<typeof vi.fn>).mock.calls[0];
@@ -13,6 +19,29 @@ function createListOnlyClient(response: ListResponse<SearchHit>) {
   const list = vi.fn(async (_collection: string, _params?: ListParams) => response);
   return {
     records: { list },
+  };
+}
+
+function createFacetSearchClient(response: FacetValueSearchResponse) {
+  const list = vi.fn(
+    async (_collection: string, _params?: ListParams) =>
+      ({
+        items: [],
+        page: 1,
+        perPage: 20,
+        totalItems: 0,
+        totalPages: 0,
+      }) as ListResponse<SearchHit>,
+  );
+  const searchFacetValues = vi.fn(
+    async (
+      _collection: string,
+      _column: string,
+      _params?: FacetValueSearchParams,
+    ) => response,
+  );
+  return {
+    records: { list, searchFacetValues },
   };
 }
 
@@ -912,7 +941,153 @@ describe("createInstantSearchClient", () => {
     ).rejects.toThrow("objectIDField uuid is null on a returned row");
   });
 
-  it("rejects searchForFacetValues", async () => {
+  it("searchForFacetValues delegates to records.searchFacetValues with translated params", async () => {
+    const client = createFacetSearchClient({
+      facetHits: [
+        { value: "Acme", highlighted: "<mark>Ac</mark>me", count: 12 },
+      ],
+      exhaustiveFacetsCount: true,
+    });
+    const searchClient = createInstantSearchClient({
+      client,
+      objectIDField: "id",
+    });
+
+    await searchClient.searchForFacetValues([
+      {
+        indexName: "products",
+        params: {
+          facetName: "brand",
+          facetQuery: "ac",
+          query: "guide",
+          maxFacetHits: 3,
+          facetFilters: ["category:books"],
+          filters: "published:true",
+          highlightPreTag: "__ais-highlight__",
+          highlightPostTag: "__/ais-highlight__",
+        },
+      },
+    ]);
+
+    expect(client.records.searchFacetValues).toHaveBeenCalledTimes(1);
+    expect(client.records.searchFacetValues).toHaveBeenCalledWith("products", "brand", {
+      q: "ac",
+      maxFacetHits: 3,
+      filter: "category='books' AND published=true",
+      search: "guide",
+    });
+  });
+
+  it("searchForFacetValues works with the public AYBClient records owner", async () => {
+    const fetchFn = mockFetchSequence([
+      {
+        status: 200,
+        body: {
+          facetHits: [
+            { value: "Acme", highlighted: "<mark>Ac</mark>me", count: 12 },
+          ],
+          exhaustiveFacetsCount: true,
+        },
+      },
+    ]);
+    const client = new AYBClient("https://api.example.com", { fetch: fetchFn });
+    const searchClient = createInstantSearchClient({
+      client,
+      objectIDField: "id",
+      defaultIndexName: "products",
+    });
+
+    const response = await searchClient.searchForFacetValues([
+      {
+        params: {
+          facetName: "brand",
+          facetQuery: "ac",
+          query: "guide",
+          maxFacetHits: 3,
+          facetFilters: ["category:books"],
+        },
+      },
+    ]);
+
+    const url = requestedURL(fetchFn);
+    expect(url.pathname).toBe("/api/collections/products/facets/brand/search");
+    expect(url.searchParams.get("q")).toBe("ac");
+    expect(url.searchParams.get("maxFacetHits")).toBe("3");
+    expect(url.searchParams.get("filter")).toBe("category='books'");
+    expect(url.searchParams.get("search")).toBe("guide");
+    expect(response[0].facetHits).toEqual([
+      {
+        value: "Acme",
+        highlighted: "__ais-highlight__Ac__/ais-highlight__me",
+        count: 12,
+      },
+    ]);
+    expect(response[0].exhaustiveFacetsCount).toBe(true);
+    expect(response[0].processingTimeMS).toBeGreaterThanOrEqual(0);
+  });
+
+  it("searchForFacetValues remaps backend <mark> tags to caller highlight tags and preserves shape", async () => {
+    const client = createFacetSearchClient({
+      facetHits: [
+        { value: "Acme", highlighted: "<mark>Ac</mark>me", count: 12 },
+        { value: "Acorn", highlighted: "<mark>Ac</mark>orn", count: 3 },
+      ],
+      exhaustiveFacetsCount: false,
+    });
+    const searchClient = createInstantSearchClient({
+      client,
+      objectIDField: "id",
+      defaultIndexName: "products",
+    });
+
+    const response = await searchClient.searchForFacetValues([
+      { params: { facetName: "brand", facetQuery: "ac" } },
+    ]);
+
+    expect(response).toHaveLength(1);
+    const [result] = response;
+    expect(result.exhaustiveFacetsCount).toBe(false);
+    expect(result.processingTimeMS).toBeGreaterThanOrEqual(0);
+    expect(result.facetHits).toEqual([
+      {
+        value: "Acme",
+        highlighted: "__ais-highlight__Ac__/ais-highlight__me",
+        count: 12,
+      },
+      {
+        value: "Acorn",
+        highlighted: "__ais-highlight__Ac__/ais-highlight__orn",
+        count: 3,
+      },
+    ]);
+  });
+
+  it("searchForFacetValues remaps <mark> to explicit <mark> highlight tags when requested", async () => {
+    const client = createFacetSearchClient({
+      facetHits: [{ value: "Acme", highlighted: "<mark>Ac</mark>me", count: 1 }],
+      exhaustiveFacetsCount: true,
+    });
+    const searchClient = createInstantSearchClient({
+      client,
+      objectIDField: "id",
+      defaultIndexName: "products",
+    });
+
+    const response = await searchClient.searchForFacetValues([
+      {
+        params: {
+          facetName: "brand",
+          facetQuery: "ac",
+          highlightPreTag: "<mark>",
+          highlightPostTag: "</mark>",
+        },
+      },
+    ]);
+
+    expect(response[0].facetHits[0].highlighted).toBe("<mark>Ac</mark>me");
+  });
+
+  it("searchForFacetValues throws when records owner lacks searchFacetValues", async () => {
     const client = createListOnlyClient({
       items: [],
       page: 1,
@@ -923,12 +1098,194 @@ describe("createInstantSearchClient", () => {
     const searchClient = createInstantSearchClient({
       client,
       objectIDField: "id",
-      defaultIndexName: "posts",
+      defaultIndexName: "products",
     });
 
-    await expect(searchClient.searchForFacetValues([])).rejects.toThrow(
-      "searchForFacetValues is not supported",
+    await expect(
+      searchClient.searchForFacetValues([
+        { params: { facetName: "brand", facetQuery: "ac" } },
+      ]),
+    ).rejects.toThrow(
+      "client.records.searchFacetValues is required for searchForFacetValues",
     );
     expect(client.records.list).not.toHaveBeenCalled();
+  });
+
+  it("searchForFacetValues requires facetName", async () => {
+    const client = createFacetSearchClient({
+      facetHits: [],
+      exhaustiveFacetsCount: true,
+    });
+    const searchClient = createInstantSearchClient({
+      client,
+      objectIDField: "id",
+      defaultIndexName: "products",
+    });
+
+    await expect(
+      searchClient.searchForFacetValues([
+        { params: { facetQuery: "ac" } as unknown as { facetName: string } },
+      ]),
+    ).rejects.toThrow("facetName is required");
+    expect(client.records.searchFacetValues).not.toHaveBeenCalled();
+  });
+
+  it("searchForFacetValues rejects non-string facetQuery", async () => {
+    const client = createFacetSearchClient({
+      facetHits: [],
+      exhaustiveFacetsCount: true,
+    });
+    const searchClient = createInstantSearchClient({
+      client,
+      objectIDField: "id",
+      defaultIndexName: "products",
+    });
+
+    await expect(
+      searchClient.searchForFacetValues([
+        {
+          params: {
+            facetName: "brand",
+            facetQuery: 42 as unknown as string,
+          },
+        },
+      ]),
+    ).rejects.toThrow("facetQuery must be a string");
+  });
+
+  it("searchForFacetValues rejects invalid maxFacetHits", async () => {
+    const client = createFacetSearchClient({
+      facetHits: [],
+      exhaustiveFacetsCount: true,
+    });
+    const searchClient = createInstantSearchClient({
+      client,
+      objectIDField: "id",
+      defaultIndexName: "products",
+    });
+
+    await expect(
+      searchClient.searchForFacetValues([
+        {
+          params: {
+            facetName: "brand",
+            facetQuery: "ac",
+            maxFacetHits: 0,
+          },
+        },
+      ]),
+    ).rejects.toThrow("maxFacetHits must be a positive integer");
+
+    await expect(
+      searchClient.searchForFacetValues([
+        {
+          params: {
+            facetName: "brand",
+            facetQuery: "ac",
+            maxFacetHits: 1.5 as unknown as number,
+          },
+        },
+      ]),
+    ).rejects.toThrow("maxFacetHits must be a positive integer");
+
+    await expect(
+      searchClient.searchForFacetValues([
+        {
+          params: {
+            facetName: "brand",
+            facetQuery: "ac",
+            maxFacetHits: 101,
+          },
+        },
+      ]),
+    ).rejects.toThrow("maxFacetHits must be less than or equal to 100");
+  });
+
+  it("searchForFacetValues rejects mixed indexName requests", async () => {
+    const client = createFacetSearchClient({
+      facetHits: [],
+      exhaustiveFacetsCount: true,
+    });
+    const searchClient = createInstantSearchClient({
+      client,
+      objectIDField: "id",
+    });
+
+    await expect(
+      searchClient.searchForFacetValues([
+        { indexName: "products", params: { facetName: "brand", facetQuery: "ac" } },
+        { indexName: "posts", params: { facetName: "tag", facetQuery: "go" } },
+      ]),
+    ).rejects.toThrow("mixed indexName requests are not supported");
+    expect(client.records.searchFacetValues).not.toHaveBeenCalled();
+  });
+
+  it("searchForFacetValues rejects unsupported highlight tags", async () => {
+    const client = createFacetSearchClient({
+      facetHits: [],
+      exhaustiveFacetsCount: true,
+    });
+    const searchClient = createInstantSearchClient({
+      client,
+      objectIDField: "id",
+      defaultIndexName: "products",
+    });
+
+    await expect(
+      searchClient.searchForFacetValues([
+        {
+          params: {
+            facetName: "brand",
+            facetQuery: "ac",
+            highlightPreTag: "<em>",
+            highlightPostTag: "</em>",
+          },
+        },
+      ]),
+    ).rejects.toThrow(
+      "highlight tags must use InstantSearch placeholders or <mark> wrappers",
+    );
+    expect(client.records.searchFacetValues).not.toHaveBeenCalled();
+  });
+
+  it("searchForFacetValues rejects unsupported params", async () => {
+    const client = createFacetSearchClient({
+      facetHits: [],
+      exhaustiveFacetsCount: true,
+    });
+    const searchClient = createInstantSearchClient({
+      client,
+      objectIDField: "id",
+      defaultIndexName: "products",
+    });
+
+    await expect(
+      searchClient.searchForFacetValues([
+        {
+          params: {
+            facetName: "brand",
+            facetQuery: "ac",
+            ...({ analytics: true } as { analytics: boolean }),
+          },
+        } as never,
+      ]),
+    ).rejects.toThrow(/unsupported searchForFacetValues parameter/);
+  });
+
+  it("searchForFacetValues requires indexName or defaultIndexName", async () => {
+    const client = createFacetSearchClient({
+      facetHits: [],
+      exhaustiveFacetsCount: true,
+    });
+    const searchClient = createInstantSearchClient({
+      client,
+      objectIDField: "id",
+    });
+
+    await expect(
+      searchClient.searchForFacetValues([
+        { params: { facetName: "brand", facetQuery: "ac" } },
+      ]),
+    ).rejects.toThrow("indexName or defaultIndexName is required");
   });
 });

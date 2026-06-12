@@ -1,4 +1,3 @@
-// Package cli.
 package cli
 
 import (
@@ -29,15 +28,19 @@ type algoliaMigrationOptions struct {
 	DatabaseURL     string
 	TargetTable     string
 	IncludeSynonyms bool
+	IncludeSettings bool
 	DryRun          bool
 	Progress        migrate.ProgressReporter
 }
+
+const algoliaAPIKeyEnv = "ALGOLIA_API_KEY"
 
 type algoliaCLIAdapter struct {
 	opts     algoliaMigrationOptions
 	db       *sql.DB
 	browse   *algoliamigrate.BrowseResult
 	synonyms *algoliamigrate.SynonymInput
+	settings *algoliamigrate.AlgoliaSettings
 	plan     *algoliamigrate.ImportPlan
 	report   *migrate.AnalysisReport
 }
@@ -58,17 +61,17 @@ func newMigrateAlgoliaCommand() *cobra.Command {
 	}
 
 	cmd.Flags().String("app-id", "", "Algolia application ID")
-	cmd.Flags().String("api-key", "", "Algolia API key with browse access")
+	cmd.Flags().String("api-key", "", "Algolia API key with browse access (or set ALGOLIA_API_KEY)")
 	cmd.Flags().String("index", "", "Algolia index name to browse")
 	cmd.Flags().String("database-url", "", "AYB PostgreSQL connection URL (target)")
 	cmd.Flags().String("table", "", "Target PostgreSQL table name")
 	cmd.Flags().Bool("include-synonyms", false, "Import supported Algolia synonym groups")
+	cmd.Flags().Bool("include-settings", false, "Import Algolia index search settings")
 	cmd.Flags().Bool("dry-run", false, "Preview what would be migrated without making changes")
 	cmd.Flags().BoolP("yes", "y", false, "Skip confirmation prompt")
 	cmd.Flags().Bool("json", false, "Output import stats as JSON")
 
 	cmd.MarkFlagRequired("app-id")
-	cmd.MarkFlagRequired("api-key")
 	cmd.MarkFlagRequired("index")
 	cmd.MarkFlagRequired("database-url")
 	cmd.MarkFlagRequired("table")
@@ -77,6 +80,9 @@ func newMigrateAlgoliaCommand() *cobra.Command {
 
 func runMigrateAlgolia(cmd *cobra.Command, args []string) error {
 	opts, yes, jsonOut := algoliaOptionsFromCommand(cmd)
+	if strings.TrimSpace(opts.APIKey) == "" {
+		return fmt.Errorf("algolia API key is required; pass --api-key or set %s", algoliaAPIKeyEnv)
+	}
 	migrator, err := newAlgoliaMigrator(opts)
 	if err != nil {
 		return fmt.Errorf("failed to create migrator: %w", err)
@@ -124,9 +130,13 @@ func algoliaOptionsFromCommand(cmd *cobra.Command) (algoliaMigrationOptions, boo
 	databaseURL, _ := cmd.Flags().GetString("database-url")
 	targetTable, _ := cmd.Flags().GetString("table")
 	includeSynonyms, _ := cmd.Flags().GetBool("include-synonyms")
+	includeSettings, _ := cmd.Flags().GetBool("include-settings")
 	dryRun, _ := cmd.Flags().GetBool("dry-run")
 	yes, _ := cmd.Flags().GetBool("yes")
 	jsonOut, _ := cmd.Flags().GetBool("json")
+	if strings.TrimSpace(apiKey) == "" {
+		apiKey = os.Getenv(algoliaAPIKeyEnv)
+	}
 
 	var progress migrate.ProgressReporter
 	if jsonOut {
@@ -142,6 +152,7 @@ func algoliaOptionsFromCommand(cmd *cobra.Command) (algoliaMigrationOptions, boo
 		DatabaseURL:     databaseURL,
 		TargetTable:     targetTable,
 		IncludeSynonyms: includeSynonyms,
+		IncludeSettings: includeSettings,
 		DryRun:          dryRun,
 		Progress:        progress,
 	}, yes, jsonOut
@@ -169,16 +180,17 @@ func (a *algoliaCLIAdapter) Analyze(ctx context.Context) (*migrate.AnalysisRepor
 	if a.report != nil {
 		return a.report, nil
 	}
-	browse, synonyms, err := a.readAlgoliaSource(ctx)
-	if err != nil {
-		return nil, err
-	}
-	plan, err := algoliamigrate.PlanImport(browse.Records, a.importOptions(synonyms))
+	browse, synonyms, settings, err := a.readAlgoliaSource(ctx)
 	if err != nil {
 		return nil, err
 	}
 	a.browse = browse
 	a.synonyms = synonyms
+	a.settings = settings
+	plan, err := algoliamigrate.PlanImport(browse.Records, a.importOptions(synonyms, settings))
+	if err != nil {
+		return nil, err
+	}
 	a.plan = plan
 	a.report = algoliamigrate.BuildAnalysisReport(plan)
 	return a.report, nil
@@ -189,7 +201,11 @@ func (a *algoliaCLIAdapter) Migrate(ctx context.Context) (*algoliamigrate.Import
 		return nil, err
 	}
 	if a.opts.DryRun {
-		if _, err := a.openTargetDB(ctx); err != nil {
+		db, err := a.openTargetDB(ctx)
+		if err != nil {
+			return nil, err
+		}
+		if err := algoliamigrate.ValidateTargetAbsent(ctx, db, a.plan.Target); err != nil {
 			return nil, err
 		}
 		return a.dryRunStats(), nil
@@ -198,7 +214,7 @@ func (a *algoliaCLIAdapter) Migrate(ctx context.Context) (*algoliamigrate.Import
 	if err != nil {
 		return nil, err
 	}
-	migrator := algoliamigrate.NewMigrator(db, a.importOptions(a.synonyms), a.opts.Progress)
+	migrator := algoliamigrate.NewMigrator(db, a.importOptions(a.synonyms, a.settings), a.opts.Progress)
 	return migrator.ImportRecords(ctx, a.browse.Records)
 }
 
@@ -209,39 +225,53 @@ func (a *algoliaCLIAdapter) Close() error {
 	return nil
 }
 
-func (a *algoliaCLIAdapter) readAlgoliaSource(ctx context.Context) (*algoliamigrate.BrowseResult, *algoliamigrate.SynonymInput, error) {
+func (a *algoliaCLIAdapter) readAlgoliaSource(ctx context.Context) (*algoliamigrate.BrowseResult, *algoliamigrate.SynonymInput, *algoliamigrate.AlgoliaSettings, error) {
 	cfg := algoliamigrate.BrowseConfig{
+		Endpoint:  os.Getenv("ALGOLIA_ENDPOINT"),
 		AppID:     a.opts.AppID,
 		APIKey:    a.opts.APIKey,
 		IndexName: a.opts.IndexName,
 	}
 	browseClient, err := algoliamigrate.NewBrowseClient(cfg)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 	browse, err := browseClient.Browse(ctx)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
-	if !a.opts.IncludeSynonyms {
-		return browse, nil, nil
+	var synonyms *algoliamigrate.SynonymInput
+	if a.opts.IncludeSynonyms {
+		synonymClient, err := algoliamigrate.NewSynonymSearchClient(cfg)
+		if err != nil {
+			return nil, nil, nil, err
+		}
+		synonyms, err = synonymClient.SearchSynonyms(ctx)
+		if err != nil {
+			return nil, nil, nil, err
+		}
 	}
-	synonymClient, err := algoliamigrate.NewSynonymSearchClient(cfg)
-	if err != nil {
-		return nil, nil, err
+	var settings *algoliamigrate.AlgoliaSettings
+	if a.opts.IncludeSettings {
+		settingsClient, err := algoliamigrate.NewSettingsClient(cfg)
+		if err != nil {
+			return nil, nil, nil, err
+		}
+		s, err := settingsClient.GetSettings(ctx)
+		if err != nil {
+			return nil, nil, nil, err
+		}
+		settings = &s
 	}
-	synonyms, err := synonymClient.SearchSynonyms(ctx)
-	if err != nil {
-		return nil, nil, err
-	}
-	return browse, synonyms, nil
+	return browse, synonyms, settings, nil
 }
 
-func (a *algoliaCLIAdapter) importOptions(synonyms *algoliamigrate.SynonymInput) algoliamigrate.ImportOptions {
+func (a *algoliaCLIAdapter) importOptions(synonyms *algoliamigrate.SynonymInput, settings *algoliamigrate.AlgoliaSettings) algoliamigrate.ImportOptions {
 	return algoliamigrate.ImportOptions{
 		TargetTable: a.opts.TargetTable,
 		DryRun:      a.opts.DryRun,
 		Synonyms:    synonyms,
+		Settings:    settings,
 	}
 }
 
@@ -253,6 +283,7 @@ func (a *algoliaCLIAdapter) dryRunStats() *algoliamigrate.ImportStats {
 		Tables:   a.plan.DryRun.TablesPlanned,
 		Records:  a.plan.DryRun.RecordsPlanned,
 		DryRun:   true,
+		Settings: a.plan.Settings.Stats,
 		Synonyms: a.plan.Synonyms.Stats,
 	}
 }

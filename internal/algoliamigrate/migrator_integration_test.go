@@ -5,14 +5,19 @@ package algoliamigrate
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"os"
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/allyourbase/ayb/internal/migrate"
 	"github.com/allyourbase/ayb/internal/migrations"
+	"github.com/allyourbase/ayb/internal/schema"
+	"github.com/allyourbase/ayb/internal/searchsettings"
 	"github.com/allyourbase/ayb/internal/testutil"
+	"github.com/jackc/pgx/v5"
 	_ "github.com/jackc/pgx/v5/stdlib"
 )
 
@@ -119,7 +124,78 @@ func TestImportRecordsWithSynonymsWritesOnlyNormalizedRegularGroups(t *testing.T
 	})
 }
 
-func TestImportRecordsWithSynonymsDryRunRollsBackTableAndSynonyms(t *testing.T) {
+func TestImportRecordsWithSettingsAndSynonymsPersistsOneTransaction(t *testing.T) {
+	db := openIntegrationDB(t)
+	resetPublicSchema(t, db)
+	bootstrapSystemMigrations(t)
+
+	stats, err := NewMigrator(db, ImportOptions{
+		TargetTable: "Products Import",
+		Synonyms:    ptrSynonymInput(loadSynonymFixtureInput(t)),
+		Settings: &AlgoliaSettings{
+			SearchableAttributes: []string{"title", "subtitle"},
+			CustomRanking:        []string{"desc(price)", "asc(inventory_count)"},
+		},
+	}, migrate.NopReporter{}).ImportRecords(context.Background(), loadBrowseFixtureRecords(t))
+	if err != nil {
+		t.Fatalf("ImportRecords with settings and synonyms: %v", err)
+	}
+	if stats.Tables != 1 || stats.Records != 3 || stats.Synonyms.SupportedGroups != 1 {
+		t.Fatalf("stats = %#v, want table, records, and one synonym group", stats)
+	}
+	if !tableExists(t, db, "products_import") {
+		t.Fatal("target table was not created")
+	}
+	assertSearchSynonymTerms(t, db, "public", "products_import", []string{
+		"desk supplies",
+		"office supplies",
+		"stationery",
+	})
+	assertSearchSettings(t, db, "public", "products_import", searchsettings.Settings{
+		Attributes: []searchsettings.Attribute{
+			{Column: "title", Weight: searchsettings.WeightHigh},
+			{Column: "subtitle", Weight: searchsettings.WeightLowest},
+		},
+		CustomRanking: []searchsettings.CustomRanking{
+			{Column: "price", Order: searchsettings.RankingOrderDesc},
+			{Column: "inventory_count", Order: searchsettings.RankingOrderAsc},
+		},
+	})
+}
+
+func TestImportRecordsNotifiesSchemaReload(t *testing.T) {
+	ctx := context.Background()
+	db := openIntegrationDB(t)
+	resetPublicSchema(t, db)
+
+	listener, err := pgx.Connect(ctx, sharedPG.ConnString)
+	if err != nil {
+		t.Fatalf("connecting listener: %v", err)
+	}
+	defer listener.Close(ctx)
+	if _, err := listener.Exec(ctx, "LISTEN "+schema.ReloadNotifyChannel()); err != nil {
+		t.Fatalf("listening for schema reload: %v", err)
+	}
+
+	_, err = NewMigrator(db, ImportOptions{TargetTable: "Products Import"}, migrate.NopReporter{}).
+		ImportRecords(ctx, loadBrowseFixtureRecords(t))
+	if err != nil {
+		t.Fatalf("ImportRecords: %v", err)
+	}
+
+	waitCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
+	defer cancel()
+	notification, err := listener.WaitForNotification(waitCtx)
+	if err != nil {
+		t.Fatalf("waiting for schema reload notification: %v", err)
+	}
+	if notification.Channel != schema.ReloadNotifyChannel() || notification.Payload != "reload" {
+		t.Fatalf("notification = %s/%s, want %s/reload",
+			notification.Channel, notification.Payload, schema.ReloadNotifyChannel())
+	}
+}
+
+func TestImportRecordsWithSettingsAndSynonymsDryRunRollsBackAllWrites(t *testing.T) {
 	db := openIntegrationDB(t)
 	resetPublicSchema(t, db)
 	bootstrapSystemMigrations(t)
@@ -128,9 +204,13 @@ func TestImportRecordsWithSynonymsDryRunRollsBackTableAndSynonyms(t *testing.T) 
 		TargetTable: "dry run products",
 		DryRun:      true,
 		Synonyms:    ptrSynonymInput(loadSynonymFixtureInput(t)),
+		Settings: &AlgoliaSettings{
+			SearchableAttributes: []string{"title"},
+			CustomRanking:        []string{"desc(price)"},
+		},
 	}, migrate.NopReporter{}).ImportRecords(context.Background(), loadBrowseFixtureRecords(t))
 	if err != nil {
-		t.Fatalf("ImportRecords dry-run with synonyms: %v", err)
+		t.Fatalf("ImportRecords dry-run with settings and synonyms: %v", err)
 	}
 	if stats.Tables != 1 || stats.Records != 3 || stats.Synonyms.SupportedGroups != 1 || !stats.DryRun {
 		t.Fatalf("dry-run stats = %#v", stats)
@@ -139,6 +219,7 @@ func TestImportRecordsWithSynonymsDryRunRollsBackTableAndSynonyms(t *testing.T) 
 		t.Fatal("dry-run target table exists after rollback")
 	}
 	assertSearchSynonymTerms(t, db, "public", "dry_run_products", nil)
+	assertSearchSettings(t, db, "public", "dry_run_products", searchsettings.Settings{})
 }
 
 func TestImportRecordsCollisionPreflightLeavesExistingTableUnchanged(t *testing.T) {
@@ -313,5 +394,32 @@ func assertSearchSynonymTerms(t *testing.T, db *sql.DB, schemaName, tableName st
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("synonym terms = %#v, want %#v", got, want)
+	}
+}
+
+func assertSearchSettings(t *testing.T, db *sql.DB, schemaName, tableName string, want searchsettings.Settings) {
+	t.Helper()
+	var payload []byte
+	err := db.QueryRow(`
+		SELECT settings
+		FROM _ayb_search_settings
+		WHERE schema_name = $1 AND table_name = $2
+	`, schemaName, tableName).Scan(&payload)
+	if err == sql.ErrNoRows {
+		if !reflect.DeepEqual(want, searchsettings.Settings{}) {
+			t.Fatalf("missing search settings, want %#v", want)
+		}
+		return
+	}
+	if err != nil {
+		t.Fatalf("query search settings: %v", err)
+	}
+
+	var got searchsettings.Settings
+	if err := json.Unmarshal(payload, &got); err != nil {
+		t.Fatalf("decode search settings: %v", err)
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("search settings = %#v, want %#v", got, want)
 	}
 }

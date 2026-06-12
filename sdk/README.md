@@ -143,16 +143,45 @@ are arbitrary PostgreSQL records, and the adapter fails closed when a returned
 row is missing that field or has a `null` value.
 
 The adapter supports one-index `search(requests)` calls with `query`, zero-based
-`page`, `hitsPerPage`, concrete `facets`, `facetFilters` in `attribute:value`
-form, and the documented `filters` comparison subset. Empty query strings are
-sent as browsable list calls with no `search` parameter so first-render facets
-remain available. Set `highlight: false` in the adapter options to omit the
-backend `highlight=true` request flag.
+`page`, `hitsPerPage`, concrete `facets`, `disjunctiveFacets`,
+`facetFilters` in `attribute:value` form, `numericFilters` range comparisons,
+and the documented `filters` comparison subset. Empty query strings are sent as
+browsable list calls with no `search` parameter so first-render facets and
+range stats remain available. Set `highlight: false` in the adapter options to
+omit the backend `highlight=true` request flag.
+
+`searchClient.searchForFacetValues(requests)` is supported for searchable facet
+widgets. It delegates each request through `client.records.searchFacetValues()`
+(see below) and returns Algolia-shaped `{ facetHits, exhaustiveFacetsCount,
+processingTimeMS }` per request; the backend's `<mark>` prefix wrappers are
+remapped onto the caller's `highlightPreTag`/`highlightPostTag` (default
+InstantSearch placeholders). `maxFacetHits` defaults to 10 and is capped at
+100.
 
 Unsupported cases throw before AYB is called: mixed index requests,
-`searchForFacetValues`, wildcard facets, vector/search tuning params,
-`skipTotal`, negative `facetFilters`, nested attributes, tag filters, numeric
-ranges, arrays, `NOT`, and unlisted Algolia request parameters.
+wildcard facets, vector/search tuning params, `skipTotal`, negative
+`facetFilters`, nested attributes, tag filters, malformed numeric filters,
+arrays, `NOT`, and unlisted Algolia request parameters.
+
+### Facet value search
+
+```ts
+// Searchable facet values: bucket-level search on a single facet column
+const facet = await ayb.records.searchFacetValues("products", "category", {
+  q: "st",
+  maxFacetHits: 10,
+});
+// facet.facetHits[0]: { value: "Stationery", highlighted: "<mark>St</mark>ationery", count: 3 }
+console.log(facet.exhaustiveFacetsCount);
+```
+
+`records.searchFacetValues(collection, column, params)` calls
+`GET /api/collections/{table}/facets/{column}/search`. `column` must be a text
+facet column. `params` accepts an optional `q` prefix, `maxFacetHits`,
+`filter`, and `search` (the same scoping predicates the list endpoint accepts).
+`maxFacetHits` defaults to 10 and is capped at 100.
+The InstantSearch adapter's
+`searchForFacetValues(requests)` uses this method as its transport.
 
 ### Auth
 
@@ -257,7 +286,7 @@ const posts = await ayb.records.list<Post>("posts");
 
 Exported types include:
 
-`AdminAPIKey`, `AdminAPIKeyListResponse`, `App`, `AppListResponse`, `AuthPersistence`, `AuthResponse`, `AuthStateEvent`, `AuthStateListener`, `BatchOperation`, `BatchResult`, `ClientOptions`, `CreateAdminAPIKeyRequest`, `CreateAdminAPIKeyResponse`, `CreateOAuthClientRequest`, `CreateOAuthClientResponse`, `FacetCounts`, `FacetValueCount`, `GetParams`, `GraphQLErrorItem`, `GraphQLResponse`, `HealthResponse`, `ListParams`, `ListResponse`, `MagicLinkConfirmResponse`, `MagicLinkRequestResponse`, `MFAPendingAuthResponse`, `OAuthClient`, `OAuthClientListResponse`, `OAuthOptions`, `OAuthProvider`, `OAuthTokenResponse`, `PersistedAuthSession`, `PublicKeyCredentialCreationOptionsJSON`, `PublicKeyCredentialDescriptorJSON`, `PublicKeyCredentialParametersJSON`, `PublicKeyCredentialRequestOptionsJSON`, `PublicKeyCredentialRpEntityJSON`, `PublicKeyCredentialUserEntityJSON`, `RealtimeEvent`, `RotateOAuthClientSecretResponse`, `RpcNotifyOption`, `RpcOptions`, `SearchHit`, `StorageObject`, `UpdateOAuthClientRequest`, `User`, `WebAuthnEnrollBeginResponse`, `WebAuthnEnrollConfirmRequest`, `WebAuthnLoginBeginResponse`, `WebAuthnLoginFinishRequest`, `WebAuthnMFAChallengeResponse`, and `WebAuthnMFAVerifyRequest`.
+`AdminAPIKey`, `AdminAPIKeyListResponse`, `App`, `AppListResponse`, `AuthPersistence`, `AuthResponse`, `AuthStateEvent`, `AuthStateListener`, `BatchOperation`, `BatchResult`, `ClientOptions`, `CreateAdminAPIKeyRequest`, `CreateAdminAPIKeyResponse`, `CreateOAuthClientRequest`, `CreateOAuthClientResponse`, `FacetCounts`, `FacetValueCount`, `FacetValueSearchHit`, `FacetValueSearchParams`, `FacetValueSearchResponse`, `GetParams`, `GraphQLErrorItem`, `GraphQLResponse`, `HealthResponse`, `ListParams`, `ListResponse`, `MagicLinkConfirmResponse`, `MagicLinkRequestResponse`, `MFAPendingAuthResponse`, `OAuthClient`, `OAuthClientListResponse`, `OAuthOptions`, `OAuthProvider`, `OAuthTokenResponse`, `PersistedAuthSession`, `PublicKeyCredentialCreationOptionsJSON`, `PublicKeyCredentialDescriptorJSON`, `PublicKeyCredentialParametersJSON`, `PublicKeyCredentialRequestOptionsJSON`, `PublicKeyCredentialRpEntityJSON`, `PublicKeyCredentialUserEntityJSON`, `RealtimeEvent`, `RotateOAuthClientSecretResponse`, `RpcNotifyOption`, `RpcOptions`, `SearchHit`, `StorageObject`, `UpdateOAuthClientRequest`, `User`, `WebAuthnEnrollBeginResponse`, `WebAuthnEnrollConfirmRequest`, `WebAuthnLoginBeginResponse`, `WebAuthnLoginFinishRequest`, `WebAuthnMFAChallengeResponse`, and `WebAuthnMFAVerifyRequest`.
 
 ## Error Handling
 

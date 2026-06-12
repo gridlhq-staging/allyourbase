@@ -76,7 +76,6 @@ Dry-run first to inspect the inferred schema and counts without writing rows:
 ```bash
 ayb migrate algolia \
   --app-id "$ALGOLIA_APP_ID" \
-  --api-key "$ALGOLIA_API_KEY" \
   --index products \
   --database-url "$DATABASE_URL" \
   --table products \
@@ -88,17 +87,19 @@ Run a confirmed import with `-y, --yes` when the dry-run migration report matche
 ```bash
 ayb migrate algolia \
   --app-id "$ALGOLIA_APP_ID" \
-  --api-key "$ALGOLIA_API_KEY" \
   --index products \
   --database-url "$DATABASE_URL" \
   --table products \
+  --include-settings \
   --include-synonyms \
   -y
 ```
 
-Required flags are `--app-id`, `--api-key`, `--index`, `--database-url`, and `--table`. `--dry-run` previews the plan without writes, `--include-synonyms` also reads Algolia synonyms when the API key has settings access, `-y, --yes` skips the confirmation prompt, and `--json` writes machine-readable import stats instead of the human report.
+Required flags are `--app-id`, `--index`, `--database-url`, and `--table`. Provide the Algolia API key with `--api-key` or by exporting `ALGOLIA_API_KEY`; the environment variable avoids exposing the secret in process arguments. `--dry-run` previews the plan without writes, `--include-synonyms` also reads Algolia synonyms when the API key has settings access, `--include-settings` fetches and persists Algolia index search settings, `-y, --yes` skips the confirmation prompt, and `--json` writes machine-readable import stats instead of the human report.
 
 Human output reuses the shared migration report before the import and the validation summary after a confirmed import. JSON mode emits the importer stats directly for automation. Stage validation distinguishes live Algolia browse and synonym verification from fixture-backed acceptance: when live credentials or ACLs are unavailable, acceptance is tied to the committed browse and synonym fixtures plus the `CheckRecordParity` parity check instead of claiming a live Algolia run.
+
+With `--include-settings`, AYB fetches the Algolia index settings and persists the supported subset through the existing `GET/PUT /api/collections/{table}/search-settings` owner: `searchableAttributes` map to persisted AYB search attribute weights, `customRanking` entries map to persisted `customRanking` secondary sort, and `attributesForFaceting` are reported as advisory-only skips (facet configuration is not carried over). The dry-run report and `--json` output both surface settings stats (supported attributes, supported ranking, skipped facets) separately from record and synonym counts.
 
 With `--include-synonyms`, AYB carries over only supported equivalent Algolia synonym groups into AYB per-collection synonym groups. During synonym import, unsupported synonym types and missing settings ACL are reported as skipped rather than blocking record import.
 

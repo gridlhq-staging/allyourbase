@@ -1,7 +1,6 @@
-/**
- * @module InstantSearch adapter for @allyourbase/js.ts.
- */
 import type {
+  FacetValueSearchParams,
+  FacetValueSearchResponse,
   ListParams,
   ListResponse,
   SearchHighlightResult,
@@ -19,6 +18,11 @@ interface InstantSearchRecordsOwner {
       collection: string,
       params?: ListParams,
     ): Promise<ListResponse<T>>;
+    searchFacetValues?(
+      collection: string,
+      column: string,
+      params?: FacetValueSearchParams,
+    ): Promise<FacetValueSearchResponse>;
   };
 }
 
@@ -86,9 +90,50 @@ export interface InstantSearchResponse {
   results: InstantSearchResult[];
 }
 
+/** Algolia-compatible params for `searchForFacetValues`. */
+export interface InstantSearchFacetValueParams {
+  facetName: string;
+  facetQuery?: string;
+  query?: string;
+  maxFacetHits?: number;
+  facetFilters?: FacetFilterInput;
+  numericFilters?: NumericFilterInput;
+  filters?: string;
+  highlightPreTag?: string;
+  highlightPostTag?: string;
+}
+
+/** Single request entry passed to `searchForFacetValues`. */
+export interface InstantSearchFacetValueRequest {
+  indexName?: string;
+  params?: InstantSearchFacetValueParams;
+}
+
+/** Single facet-value hit returned to InstantSearch widgets. */
+export interface InstantSearchFacetValueHit {
+  value: string;
+  highlighted: string;
+  count: number;
+}
+
+/**
+ * Per-request result returned by `searchForFacetValues`. Mirrors Algolia's
+ * `SearchForFacetValuesResponse` shape (without analytics fields).
+ */
+export interface InstantSearchFacetValueResult {
+  facetHits: InstantSearchFacetValueHit[];
+  exhaustiveFacetsCount: boolean;
+  processingTimeMS: number;
+}
+
+/** Multi-request envelope returned by `searchForFacetValues`. */
+export type InstantSearchFacetValueResponse = InstantSearchFacetValueResult[];
+
 export interface InstantSearchClient {
   search(requests: InstantSearchSearchRequest[]): Promise<InstantSearchResponse>;
-  searchForFacetValues(_requests: unknown): Promise<never>;
+  searchForFacetValues(
+    requests: InstantSearchFacetValueRequest[],
+  ): Promise<InstantSearchFacetValueResponse>;
 }
 
 const SUPPORTED_PARAM_KEYS = new Set([
@@ -110,6 +155,7 @@ const DEFAULT_INSTANTSEARCH_HIGHLIGHT_PRE_TAG = "__ais-highlight__";
 const DEFAULT_INSTANTSEARCH_HIGHLIGHT_POST_TAG = "__/ais-highlight__";
 const SAFE_HTML_HIGHLIGHT_PRE_TAG = "<mark>";
 const SAFE_HTML_HIGHLIGHT_POST_TAG = "</mark>";
+const MAX_FACET_HITS = 100;
 
 export function createInstantSearchClient(
   options: CreateInstantSearchClientOptions,
@@ -138,10 +184,149 @@ export function createInstantSearchClient(
       return { results };
     },
 
-    async searchForFacetValues(): Promise<never> {
-      throw new Error("searchForFacetValues is not supported");
+    /**
+     * Adapter over `records.searchFacetValues()` returning Algolia-compatible
+     * per-request facet-value results.
+     */
+    async searchForFacetValues(
+      requests: InstantSearchFacetValueRequest[],
+    ): Promise<InstantSearchFacetValueResponse> {
+      if (typeof options.client.records.searchFacetValues !== "function") {
+        throw new Error(
+          "client.records.searchFacetValues is required for searchForFacetValues",
+        );
+      }
+      const indexNames = requests.map((request) => resolveIndexName(request, options));
+      ensureSingleIndexName(indexNames);
+
+      const results: InstantSearchFacetValueResult[] = [];
+      for (const [index, request] of requests.entries()) {
+        results.push(
+          await runFacetValueSearch(options.client.records, indexNames[index], request),
+        );
+      }
+      return results;
     },
   };
+}
+
+const SUPPORTED_FACET_VALUE_PARAM_KEYS = new Set([
+  "facetName",
+  "facetQuery",
+  "query",
+  "maxFacetHits",
+  "facetFilters",
+  "numericFilters",
+  "filters",
+  "highlightPreTag",
+  "highlightPostTag",
+]);
+
+async function runFacetValueSearch(
+  records: InstantSearchRecordsOwner["records"],
+  collection: string,
+  request: InstantSearchFacetValueRequest,
+): Promise<InstantSearchFacetValueResult> {
+  if (typeof records.searchFacetValues !== "function") {
+    throw new Error(
+      "client.records.searchFacetValues is required for searchForFacetValues",
+    );
+  }
+
+  const params = request.params ?? ({} as InstantSearchFacetValueParams);
+  rejectUnsupportedFacetValueParams(params);
+  validateFacetName(params.facetName);
+  const facetQuery = normalizeFacetQuery(params.facetQuery);
+  const maxFacetHits = validateMaxFacetHits(params.maxFacetHits);
+  validateHighlightTags(params);
+
+  const filter = combineFilters(
+    params.facetFilters,
+    params.numericFilters,
+    params.filters,
+    undefined,
+  );
+
+  const startedAt = Date.now();
+  const response = await records.searchFacetValues(
+    collection,
+    params.facetName,
+    buildFacetValueRequestParams(facetQuery, params.query, maxFacetHits, filter),
+  );
+  const processingTimeMS = Math.max(0, Date.now() - startedAt);
+
+  const highlightPreTag =
+    params.highlightPreTag ?? DEFAULT_INSTANTSEARCH_HIGHLIGHT_PRE_TAG;
+  const highlightPostTag =
+    params.highlightPostTag ?? DEFAULT_INSTANTSEARCH_HIGHLIGHT_POST_TAG;
+
+  return {
+    facetHits: response.facetHits.map((hit) => ({
+      value: hit.value,
+      highlighted: replaceHighlightMarkers(
+        hit.highlighted,
+        highlightPreTag,
+        highlightPostTag,
+        SAFE_HTML_HIGHLIGHT_PRE_TAG,
+        SAFE_HTML_HIGHLIGHT_POST_TAG,
+      ),
+      count: hit.count,
+    })),
+    exhaustiveFacetsCount: response.exhaustiveFacetsCount,
+    processingTimeMS,
+  };
+}
+
+function buildFacetValueRequestParams(
+  facetQuery: string | undefined,
+  query: string | undefined,
+  maxFacetHits: number | undefined,
+  filter: string | undefined,
+): FacetValueSearchParams {
+  const params: FacetValueSearchParams = {};
+  if (facetQuery !== undefined) params.q = facetQuery;
+  if (query !== undefined) params.search = query;
+  if (maxFacetHits !== undefined) params.maxFacetHits = maxFacetHits;
+  if (filter !== undefined) params.filter = filter;
+  return params;
+}
+
+function rejectUnsupportedFacetValueParams(
+  params: InstantSearchFacetValueParams,
+): void {
+  for (const key of Object.keys(params)) {
+    if (!SUPPORTED_FACET_VALUE_PARAM_KEYS.has(key)) {
+      throw new Error(`unsupported searchForFacetValues parameter: ${key}`);
+    }
+  }
+}
+
+function validateFacetName(facetName: unknown): void {
+  if (facetName == null || facetName === "") {
+    throw new Error("facetName is required");
+  }
+  if (typeof facetName !== "string") {
+    throw new Error("facetName must be a string");
+  }
+}
+
+function normalizeFacetQuery(facetQuery: unknown): string | undefined {
+  if (facetQuery == null) return undefined;
+  if (typeof facetQuery !== "string") {
+    throw new Error("facetQuery must be a string");
+  }
+  return facetQuery;
+}
+
+function validateMaxFacetHits(maxFacetHits: unknown): number | undefined {
+  if (maxFacetHits == null) return undefined;
+  if (!Number.isInteger(maxFacetHits) || Number(maxFacetHits) <= 0) {
+    throw new Error("maxFacetHits must be a positive integer");
+  }
+  if (Number(maxFacetHits) > MAX_FACET_HITS) {
+    throw new Error(`maxFacetHits must be less than or equal to ${MAX_FACET_HITS}`);
+  }
+  return Number(maxFacetHits);
 }
 
 function validateOptions(options: CreateInstantSearchClientOptions): void {
@@ -155,7 +340,7 @@ function validateOptions(options: CreateInstantSearchClientOptions): void {
 }
 
 function resolveIndexName(
-  request: InstantSearchSearchRequest,
+  request: { indexName?: string },
   options: CreateInstantSearchClientOptions,
 ): string {
   const indexName = request.indexName ?? options.defaultIndexName;
@@ -253,10 +438,6 @@ function validateHitsPerPage(hitsPerPage: unknown): void {
   }
 }
 
-function validateFacets(facets: unknown): void {
-  normalizeFacets(facets);
-}
-
 function validateFacetArray(facets: unknown): void {
   if (facets == null) return;
   if (!Array.isArray(facets) || facets.some((facet) => typeof facet !== "string")) {
@@ -274,7 +455,10 @@ function normalizeFacets(facets: unknown): string[] | undefined {
   return normalized as string[];
 }
 
-function validateHighlightTags(params: InstantSearchSearchParams): void {
+function validateHighlightTags(params: {
+  highlightPreTag?: string;
+  highlightPostTag?: string;
+}): void {
   const { highlightPreTag, highlightPostTag } = params;
   if (highlightPreTag == null && highlightPostTag == null) return;
 
@@ -764,8 +948,14 @@ function replaceHighlightMarkers(
   value: string,
   highlightPreTag: string,
   highlightPostTag: string,
+  sourcePreTag = "<b>",
+  sourcePostTag = "</b>",
 ): string {
-  return value.split("<b>").join(highlightPreTag).split("</b>").join(highlightPostTag);
+  return value
+    .split(sourcePreTag)
+    .join(highlightPreTag)
+    .split(sourcePostTag)
+    .join(highlightPostTag);
 }
 
 function mapFacets(

@@ -11,6 +11,8 @@ import (
 	"time"
 
 	"github.com/allyourbase/ayb/internal/migrate"
+	"github.com/allyourbase/ayb/internal/schema"
+	"github.com/allyourbase/ayb/internal/searchsettings"
 	"github.com/allyourbase/ayb/internal/searchsynonyms"
 	"github.com/jackc/pgx/v5/pgconn"
 )
@@ -54,11 +56,16 @@ func PlanImport(records []Record, opts ImportOptions) (*ImportPlan, error) {
 	}
 
 	target := buildTargetPlan(schema, schemaName, tableName)
+	settingsPlan := SettingsPlan{}
+	if opts.Settings != nil {
+		settingsPlan = MapAlgoliaSettings(*opts.Settings, schema)
+	}
 	return &ImportPlan{
 		Source:   SourceFacts{RecordCount: schema.RecordCount},
 		Schema:   schema,
 		Target:   target,
 		DryRun:   DryRunStats{TablesPlanned: 1, RecordsPlanned: schema.RecordCount},
+		Settings: settingsPlan,
 		Synonyms: synonymPlan,
 	}, nil
 }
@@ -73,7 +80,7 @@ func (m *Migrator) ImportRecords(ctx context.Context, records []Record) (*Import
 		return nil, err
 	}
 
-	if err := ensureTargetTableAbsent(ctx, m.db, plan.Target); err != nil {
+	if err := ValidateTargetAbsent(ctx, m.db, plan.Target); err != nil {
 		return nil, err
 	}
 	if m.opts.SynonymClient != nil {
@@ -104,8 +111,15 @@ func (m *Migrator) ImportRecords(ctx context.Context, records []Record) (*Import
 	if err := m.replaceSynonymGroups(ctx, tx, plan); err != nil {
 		return nil, err
 	}
+	if err := m.saveSearchSettings(ctx, tx, plan); err != nil {
+		return nil, err
+	}
 
-	stats := &ImportStats{Tables: 1, Records: inserted, DryRun: m.opts.DryRun, Synonyms: plan.Synonyms.Stats}
+	if !m.opts.DryRun {
+		notifySchemaReload(ctx, tx, m.progress)
+	}
+
+	stats := &ImportStats{Tables: 1, Records: inserted, DryRun: m.opts.DryRun, Settings: plan.Settings.Stats, Synonyms: plan.Synonyms.Stats}
 	if m.opts.DryRun {
 		return stats, nil
 	}
@@ -125,7 +139,29 @@ func (m *Migrator) replaceSynonymGroups(ctx context.Context, tx *sql.Tx, plan *I
 	return nil
 }
 
-func ensureTargetTableAbsent(ctx context.Context, db *sql.DB, target TargetPlan) error {
+func (m *Migrator) saveSearchSettings(ctx context.Context, tx *sql.Tx, plan *ImportPlan) error {
+	if len(plan.Settings.Settings.Attributes) == 0 && len(plan.Settings.Settings.CustomRanking) == 0 {
+		return nil
+	}
+	settings, err := searchsettings.ValidateForTable(searchsettingsTable(plan.Schema), plan.Settings.Settings)
+	if err != nil {
+		return fmt.Errorf("validating search settings for %s.%s: %w", plan.Target.SchemaName, plan.Target.TableName, err)
+	}
+	if err := searchsettings.SaveSQLTx(ctx, tx, plan.Target.SchemaName, plan.Target.TableName, settings); err != nil {
+		return fmt.Errorf("saving search settings for %s.%s: %w", plan.Target.SchemaName, plan.Target.TableName, err)
+	}
+	return nil
+}
+
+func notifySchemaReload(ctx context.Context, tx *sql.Tx, reporter migrate.ProgressReporter) {
+	if _, err := tx.ExecContext(ctx, schema.ReloadNotifySQL()); err != nil {
+		reporter.Warn(fmt.Sprintf("schema reload notification after algolia import failed: %v", err))
+	}
+}
+
+// ValidateTargetAbsent checks that the planned target table does not already
+// exist so dry-run and committed imports share the same preflight contract.
+func ValidateTargetAbsent(ctx context.Context, db *sql.DB, target TargetPlan) error {
 	rows, err := db.QueryContext(ctx, target.PreflightSQL)
 	if err == nil {
 		rows.Close()
@@ -377,94 +413,4 @@ func doubleValue(value any, columnName string) (any, error) {
 	default:
 		return nil, fmt.Errorf("field %s is not a numeric value", columnName)
 	}
-}
-
-// BuildAnalysisReport adapts the package plan into the shared migration report.
-func BuildAnalysisReport(plan *ImportPlan) *migrate.AnalysisReport {
-	if plan == nil {
-		return &migrate.AnalysisReport{SourceType: "Algolia"}
-	}
-	return &migrate.AnalysisReport{
-		SourceType:    "Algolia",
-		Tables:        plan.DryRun.TablesPlanned,
-		Records:       plan.Source.RecordCount,
-		SynonymGroups: plan.Synonyms.Stats.SupportedGroups,
-		Warnings:      synonymWarningMessages(plan.Synonyms.Stats),
-	}
-}
-
-// BuildValidationSummary compares source analysis with import stats.
-func BuildValidationSummary(report *migrate.AnalysisReport, stats *ImportStats) *migrate.ValidationSummary {
-	summary := &migrate.ValidationSummary{
-		SourceLabel: "Algolia (source)",
-		TargetLabel: "AYB (target)",
-	}
-	if report == nil {
-		report = &migrate.AnalysisReport{}
-	}
-	if stats == nil {
-		stats = &ImportStats{}
-	}
-	summary.Rows = append(summary.Rows,
-		migrate.ValidationRow{Label: "Tables", SourceCount: report.Tables, TargetCount: stats.Tables},
-		migrate.ValidationRow{Label: "Records", SourceCount: report.Records, TargetCount: stats.Records},
-	)
-	if report.SynonymGroups > 0 || stats.Synonyms.SupportedGroups > 0 || hasSynonymSkips(stats.Synonyms) {
-		summary.Rows = append(summary.Rows,
-			migrate.ValidationRow{Label: "Synonym groups", SourceCount: report.SynonymGroups, TargetCount: stats.Synonyms.SupportedGroups})
-	}
-	for _, row := range summary.Rows {
-		if row.SourceCount != row.TargetCount {
-			summary.Warnings = append(summary.Warnings,
-				fmt.Sprintf("%s count mismatch: source=%d target=%d", row.Label, row.SourceCount, row.TargetCount))
-		}
-	}
-	if stats.Skipped > 0 {
-		summary.Warnings = append(summary.Warnings,
-			fmt.Sprintf("%d records skipped during import", stats.Skipped))
-	}
-	if len(stats.Errors) > 0 {
-		summary.Warnings = append(summary.Warnings,
-			fmt.Sprintf("%d errors occurred during import", len(stats.Errors)))
-	}
-	summary.Warnings = append(summary.Warnings, synonymWarningMessages(stats.Synonyms)...)
-	return summary
-}
-
-func hasSynonymSkips(stats SynonymStats) bool {
-	return len(stats.SkippedUnsupportedTypes) > 0 ||
-		stats.SkippedInvalidGroups > 0 ||
-		stats.SkippedSettingsACL > 0 ||
-		stats.SkippedMalformedHits > 0
-}
-
-// CheckRecordParity uses live browse credentials when present and otherwise
-// compares fixture-backed source counts so normal tests never need secrets.
-func CheckRecordParity(ctx context.Context, cfg BrowseConfig, fixture []Record, targetRecords int) (ParityResult, error) {
-	source := "fixture"
-	sourceRecords := len(fixture)
-	if hasLiveBrowseCredentials(cfg) {
-		client, err := NewBrowseClient(cfg)
-		if err != nil {
-			return ParityResult{}, err
-		}
-		result, err := client.Browse(ctx)
-		if err != nil {
-			return ParityResult{}, err
-		}
-		source = "live"
-		sourceRecords = len(result.Records)
-	}
-	return ParityResult{
-		Source:        source,
-		SourceRecords: sourceRecords,
-		TargetRecords: targetRecords,
-		Match:         sourceRecords == targetRecords,
-	}, nil
-}
-
-func hasLiveBrowseCredentials(cfg BrowseConfig) bool {
-	return strings.TrimSpace(cfg.AppID) != "" &&
-		strings.TrimSpace(cfg.APIKey) != "" &&
-		strings.TrimSpace(cfg.IndexName) != ""
 }

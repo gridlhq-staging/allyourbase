@@ -7,7 +7,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/url"
 	"testing"
+	"time"
 
 	"github.com/allyourbase/ayb/internal/api"
 	"github.com/allyourbase/ayb/internal/config"
@@ -16,6 +18,95 @@ import (
 	"github.com/allyourbase/ayb/internal/server"
 	"github.com/allyourbase/ayb/internal/testutil"
 )
+
+func TestPersistedCustomRankingBreaksRelevanceTiesWithoutSortParam(t *testing.T) {
+	ctx := context.Background()
+	srv := setupPersistedCustomRankingTestServer(t, ctx, searchsettings.Settings{
+		CustomRanking: []searchsettings.CustomRanking{
+			{Column: "popularity", Order: searchsettings.RankingOrderDesc},
+		},
+	}, `
+		INSERT INTO posts (title, body, author_id, status, popularity, published_at) VALUES
+			('widget', 'same body', 1, 'published', 1, '2024-01-03T00:00:00Z'),
+			('widget', 'same body', 1, 'published', 99, '2024-01-01T00:00:00Z'),
+			('widget', 'same body', 1, 'published', 10, '2024-01-02T00:00:00Z')
+	`)
+
+	w := doRequest(t, srv, http.MethodGet, "/api/collections/posts/?search=widget&perPage=2", nil)
+	testutil.StatusCode(t, http.StatusOK, w.Code)
+	assertPopularityOrder(t, jsonItems(t, parseJSON(t, w)), 99, 10)
+
+	w = doRequest(t, srv, http.MethodGet, "/api/collections/posts/?search=widget&perPage=2&cursor=", nil)
+	testutil.StatusCode(t, http.StatusOK, w.Code)
+	body := parseJSON(t, w)
+	assertPopularityOrder(t, jsonItems(t, body), 99, 10)
+
+	cursor := jsonStr(t, body["nextCursor"])
+	w = doRequest(t, srv, http.MethodGet, "/api/collections/posts/?search=widget&perPage=2&cursor="+url.QueryEscape(cursor), nil)
+	testutil.StatusCode(t, http.StatusOK, w.Code)
+	assertPopularityOrder(t, jsonItems(t, parseJSON(t, w)), 1)
+}
+
+func TestNoPersistedCustomRankingFallsBackToDefault(t *testing.T) {
+	ctx := context.Background()
+	srv := setupPersistedCustomRankingTestServer(t, ctx, searchsettings.Settings{}, `
+		INSERT INTO posts (id, title, body, author_id, status, popularity, published_at) VALUES
+			(102, 'plainwidget', 'same body', 1, 'published', 99, '2024-01-01T00:00:00Z'),
+			(101, 'plainwidget', 'same body', 1, 'published', 10, '2024-01-02T00:00:00Z'),
+			(103, 'plainwidget', 'same body', 1, 'published', 1, '2024-01-03T00:00:00Z')
+	`)
+
+	w := doRequest(t, srv, http.MethodGet, "/api/collections/posts/?search=plainwidget", nil)
+	testutil.StatusCode(t, http.StatusOK, w.Code)
+	items := jsonItems(t, parseJSON(t, w))
+	assertRecordIDOrder(t, items, 101, 102, 103)
+	assertPopularityOrder(t, items, 10, 99, 1)
+}
+
+func TestMultiColumnCustomRankingChainOrder(t *testing.T) {
+	ctx := context.Background()
+	srv := setupPersistedCustomRankingTestServer(t, ctx, searchsettings.Settings{
+		CustomRanking: []searchsettings.CustomRanking{
+			{Column: "popularity", Order: searchsettings.RankingOrderDesc},
+			{Column: "published_at", Order: searchsettings.RankingOrderAsc},
+		},
+	}, `
+		INSERT INTO posts (title, body, author_id, status, popularity, published_at) VALUES
+			('chainwidget', 'same body', 1, 'published', 50, '2024-01-03T00:00:00Z'),
+			('chainwidget', 'same body', 1, 'published', 90, '2024-01-04T00:00:00Z'),
+			('chainwidget', 'same body', 1, 'published', 50, '2024-01-01T00:00:00Z'),
+			('chainwidget', 'same body', 1, 'published', 10, '2024-01-02T00:00:00Z')
+	`)
+
+	w := doRequest(t, srv, http.MethodGet, "/api/collections/posts/?search=chainwidget", nil)
+	testutil.StatusCode(t, http.StatusOK, w.Code)
+	items := jsonItems(t, parseJSON(t, w))
+	assertPopularityOrder(t, items, 90, 50, 50, 10)
+	assertTimestampInstant(t, items[1]["published_at"], "2024-01-01T00:00:00Z")
+	assertTimestampInstant(t, items[2]["published_at"], "2024-01-03T00:00:00Z")
+}
+
+func TestExplicitSortOverridesPersistedCustomRanking(t *testing.T) {
+	ctx := context.Background()
+	srv := setupPersistedCustomRankingTestServer(t, ctx, searchsettings.Settings{
+		CustomRanking: []searchsettings.CustomRanking{
+			{Column: "popularity", Order: searchsettings.RankingOrderDesc},
+		},
+	}, `
+		INSERT INTO posts (title, body, author_id, status, popularity, published_at) VALUES
+			('sortwidget', 'same body', 1, 'published', 10, '2024-01-03T00:00:00Z'),
+			('sortwidget', 'same body', 1, 'published', 99, '2024-01-01T00:00:00Z'),
+			('sortwidget', 'same body', 1, 'published', 1, '2024-01-02T00:00:00Z')
+	`)
+
+	w := doRequest(t, srv, http.MethodGet, "/api/collections/posts/?search=sortwidget&sort=popularity", nil)
+	testutil.StatusCode(t, http.StatusOK, w.Code)
+	assertPopularityOrder(t, jsonItems(t, parseJSON(t, w)), 1, 10, 99)
+
+	w = doRequest(t, srv, http.MethodGet, "/api/collections/posts/?search=sortwidget&sort=bogus", nil)
+	testutil.StatusCode(t, http.StatusOK, w.Code)
+	assertPopularityOrder(t, jsonItems(t, parseJSON(t, w)), 10, 99, 1)
+}
 
 func TestSearchRelevanceWeightedAttributesChangeOrdering(t *testing.T) {
 	ctx := context.Background()
@@ -248,4 +339,49 @@ func TestWeightedSearchPlanUsesSearchIndexAfterReload(t *testing.T) {
 	if len(explain) == 0 || !searchPlanUsesIndex(explain[0]["Plan"]) {
 		t.Fatalf("expected weighted search plan to use an index; predicate=%s plan: %s", whereSQL, string(raw))
 	}
+}
+
+func setupPersistedCustomRankingTestServer(t *testing.T, ctx context.Context, settings searchsettings.Settings, seedSQL string) *server.Server {
+	t.Helper()
+	_, _ = setupTestServer(t, ctx)
+
+	store := searchsettings.NewStore(sharedPG.Pool)
+	testutil.NoError(t, store.Save(ctx, "public", "posts", settings))
+	_, err := sharedPG.Pool.Exec(ctx, `
+		ALTER TABLE posts ADD COLUMN popularity INTEGER NOT NULL DEFAULT 0;
+		ALTER TABLE posts ADD COLUMN published_at TIMESTAMPTZ NOT NULL DEFAULT '2024-01-01T00:00:00Z';
+		DELETE FROM posts;
+	`+seedSQL)
+	testutil.NoError(t, err)
+
+	logger := testutil.DiscardLogger()
+	ch := schema.NewCacheHolder(sharedPG.Pool, logger)
+	api.RegisterSearchIndexPostReloadHook(ch, sharedPG.Pool, config.Default().API, logger)
+	testutil.NoError(t, ch.Load(ctx))
+	return server.New(config.Default(), logger, ch, sharedPG.Pool, nil, nil)
+}
+
+func assertPopularityOrder(t *testing.T, items []map[string]any, want ...float64) {
+	t.Helper()
+	testutil.Equal(t, len(want), len(items))
+	for i, expected := range want {
+		testutil.Equal(t, expected, jsonNum(t, items[i]["popularity"]))
+	}
+}
+
+func assertRecordIDOrder(t *testing.T, items []map[string]any, want ...float64) {
+	t.Helper()
+	testutil.Equal(t, len(want), len(items))
+	for i, expected := range want {
+		testutil.Equal(t, expected, jsonNum(t, items[i]["id"]))
+	}
+}
+
+func assertTimestampInstant(t *testing.T, got any, want string) {
+	t.Helper()
+	gotTime, err := time.Parse(time.RFC3339, jsonStr(t, got))
+	testutil.NoError(t, err)
+	wantTime, err := time.Parse(time.RFC3339, want)
+	testutil.NoError(t, err)
+	testutil.True(t, gotTime.Equal(wantTime), "got %s, want %s", gotTime, wantTime)
 }

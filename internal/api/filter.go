@@ -1,4 +1,4 @@
-// Package api Stub summary for /Users/stuart/parallel_development/allyourbase_dev/jun09_pm_5_search_disjunctive_facets_and_stats/allyourbase_dev/internal/api/filter.go.
+// Package api implements collection REST query parsing and execution.
 package api
 
 import (

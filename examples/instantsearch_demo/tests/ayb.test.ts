@@ -25,7 +25,7 @@ describe("instantsearch demo AYB bootstrap", () => {
       client: aybClientSpy.mock.instances[0],
       objectIDField: "slug",
       highlight: true,
-      disjunctiveFacets: ["category"],
+      disjunctiveFacets: ["category", "brand"],
     });
     expect(module.searchClient).toBe(createInstantSearchClientSpy.mock.results[0].value);
     expect(module.searchClient.search).toBe(createInstantSearchClientSpy.mock.results[0].value.search);

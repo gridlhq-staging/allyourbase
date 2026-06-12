@@ -28,6 +28,8 @@ The standard text search surface is:
 - `highlight=true` to request legacy `_highlight` snippets and `_highlightResult` metadata on matching rows
 - `filter=<expr>` for safe predicate narrowing
 - `facets=col_a,col_b` for facet buckets in the same response
+- `disjunctiveFacets=col_a` to compute a facet's counts with its own equality predicate removed, which supports OR/multi-select facet UIs
+- numeric facet stats (`facetStats`) for `min` / `max` bounds on requested numeric facets
 
 Vector and hybrid search are documented separately in [AI and Vector Search](/guide/ai-vector).
 
@@ -104,25 +106,63 @@ A dashboard editor for search settings is coming; for now configure via the admi
 
 ## Custom ranking (secondary sort)
 
-Algolia's `customRanking` pattern maps to AYB's existing `sort` parameter on the same search request. Search relevance stays first, and the custom sort only breaks ties between equally relevant rows.
-
-Use:
+Admins can persist a `customRanking` chain on the same search-settings endpoint used for per-attribute relevance weighting:
 
 ```text
-GET /api/collections/{table}?search=<term>&sort=-<column>
+GET /api/collections/{table}/search-settings
+PUT /api/collections/{table}/search-settings
+```
+
+Each `customRanking` entry names a rankable column and an `order` of `asc` or `desc`. The request and response keep the same `attributes` array from the relevance-weighting section and add `customRanking` beside it:
+
+```json
+{
+  "attributes": [
+    { "column": "title", "weight": "high" },
+    { "column": "body", "weight": "low" }
+  ],
+  "customRanking": [
+    { "column": "popularity", "order": "desc" },
+    { "column": "published_at", "order": "asc" }
+  ]
+}
+```
+
+Example update:
+
+```bash
+curl -s -X PUT "http://127.0.0.1:8090/api/collections/posts/search-settings" \
+  -H "Authorization: Bearer $AYB_ADMIN_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"attributes":[{"column":"title","weight":"high"},{"column":"body","weight":"low"}],"customRanking":[{"column":"popularity","order":"desc"},{"column":"published_at","order":"asc"}]}' | jq
+```
+
+Persisted `customRanking` is the default tie-break after `ts_rank_cd` relevance when the request has no `sort` parameter. Search relevance remains primary; the persisted chain only orders rows that have the same full-text rank.
+
+This request uses the persisted default:
+
+```text
+GET /api/collections/{table}?search=<term>
 ```
 
 Example:
 
 ```bash
-curl -s "http://127.0.0.1:8090/api/collections/posts?search=postgres&sort=-popularity" \
+curl -s "http://127.0.0.1:8090/api/collections/posts?search=postgres" \
   -H "Authorization: Bearer $AYB_TOKEN" | jq '.items'
 ```
 
-Multiple custom ranking columns chain through the existing comma-separated sort grammar:
+An explicit `?sort=` suppresses the persisted `customRanking` chain for that request only. Use it when a single list request needs a different tie-break while keeping the saved collection default for later searches:
 
 ```text
-?search=<term>&sort=-popularity,published_at
+GET /api/collections/{table}?search=<term>&sort=published_at
+```
+
+Example:
+
+```bash
+curl -s "http://127.0.0.1:8090/api/collections/posts?search=postgres&sort=published_at" \
+  -H "Authorization: Bearer $AYB_TOKEN" | jq '.items'
 ```
 
 For this beta, searchable-attribute weighting and custom ranking are API-only. Geo ranking, `distinct`, and query-rules-style behavior remain unsupported; see [Beta Limitations](/guide/beta-limitations) for the current boundary list.
@@ -233,6 +273,83 @@ Buckets are returned exactly as the backend grouped them:
 - `count` is the exact row count for that bucket inside the current result set
 - `null` buckets are valid and indicate matching rows where that column is null
 
+Numeric facets also return `facetStats` with exact `min` and `max` bounds for range widgets:
+
+```json
+{
+  "facetStats": {
+    "price_cents": { "min": 799, "max": 8999 }
+  }
+}
+```
+
+For multi-select OR facets, include the same column in `facets` and `disjunctiveFacets`. AYB evaluates the page query with the full filter, then evaluates that facet's buckets with the facet's own equality predicate removed:
+
+```bash
+curl -s "http://127.0.0.1:8090/api/collections/products?filter=category='books'&facets=category,brand&disjunctiveFacets=category" \
+  -H "Authorization: Bearer $AYB_TOKEN" | jq '{facets, facetStats}'
+```
+
+## Search facet values
+
+For searchable facet widgets (large category lists where the user types into the
+facet itself), use the dedicated facet-value search endpoint:
+
+```text
+GET /api/collections/{table}/facets/{column}/search
+```
+
+This is the owner of facet-value bucket search and is separate from the list
+endpoint's `facets=` per-value counts described above. It returns one column's
+buckets, optionally filtered by a typed prefix, and scoped to the same
+visibility predicates as the list endpoint. This path is for text facet columns:
+AYB rejects non-text columns up front, and `NULL` facet values are omitted from
+`facetHits`.
+
+Supported query parameters:
+
+- `q=<text>` — case-insensitive prefix match against the facet column. LIKE
+  metacharacters in `q` are escaped, so `q=50%` matches a literal `50%` prefix.
+- `search=<text>` — scopes the buckets to the same full-text search predicate
+  the list endpoint accepts, so values not present in the search result set are
+  filtered out.
+- `filter=<expr>` — scopes the buckets to the same filter predicate the list
+  endpoint accepts.
+- `maxFacetHits=<n>` — caps the returned `facetHits` array. It defaults to
+  `10`, must be greater than `0`, and cannot exceed `100`.
+
+Each `facetHits` entry returns:
+
+- `value` — the non-null text bucket value as stored.
+- `highlighted` — the same value with the matched prefix wrapped in literal
+  `<mark>...</mark>` tags by the backend. When `q` is empty, no `<mark>` tags
+  are added.
+- `count` — the exact row count for that bucket inside the current
+  `search`/`filter`-scoped result set.
+
+The envelope also carries `exhaustiveFacetsCount`, which is `false` only when
+the backend truncated the result set at `maxFacetHits`.
+
+```bash
+curl -s "http://127.0.0.1:8090/api/collections/products/facets/category/search?q=st&maxFacetHits=20" \
+  -H "Authorization: Bearer $AYB_TOKEN" | jq
+```
+
+Example response:
+
+```json
+{
+  "facetHits": [
+    { "value": "Stationery", "highlighted": "<mark>St</mark>ationery", "count": 3 }
+  ],
+  "exhaustiveFacetsCount": true
+}
+```
+
+Counts respect row-level security the same way the rest of search and faceting
+do; two users running the same `q`/`search`/`filter` combination can see
+different `count` values when their RLS policies expose different rows.
+
 ## Drill in with filters
 
 The usual drill-in pattern is:
@@ -264,6 +381,7 @@ That applies to:
 - returned `items`
 - `totalItems` and `totalPages`
 - each `facets.<column>[].count`
+- each `facetStats.<column>.min` / `facetStats.<column>.max`
 
 ## JavaScript SDK
 
@@ -281,6 +399,7 @@ const response = await ayb.records.list("posts", {
   highlight: true,
   filter: "status='published'",
   facets: ["status", "category"],
+  disjunctiveFacets: ["category"],
   perPage: 10,
 });
 
@@ -288,6 +407,7 @@ console.log(response.items);
 console.log(response.items[0]?._highlight);
 console.log(response.items[0]?._highlightResult?.title);
 console.log(response.facets?.status);
+console.log(response.facetStats);
 ```
 
 ## Admin Search view

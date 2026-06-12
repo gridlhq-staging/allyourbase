@@ -82,7 +82,19 @@ describe("0.2.0 release metadata", () => {
     expect(changelog).toContain("objectIDField");
     expect(changelog).toContain("records.list");
     expect(changelog).toContain("empty query");
+    expect(changelog).toContain("disjunctiveFacets");
+    expect(changelog).toContain("numericFilters");
+    expect(changelog).toContain("facetStats");
+    expect(changelog).toContain("facets_stats");
     expect(changelog).toContain("searchForFacetValues");
+    expect(changelog).toContain("searchFacetValues");
+    expect(changelog).toContain("facetHits");
+    expect(changelog).toContain("exhaustiveFacetsCount");
+    expect(changelog).toContain("/facets/{column}/search");
+    expect(changelog).not.toContain("nested/tag/range filters");
+    expect(changelog).not.toMatch(
+      /(?:reject|unsupported)[^.]*\bsearchForFacetValues\b/i,
+    );
 
     expect(readme).toContain("SearchHit");
     expect(readme).toContain("ayb.records.list<SearchHit");
@@ -93,11 +105,20 @@ describe("0.2.0 release metadata", () => {
     expect(readme).toContain("enrollPasskey");
     expect(readme).toContain("verifyPasskey");
     expect(readme).toContain("FacetCounts");
+    expect(readme).toContain("FacetValueSearchResponse");
     expect(readme).toContain("WebAuthnLoginBeginResponse");
     expect(readme).toContain("@allyourbase/js/instantsearch");
     expect(readme).toContain("createInstantSearchClient");
     expect(readme).toContain("objectIDField");
+    expect(readme).toContain("disjunctiveFacets");
+    expect(readme).toContain("numericFilters");
     expect(readme).toContain("facetFilters");
     expect(readme).toContain("searchForFacetValues");
+    expect(readme).toContain("searchFacetValues");
+    expect(readme).toContain("/facets/{column}/search");
+    expect(readme).not.toContain("numeric ranges");
+    expect(readme).not.toMatch(
+      /(?:reject|unsupported)[^.]*\bsearchForFacetValues\b/i,
+    );
   });
 });

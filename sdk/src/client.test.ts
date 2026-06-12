@@ -1090,6 +1090,59 @@ describe("records params coverage", () => {
     expect(params.get("nearest")).toBe("[0.1,0.2,0.3]");
   });
 
+  it("searchFacetValues sends correct path, query params, and decodes response", async () => {
+    const responseBody = {
+      facetHits: [
+        { value: "Acme", highlighted: "<mark>Ac</mark>me", count: 12 },
+        { value: "Acorn", highlighted: "<mark>Ac</mark>orn", count: 3 },
+      ],
+      exhaustiveFacetsCount: true,
+    };
+    const fetchFn = mockFetch(200, responseBody);
+    const client = new AYBClient("http://localhost:8090", { fetch: fetchFn });
+    const result = await client.records.searchFacetValues("products", "brand", {
+      q: "ac",
+      maxFacetHits: 3,
+      filter: "category='books'",
+      search: "guide",
+    });
+
+    const url = (fetchFn as ReturnType<typeof vi.fn>).mock.calls[0][0] as string;
+    expect(url).toContain("/api/collections/products/facets/brand/search?");
+    const parsed = new URL(url).searchParams;
+    expect(parsed.get("q")).toBe("ac");
+    expect(parsed.get("maxFacetHits")).toBe("3");
+    expect(parsed.get("filter")).toBe("category='books'");
+    expect(parsed.get("search")).toBe("guide");
+
+    expect(result.exhaustiveFacetsCount).toBe(true);
+    expect(result.facetHits).toHaveLength(2);
+    expect(result.facetHits[0]).toEqual({
+      value: "Acme",
+      highlighted: "<mark>Ac</mark>me",
+      count: 12,
+    });
+    expect(result.facetHits[1].value).toBe("Acorn");
+  });
+
+  it("searchFacetValues omits undefined params and uses no query string when bare", async () => {
+    const fetchFn = mockFetch(200, { facetHits: [], exhaustiveFacetsCount: true });
+    const client = new AYBClient("http://localhost:8090", { fetch: fetchFn });
+    await client.records.searchFacetValues("products", "brand");
+    const url = (fetchFn as ReturnType<typeof vi.fn>).mock.calls[0][0] as string;
+    expect(url).toBe("http://localhost:8090/api/collections/products/facets/brand/search");
+  });
+
+  it("searchFacetValues encodes collection and column as single path segments", async () => {
+    const fetchFn = mockFetch(200, { facetHits: [], exhaustiveFacetsCount: true });
+    const client = new AYBClient("http://localhost:8090", { fetch: fetchFn });
+    await client.records.searchFacetValues("posts/../../admin", "brand/../id", { q: "ac" });
+    const url = (fetchFn as ReturnType<typeof vi.fn>).mock.calls[0][0] as string;
+    expect(url).toContain(
+      "/api/collections/posts%2F..%2F..%2Fadmin/facets/brand%2F..%2Fid/search",
+    );
+  });
+
   it("list response includes typed facets envelope", async () => {
     const facetsPayload = { status: [{ value: "published", count: 2 }] };
     const fetchFn = mockFetch(200, {

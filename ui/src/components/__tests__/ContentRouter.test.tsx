@@ -6,7 +6,9 @@ import type { View } from "../layout-types";
 import { ContentRouter } from "../ContentRouter";
 
 vi.mock("../../api_admin", () => ({
+  getCollectionSearchSettings: vi.fn().mockResolvedValue({ attributes: [], customRanking: [] }),
   getCollectionSearchSynonyms: vi.fn().mockResolvedValue({ groups: [] }),
+  updateCollectionSearchSettings: vi.fn(),
   updateCollectionSearchSynonyms: vi.fn(),
 }));
 
@@ -77,10 +79,20 @@ describe("ContentRouter selected table views", () => {
     expect(screen.getByRole("button", { name: "Data" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Schema" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "SQL" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Search Settings" })).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "Synonyms" }));
 
     expect(onSetView).toHaveBeenCalledWith("synonyms");
+  });
+
+  it("renders the Search Settings tab and uses the existing onSetView path", async () => {
+    const user = userEvent.setup();
+    const { onSetView } = renderSelectedRouter();
+
+    await user.click(screen.getByRole("button", { name: "Search Settings" }));
+
+    expect(onSetView).toHaveBeenCalledWith("search-settings");
   });
 
   it("mounts the dedicated synonyms editor for the synonyms view", async () => {
@@ -88,6 +100,14 @@ describe("ContentRouter selected table views", () => {
 
     expect(
       await screen.findByRole("heading", { name: "Search synonyms for books" }),
+    ).toBeInTheDocument();
+  });
+
+  it("mounts the dedicated search settings editor for the search settings view", async () => {
+    renderSelectedRouter("search-settings");
+
+    expect(
+      await screen.findByRole("heading", { name: "Search settings for books" }),
     ).toBeInTheDocument();
   });
 

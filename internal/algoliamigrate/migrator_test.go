@@ -222,6 +222,125 @@ func TestBuildValidationSummaryReportsImportedSynonymCountMismatch(t *testing.T)
 	}
 }
 
+func TestImportStatsJSONIncludesSettingsStats(t *testing.T) {
+	t.Parallel()
+
+	stats := ImportStats{
+		Tables:  1,
+		Records: 3,
+		Settings: SettingsStats{
+			SupportedAttributes:    2,
+			SupportedCustomRanking: 1,
+			SkippedFacets:          3,
+		},
+	}
+	raw, err := json.Marshal(stats)
+	if err != nil {
+		t.Fatalf("Marshal ImportStats: %v", err)
+	}
+	if !strings.Contains(string(raw), `"settings"`) {
+		t.Fatalf("settings stats not present in JSON: %s", raw)
+	}
+	var decoded ImportStats
+	if err := json.Unmarshal(raw, &decoded); err != nil {
+		t.Fatalf("Unmarshal ImportStats: %v", err)
+	}
+	if decoded.Settings.SupportedAttributes != 2 {
+		t.Fatalf("settings supportedAttributes = %d, want 2", decoded.Settings.SupportedAttributes)
+	}
+	if decoded.Settings.SupportedCustomRanking != 1 {
+		t.Fatalf("settings supportedCustomRanking = %d, want 1", decoded.Settings.SupportedCustomRanking)
+	}
+	if decoded.Settings.SkippedFacets != 3 {
+		t.Fatalf("settings skippedFacets = %d, want 3", decoded.Settings.SkippedFacets)
+	}
+}
+
+func TestImportStatsJSONOmitsEmptySettingsStats(t *testing.T) {
+	t.Parallel()
+
+	raw, err := json.Marshal(ImportStats{Tables: 1, Records: 3})
+	if err != nil {
+		t.Fatalf("Marshal ImportStats: %v", err)
+	}
+	if strings.Contains(string(raw), `"settings"`) {
+		t.Fatalf("empty settings stats should be omitted from JSON: %s", raw)
+	}
+}
+
+func TestBuildAnalysisReportIncludesSettingsStats(t *testing.T) {
+	t.Parallel()
+
+	plan, err := PlanImport([]Record{
+		{"objectID": "one", "title": "Desk Lamp", "inventory_count": json.Number("42")},
+	}, ImportOptions{
+		TargetTable: "products",
+		Settings: &AlgoliaSettings{
+			SearchableAttributes:  []string{"title"},
+			CustomRanking:         []string{"desc(inventory_count)"},
+			AttributesForFaceting: []string{"tags"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("PlanImport: %v", err)
+	}
+
+	report := BuildAnalysisReport(plan)
+	if report.Records != 1 {
+		t.Fatalf("report records = %d, want 1", report.Records)
+	}
+	if report.SettingsAttributes == 0 {
+		t.Fatal("report should include settings attributes count")
+	}
+}
+
+func TestBuildValidationSummaryReportsSettingsSeparateFromRecords(t *testing.T) {
+	t.Parallel()
+
+	report := &migrate.AnalysisReport{
+		Tables:             1,
+		Records:            3,
+		SettingsAttributes: 2,
+		SettingsRanking:    1,
+	}
+	stats := &ImportStats{
+		Tables:  1,
+		Records: 3,
+		Settings: SettingsStats{
+			SupportedAttributes:    2,
+			SupportedCustomRanking: 1,
+			SkippedFacets:          2,
+		},
+	}
+	summary := BuildValidationSummary(report, stats)
+
+	hasSettings := false
+	for _, row := range summary.Rows {
+		if row.Label == "Settings attributes" {
+			hasSettings = true
+			if row.SourceCount != 2 || row.TargetCount != 2 {
+				t.Fatalf("settings attributes row = %#v", row)
+			}
+		}
+		if row.Label == "Records" && row.SourceCount != 3 {
+			t.Fatalf("records row should not be inflated by settings: %#v", row)
+		}
+	}
+	if !hasSettings {
+		t.Fatal("summary should include a Settings attributes row")
+	}
+
+	hasFacetSkip := false
+	for _, w := range summary.Warnings {
+		if strings.Contains(w, "facet") {
+			hasFacetSkip = true
+		}
+	}
+	if !hasFacetSkip {
+		t.Fatal("summary should include advisory facet skip warning")
+	}
+}
+
 func TestCheckRecordParityDefaultsToFixtureAndUsesLiveWhenConfigured(t *testing.T) {
 	t.Parallel()
 

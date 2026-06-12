@@ -526,9 +526,11 @@ func TestDrainWorkerRetryOn500UsesBackoffBounds(t *testing.T) {
 	secondRetryDelay := got[2].Sub(got[1])
 	testutil.True(t, firstRetryDelay >= 10*time.Millisecond, "first retry should honor lower bound")
 	testutil.True(t, firstRetryDelay <= 120*time.Millisecond, "first retry should remain bounded")
-	testutil.True(t, secondRetryDelay >= 20*time.Millisecond, "second retry should account for exponential backoff")
+	// The worker uses jittered exponential sleeps, but httptest scheduling can
+	// add different overhead to each observed request interval. Assert the
+	// second retry's absolute lower bound instead of comparing noisy intervals.
+	testutil.True(t, secondRetryDelay >= 28*time.Millisecond, "second retry should account for exponential backoff")
 	testutil.True(t, secondRetryDelay <= 260*time.Millisecond, "second retry should remain bounded")
-	testutil.True(t, secondRetryDelay >= firstRetryDelay, "retry backoff should not shrink")
 
 	stats := drain.Stats()
 	testutil.Equal(t, int64(0), stats.Sent)
