@@ -9,7 +9,7 @@ mission and scope.
 1. Keep core AYB server correctness stable across auth, API, realtime, storage,
    search, and operational runtime paths.
 2. Preserve automated validation as the release gate, including the completed
-   v0.0.11-beta GHCR runtime proof, the current allowlisted oversized Go-file baseline,
+   v0.0.12-beta release-prep validation, the current allowlisted oversized Go-file baseline,
    and the function-size guardrail has no allowlisted oversized functions at HEAD.
 3. Finish SDK and documentation parity gaps only when they are backed by tests,
    public docs, and implementation evidence.

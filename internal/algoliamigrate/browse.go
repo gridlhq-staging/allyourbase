@@ -1,3 +1,4 @@
+// Package algoliamigrate imports records and relevance settings from Algolia.
 package algoliamigrate
 
 import (
@@ -212,12 +213,7 @@ func algoliaGetJSON(ctx context.Context, algoliaReq algoliaJSONRequest) (*http.R
 
 func executeAlgoliaRequest(req *http.Request, algoliaReq algoliaJSONRequest) (*http.Response, error) {
 	setAlgoliaHeaders(req, algoliaReq.appID, algoliaReq.apiKey)
-	client := *algoliaReq.httpClient
-	// Never follow redirects with Algolia credentials attached.
-	client.CheckRedirect = func(*http.Request, []*http.Request) error {
-		return http.ErrUseLastResponse
-	}
-	resp, err := client.Do(req)
+	resp, err := algoliaReq.httpClient.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("algolia %s request failed: %w", algoliaReq.operation, err)
 	}

@@ -155,16 +155,16 @@ func DetectSource(from string) SourceType {
 
 // AnalysisReport summarizes what a migration will do, shown before proceeding.
 type AnalysisReport struct {
-	SourceType    string   `json:"sourceType"`
-	SourceInfo    string   `json:"sourceInfo"` // e.g., "PocketBase v0.22, SQLite 7.2 MB"
-	Tables        int      `json:"tables"`
-	Views         int      `json:"views"`
-	Records       int      `json:"records"`
-	AuthUsers     int      `json:"authUsers"`
-	OAuthLinks    int      `json:"oauthLinks"`
-	RLSPolicies   int      `json:"rlsPolicies"`
-	Files         int      `json:"files"`
-	FileSizeBytes int64    `json:"fileSizeBytes"`
+	SourceType         string   `json:"sourceType"`
+	SourceInfo         string   `json:"sourceInfo"` // e.g., "PocketBase v0.22, SQLite 7.2 MB"
+	Tables             int      `json:"tables"`
+	Views              int      `json:"views"`
+	Records            int      `json:"records"`
+	AuthUsers          int      `json:"authUsers"`
+	OAuthLinks         int      `json:"oauthLinks"`
+	RLSPolicies        int      `json:"rlsPolicies"`
+	Files              int      `json:"files"`
+	FileSizeBytes      int64    `json:"fileSizeBytes"`
 	SynonymGroups      int      `json:"synonymGroups,omitempty"`
 	SettingsAttributes int      `json:"settingsAttributes,omitempty"`
 	SettingsRanking    int      `json:"settingsRanking,omitempty"`

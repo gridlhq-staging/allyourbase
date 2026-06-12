@@ -251,11 +251,11 @@ async function assertRawFacetValueSearchContract(apiURL) {
   const emptyResponse = await fetchFacetValueSearch(apiURL, "");
   assert.deepEqual(emptyResponse, {
     facetHits: [
-      { value: "Kitchen", highlighted: "Kitchen", count: 3 },
-      { value: "Lighting", highlighted: "Lighting", count: 3 },
-      { value: "Office", highlighted: "Office", count: 3 },
-      { value: "Stationery", highlighted: "Stationery", count: 3 },
-      { value: "Travel", highlighted: "Travel", count: 2 },
+      { value: "Kitchen", highlighted: "Kitchen", count: 4 },
+      { value: "Lighting", highlighted: "Lighting", count: 4 },
+      { value: "Office", highlighted: "Office", count: 4 },
+      { value: "Stationery", highlighted: "Stationery", count: 4 },
+      { value: "Travel", highlighted: "Travel", count: 4 },
     ],
     exhaustiveFacetsCount: true,
   });
@@ -263,7 +263,7 @@ async function assertRawFacetValueSearchContract(apiURL) {
   const prefixResponse = await fetchFacetValueSearch(apiURL, "st");
   assert.deepEqual(prefixResponse, {
     facetHits: [
-      { value: "Stationery", highlighted: "<mark>St</mark>ationery", count: 3 },
+      { value: "Stationery", highlighted: "<mark>St</mark>ationery", count: 4 },
     ],
     exhaustiveFacetsCount: true,
   });
@@ -271,7 +271,7 @@ async function assertRawFacetValueSearchContract(apiURL) {
   const singleHitResponse = await fetchFacetValueSearch(apiURL, "T");
   assert.deepEqual(singleHitResponse, {
     facetHits: [
-      { value: "Travel", highlighted: "<mark>T</mark>ravel", count: 2 },
+      { value: "Travel", highlighted: "<mark>T</mark>ravel", count: 4 },
     ],
     exhaustiveFacetsCount: true,
   });
@@ -306,7 +306,7 @@ async function assertAdapterFacetValueSearchContract(searchClient) {
     {
       value: "Stationery",
       highlighted: "__ais-highlight__St__/ais-highlight__ationery",
-      count: 3,
+      count: 4,
     },
   ]);
   assert.equal(typeof defaultResult.processingTimeMS, "number");
@@ -327,7 +327,7 @@ async function assertAdapterFacetValueSearchContract(searchClient) {
     {
       value: "Stationery",
       highlighted: "<mark>St</mark>ationery",
-      count: 3,
+      count: 4,
     },
   ]);
 
@@ -342,11 +342,11 @@ async function assertAdapterFacetValueSearchContract(searchClient) {
   assert.deepEqual(
     emptyResult.facetHits.map((hit) => [hit.value, hit.count, hit.highlighted]),
     [
-      ["Kitchen", 3, "Kitchen"],
-      ["Lighting", 3, "Lighting"],
-      ["Office", 3, "Office"],
-      ["Stationery", 3, "Stationery"],
-      ["Travel", 2, "Travel"],
+      ["Kitchen", 4, "Kitchen"],
+      ["Lighting", 4, "Lighting"],
+      ["Office", 4, "Office"],
+      ["Stationery", 4, "Stationery"],
+      ["Travel", 4, "Travel"],
     ],
   );
 

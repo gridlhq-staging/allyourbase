@@ -33,6 +33,7 @@
 | `schema` | content-verified | not | N/A | not | schema-view |
 | `sql` | content-verified | exists | yes | not | sql-view, sql-lifecycle |
 | `synonyms` | content-verified | exists | yes | not | collection_synonyms_editor |
+| `search-settings` | content-verified | exists | yes | not | collection_search_settings_editor |
 | `webhooks` | content-verified | exists | yes | exists | webhooks-crud, webhooks-lifecycle, dashboard-webhook-delivery-journey (secondary), webhooks-error-flows (mocked) |
 | `storage` | content-verified | exists | yes | exists | storage-upload, storage-lifecycle, storage-error-flows (mocked) |
 | `sites` | content-verified | exists | yes | not | sites-hosting, sites-lifecycle (view-level Sites coverage; deploy subflow row status lives in `_dev/AUDIT_LEDGER.md` `R25`-`R31`) |
@@ -87,14 +88,14 @@
 
 | Metric | Count |
 |---|---|
-| Total views | 53 |
+| Total views | 54 |
 | Smoke = none | 0 |
 | Smoke = heading-only | 0 |
-| Smoke = content-verified | 53 |
-| All views with smoke coverage | 53/53 (100%) |
-| Views with full lifecycle specs | 49 |
+| Smoke = content-verified | 54 |
+| All views with smoke coverage | 54/54 (100%) |
+| Views with full lifecycle specs | 50 |
 | CRUD-capable views missing full lifecycle | 0 |
-| Views missing mocked coverage | 28 |
+| Views missing mocked coverage | 29 |
 
 ## Stage Gap Lists
 
@@ -104,7 +105,7 @@
 
 ### Stage 4 — Admin views with no smoke spec
 
-**COMPLETED.** All 53 views (49 admin + 4 data) now have smoke coverage. Admin views closed in commits `330fd97`–`be00895`; data views `schema`, `sql`, and `synonyms` closed in `2a2c6aa` plus `collection_synonyms_editor`; `search` is covered by `search-playground-journey`.
+**COMPLETED.** All 54 views (49 admin + 5 data) now have smoke coverage. Admin views closed in commits `330fd97`–`be00895`; data views `schema`, `sql`, and `synonyms` closed in `2a2c6aa` plus `collection_synonyms_editor`, `search-settings` is covered by `collection_search_settings_editor`, and `search` is covered by `search-playground-journey`.
 
 #### Stage 4 upgrade pass — 14 weak smoke specs upgraded to content-verified quality
 
@@ -171,7 +172,7 @@ The previously tracked Stage 5 closeout remains true for the original 22-row aud
 
 ### Stage 6 — Views missing mocked coverage
 
-28 views remaining. 10 highest-priority mutation surfaces now covered:
+29 views remaining. 10 highest-priority mutation surfaces now covered:
 `api-keys`, `oauth-clients`, `webhooks`, `storage`, `secrets`, `sql-editor`, `notifications`, `support-tickets`, `incidents`, `fdw`.
 
 ## Prioritization (product-surface-first)

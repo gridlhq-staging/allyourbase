@@ -1,5 +1,9 @@
 # Implemented
 
+### v0.0.12-beta — L1-L7 search relevance release prep (jun10_pm)
+
+v0.0.12-beta packages the jun10_pm release-prep closeout for the current search-relevance wave. Existing owners remain the source of truth: leaked worktree path cleanup and guard coverage is recorded in the v0.0.11-beta closeout below; persisted custom ranking lives in `internal/searchsettings/settings.go`; facet-value search lives in `internal/api/facet_value_search.go`; typed JavaScript search settings and synonym management live in `sdk/src/search_settings.ts`; InstantSearch adapter depth, including searchable facet values, lives in `sdk/src/instantsearch.ts`; the dashboard Search Settings UI lives in `ui/src/components/SearchSettingsEditor.tsx`; and Algolia relevance-settings import is owned by `internal/algoliamigrate/*settings*`.
+
 ### L5 — Typed JavaScript SDK search settings and synonyms (jun10_pm)
 
 `JUN10-TYPED-SDK-SEARCH-SETTINGS-SYNONYMS` closed the JavaScript SDK public surface for persisted collection search settings and synonym management on 2026-06-11. The canonical SDK owner is `sdk/src/search_settings.ts`, wired as `AYBClient.searchSettings` and covered by `sdk/src/search_settings.test.ts` for encoded trailing-slash admin routes and exact JSON request bodies. Live contract proof lives in `sdk/src/integration.search_settings.test.ts` against the backend admin routes `GET/PUT /api/collections/{table}/search-settings/` and `GET/PUT /api/collections/{table}/synonyms/`. Public documentation lives in `docs-site/guide/javascript-sdk.md`, which documents `getSearchSettings`, `setSearchSettings`, `getSynonyms`, `setSynonyms`, the exported `SearchSettings`/`SearchableAttribute`/`CustomRankingTie` settings shape, and the `{ groups: [{ terms }] }` synonym envelope.

@@ -45,7 +45,7 @@ describe("PerformanceAdvisor", () => {
     render(<PerformanceAdvisor />);
 
     await screen.findByText("Performance Advisor");
-    expect(screen.getByText(/fp1/i)).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: /fp1/i })).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: /fp1/i }));
     expect(screen.getByText(/select \* from posts/i)).toBeInTheDocument();

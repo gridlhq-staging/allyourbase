@@ -8,6 +8,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+### Changed
+
+### Fixed
+
+## [0.0.12-beta] - 2026-06-10
+
+### Added
+
 - Dashboard collection Search Settings UI now edits weighted searchable attributes and custom-ranking order.
 - `ayb migrate algolia --include-settings` fetches Algolia index search settings and persists `searchableAttributes` as AYB search attribute weights and `customRanking` as persisted secondary sort through the existing `GET/PUT /api/collections/{table}/search-settings` owner; `attributesForFaceting` are reported as advisory-only skips.
 - Persisted `customRanking` on `GET/PUT /api/collections/{table}/search-settings` now provides the default tie-break after search relevance, while a request-level `?sort=` overrides that saved ranking chain for that one request.
