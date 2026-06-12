@@ -2,6 +2,7 @@ package codehealth
 
 import (
 	"bufio"
+	"errors"
 	"fmt"
 	"io/fs"
 	"os"
@@ -65,7 +66,11 @@ func TestLeakedPathsGuardCatchesPlantedLeak(t *testing.T) {
 func TestNoLeakedWorktreePaths(t *testing.T) {
 	t.Parallel()
 
-	findings, err := scanLeakedPaths(findRepoRoot(t))
+	root := findRepoRoot(t)
+	if _, err := os.Stat(filepath.Join(root, ".debbie.toml")); errors.Is(err, fs.ErrNotExist) {
+		t.Skip(".debbie.toml absent (public mirror layout); leak guard runs on the dev source")
+	}
+	findings, err := scanLeakedPaths(root)
 	if err != nil {
 		t.Fatalf("scan leaked paths failed: %v", err)
 	}
