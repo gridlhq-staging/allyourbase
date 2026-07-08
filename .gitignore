@@ -176,7 +176,6 @@ composer.lock
 **/package-lock.json
 !sdk/package-lock.json
 !examples/kanban/package-lock.json
-!examples/instantsearch_demo/package-lock.json
 !examples/live-polls/package-lock.json
 !examples/movies/package-lock.json
 !tests/e2e/package-lock.json

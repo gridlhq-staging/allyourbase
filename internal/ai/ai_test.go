@@ -202,6 +202,11 @@ func TestResolveProviderBYOKKeyPrecedence(t *testing.T) {
 }
 
 func TestNewProviderFromConfigMissingKeyErrors(t *testing.T) {
+	// Isolate from ambient provider keys: NewProviderFromConfig falls back to
+	// os.Getenv(<PROVIDER>_API_KEY), so a real key in the environment would
+	// make these missing-key assertions pass a provider through.
+	t.Setenv("OPENAI_API_KEY", "")
+	t.Setenv("ANTHROPIC_API_KEY", "")
 	_, err := NewProviderFromConfig("openai", config.ProviderConfig{}, nil)
 	if err == nil {
 		t.Fatal("expected error for missing OpenAI key")
@@ -450,6 +455,32 @@ func TestOllamaProviderSuccess(t *testing.T) {
 		if r.Header.Get("Authorization") != "" {
 			t.Error("Ollama should not send Authorization")
 		}
+		var got struct {
+			Model   string `json:"model"`
+			Stream  bool   `json:"stream"`
+			Options *struct {
+				NumPredict  *int     `json:"num_predict"`
+				Temperature *float64 `json:"temperature"`
+			} `json:"options"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&got); err != nil {
+			t.Fatalf("decode request: %v", err)
+		}
+		if got.Model != "llama3" {
+			t.Errorf("model = %q; want llama3", got.Model)
+		}
+		if got.Stream {
+			t.Error("stream = true; want false")
+		}
+		if got.Options == nil {
+			t.Fatal("options is nil")
+		}
+		if got.Options.NumPredict == nil || *got.Options.NumPredict != 7 {
+			t.Fatalf("options.num_predict = %v; want 7", got.Options.NumPredict)
+		}
+		if got.Options.Temperature == nil || *got.Options.Temperature != 0 {
+			t.Fatalf("options.temperature = %v; want 0", got.Options.Temperature)
+		}
 
 		json.NewEncoder(w).Encode(map[string]any{
 			"model":             "llama3",
@@ -462,9 +493,12 @@ func TestOllamaProviderSuccess(t *testing.T) {
 	defer srv.Close()
 
 	p := NewOllamaProvider(srv.URL)
+	temperature := 0.0
 	resp, err := p.GenerateText(context.Background(), GenerateTextRequest{
-		Model:    "llama3",
-		Messages: []Message{TextMessage("user", "Hello")},
+		Model:       "llama3",
+		Messages:    []Message{TextMessage("user", "Hello")},
+		MaxTokens:   7,
+		Temperature: &temperature,
 	})
 	if err != nil {
 		t.Fatalf("GenerateText: %v", err)

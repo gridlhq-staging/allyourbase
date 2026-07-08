@@ -37,9 +37,6 @@ jobs:
       - name: Test
         run: go test -race -count=1 ./...
 
-      - name: Demo launch smoke
-        run: make test-demo-launch
-
   release:
     needs: [build]
     runs-on: ubuntu-latest

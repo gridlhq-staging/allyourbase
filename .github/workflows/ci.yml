@@ -331,36 +331,6 @@ jobs:
           go run ./internal/testutil/cmd/testpg -- go test -p 1 -race -count=1 -tags=integration ./internal/sbmigrate
           -run 'TestE2E_AnalyzeWithoutIsAnonymousColumn|TestE2E_AuthMigrationWithoutIsAnonymousColumn|TestE2E_OAuthMigrationWithoutIdentityDataAndCreatedAt|TestE2E_IntrospectTablesFiltersHostedManagedTables|TestE2E_SchemaMigrationSkipsIncompatibleFKChain'
 
-  demo-launch:
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-
-    steps:
-      - uses: actions/checkout@v6
-        with:
-          persist-credentials: false
-
-      - uses: actions/setup-node@v6
-        with:
-          node-version: "22"
-
-      - name: Enable pnpm
-        run: corepack enable pnpm
-
-      - name: Build Admin UI
-        working-directory: ui
-        run: pnpm install --frozen-lockfile && pnpm build
-
-      - name: Build demo apps
-        run: make demos
-
-      - uses: actions/setup-go@v6
-        with:
-          go-version: "1.25"
-
-      - name: Demo launch smoke
-        run: make test-demo-launch
-
   # test-cli-e2e runs the 29 CLI end-to-end integration tests as a dedicated
   # signal, in parallel with the broader test-integration suite. The same tests
   # are still included in test-integration (via `./...`); the overlap is

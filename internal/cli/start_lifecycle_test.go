@@ -431,7 +431,7 @@ func TestResolveDemoJWTSecretGeneratesRandomHexWhenUnset(t *testing.T) {
 }
 
 func TestDemoServerStartEnvEnablesAnonymousAuth(t *testing.T) {
-	env := demoServerStartEnv("demo-secret-that-is-at-least-32-bytes", "live-polls", demoDefaultServerPort)
+	env := demoServerStartEnv("demo-secret-that-is-at-least-32-bytes", "live-polls")
 	values := map[string]string{}
 	for _, item := range env {
 		if key, value, ok := strings.Cut(item, "="); ok {

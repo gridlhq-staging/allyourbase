@@ -1,0 +1,114 @@
+name: AI Contract
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 14 * * 1"
+
+permissions:
+  contents: read
+
+jobs:
+  ai-contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version: "1.25"
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "24"
+
+      - name: Install Ollama
+        run: curl -fsSL https://ollama.com/install.sh | sh
+
+      - name: Start Ollama
+        run: |
+          nohup ollama serve > /tmp/ollama.log 2>&1 &
+          echo "OLLAMA_PID=$!" >> "$GITHUB_ENV"
+
+          for _ in {1..60}; do
+            if curl -fsS http://localhost:11434/api/tags > /tmp/ollama-health.log 2>&1; then
+              exit 0
+            fi
+            sleep 2
+          done
+
+          echo "Ollama did not become healthy at http://localhost:11434" >&2
+          cat /tmp/ollama.log >&2
+          exit 1
+
+      - name: Pull Ollama contract models
+        run: |
+          ollama pull llama3.2:1b 2>&1 | tee /tmp/ollama-pull-llama.log
+          ollama pull nomic-embed-text 2>&1 | tee /tmp/ollama-pull-embed.log
+
+      - name: Probe Anthropic contract model
+        run: |
+          if [ -z "${ANTHROPIC_API_KEY:-}" ]; then
+            echo "ANTHROPIC_API_KEY secret is required for the AI contract lane." >&2
+            exit 1
+          fi
+
+          selected_model=""
+          for candidate_model in claude-haiku-4-5 claude-haiku-4-5-20251001 claude-sonnet-5 claude-fable-5; do
+            node - "$candidate_model" > /tmp/anthropic-probe-body.json <<'NODE'
+          const model = process.argv[2];
+          process.stdout.write(JSON.stringify({
+            model,
+            max_tokens: 8,
+            messages: [{ role: "user", content: "Reply OK." }],
+          }));
+          NODE
+
+            status="$(
+              curl -sS https://api.anthropic.com/v1/messages \
+                -H "x-api-key: ${ANTHROPIC_API_KEY}" \
+                -H "anthropic-version: 2023-06-01" \
+                -H "content-type: application/json" \
+                -d @/tmp/anthropic-probe-body.json \
+                -o "/tmp/anthropic-probe-${candidate_model}.json" \
+                -w "%{http_code}"
+            )"
+            if [ "$status" = "200" ]; then
+              selected_model="$candidate_model"
+              break
+            fi
+            echo "Anthropic probe status for ${candidate_model}: ${status}" >&2
+          done
+
+          if [ -z "$selected_model" ]; then
+            echo "No Anthropic candidate model passed the live Messages API probe." >&2
+            exit 1
+          fi
+
+          printf 'AYB_AICONTRACT_ANTHROPIC_MODEL=%s\n' "$selected_model" >> "$GITHUB_ENV"
+
+      - name: Run AI contract tests
+        run: go run ./internal/testutil/cmd/testpg -- go tool gotestsum --jsonfile /tmp/aicontract.json -- -tags=integration,aicontract -count=1 -run 'Contract' ./internal/ai/ ./internal/server/
+
+      - name: Check required AI contract tests
+        if: always()
+        run: bash scripts/check-aicontract-gotestsum.sh /tmp/aicontract.json
+
+      - name: Upload AI contract failure artifacts
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: ai-contract-artifacts
+          path: |
+            /tmp/aicontract.json
+            /tmp/ollama.log
+            /tmp/ollama-health.log
+            /tmp/ollama-pull-*.log
+            /tmp/anthropic-*.json
+          if-no-files-found: warn

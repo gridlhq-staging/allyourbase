@@ -37,6 +37,15 @@ func (p *OllamaProvider) GenerateText(ctx context.Context, req GenerateTextReque
 		Messages: messages,
 		Stream:   false,
 	}
+	if req.MaxTokens > 0 || req.Temperature != nil {
+		body.Options = &ollamaOptions{}
+		if req.MaxTokens > 0 {
+			body.Options.NumPredict = &req.MaxTokens
+		}
+		if req.Temperature != nil {
+			body.Options.Temperature = req.Temperature
+		}
+	}
 
 	payload, err := json.Marshal(body)
 	if err != nil {
@@ -113,6 +122,12 @@ type ollamaRequest struct {
 	Model    string          `json:"model"`
 	Messages []ollamaMessage `json:"messages"`
 	Stream   bool            `json:"stream"`
+	Options  *ollamaOptions  `json:"options,omitempty"`
+}
+
+type ollamaOptions struct {
+	NumPredict  *int     `json:"num_predict,omitempty"`
+	Temperature *float64 `json:"temperature,omitempty"`
 }
 
 type ollamaMessage struct {

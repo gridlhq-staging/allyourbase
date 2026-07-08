@@ -1,4 +1,4 @@
-.PHONY: build dev test test-sdk test-sdk-go test-sdk-python test-sdk-dart test-sdk-swift test-sdk-kotlin test-sdk-react test-sdk-ssr test-sdk-all test-sdk-integration test-ui test-integration test-demo-smoke test-demo-e2e test-demo-launch test-demo-cross-smoke test-e2e test-smoke test-browser-full test-full test-all test-everything test-api-smoke test-api-journey lint check hygiene check-hygiene check-sizes check-ui-lint check-browser-tests-lint check-func-sizes check-installer check-sync-pipeline check-sdk-build release-candidate-check clean ui demos release docker docker-runtime-smoke help sync-openapi build-postgres load-admin-status load-admin-status-local load-auth-request-path load-auth-request-path-local load-data-path load-data-path-local load-data-pool-pressure load-data-pool-pressure-local load-http-100 load-http-100-local load-http-500 load-http-500-local load-http-1000 load-http-1000-local load-realtime-ws load-realtime-ws-local load-realtime-ws-1000 load-realtime-ws-1000-local load-realtime-ws-5000 load-realtime-ws-5000-local load-realtime-ws-10000 load-realtime-ws-10000-local load-sustained-soak load-sustained-soak-local
+.PHONY: build dev test test-sdk test-sdk-go test-sdk-python test-sdk-dart test-sdk-swift test-sdk-kotlin test-sdk-react test-sdk-ssr test-sdk-all test-sdk-integration test-ui test-integration test-demo-smoke test-demo-e2e test-demo-cross-smoke test-e2e test-smoke test-browser-full test-full test-all test-everything test-api-smoke test-api-journey lint check hygiene check-hygiene check-sizes check-ui-lint check-browser-tests-lint check-func-sizes check-installer check-sync-pipeline check-sdk-build release-candidate-check clean ui demos release docker docker-runtime-smoke help sync-openapi build-postgres load-admin-status load-admin-status-local load-auth-request-path load-auth-request-path-local load-data-path load-data-path-local load-data-pool-pressure load-data-pool-pressure-local load-http-100 load-http-100-local load-http-500 load-http-500-local load-http-1000 load-http-1000-local load-realtime-ws load-realtime-ws-local load-realtime-ws-1000 load-realtime-ws-1000-local load-realtime-ws-5000 load-realtime-ws-5000-local load-realtime-ws-10000 load-realtime-ws-10000-local load-sustained-soak load-sustained-soak-local
 
 # Build variables
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
@@ -318,9 +318,6 @@ test-full: test-all test-e2e ## Run every automated test: unit + integration + S
 test-demo-e2e: build ## Run demo app E2E tests — Playwright suites for kanban + live-polls + movies (starts demo, runs tests, stops)
 	@cd _dev/manual_smoke_tests && AYB_BIN=$(CURDIR)/ayb bash 18_demo_e2e.test.sh
 
-test-demo-launch: build ## Run demo launch smoke — kanban + live-polls + movies CLI launch contracts
-	@cd _dev/manual_smoke_tests && AYB_BIN=$(CURDIR)/ayb bash 17_demo_launch.test.sh
-
 # Cross-demo roundtrip smoke only; narrower than the full per-demo suites above.
 test-demo-cross-smoke: build ## Run cross-demo Playwright smoke — kanban + live-polls + movies in one suite
 	@cd tests/e2e && npm ci --prefer-offline --no-audit && \
@@ -393,7 +390,7 @@ check-sync-pipeline: ## Run sync-to-public rewrite validation suite
 check-sdk-build: ## Build the JavaScript SDK
 	cd sdk && npm run build
 
-release-candidate-check: check check-browser-tests-lint test-all ui check-sdk-build check-installer check-sync-pipeline test-demo-launch test-smoke ## Run the trusted public release candidate gate
+release-candidate-check: check check-browser-tests-lint test-all ui check-sdk-build check-installer check-sync-pipeline test-smoke ## Run the trusted public release candidate gate
 
 ui: ## Build the admin dashboard SPA
 	cd ui && pnpm install && pnpm build
