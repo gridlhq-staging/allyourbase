@@ -29,19 +29,19 @@ sh /tmp/ayb-install.sh
 
 ### Binary download
 
-Download the latest release from [GitHub Releases](https://github.com/griddlehq/allyourbase/releases) for your OS and architecture.
+Download the latest release from [GitHub Releases](https://github.com/AllyourbaseHQ/allyourbase/releases) for your OS and architecture.
 
 ### From source
 
 ```bash
-git clone https://github.com/griddlehq/allyourbase.git
+git clone https://github.com/AllyourbaseHQ/allyourbase.git
 cd allyourbase
 make build
 ```
 
 ### Docker
 
-Public multi-arch images are published at `ghcr.io/griddlehq/allyourbase`; see [Deployment](/guide/deployment) for Docker run examples and source-build fallback commands.
+Public multi-arch images are published at `ghcr.io/allyourbasehq/allyourbase`; see [Deployment](/guide/deployment) for Docker run examples and source-build fallback commands.
 
 ## Start the server
 

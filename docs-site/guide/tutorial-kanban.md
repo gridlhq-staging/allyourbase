@@ -4,7 +4,7 @@
 
 Build a collaborative Kanban board (Trello-lite) with Allyourbase. This tutorial exercises all major features: REST API, Auth, Realtime SSE, Row-Level Security, and foreign key relationships.
 
-**Source code:** [examples/kanban/](https://github.com/griddlehq/allyourbase/tree/main/examples/kanban)
+**Source code:** [examples/kanban/](https://github.com/AllyourbaseHQ/allyourbase/tree/main/examples/kanban)
 
 ## What You'll Build
 

@@ -7,7 +7,7 @@ Explore the live demo landing page at [https://demo.allyourbase.io](https://demo
 A collaborative Kanban board demo that shows realtime board workflows built on AYB.
 
 - Deployed app: [https://kanban.demo.allyourbase.io](https://kanban.demo.allyourbase.io)
-- Source: [github.com/griddlehq/allyourbase/examples/kanban](https://github.com/griddlehq/allyourbase/tree/main/examples/kanban)
+- Source: [github.com/AllyourbaseHQ/allyourbase/examples/kanban](https://github.com/AllyourbaseHQ/allyourbase/tree/main/examples/kanban)
 
 ```bash
 ayb demo kanban
@@ -30,7 +30,7 @@ For the full step-by-step build walkthrough, see [Tutorial: Realtime Kanban Boar
 A realtime polling demo for creating polls and streaming live vote results to connected clients.
 
 - Deployed app: [https://polls.demo.allyourbase.io](https://polls.demo.allyourbase.io)
-- Source: [github.com/griddlehq/allyourbase/examples/live-polls](https://github.com/griddlehq/allyourbase/tree/main/examples/live-polls)
+- Source: [github.com/AllyourbaseHQ/allyourbase/examples/live-polls](https://github.com/AllyourbaseHQ/allyourbase/tree/main/examples/live-polls)
 
 ```bash
 ayb demo live-polls
@@ -50,7 +50,7 @@ What it shows:
 A vector-search demo that combines semantic movie search, note embedding, and BYOK chat over retrieved context.
 
 - Deployed app: [https://movies.demo.allyourbase.io](https://movies.demo.allyourbase.io)
-- Source: [github.com/griddlehq/allyourbase/examples/movies](https://github.com/griddlehq/allyourbase/tree/main/examples/movies)
+- Source: [github.com/AllyourbaseHQ/allyourbase/examples/movies](https://github.com/AllyourbaseHQ/allyourbase/tree/main/examples/movies)
 
 ```bash
 ayb demo movies
@@ -64,4 +64,4 @@ What it shows:
 - Streaming chat responses over retrieved movie context
 - BYOK provider-key flows for AI provider integration
 
-- Scope: this demo indexes the deterministic seed corpus in [`examples/movies/seed.sql`](https://github.com/griddlehq/allyourbase/blob/main/examples/movies/seed.sql) with exactly three records (Inception, Arrival, Moonlight). It is intentionally small and illustrative, not a production search index.
+- Scope: this demo indexes the deterministic seed corpus in [`examples/movies/seed.sql`](https://github.com/AllyourbaseHQ/allyourbase/blob/main/examples/movies/seed.sql) with exactly three records (Inception, Arrival, Moonlight). It is intentionally small and illustrative, not a production search index.

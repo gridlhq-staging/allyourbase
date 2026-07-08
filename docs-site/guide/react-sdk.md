@@ -18,7 +18,7 @@ The `@allyourbase/react` package provides React primitives on top of `@allyourba
 Preview — install from source. Registry publishing is tracked for GA.
 
 ```bash
-git clone https://github.com/griddlehq/allyourbase.git
+git clone https://github.com/AllyourbaseHQ/allyourbase.git
 cd allyourbase/sdk && npm install && npm run build
 cd ../sdk_react && npm install && npm run build
 

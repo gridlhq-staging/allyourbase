@@ -45,7 +45,7 @@ To report Code of Conduct concerns, open an issue using the bug report form and
 request maintainer follow-up.
 
 For sensitive vulnerability disclosures, follow `SECURITY.md` and use GHSA:
-https://github.com/griddlehq/allyourbase/security/advisories/new
+https://github.com/AllyourbaseHQ/allyourbase/security/advisories/new
 
 ## Attribution
 

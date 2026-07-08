@@ -12,6 +12,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+## [0.0.13-beta] - 2026-07-06
+
+### Changed
+
+- Project home moved to the `AllyourbaseHQ` GitHub organization. Source, releases, and container images now live at `github.com/AllyourbaseHQ/allyourbase` and `ghcr.io/allyourbasehq/allyourbase`; the `install.allyourbase.io` installer and all documentation point to the new location. Existing `0.0.12-beta` and earlier artifacts remain available under the previous org.
+
 ## [0.0.12-beta] - 2026-06-10
 
 ### Added

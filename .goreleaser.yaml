@@ -53,7 +53,7 @@ release:
 
 scoops:
   - repository:
-      owner: griddlehq
+      owner: AllyourbaseHQ
       name: scoop-bucket
     skip_upload: auto
     homepage: "https://github.com/gridlhq-staging/allyourbase"

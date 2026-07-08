@@ -11,7 +11,7 @@ hero:
       link: /guide/getting-started
     - theme: alt
       text: View on GitHub
-      link: https://github.com/griddlehq/allyourbase
+      link: https://github.com/AllyourbaseHQ/allyourbase
 
 features:
   - icon: "\u26A1"
@@ -65,7 +65,7 @@ sh /tmp/ayb-install.sh
 
 **GitHub Releases**
 
-[Latest binaries on GitHub](https://github.com/griddlehq/allyourbase/releases)
+[Latest binaries on GitHub](https://github.com/AllyourbaseHQ/allyourbase/releases)
 
 </div>
 <div class="install-option">
@@ -73,7 +73,7 @@ sh /tmp/ayb-install.sh
 **From source**
 
 ```bash
-git clone https://github.com/griddlehq/allyourbase.git
+git clone https://github.com/AllyourbaseHQ/allyourbase.git
 cd allyourbase
 make build
 ```
@@ -190,6 +190,6 @@ AYB keeps the single-binary simplicity. For development, `ayb start` runs its ow
 
 ## License
 
-Allyourbase is open source under the [MIT License](https://github.com/griddlehq/allyourbase/blob/main/LICENSE).
+Allyourbase is open source under the [MIT License](https://github.com/AllyourbaseHQ/allyourbase/blob/main/LICENSE).
 
 </div>

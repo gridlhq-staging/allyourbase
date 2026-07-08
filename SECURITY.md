@@ -3,7 +3,7 @@
 ## Reporting a Vulnerability
 
 Report suspected vulnerabilities privately through GitHub Security Advisories:
-https://github.com/griddlehq/allyourbase/security/advisories/new
+https://github.com/AllyourbaseHQ/allyourbase/security/advisories/new
 
 Do not open a public issue for unpatched vulnerabilities.
 

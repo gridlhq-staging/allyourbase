@@ -15,7 +15,7 @@ Public container-image pulls are not available right now because the current Git
 ### Build the image locally
 
 ```bash
-git clone https://github.com/griddlehq/allyourbase.git
+git clone https://github.com/AllyourbaseHQ/allyourbase.git
 cd allyourbase
 DOCKER_BUILDKIT=1 docker build -t ayb-local .
 ```

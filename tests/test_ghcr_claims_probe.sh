@@ -35,7 +35,7 @@ SCRIPT_PATH="_dev/doc_honesty/ghcr_claims_probe.sh"
 [[ -f "$SCRIPT_PATH" ]] || fail "missing ${SCRIPT_PATH}"
 
 repo_prod_ghcr="$(toml_value ".debbie.toml" "identity.prod" "ghcr")"
-[[ "$repo_prod_ghcr" == "ghcr.io/griddlehq/allyourbase" ]] || fail "repo .debbie.toml identity.prod.ghcr drifted to ${repo_prod_ghcr}"
+[[ "$repo_prod_ghcr" == "ghcr.io/allyourbasehq/allyourbase" ]] || fail "repo .debbie.toml identity.prod.ghcr drifted to ${repo_prod_ghcr}"
 
 TMP_DIR="$(mktemp -d)"
 cleanup() {
@@ -59,7 +59,7 @@ ghcr = "ghcr.io/gridlhq/allyourbase"
 [identity.staging]
 ghcr = "ghcr.io/gridlhq-staging/allyourbase"
 [identity.prod]
-ghcr = "ghcr.io/griddlehq/allyourbase"
+ghcr = "ghcr.io/allyourbasehq/allyourbase"
 TOML
 
 cat > "${fixture_root}/.github/workflows/docker.yml" <<'YML'
@@ -81,23 +81,23 @@ YML
 cat > "${fixture_root}/mirrors/prod/.github/workflows/docker.yml" <<'YML'
 - uses: docker/metadata-action@v6
   with:
-    images: ghcr.io/griddlehq/allyourbase
+    images: ghcr.io/allyourbasehq/allyourbase
 YML
 
 cat > "${fixture_root}/PRIORITIES.md" <<'EOF_DOC'
-GHCR publication is stable at ghcr.io/griddlehq/allyourbase.
+GHCR publication is stable at ghcr.io/allyourbasehq/allyourbase.
 EOF_DOC
 cat > "${fixture_root}/roadmap/implemented.md" <<'EOF_DOC'
-Resolved push to ghcr.io/griddlehq/allyourbase and dev-cce462e pull verification.
+Resolved push to ghcr.io/allyourbasehq/allyourbase and dev-cce462e pull verification.
 EOF_DOC
 cat > "${fixture_root}/_dev/RELEASE_SECRETS_AUDIT.md" <<'EOF_DOC'
-Manual pull ghcr.io/griddlehq/allyourbase:manual-link-20260328 and dev-cce462e.
+Manual pull ghcr.io/allyourbasehq/allyourbase:manual-link-20260328 and dev-cce462e.
 EOF_DOC
 cat > "${fixture_root}/_dev/OWNER_ACTIONS.md" <<'EOF_DOC'
 GHCR scope approvals completed.
 EOF_DOC
 cat > "${fixture_root}/RELEASE_NOTES_v0.0.7-beta.md" <<'EOF_DOC'
-Docker references should use ghcr.io/griddlehq/allyourbase.
+Docker references should use ghcr.io/allyourbasehq/allyourbase.
 EOF_DOC
 
 stub_dir="${TMP_DIR}/stubs"
@@ -173,7 +173,7 @@ fi
 assert_contains "$output_ok" "SUMMARY_PROBE|docker_pull_release_v0_0_7_beta|executed" "summary must include executed release pull probe"
 assert_contains "$output_ok" "SUMMARY_FINDING|docker_pull_release_v0_0_7_beta|pull_failure" "release pull failures must be recorded as findings"
 assert_contains "$output_ok" "SUMMARY_PROBE|gh_auth_status|executed" "gh auth status probe should execute"
-assert_contains "$output_ok" "SUMMARY_NAMESPACE|mirror_prod|ghcr.io/griddlehq/allyourbase" "summary must include mirror prod namespace"
+assert_contains "$output_ok" "SUMMARY_NAMESPACE|mirror_prod|ghcr.io/allyourbasehq/allyourbase" "summary must include mirror prod namespace"
 
 output_missing_gh="${TMP_DIR}/probe_missing_gh.txt"
 PATH="${stub_dir}:$PATH" AYB_GHCR_PROBE_REPO_ROOT="$fixture_root" AYB_GHCR_PROBE_GH_COMMAND="gh_missing_for_test" "$SCRIPT_PATH" > "$output_missing_gh" 2>&1 || missing_gh_exit=$?

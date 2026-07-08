@@ -108,7 +108,7 @@ section "Configuration Defaults"
 
 # Test: REPO default matches the environment (staging vs prod)
 # In staging CI: expect gridlhq-staging/allyourbase
-# In prod CI: expect griddlehq/allyourbase
+# In prod CI: expect AllyourbaseHQ/allyourbase
 # Locally: accept either (dev repo has prod default, but staging sync rewrites it)
 if [ -n "${GITHUB_REPOSITORY:-}" ]; then
   case "$GITHUB_REPOSITORY" in
@@ -118,19 +118,19 @@ if [ -n "${GITHUB_REPOSITORY:-}" ]; then
         "Default REPO should be gridlhq-staging/allyourbase in staging environment" \
         'REPO=.*gridlhq-staging/allyourbase'
       ;;
-    griddlehq/allyourbase)
-      if install_script_matches 'REPO=.*griddlehq/allyourbase' && ! install_script_matches 'gridlhq-staging'; then
-        pass "Default REPO is griddlehq/allyourbase (production environment)"
+    AllyourbaseHQ/allyourbase)
+      if install_script_matches 'REPO=.*AllyourbaseHQ/allyourbase' && ! install_script_matches 'gridlhq-staging'; then
+        pass "Default REPO is AllyourbaseHQ/allyourbase (production environment)"
       else
-        fail "Default REPO should be griddlehq/allyourbase in production environment"
+        fail "Default REPO should be AllyourbaseHQ/allyourbase in production environment"
       fi
       ;;
     gridlhq/allyourbase_dev|gridl-dev/allyourbase_dev)
       # Dev repo: install.sh still defaults to the public repo identity after sync.
       assert_install_script_match \
-        "Default REPO is griddlehq/allyourbase (dev environment)" \
-        "Default REPO should be griddlehq/allyourbase in dev environment" \
-        'REPO=.*griddlehq/allyourbase'
+        "Default REPO is AllyourbaseHQ/allyourbase (dev environment)" \
+        "Default REPO should be AllyourbaseHQ/allyourbase in dev environment" \
+        'REPO=.*AllyourbaseHQ/allyourbase'
       ;;
     *)
       fail "Unexpected GITHUB_REPOSITORY: $GITHUB_REPOSITORY"
@@ -138,10 +138,10 @@ if [ -n "${GITHUB_REPOSITORY:-}" ]; then
   esac
 else
   # Local: accept either repo (dev has prod default, staging sync rewrites it)
-  if install_script_matches 'REPO=.*griddlehq/allyourbase' || install_script_matches 'REPO=.*gridlhq-staging/allyourbase'; then
+  if install_script_matches 'REPO=.*AllyourbaseHQ/allyourbase' || install_script_matches 'REPO=.*gridlhq-staging/allyourbase'; then
     pass "Default REPO is set (local environment)"
   else
-    fail "Default REPO should be griddlehq/allyourbase or gridlhq-staging/allyourbase"
+    fail "Default REPO should be AllyourbaseHQ/allyourbase or gridlhq-staging/allyourbase"
   fi
 fi
 
@@ -244,7 +244,7 @@ assert_install_script_match "GitHub API asset download (Accept: application/octe
 
 # Test: Repo override validation blocks unsafe API path input
 repo_validation_dir=$(mktemp -d)
-if AYB_INSTALL="$repo_validation_dir" AYB_REPO='griddlehq/allyourbase?per_page=100' NO_MODIFY_PATH=1 sh "$INSTALL_SCRIPT" v0.0.0 2>&1 | grep -q 'Invalid AYB_REPO'; then
+if AYB_INSTALL="$repo_validation_dir" AYB_REPO='AllyourbaseHQ/allyourbase?per_page=100' NO_MODIFY_PATH=1 sh "$INSTALL_SCRIPT" v0.0.0 2>&1 | grep -q 'Invalid AYB_REPO'; then
   pass "Unsafe AYB_REPO override is rejected before network access"
 else
   fail "Unsafe AYB_REPO override was not rejected"

@@ -25,7 +25,7 @@ Manual-only verification is not sufficient for contributions.
 - Use the **bug report** issue form for defects.
 - Use the **feature request** issue form for product ideas and enhancements.
 - Route vulnerability reports to GHSA:
-  https://github.com/griddlehq/allyourbase/security/advisories/new
+  https://github.com/AllyourbaseHQ/allyourbase/security/advisories/new
 
 ## Pull Request Expectations
 

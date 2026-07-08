@@ -9,7 +9,7 @@ Preview — install from source. Registry publishing is tracked for GA.
 
 ```kotlin
 // settings.gradle.kts
-// after cloning https://github.com/griddlehq/allyourbase.git next to your app
+// after cloning https://github.com/AllyourbaseHQ/allyourbase.git next to your app
 include(":sdk_kotlin")
 project(":sdk_kotlin").projectDir = file("../allyourbase/sdk_kotlin")
 

@@ -11,7 +11,7 @@ import (
 	"testing"
 )
 
-const publishedDockerImageRepository = "ghcr.io/griddlehq/allyourbase"
+const publishedDockerImageRepository = "ghcr.io/allyourbasehq/allyourbase"
 const publishedDockerImageRef = publishedDockerImageRepository + ":latest"
 
 var retryableDockerManifestInspectSignatures = []string{
@@ -208,7 +208,10 @@ func TestPublishedDockerImageManifestContractMatchesDockerWorkflowTarget(t *test
 
 	repoRoot := findRepoRoot(t)
 	releaseOwner := readGoreleaserGitHubOwner(t, repoRoot)
-	expectedImageRepository := "ghcr.io/" + releaseOwner + "/allyourbase"
+	// GHCR lowercases org namespaces, so the published image repo derives from the
+	// lowercased goreleaser owner. The GitHub owner may be mixed-case (e.g.
+	// "AllyourbaseHQ"); the container namespace is always its lowercase form.
+	expectedImageRepository := "ghcr.io/" + strings.ToLower(releaseOwner) + "/allyourbase"
 	workflowPath := filepath.Join(repoRoot, ".github", "workflows", "docker.yml")
 	workflowData, err := os.ReadFile(workflowPath)
 	if err != nil {

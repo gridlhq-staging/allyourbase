@@ -6,7 +6,7 @@
 #   sh /tmp/ayb-install.sh
 #
 #   curl -fsSLo /tmp/ayb-install.sh https://staging.allyourbase.io/install.sh      # pinned version
-#   sh /tmp/ayb-install.sh v0.0.12-beta
+#   sh /tmp/ayb-install.sh v0.0.13-beta
 #
 # Environment variables:
 #   AYB_INSTALL    - Install directory (default: ~/.ayb)

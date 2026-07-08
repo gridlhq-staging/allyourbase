@@ -9,7 +9,7 @@ The `@allyourbase/ssr` package provides server-side session and cookie helpers f
 Preview — install from source. Registry publishing is tracked for GA.
 
 ```bash
-git clone https://github.com/griddlehq/allyourbase.git
+git clone https://github.com/AllyourbaseHQ/allyourbase.git
 cd allyourbase/sdk && npm install && npm run build
 cd ../sdk_ssr && npm install && npm run build
 

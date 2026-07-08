@@ -5,7 +5,7 @@
 #   ./tests/test_sync_pipeline.sh
 #
 # These tests simulate the public-sync rewrites that sync-to-public.sh applies:
-#   1. stuartcrobinson/allyourbase → griddlehq/allyourbase
+#   1. stuartcrobinson/allyourbase → AllyourbaseHQ/allyourbase
 #   2. allyourbase_dev → allyourbase (README/.goreleaser public surfaces)
 #   3. staging.allyourbase.io → install.allyourbase.io
 # and verify the resulting files are correct for the public repo.
@@ -251,7 +251,7 @@ simulate_sync() {
   file_name="${input_file##*/}"
   tmpfile=$(mktemp)
 
-  synced_content=$(sed 's|stuartcrobinson/allyourbase|griddlehq/allyourbase|g' "$input_file")
+  synced_content=$(sed 's|stuartcrobinson/allyourbase|AllyourbaseHQ/allyourbase|g' "$input_file")
 
   case "$file_name" in
     README.md|.goreleaser.yaml)
@@ -301,7 +301,7 @@ if [ -f "$SYNC_SCRIPT" ]; then
   assert_grep_present "sync-to-public.sh excludes test_sync_pipeline.sh" "sync-to-public.sh does not exclude test_sync_pipeline.sh" "test_sync_pipeline.sh" "$SYNC_SCRIPT"
 
   # Test: sync script has repo owner rewrite
-  assert_grep_present "Repo owner rewrite present (stuartcrobinson → griddlehq)" "Repo owner rewrite not found" 'stuartcrobinson/allyourbase.*griddlehq/allyourbase' "$SYNC_SCRIPT"
+  assert_grep_present "Repo owner rewrite present (stuartcrobinson → AllyourbaseHQ)" "Repo owner rewrite not found" 'stuartcrobinson/allyourbase.*AllyourbaseHQ/allyourbase' "$SYNC_SCRIPT"
 
   # Test: sync script has vanity URL rewrite
   assert_grep_present "Vanity URL rewrite present (staging → install)" "Vanity URL rewrite not found" 'staging\.allyourbase\.io.*install.allyourbase.io' "$SYNC_SCRIPT"
@@ -318,7 +318,7 @@ INSTALL_SCRIPT="${REPO_DIR}/install.sh"
 synced_install=$(simulate_sync "$INSTALL_SCRIPT")
 
 # Test: REPO default is rewritten to gridlhq
-assert_grep_present "REPO default rewritten to griddlehq/allyourbase" "REPO default not rewritten" 'REPO=.*griddlehq/allyourbase' "$synced_install"
+assert_grep_present "REPO default rewritten to AllyourbaseHQ/allyourbase" "REPO default not rewritten" 'REPO=.*AllyourbaseHQ/allyourbase' "$synced_install"
 
 # Test: No staging.allyourbase.io remains
 assert_grep_absent "No staging.allyourbase.io in synced install.sh" "staging.allyourbase.io still present after sync" 'staging.allyourbase.io' "$synced_install"
@@ -367,8 +367,8 @@ else
 fi
 
 # Test: GitHub release URL uses correct org
-if grep -q 'github.com/griddlehq/allyourbase/releases' "$synced_install"; then
-  pass "GitHub release URL uses griddlehq org"
+if grep -q 'github.com/AllyourbaseHQ/allyourbase/releases' "$synced_install"; then
+  pass "GitHub release URL uses AllyourbaseHQ org"
 elif grep -q 'github.com/.*REPO.*releases' "$synced_install"; then
   pass "GitHub release URL uses REPO variable (dynamic)"
 else
@@ -383,9 +383,9 @@ section "homebrew-tap/ayb.rb"
 
 # The formula is a release surface; it must reference the canonical prod org.
 assert_grep_present \
-  "Homebrew formula homepage targets griddlehq org" \
-  "Homebrew formula homepage must target griddlehq org" \
-  'homepage "https://github.com/griddlehq/allyourbase"' \
+  "Homebrew formula homepage targets AllyourbaseHQ org" \
+  "Homebrew formula homepage must target AllyourbaseHQ org" \
+  'homepage "https://github.com/AllyourbaseHQ/allyourbase"' \
   "${REPO_DIR}/homebrew-tap/ayb.rb"
 
 assert_grep_absent \
@@ -437,9 +437,9 @@ assert_grep_absent "No stuartcrobinson references in synced README.md" "stuartcr
 assert_grep_absent "No dev-repo GitHub links in synced README.md" "Synced README contains dev-repo GitHub links" 'github.com/.*/allyourbase_dev' "$synced_readme"
 
 # Test: README badges/releases point at canonical public repo
-if grep -q 'github.com/griddlehq/allyourbase/actions/workflows/ci.yml' "$synced_readme" && \
-   grep -q 'github.com/griddlehq/allyourbase/actions/workflows/release.yml' "$synced_readme" && \
-   grep -q 'github.com/griddlehq/allyourbase/releases' "$synced_readme"; then
+if grep -q 'github.com/AllyourbaseHQ/allyourbase/actions/workflows/ci.yml' "$synced_readme" && \
+   grep -q 'github.com/AllyourbaseHQ/allyourbase/actions/workflows/release.yml' "$synced_readme" && \
+   grep -q 'github.com/AllyourbaseHQ/allyourbase/releases' "$synced_readme"; then
   pass "README badge/release links target canonical public repo"
 else
   fail "README badge/release links do not target canonical public repo"
@@ -681,7 +681,7 @@ section "Cross-File Consistency"
 
 # Test: install.sh and README.md use same REPO owner format
 install_repo=$(grep 'AYB_REPO:-' "$INSTALL_SCRIPT" | extract_default_repo)
-if echo "$install_repo" | grep -q 'griddlehq/allyourbase'; then
+if echo "$install_repo" | grep -q 'AllyourbaseHQ/allyourbase'; then
   pass "install.sh default REPO matches public owner"
 else
   fail "install.sh default REPO mismatch: $install_repo"

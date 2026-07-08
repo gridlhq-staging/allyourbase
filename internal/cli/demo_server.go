@@ -1,4 +1,4 @@
-// Package cli.
+// Package cli Stub summary for /Users/stuart/parallel_development/allyourbase_dev/jul07_8pm_1_movies_demo_port_fix_gates_v0_0_14_release/allyourbase_dev/internal/cli/demo_server.go.
 package cli
 
 import (
@@ -93,7 +93,7 @@ func startAuthEnabledDemoServer(baseURL, demoName string) (string, bool, error) 
 		return "", false, err
 	}
 	defer cleanup()
-	startCmd.Env = demoServerStartEnv(jwtSecret, demoName)
+	startCmd.Env = demoServerStartEnv(jwtSecret, demoName, demoServerPort(baseURL))
 	startCmd.Stdout = io.Discard
 	var startErr strings.Builder
 	startCmd.Stderr = &startErr
@@ -199,7 +199,7 @@ func materializeEmbeddedDemoConfig(demoName string) (string, func(), error) {
 	return file.Name(), cleanup, nil
 }
 
-func demoServerStartEnv(jwtSecret, demoName string) []string {
+func demoServerStartEnv(jwtSecret, demoName, serverPort string) []string {
 	siteURL := "http://localhost:" + demoDefaultServerPort
 	if demo, ok := demoRegistry[demoName]; ok {
 		// WebAuthn verifies the browser origin, so demo-started servers
@@ -211,6 +211,7 @@ func demoServerStartEnv(jwtSecret, demoName string) []string {
 		"AYB_AUTH_ENABLED=true",
 		"AYB_AUTH_JWT_SECRET="+jwtSecret,
 		"AYB_AUTH_ANONYMOUS_AUTH_ENABLED=true",
+		"AYB_SERVER_PORT="+serverPort,
 		"AYB_SERVER_SITE_URL="+siteURL,
 	)
 }

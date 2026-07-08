@@ -10,7 +10,7 @@ export default defineConfig({
       { text: "Guide", link: "/guide/getting-started" },
       { text: "API Reference", link: "/guide/api-reference" },
       { text: "OpenAPI", link: "/guide/openapi" },
-      { text: "GitHub", link: "https://github.com/griddlehq/allyourbase" },
+      { text: "GitHub", link: "https://github.com/AllyourbaseHQ/allyourbase" },
     ],
 
     sidebar: [
@@ -98,7 +98,7 @@ export default defineConfig({
     ],
 
     socialLinks: [
-      { icon: "github", link: "https://github.com/griddlehq/allyourbase" },
+      { icon: "github", link: "https://github.com/AllyourbaseHQ/allyourbase" },
     ],
 
     footer: {

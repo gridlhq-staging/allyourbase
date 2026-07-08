@@ -20,7 +20,7 @@ This directory contains reference manifests for package manager distribution.
 
 1. Keep `scoop/ayb.json` as a manual reference template.
 2. Update `version`, architecture URLs, and hashes.
-3. Open a PR against the Scoop bucket repository (for example `griddlehq/scoop-bucket`).
+3. Open a PR against the Scoop bucket repository (for example `AllyourbaseHQ/scoop-bucket`).
 
 Note: goreleaser also auto-generates Scoop metadata during release via `.goreleaser.yaml`.
 
