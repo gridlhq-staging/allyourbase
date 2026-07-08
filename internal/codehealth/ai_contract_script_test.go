@@ -25,6 +25,16 @@ func TestCheckAIContractGotestsumScriptPassesWhenRequiredTestsPass(t *testing.T)
 	if !strings.Contains(output, "required contract tests passed: 4") {
 		t.Fatalf("expected pass count output, got: %s", output)
 	}
+	for _, testName := range []string{
+		"TestOllamaContractGenerateText",
+		"TestOllamaContractGenerateEmbedding",
+		"TestAnthropicContractGenerateText",
+		"TestMoviesChatContractStreamWithRealAnthropicBYOK",
+	} {
+		if !strings.Contains(output, "AI contract required test passed: "+testName) {
+			t.Fatalf("expected passing-test proof for %s, got: %s", testName, output)
+		}
+	}
 }
 
 func TestCheckAIContractGotestsumScriptFailsWhenRequiredTestIsMissing(t *testing.T) {

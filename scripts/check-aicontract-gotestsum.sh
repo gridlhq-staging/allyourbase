@@ -96,4 +96,7 @@ if (failures.length > 0) {
 }
 
 console.log(`AI contract gotestsum guard passed: required contract tests passed: ${requiredTests.length}.`);
+for (const testName of requiredTests) {
+  console.log(`AI contract required test passed: ${testName}`);
+}
 NODE
