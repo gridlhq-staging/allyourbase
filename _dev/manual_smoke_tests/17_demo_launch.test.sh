@@ -75,14 +75,45 @@ wait_for_no_health() {
     return 1
 }
 
+require_free_port() {
+    local port="$1"
+    local reason="$2"
+    local action="${3:-use}"
+    if lsof -ti :"$port" >/dev/null 2>&1; then
+        echo -e "${RED}ERROR: ${reason}; refusing to ${action} an unknown process.${NC}" >&2
+        return 1
+    fi
+}
+
 ensure_stopped() {
     "$AYB_BIN" stop > /dev/null 2>&1 || true
     sleep 1
-    # Kill anything on demo ports too
     for port in 8090 5173 5175 5177; do
-        lsof -ti :"$port" 2>/dev/null | xargs kill 2>/dev/null || true
+        if ! require_free_port "$port" "port ${port} is still occupied after ayb stop" "kill"; then
+            return 1
+        fi
     done
     sleep 1
+}
+
+cleanup_demo_launch_resources() {
+    local demo_pid="${1:-}"
+    local log="${2:-}"
+    local data_dir="${3:-}"
+
+    if [ -n "$demo_pid" ]; then
+        kill -INT "$demo_pid" 2>/dev/null || true
+        local wait_count=0
+        while kill -0 "$demo_pid" 2>/dev/null && [ $wait_count -lt 20 ]; do
+            sleep 0.5
+            wait_count=$((wait_count + 1))
+        done
+        kill -9 "$demo_pid" 2>/dev/null || true
+    fi
+    rm -f "$log"
+    if [ -n "$data_dir" ]; then
+        rm -rf "$data_dir"
+    fi
 }
 
 # Runs a demo, waits for both the AYB server and the demo app to be healthy,
@@ -91,25 +122,31 @@ ensure_stopped() {
 test_demo_launch() {
     local name="$1"
     local port="$2"
+    local data_dir
+    local demo_pid=""
     local log
     log=$(mktemp /tmp/ayb-demo-test-${name}.XXXXXX)
+    # Isolate only embedded Postgres data for hermetic demo runs. The shared
+    # ~/.ayb/pgbin binary cache stays warm, and /tmp keeps Postgres sockets short.
+    data_dir=$(mktemp -d /tmp/ayb-demoe2e.XXXXXX)
 
     echo -e "${CYAN}── Demo: ${name} (port ${port}) ──${NC}"
 
     # Start demo in background
-    "$AYB_BIN" demo "$name" > "$log" 2>&1 &
-    local demo_pid=$!
+    AYB_DATABASE_EMBEDDED_DATA_DIR="$data_dir" "$AYB_BIN" demo "$name" > "$log" 2>&1 &
+    demo_pid=$!
 
     # Wait for the AYB server (port 8090) to come up
     if wait_for_health 8090 60; then
         pass "${name}: AYB server became healthy"
     else
         fail "${name}: AYB server did not become healthy"
-        kill -9 $demo_pid 2>/dev/null || true
         echo "    Log output:"
         head -30 "$log" | sed 's/^/    /'
-        rm -f "$log"
-        ensure_stopped
+        cleanup_demo_launch_resources "$demo_pid" "$log" "$data_dir"
+        if ! ensure_stopped; then
+            return 1
+        fi
         echo ""
         return 1
     fi
@@ -130,13 +167,12 @@ test_demo_launch() {
         pass "${name}: demo app serves on port ${port}"
     else
         fail "${name}: demo app not responding on port ${port}"
-        kill -INT $demo_pid 2>/dev/null || true
-        sleep 2
-        kill -9 $demo_pid 2>/dev/null || true
         echo "    Log output:"
         head -30 "$log" | sed 's/^/    /'
-        rm -f "$log"
-        ensure_stopped
+        cleanup_demo_launch_resources "$demo_pid" "$log" "$data_dir"
+        if ! ensure_stopped; then
+            return 1
+        fi
         echo ""
         return 1
     fi
@@ -171,21 +207,21 @@ test_demo_launch() {
     rm -f "$api_body"
 
     # Clean shutdown
-    kill -INT $demo_pid 2>/dev/null || true
+    kill -INT "$demo_pid" 2>/dev/null || true
     local wait_count=0
-    while kill -0 $demo_pid 2>/dev/null && [ $wait_count -lt 20 ]; do
+    while kill -0 "$demo_pid" 2>/dev/null && [ $wait_count -lt 20 ]; do
         sleep 0.5
         wait_count=$((wait_count + 1))
     done
 
-    if ! kill -0 $demo_pid 2>/dev/null; then
+    if ! kill -0 "$demo_pid" 2>/dev/null; then
         pass "${name}: demo exited cleanly on SIGINT"
     else
         fail "${name}: demo did not exit on SIGINT"
-        kill -9 $demo_pid 2>/dev/null || true
+        kill -9 "$demo_pid" 2>/dev/null || true
     fi
 
-    rm -f "$log"
+    cleanup_demo_launch_resources "" "$log" "$data_dir"
     echo ""
     return 0
 }
@@ -205,18 +241,18 @@ echo -e "Binary: $("$AYB_BIN" version 2>/dev/null || echo 'unknown')"
 echo ""
 
 # Ensure clean state
-ensure_stopped
+ensure_stopped || exit 1
 
 # ── Test each demo ───────────────────────────────────────────────
 
 test_demo_launch "kanban" 5173
-ensure_stopped
+ensure_stopped || exit 1
 
 test_demo_launch "live-polls" 5175
-ensure_stopped
+ensure_stopped || exit 1
 
 test_demo_launch "movies" 5177
-ensure_stopped
+ensure_stopped || exit 1
 
 # ── Test: unknown demo name gives helpful error ──────────────────
 

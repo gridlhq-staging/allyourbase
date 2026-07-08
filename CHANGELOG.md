@@ -12,6 +12,21 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+## [0.0.14-beta] - 2026-07-08
+
+### Added
+
+- Demo launch smoke coverage now has a shared `make test-demo-launch` owner for Kanban, Live Polls, and Movies, and the public release candidate gate runs it before publish.
+
+### Changed
+
+- CI and release workflows now run the demo launch smoke gate so demo startup regressions block both continuous validation and release publication.
+- Debbie staging sync now resolves the active dev worktree from `.debbie.toml` instead of a hard-coded checkout path, so parallel release worktrees sync their own `HEAD`.
+
+### Fixed
+
+- `ayb demo movies` now pins `AYB_SERVER_PORT` to the port from the resolved demo URL, keeping the auto-started AYB server aligned with the CLI-selected base URL instead of the embedded Movies config port.
+
 ## [0.0.13-beta] - 2026-07-06
 
 ### Changed

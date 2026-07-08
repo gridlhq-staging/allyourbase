@@ -21,6 +21,7 @@ case "${1:-}" in
     exit 0
     ;;
   demo)
+    printf 'demo %s data_dir=%s\n' "${2:-}" "${AYB_DATABASE_EMBEDDED_DATA_DIR:-}" >> "${AYB_TEST_LOG:?}"
     sleep 30
     ;;
 esac
@@ -76,9 +77,11 @@ if grep -Fxq "demo kanban" "$ayb_log"; then
 fi
 
 : > "$ayb_log"
+before_demo_dirs="$(ls -d /tmp/ayb-demoe2e.* 2>/dev/null | sort || true)"
 if PATH="$commands_dir:$PATH" AYB_BIN="$commands_dir/ayb" AYB_TEST_LOG="$ayb_log" AYB_TEST_NODE_LOG="$node_log" AYB_TEST_OCCUPIED_PORTS="11434" bash _dev/manual_smoke_tests/18_demo_e2e.test.sh movies > "$output" 2>&1; then
   fail "movies demo E2E runner should fail when fake ollama port 11434 is occupied"
 fi
+after_demo_dirs="$(ls -d /tmp/ayb-demoe2e.* 2>/dev/null | sort || true)"
 
 assert_contains "$output" "movies fake ollama port 11434 is already occupied" "runner should report the movies fake ollama port guard"
 if [ -s "$node_log" ]; then
@@ -86,6 +89,23 @@ if [ -s "$node_log" ]; then
 fi
 if grep -Fxq "demo movies" "$ayb_log"; then
   fail "runner should abort before launching the movies demo when fake ollama port 11434 is occupied"
+fi
+if [ "$after_demo_dirs" != "$before_demo_dirs" ]; then
+  fail "runner should remove isolated embedded data dir when fake ollama port is occupied"
+fi
+
+: > "$ayb_log"
+if PATH="$commands_dir:$PATH" AYB_BIN="$commands_dir/ayb" AYB_TEST_LOG="$ayb_log" bash _dev/manual_smoke_tests/18_demo_e2e.test.sh kanban > "$output" 2>&1; then
+  fail "kanban demo E2E runner should fail once fake npm fails"
+fi
+
+data_dir="$(awk -F'data_dir=' '/^demo kanban data_dir=/{print $2; exit}' "$ayb_log")"
+case "$data_dir" in
+  /tmp/ayb-demoe2e.*) ;;
+  *) fail "runner should launch demos with a short isolated embedded data dir, got '$data_dir'" ;;
+esac
+if [ -e "$data_dir" ]; then
+  fail "runner should remove isolated embedded data dir during failure cleanup"
 fi
 
 echo "PASS: demo E2E runner aborts on occupied managed ports, including fake ollama"

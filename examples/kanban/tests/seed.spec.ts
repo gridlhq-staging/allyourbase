@@ -21,8 +21,9 @@ test.describe("Sample board seeding", () => {
   }) => {
     await waitForAnonymousBoardShell(page);
 
-    // The anonymous user owns exactly the one seeded board.
-    await expect.poll(() => ownedBoardCount(page)).toBe(1);
+    // Seeding does 8 sequential creates (board, 3 columns, 4 cards), and the
+    // default 5s poll budget flaked under parallel-worker load on 2026-07-07.
+    await expect.poll(() => ownedBoardCount(page), { timeout: 15_000 }).toBe(1);
 
     // Open the current user's seeded board by its test ID, then confirm its
     // three starter columns. Using the board-specific testid scopes the click

@@ -12,6 +12,9 @@ import AuthForm from "./components/AuthForm";
 import BoardList from "./components/BoardList";
 import BoardView from "./components/BoardView";
 
+const MAX_SEED_ATTEMPTS = 3;
+const SEED_RETRY_DELAY_MS = 250;
+
 export default function App() {
   const { user, token, loading, logout, signInAnonymously } = useAuth();
   const [anonymousBootstrapEnabled, setAnonymousBootstrapEnabled] = useState(isAnonymousBootstrapEnabled);
@@ -27,6 +30,7 @@ export default function App() {
   // Gates the board list until the idempotent seed check has run once for the
   // current session, so the list never flashes empty-then-populated.
   const [seedChecked, setSeedChecked] = useState(false);
+  const [seedAttempt, setSeedAttempt] = useState(0);
 
   useEffect(() => {
     if (user?.email) {
@@ -45,19 +49,31 @@ export default function App() {
     if (!token || !user) return;
     if (seedChecked) return;
     let cancelled = false;
+    let retryTimer: number | undefined;
     ensureSampleBoard()
+      .then(() => {
+        if (!cancelled) setSeedChecked(true);
+      })
       .catch((err) => {
         // A demo seed failure must not strand the user — fall through to the
-        // (possibly empty) board list rather than blocking the shell.
+        // board list after bounded retries rather than blocking the shell.
         console.error("Sample board seeding failed:", err);
-      })
-      .finally(() => {
-        if (!cancelled) setSeedChecked(true);
+        if (cancelled) return;
+        if (seedAttempt + 1 < MAX_SEED_ATTEMPTS) {
+          retryTimer = window.setTimeout(() => {
+            setSeedAttempt((attempt) => attempt + 1);
+          }, SEED_RETRY_DELAY_MS);
+          return;
+        }
+        setSeedChecked(true);
       });
     return () => {
       cancelled = true;
+      if (retryTimer !== undefined) {
+        window.clearTimeout(retryTimer);
+      }
     };
-  }, [bootstrapping, loading, token, user, seedChecked]);
+  }, [bootstrapping, loading, token, user, seedChecked, seedAttempt]);
 
   async function handleLogout() {
     setLogoutPending(true);
@@ -75,6 +91,7 @@ export default function App() {
       // Re-arm the seed check so a later sign-in re-runs the idempotent
       // check; a signed-out user is not re-seeded until they sign back in.
       setSeedChecked(false);
+      setSeedAttempt(0);
       setLogoutPending(false);
     }
   }
