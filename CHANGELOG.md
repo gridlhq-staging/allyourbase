@@ -10,6 +10,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 
+- Retired the legacy direct sync pipeline and Makefile guard in favor of Debbie-owned public sync.
+
 ### Fixed
 
 ## [0.0.14-beta] - 2026-07-08
