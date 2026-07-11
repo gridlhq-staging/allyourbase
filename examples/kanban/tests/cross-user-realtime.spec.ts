@@ -69,7 +69,7 @@ test.describe("Cross-user realtime collaboration", () => {
 
     // Arrange: User A adds a column.
     await addColumn(pageA, "Todo");
-    await expect(pageB.getByText("Todo")).toBeVisible({ timeout: 10000 });
+    await expect(pageB.getByTestId("column-Todo")).toBeVisible({ timeout: 10000 });
 
     // Act: User A adds a card.
     await addCard(pageA, "Todo", "New Task");
@@ -92,7 +92,7 @@ test.describe("Cross-user realtime collaboration", () => {
     await addColumn(pageA, "In Progress");
 
     // Assert: User B sees the column via realtime transport.
-    await expect(pageB.getByText("In Progress")).toBeVisible({ timeout: 10000 });
+    await expect(pageB.getByTestId("column-In Progress")).toBeVisible({ timeout: 10000 });
 
     await ctxA.close();
     await ctxB.close();
