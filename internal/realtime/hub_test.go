@@ -617,6 +617,25 @@ func TestEmptyTenantClientReceivesOnlyWildcardEvents(t *testing.T) {
 	testutil.Equal(t, "", got.TenantID)
 }
 
+func TestRLSFilteredClientReceivesCandidateEventsFromEveryTenant(t *testing.T) {
+	t.Parallel()
+	hub := realtime.NewHub(testutil.DiscardLogger())
+	defer hub.Close()
+
+	client := hub.SubscribeWithFilter(map[string]bool{"posts": true}, nil, realtime.RLSFilteredTenantScope)
+
+	hub.Publish(&realtime.Event{
+		Action:   "create",
+		Table:    "posts",
+		TenantID: "tenant-a",
+		Record:   map[string]any{"id": 1},
+	})
+
+	got := recvEvent(client, 100*time.Millisecond)
+	testutil.NotNil(t, got)
+	testutil.Equal(t, "tenant-a", got.TenantID)
+}
+
 // TestSetTenantAttachesTenantWithoutReRegister proves the focused tenant setter
 // changes a client's delivery scope in place, without unsubscribe/re-subscribe.
 func TestSetTenantAttachesTenantWithoutReRegister(t *testing.T) {

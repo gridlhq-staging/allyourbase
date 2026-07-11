@@ -92,7 +92,6 @@ async function authenticateLiveAccount(
   await page.getByLabel("Password").fill(DEMO_SIGNIN_PASSWORD);
   await page.getByRole("button", { name: "Create Account" }).click();
   await emailInput.waitFor({ state: "hidden", timeout: SIGN_IN_TIMEOUT_MS });
-  await page.waitForTimeout(1_000);
   await page.unroute("**/api/auth/me");
 }
 

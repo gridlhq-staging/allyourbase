@@ -19,6 +19,12 @@ import (
 // eventBufferSize is the per-client channel buffer. Events are dropped when full.
 const eventBufferSize = 256
 
+// RLSFilteredTenantScope marks clients whose transport applies per-event RLS
+// visibility checks after hub delivery. These clients receive candidate events
+// from every tenant on subscribed tables; CanSeeRecord remains the security
+// boundary before any event reaches the network.
+const RLSFilteredTenantScope = "__ayb_rls_filtered__"
+
 const (
 	tableEventBusChannel        = "realtime_table_events"
 	tableEventBusKind           = "table_event"
@@ -308,6 +314,9 @@ func (h *Hub) deliverLocalTableEvent(event *Event) {
 //     so an unauthenticated / no-tenant subscriber receives ONLY wildcard
 //     (empty-tenant) events and can never see tenant-scoped rows.
 func tenantMatches(eventTenant, clientTenant string) bool {
+	if clientTenant == RLSFilteredTenantScope {
+		return true
+	}
 	if eventTenant == "" {
 		return true
 	}

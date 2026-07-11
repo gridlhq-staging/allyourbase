@@ -8,19 +8,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
-### Changed
-
-### Fixed
-
-## [0.0.15-beta] - 2026-07-11
-
-### Added
-
 - Real AI token streaming: `GenerateTextStream` is now implemented for Ollama (NDJSON) and Anthropic (SSE), so chat surfaces stream tokens as they are generated instead of delivering one blob at the end. An OpenAI adapter ships alongside them.
 - Multi-node enablers over a shared Postgres LISTEN/NOTIFY bus (`internal/pgnotify`): realtime events fan out across nodes, and token/session revocations propagate durably. AYB can run as N nodes behind a load balancer against one Postgres.
 - Hosted/pooled multi-tenant mode: a `server.require_resolved_tenant` setting (env `AYB_SERVER_REQUIRE_RESOLVED_TENANT`, default off) makes an anonymous request whose tenant cannot be resolved fail closed instead of reading the ambient namespace. Single-tenant self-host behavior is unchanged.
 - `make test-multinode`: an unattended two-node end-to-end lane (shared external Postgres + MinIO, OS-assigned ports) proving cross-node realtime delivery, cross-node session revocation, and per-tenant storage isolation.
-- Python, Dart, Kotlin, and Swift SDKs now expose passkey login helpers and search synonym management, bringing non-JS SDK parity to those auth and search workflows.
 
 ### Changed
 
@@ -31,7 +22,6 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 - Storage is now tenant-isolated: object metadata and physical keys are scoped by `tenant_id` and signed URLs are bound to their tenant, fixing a cross-tenant overwrite where two tenants uploading the same bucket+name would clobber each other's bytes.
 - Realtime subscriptions are tenant-scoped: a subscriber for one tenant no longer receives another tenant's row events for a same-named table, and delete events now respect row-level security instead of broadcasting to every subscriber of the table.
-- Schema-isolated tenants now resolve tenant metadata and table lookups from the active tenant schema, keeping hosted multi-tenant requests on the correct schema-owned tables.
 - Storage usage is accounted per tenant: two tenants sharing a user id no longer share one quota balance.
 
 ## [0.0.14-beta] - 2026-07-08

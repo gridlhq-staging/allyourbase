@@ -94,7 +94,7 @@ func (b *WSBridge) onSubscribe(c *ws.Conn, _ []string, filter string) error {
 	// Attach tenant and filters BEFORE tables. Tables are the delivery gate in
 	// deliverLocalTableEvent, so setting them last guarantees no event is
 	// dispatched until the tenant scope is in place (never a cross-tenant leak).
-	b.hub.SetTenant(hubClientID, tenantFromConn(c))
+	b.hub.SetTenant(hubClientID, b.tenantScopeForConn(c))
 	b.hub.SetFilters(hubClientID, filters)
 	// conn.Subscriptions() already reflects the new tables (ws.Handler
 	// calls c.Subscribe before firing OnSubscribe).
@@ -108,10 +108,13 @@ func (b *WSBridge) onSubscribe(c *ws.Conn, _ []string, filter string) error {
 // session this claims-derived tenant equals the context tenant a publisher tags
 // (tenantIDFromRequest resolves claims.TenantID first), so subscribe and
 // publish sides agree.
-func tenantFromConn(c *ws.Conn) string {
+func (b *WSBridge) tenantScopeForConn(c *ws.Conn) string {
 	claims := c.Claims()
 	if claims == nil {
 		return ""
+	}
+	if b.pool != nil && b.schemaCache != nil {
+		return RLSFilteredTenantScope
 	}
 	return claims.TenantID
 }

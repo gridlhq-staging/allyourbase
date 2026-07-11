@@ -14,9 +14,9 @@ Managed PostgreSQL is the zero-config local path. If you need extensions beyond 
 
 First-factor passkey login is shipped through the JavaScript SDK and React SDK, but resident-key / discoverable-credential registration is not yet enabled. The backend registration owner still calls `BeginRegistration` without resident-key options, so usernameless passkey login remains open.
 
-## Other-language SDK passkey helpers
+## Other-language packaged passkey helpers
 
-Search helper parity is shipped across the JavaScript, Go, Python, Dart, Kotlin, and Swift SDK list surfaces. Go and Python expose first-factor WebAuthn begin/finish wire helpers. Dart, Kotlin, and Swift expose passkey sign-in helpers through caller-supplied or platform authenticator seams, but AYB does not ship a packaged Android credentials module or validate native device ceremonies in autonomous tests.
+Search helper parity is shipped across the JavaScript, Go, Python, Dart, Kotlin, and Swift SDK list surfaces. Kotlin exposes pure-JVM `beginWebAuthnLogin`, `finishWebAuthnLogin`, and `signInWithPasskey` composition helpers, but it does not yet ship a packaged Android credentials module. Go, Python, Dart, and Swift passkey composition helpers remain open.
 
 ## Local Supabase Export Caveat
 
