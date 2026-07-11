@@ -65,20 +65,24 @@ async function waitForFunctionToAppear(
 }
 
 test.describe("Functions Browser (Full E2E)", () => {
-  const pendingCleanupSQL: string[] = [];
+  const functionCleanupSQL: string[] = [];
 
   test.afterEach(async ({ request, adminToken }) => {
-    while (pendingCleanupSQL.length > 0) {
-      const sql = pendingCleanupSQL.pop();
-      if (!sql) continue;
-      await execSQL(request, adminToken, sql).catch(() => {});
+    while (functionCleanupSQL.length > 0) {
+      const cleanupSQL = functionCleanupSQL.pop();
+      if (!cleanupSQL) continue;
+      await execSQL(
+        request,
+        adminToken,
+        cleanupSQL,
+      ).catch(() => {});
     }
   });
 
   test("browse, execute, and verify function results", async ({ page }) => {
     const runId = Date.now();
     const funcName = `test_add_${runId}`;
-    pendingCleanupSQL.push(`DROP FUNCTION IF EXISTS ${funcName}(integer, integer)`);
+    functionCleanupSQL.push(`DROP FUNCTION IF EXISTS ${funcName}(integer, integer)`);
 
     // ============================================================
     // Setup: Create test function via SQL
@@ -146,7 +150,6 @@ test.describe("Functions Browser (Full E2E)", () => {
   }) => {
     const runId = Date.now();
     const funcName = `test_unnamed_${runId}`;
-    pendingCleanupSQL.push(`DROP FUNCTION IF EXISTS public.${funcName}(integer)`);
 
     // Arrange: create a function whose single parameter has no name, so it
     // cannot be called via the REST RPC endpoint. SQL is an Arrange shortcut.
@@ -158,6 +161,7 @@ test.describe("Functions Browser (Full E2E)", () => {
       adminToken,
       `CREATE OR REPLACE FUNCTION public.${funcName}(integer) RETURNS integer AS $$ SELECT 42 $$ LANGUAGE SQL`,
     );
+    functionCleanupSQL.push(`DROP FUNCTION IF EXISTS public.${funcName}(integer)`);
 
     await page.goto("/admin/");
     await waitForDashboard(page);
