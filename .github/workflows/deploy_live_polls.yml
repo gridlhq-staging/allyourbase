@@ -48,7 +48,10 @@ jobs:
         working-directory: examples/live-polls
 
       - name: Build live-polls
-        run: npm run build
+        # The hosted page is a static Cloudflare Pages site with no API proxy,
+        # so bake the production API base URL into the bundle. Without this the
+        # client falls back to an origin that cannot serve the AYB API.
+        run: VITE_AYB_URL=https://api.allyourbase.io npm run build
         working-directory: examples/live-polls
 
       - name: Deploy to Cloudflare Pages
