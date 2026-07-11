@@ -65,24 +65,20 @@ async function waitForFunctionToAppear(
 }
 
 test.describe("Functions Browser (Full E2E)", () => {
-  const functionNames: string[] = [];
+  const pendingCleanupSQL: string[] = [];
 
   test.afterEach(async ({ request, adminToken }) => {
-    while (functionNames.length > 0) {
-      const functionName = functionNames.pop();
-      if (!functionName) continue;
-      await execSQL(
-        request,
-        adminToken,
-        `DROP FUNCTION IF EXISTS ${functionName}(integer, integer)`,
-      ).catch(() => {});
+    while (pendingCleanupSQL.length > 0) {
+      const sql = pendingCleanupSQL.pop();
+      if (!sql) continue;
+      await execSQL(request, adminToken, sql).catch(() => {});
     }
   });
 
   test("browse, execute, and verify function results", async ({ page }) => {
     const runId = Date.now();
     const funcName = `test_add_${runId}`;
-    functionNames.push(funcName);
+    pendingCleanupSQL.push(`DROP FUNCTION IF EXISTS ${funcName}(integer, integer)`);
 
     // ============================================================
     // Setup: Create test function via SQL
@@ -150,6 +146,7 @@ test.describe("Functions Browser (Full E2E)", () => {
   }) => {
     const runId = Date.now();
     const funcName = `test_unnamed_${runId}`;
+    pendingCleanupSQL.push(`DROP FUNCTION IF EXISTS public.${funcName}(integer)`);
 
     // Arrange: create a function whose single parameter has no name, so it
     // cannot be called via the REST RPC endpoint. SQL is an Arrange shortcut.
@@ -162,32 +159,24 @@ test.describe("Functions Browser (Full E2E)", () => {
       `CREATE OR REPLACE FUNCTION public.${funcName}(integer) RETURNS integer AS $$ SELECT 42 $$ LANGUAGE SQL`,
     );
 
-    try {
-      await page.goto("/admin/");
-      await waitForDashboard(page);
+    await page.goto("/admin/");
+    await waitForDashboard(page);
 
-      const sidebar = page.locator("aside");
-      await waitForFunctionToAppear(page, sidebar, funcName);
-      await expect(page.getByText(funcName).first()).toBeVisible({
-        timeout: 5000,
-      });
+    const sidebar = page.locator("aside");
+    await waitForFunctionToAppear(page, sidebar, funcName);
+    await expect(page.getByText(funcName).first()).toBeVisible({
+      timeout: 5000,
+    });
 
-      // Expand the function row to reveal its callable-state panel.
-      await page.getByRole("button", { name: new RegExp(funcName) }).click();
+    // Expand the function row to reveal its callable-state panel.
+    await page.getByRole("button", { name: new RegExp(funcName) }).click();
 
-      // The non-callable notice appears and no Execute action is offered.
-      await expect(
-        page.getByText(/unnamed parameters and cannot be called/i),
-      ).toBeVisible({ timeout: 5000 });
-      await expect(
-        page.getByRole("button", { name: /^Execute$/i }),
-      ).toHaveCount(0);
-    } finally {
-      await execSQL(
-        request,
-        adminToken,
-        `DROP FUNCTION IF EXISTS public.${funcName}(integer)`,
-      ).catch(() => {});
-    }
+    // The non-callable notice appears and no Execute action is offered.
+    await expect(
+      page.getByText(/unnamed parameters and cannot be called/i),
+    ).toBeVisible({ timeout: 5000 });
+    await expect(
+      page.getByRole("button", { name: /^Execute$/i }),
+    ).toHaveCount(0);
   });
 });
