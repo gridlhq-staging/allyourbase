@@ -11,9 +11,13 @@ from allyourbase.types import (
     MagicLinkConfirmResponse,
     MagicLinkRequestResponse,
     RealtimeEvent,
+    SearchSynonymGroup,
+    SearchSynonymsRequest,
+    SearchSynonymsResponse,
     StorageListResponse,
     StorageObject,
     User,
+    WebAuthnLoginBeginResponse,
 )
 
 __all__ = [
@@ -26,9 +30,13 @@ __all__ = [
     "MagicLinkConfirmResponse",
     "MagicLinkRequestResponse",
     "RealtimeEvent",
+    "SearchSynonymGroup",
+    "SearchSynonymsRequest",
+    "SearchSynonymsResponse",
     "StorageListResponse",
     "StorageObject",
     "User",
+    "WebAuthnLoginBeginResponse",
 ]
 
 

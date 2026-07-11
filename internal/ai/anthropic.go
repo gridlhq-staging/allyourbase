@@ -35,34 +35,15 @@ func NewAnthropicProvider(apiKey, baseURL string) *AnthropicProvider {
 }
 
 func (p *AnthropicProvider) GenerateText(ctx context.Context, req GenerateTextRequest) (GenerateTextResponse, error) {
-	anthReq := anthropicRequest{
-		Model:    req.Model,
-		Messages: buildAnthropicMessages(req.Messages),
-	}
-	if req.SystemPrompt != "" {
-		anthReq.System = req.SystemPrompt
-	}
-	if req.MaxTokens > 0 {
-		anthReq.MaxTokens = req.MaxTokens
-	} else {
-		anthReq.MaxTokens = 1024 // Anthropic requires max_tokens
-	}
-	if req.Temperature != nil {
-		anthReq.Temperature = req.Temperature
-	}
-
-	payload, err := json.Marshal(anthReq)
+	payload, err := json.Marshal(buildAnthropicRequest(req, false))
 	if err != nil {
 		return GenerateTextResponse{}, fmt.Errorf("anthropic: marshal request: %w", err)
 	}
 
-	httpReq, err := http.NewRequestWithContext(ctx, "POST", p.baseURL+"/messages", bytes.NewReader(payload))
+	httpReq, err := p.newMessagesHTTPRequest(ctx, payload)
 	if err != nil {
 		return GenerateTextResponse{}, fmt.Errorf("anthropic: create request: %w", err)
 	}
-	httpReq.Header.Set("Content-Type", "application/json")
-	httpReq.Header.Set("x-api-key", p.apiKey)
-	httpReq.Header.Set("anthropic-version", anthropicVersion)
 
 	resp, err := p.client.Do(httpReq)
 	if err != nil {
@@ -133,6 +114,37 @@ func buildAnthropicMessages(messages []Message) []anthropicMessage {
 	return result
 }
 
+func buildAnthropicRequest(req GenerateTextRequest, stream bool) anthropicRequest {
+	anthReq := anthropicRequest{
+		Model:    req.Model,
+		Messages: buildAnthropicMessages(req.Messages),
+		Stream:   stream,
+	}
+	if req.SystemPrompt != "" {
+		anthReq.System = req.SystemPrompt
+	}
+	if req.MaxTokens > 0 {
+		anthReq.MaxTokens = req.MaxTokens
+	} else {
+		anthReq.MaxTokens = 1024 // Anthropic requires max_tokens
+	}
+	if req.Temperature != nil {
+		anthReq.Temperature = req.Temperature
+	}
+	return anthReq
+}
+
+func (p *AnthropicProvider) newMessagesHTTPRequest(ctx context.Context, payload []byte) (*http.Request, error) {
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, p.baseURL+"/messages", bytes.NewReader(payload))
+	if err != nil {
+		return nil, err
+	}
+	httpReq.Header.Set("Content-Type", "application/json")
+	httpReq.Header.Set("x-api-key", p.apiKey)
+	httpReq.Header.Set("anthropic-version", anthropicVersion)
+	return httpReq, nil
+}
+
 // --- Anthropic wire types ---
 
 type anthropicRequest struct {
@@ -141,6 +153,7 @@ type anthropicRequest struct {
 	Messages    []anthropicMessage `json:"messages"`
 	MaxTokens   int                `json:"max_tokens"`
 	Temperature *float64           `json:"temperature,omitempty"`
+	Stream      bool               `json:"stream,omitempty"`
 }
 
 type anthropicMessage struct {

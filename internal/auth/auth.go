@@ -97,6 +97,19 @@ type Service struct {
 	hookDispatcher        *HookDispatcher
 	denyList              *TokenDenyList
 	activityTracker       *SessionActivityTracker
+	revocationCancel      context.CancelFunc
+	revocationWG          sync.WaitGroup
+}
+
+type RevocationOptions struct {
+	Store             RevokedSessionPersistence
+	Bus               TokenRevokeBus
+	ReconcileInterval time.Duration
+	Now               func() time.Time
+}
+
+type tokenRevokeListenerWaiter interface {
+	WaitForListener(ctx context.Context, name string) error
 }
 
 // EmailTemplateRenderer renders email templates by key with variable substitution.
@@ -205,6 +218,139 @@ func NewService(pool *pgxpool.Pool, jwtSecret string, tokenDuration, refreshDura
 		svc.activityTracker = NewSessionActivityTracker(pool, defaultSessionActivityDebounce, logger)
 	}
 	return svc
+}
+
+func (s *Service) ConfigureSessionRevocation(ctx context.Context, opts RevocationOptions) error {
+	if s.denyList == nil {
+		s.denyList = NewTokenDenyList()
+	}
+	s.StopSessionRevocation()
+	s.denyList.configure(opts.Store, opts.Bus, opts.Now)
+	if err := s.reconcileRevokedSessions(ctx); err != nil {
+		return err
+	}
+	if opts.Bus == nil && opts.Store == nil {
+		return nil
+	}
+
+	runCtx, cancel := context.WithCancel(context.Background())
+	s.revocationCancel = cancel
+	if opts.Bus != nil {
+		subscribeErrCh := make(chan error, 1)
+		s.revocationWG.Add(1)
+		go func() {
+			defer s.revocationWG.Done()
+			if err := s.denyList.subscribe(runCtx); err != nil && runCtx.Err() == nil {
+				select {
+				case subscribeErrCh <- err:
+				default:
+				}
+				if s.logger != nil {
+					s.logger.Warn("auth token revoke subscription stopped", "error", err)
+				}
+			}
+		}()
+		if err := waitForTokenRevokeListener(ctx, runCtx, opts.Bus, subscribeErrCh); err != nil {
+			s.stopSessionRevocationRun()
+			return err
+		}
+	}
+	if opts.Store != nil {
+		interval := opts.ReconcileInterval
+		if interval <= 0 {
+			interval = time.Minute
+		}
+		s.revocationWG.Add(1)
+		go func() {
+			defer s.revocationWG.Done()
+			s.runSessionRevocationReconciler(runCtx, interval)
+		}()
+	}
+	return nil
+}
+
+func waitForTokenRevokeListener(
+	ctx context.Context,
+	runCtx context.Context,
+	bus TokenRevokeBus,
+	subscribeErrCh <-chan error,
+) error {
+	waiter, ok := bus.(tokenRevokeListenerWaiter)
+	if !ok {
+		return nil
+	}
+
+	waitCtx, waitCancel := context.WithCancel(ctx)
+	defer waitCancel()
+
+	readyCh := make(chan error, 1)
+	go func() {
+		readyCh <- waiter.WaitForListener(waitCtx, tokenRevokeChannel)
+	}()
+
+	select {
+	case err := <-readyCh:
+		if err != nil {
+			return fmt.Errorf("waiting for auth token revoke listener: %w", err)
+		}
+		return nil
+	case err := <-subscribeErrCh:
+		waitCancel()
+		return fmt.Errorf("starting auth token revoke listener: %w", err)
+	case <-runCtx.Done():
+		waitCancel()
+		return fmt.Errorf("waiting for auth token revoke listener: %w", runCtx.Err())
+	}
+}
+
+func (s *Service) stopSessionRevocationRun() {
+	if s.revocationCancel == nil {
+		return
+	}
+	s.revocationCancel()
+	s.revocationWG.Wait()
+	s.revocationCancel = nil
+}
+
+func (s *Service) StopSessionRevocation() {
+	s.stopSessionRevocationRun()
+}
+
+func (s *Service) runSessionRevocationReconciler(ctx context.Context, interval time.Duration) {
+	defer func() {
+		if recovered := recover(); recovered != nil && s.logger != nil {
+			s.logger.Error("auth token revoke reconciler panicked", "panic", recovered)
+		}
+	}()
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			if err := s.reconcileRevokedSessions(ctx); err != nil && ctx.Err() == nil && s.logger != nil {
+				s.logger.Warn("auth token revoke reconciliation failed", "error", err)
+			}
+		}
+	}
+}
+
+func (s *Service) reconcileRevokedSessions(ctx context.Context) error {
+	if s == nil || s.denyList == nil {
+		return nil
+	}
+	store := s.denyList.currentStore()
+	if store == nil {
+		return nil
+	}
+	sessions, err := store.LoadActive(ctx)
+	if err != nil {
+		return err
+	}
+	s.denyList.applyRevokedSessions(sessions)
+	_, err = store.CleanupExpired(ctx)
+	return err
 }
 
 // UserByID fetches a user by ID.

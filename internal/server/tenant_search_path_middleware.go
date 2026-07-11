@@ -127,6 +127,7 @@ func (s *Server) setTenantSearchPath(next http.Handler) http.Handler {
 		}
 
 		ctx := tenant.ContextWithRequestConn(r.Context(), conn)
+		ctx = tenant.ContextWithActiveSchema(ctx, tenantInfo.Slug)
 		defer func() {
 			resetCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 			defer cancel()

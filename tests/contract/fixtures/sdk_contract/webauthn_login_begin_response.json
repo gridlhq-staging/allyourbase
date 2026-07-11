@@ -1,0 +1,14 @@
+{
+  "challenge_id": "webauthn_challenge_fixture",
+  "options": {
+    "allowCredentials": [
+      {
+        "id": "webauthn_login_begin_credential_a",
+        "type": "public-key"
+      }
+    ],
+    "challenge": "webauthn_login_begin_challenge",
+    "rpId": "127.0.0.1",
+    "timeout": 300000
+  }
+}

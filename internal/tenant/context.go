@@ -9,6 +9,7 @@ import (
 
 type tenantCtxKey struct{}
 type requestConnCtxKey struct{}
+type activeSchemaCtxKey struct{}
 
 // RequestConn is a request-scoped database connection that should be preferred
 // over the pool when a middleware pins query execution to a specific session.
@@ -28,6 +29,20 @@ func ContextWithTenantID(ctx context.Context, tenantID string) context.Context {
 func TenantFromContext(ctx context.Context) string {
 	id, _ := ctx.Value(tenantCtxKey{}).(string)
 	return id
+}
+
+// ContextWithActiveSchema returns a copy of ctx containing the active schema.
+func ContextWithActiveSchema(ctx context.Context, schema string) context.Context {
+	return context.WithValue(ctx, activeSchemaCtxKey{}, schema)
+}
+
+// ActiveSchemaFromContext extracts the active schema from context.
+func ActiveSchemaFromContext(ctx context.Context) string {
+	schema, ok := ctx.Value(activeSchemaCtxKey{}).(string)
+	if !ok || schema == "" {
+		return "public"
+	}
+	return schema
 }
 
 // ContextWithRequestConn returns a copy of ctx containing a request-scoped

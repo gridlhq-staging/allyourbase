@@ -12,9 +12,105 @@ import {
   FileSpreadsheet,
 } from "lucide-react";
 import { useCodeMirrorTheme } from "./codeMirrorTheme";
+import { ConfirmDialog } from "./shared/ConfirmDialog";
+
+const DESTRUCTIVE_SQL_KEYWORDS = new Set(["DELETE", "DROP", "TRUNCATE"]);
+
+function skipLineComment(query: string, index: number): number {
+  while (index < query.length && query[index] !== "\n" && query[index] !== "\r") {
+    index += 1;
+  }
+  if (query[index] === "\r" && query[index + 1] === "\n") return index + 2;
+  return index + 1;
+}
+
+function skipBlockComment(query: string, index: number): number {
+  let depth = 1;
+
+  while (index < query.length - 1) {
+    if (query[index] === "/" && query[index + 1] === "*") {
+      depth += 1;
+      index += 2;
+      continue;
+    }
+    if (query[index] === "*" && query[index + 1] === "/") {
+      depth -= 1;
+      index += 2;
+      if (depth === 0) return index;
+      continue;
+    }
+    index += 1;
+  }
+
+  return query.length;
+}
+
+function skipQuotedText(query: string, index: number, quote: "'" | '"'): number {
+  index += 1;
+  while (index < query.length) {
+    if (query[index] !== quote) {
+      index += 1;
+      continue;
+    }
+    if (query[index + 1] === quote) {
+      index += 2;
+      continue;
+    }
+    return index + 1;
+  }
+  return index;
+}
+
+function nextSQLKeyword(
+  query: string,
+  startIndex = 0,
+): { keyword: string; nextIndex: number } | null {
+  let index = startIndex;
+
+  while (index < query.length) {
+    const current = query[index];
+    const next = query[index + 1];
+
+    if (/\s/.test(current)) {
+      index += 1;
+      continue;
+    }
+    if (current === "-" && next === "-") {
+      index = skipLineComment(query, index + 2);
+      continue;
+    }
+    if (current === "/" && next === "*") {
+      index = skipBlockComment(query, index + 2);
+      continue;
+    }
+    if (current === "'" || current === '"') {
+      index = skipQuotedText(query, index, current);
+      continue;
+    }
+    if (/[A-Za-z_]/.test(current)) {
+      let end = index + 1;
+      while (/[A-Za-z0-9_$]/.test(query[end] || "")) {
+        end += 1;
+      }
+      return {
+        keyword: query.slice(index, end).toUpperCase(),
+        nextIndex: end,
+      };
+    }
+
+    index += 1;
+  }
+
+  return null;
+}
+
+function firstSQLKeyword(query: string): string | null {
+  return nextSQLKeyword(query)?.keyword ?? null;
+}
 
 function classifyQuery(q: string): "select" | "dml" | "ddl" | "other" {
-  const first = q.trim().split(/\s+/)[0]?.toUpperCase();
+  const first = firstSQLKeyword(q);
+  if (!first) return "other";
   if (first === "SELECT" || first === "WITH" || first === "TABLE" || first === "VALUES")
     return "select";
   if (["INSERT", "UPDATE", "DELETE", "MERGE"].includes(first)) return "dml";
@@ -25,6 +121,21 @@ function classifyQuery(q: string): "select" | "dml" | "ddl" | "other" {
   )
     return "ddl";
   return "other";
+}
+
+function isDestructiveQuery(q: string): boolean {
+  const first = firstSQLKeyword(q);
+  if (!first) return false;
+  if (DESTRUCTIVE_SQL_KEYWORDS.has(first)) return true;
+  if (first !== "WITH") return false;
+
+  let keyword = nextSQLKeyword(q);
+  while (keyword) {
+    if (DESTRUCTIVE_SQL_KEYWORDS.has(keyword.keyword)) return true;
+    keyword = nextSQLKeyword(q, keyword.nextIndex);
+  }
+
+  return false;
 }
 
 export function resultToCSV(result: SqlResult): string {
@@ -64,10 +175,10 @@ export function SqlEditor({ onSchemaChange }: SqlEditorProps = {}) {
   const [loading, setLoading] = useState(false);
   const [lastQuery, setLastQuery] = useState<string>("");
   const [copyFeedback, setCopyFeedback] = useState<string | null>(null);
+  const [pendingDestructiveQuery, setPendingDestructiveQuery] = useState<string | null>(null);
   const codeMirrorTheme = useCodeMirrorTheme();
 
-  const execute = useCallback(async () => {
-    const trimmed = query.trim();
+  const executeQuery = useCallback(async (trimmed: string) => {
     if (!trimmed) return;
 
     setLoading(true);
@@ -92,7 +203,30 @@ export function SqlEditor({ onSchemaChange }: SqlEditorProps = {}) {
     } finally {
       setLoading(false);
     }
-  }, [query, onSchemaChange]);
+  }, [onSchemaChange]);
+
+  const execute = useCallback(async () => {
+    const trimmed = query.trim();
+    if (!trimmed) return;
+
+    if (isDestructiveQuery(trimmed)) {
+      setPendingDestructiveQuery(trimmed);
+      return;
+    }
+
+    await executeQuery(trimmed);
+  }, [query, executeQuery]);
+
+  const confirmDestructiveQuery = useCallback(async () => {
+    if (!pendingDestructiveQuery) return;
+    const confirmedQuery = pendingDestructiveQuery;
+    setPendingDestructiveQuery(null);
+    await executeQuery(confirmedQuery);
+  }, [pendingDestructiveQuery, executeQuery]);
+
+  const cancelDestructiveQuery = useCallback(() => {
+    setPendingDestructiveQuery(null);
+  }, []);
 
   // Stable reference for Cmd+Enter keymap — reads current query via closure
   // but the keymap extension itself is only created once.
@@ -165,6 +299,17 @@ export function SqlEditor({ onSchemaChange }: SqlEditorProps = {}) {
 
   return (
     <div className="flex flex-col h-full">
+      <ConfirmDialog
+        open={pendingDestructiveQuery !== null}
+        title="Confirm destructive SQL"
+        message="This SQL statement can permanently change or remove data. Confirm before executing it."
+        confirmLabel="Execute destructive SQL"
+        destructive
+        loading={loading}
+        onConfirm={confirmDestructiveQuery}
+        onCancel={cancelDestructiveQuery}
+      />
+
       {/* Editor area */}
       <div className="border-b p-4">
         <div className="border rounded-lg overflow-hidden">

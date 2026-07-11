@@ -10,6 +10,60 @@ struct RecordsLiveIntegrationTests {
             "Set AYB_TEST_URL and AYB_TEST_ADMIN_TOKEN/AYB_ADMIN_TOKEN, or provide ~/.ayb/admin-token before running live Swift SDK tests."
         )
     )
+    func beginWebAuthnLoginReturnsConcreteChallengeOptions() async throws {
+        let client = try RecordsLiveIntegrationSupport.newClient()
+
+        let response = try await client.auth.beginWebAuthnLogin(
+            email: "swift-live-webauthn-decoy@example.com"
+        )
+
+        #expect(response.challengeId.isEmpty == false)
+        #expect(response.options.challenge.isEmpty == false)
+        #expect(response.options.rpId == "127.0.0.1")
+        #expect(response.options.allowCredentials.isEmpty == false)
+    }
+
+    @Test(
+        .enabled(
+            if: RecordsLiveIntegrationSupport.hasRequiredConfiguration(),
+            "Set AYB_TEST_URL and AYB_TEST_ADMIN_TOKEN/AYB_ADMIN_TOKEN, or provide ~/.ayb/admin-token before running live Swift SDK tests."
+        )
+    )
+    func searchSynonymsRoundTripReturnsNormalizedGroups() async throws {
+        let collection = "\(RecordsLiveIntegrationSupport.collection)_synonyms"
+        let client = try RecordsLiveIntegrationSupport.newClient()
+        try await RecordsLiveIntegrationSupport.prepareSearchFixtures(using: client, collection: collection)
+        do {
+            let expectedGroups = [
+                ["ai", "artificial intelligence", "machine learning"],
+                ["science fiction", "scifi"],
+            ]
+
+            let putResponse = try await client.records.setSynonyms(
+                collection,
+                groups: [
+                    SearchSynonymGroup(terms: [" SciFi ", "Science Fiction"]),
+                    SearchSynonymGroup(terms: ["AI", "Artificial Intelligence", "Machine Learning"]),
+                ]
+            )
+            #expect(putResponse.groups.map(\.terms) == expectedGroups)
+
+            let getResponse = try await client.records.getSynonyms(collection)
+            #expect(getResponse.groups.map(\.terms) == expectedGroups)
+
+            try await RecordsLiveIntegrationSupport.dropSearchFixtures(using: client, collection: collection)
+        } catch {
+            try? await RecordsLiveIntegrationSupport.dropSearchFixtures(using: client, collection: collection)
+            throw error
+        }
+    }
+
+    @Test(
+        .enabled(
+            if: RecordsLiveIntegrationSupport.hasRequiredConfiguration(),
+            "Set AYB_TEST_URL and AYB_TEST_ADMIN_TOKEN/AYB_ADMIN_TOKEN, or provide ~/.ayb/admin-token before running live Swift SDK tests."
+        )
+    )
     func searchHighlightRequiresConfiguredServer() async throws {
         let collection = "\(RecordsLiveIntegrationSupport.collection)_highlight"
         let client = try RecordsLiveIntegrationSupport.newClient()

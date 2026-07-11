@@ -26,6 +26,10 @@ body_limit = "1MB"
 # Seconds to wait for in-flight requests during shutdown.
 shutdown_timeout = 10
 
+# Require a resolved tenant before anonymous public storage reads.
+# Self-hosted deployments default to false for ambient-tenant compatibility.
+# require_resolved_tenant = false
+
 # Automatic HTTPS via Let's Encrypt (optional).
 # Requires a public domain pointing at this machine, with ports 80 and 443 open.
 # Set tls_domain to enable — AYB will obtain and auto-renew the certificate.

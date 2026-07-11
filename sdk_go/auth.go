@@ -18,6 +18,35 @@ func (a *AuthClient) Login(ctx context.Context, email, password string) (*AuthRe
 	return a.authWithCredentials(ctx, "/api/auth/login", email, password)
 }
 
+func (a *AuthClient) BeginWebAuthnLogin(ctx context.Context, email string) (*WebAuthnLoginBeginResponse, error) {
+	body, err := a.client.doJSON(ctx, http.MethodPost, "/api/auth/webauthn/login/begin", nil, map[string]string{"email": email})
+	if err != nil {
+		return nil, err
+	}
+	var out WebAuthnLoginBeginResponse
+	if err := json.Unmarshal(body, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+func (a *AuthClient) FinishWebAuthnLogin(ctx context.Context, challengeID string, assertionResponse json.RawMessage) (*AuthResponse, error) {
+	req := WebAuthnLoginFinishRequest{
+		ChallengeID:       challengeID,
+		AssertionResponse: assertionResponse,
+	}
+	body, err := a.client.doJSON(ctx, http.MethodPost, "/api/auth/webauthn/login/finish", nil, req)
+	if err != nil {
+		return nil, err
+	}
+	var out AuthResponse
+	if err := json.Unmarshal(body, &out); err != nil {
+		return nil, err
+	}
+	a.client.SetTokens(out.Token, out.RefreshToken)
+	return &out, nil
+}
+
 func (a *AuthClient) SignInAnonymously(ctx context.Context) (*AuthResponse, error) {
 	body, err := a.client.doJSON(ctx, http.MethodPost, "/api/auth/anonymous", nil, map[string]any{})
 	if err != nil {

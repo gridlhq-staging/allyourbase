@@ -15,6 +15,7 @@ import (
 	"github.com/allyourbase/ayb/internal/config"
 	"github.com/allyourbase/ayb/internal/migrations"
 	"github.com/allyourbase/ayb/internal/pgmanager"
+	"github.com/allyourbase/ayb/internal/pgnotify"
 	"github.com/allyourbase/ayb/internal/postgres"
 	"github.com/allyourbase/ayb/internal/schema"
 	"github.com/allyourbase/ayb/internal/sms"
@@ -48,6 +49,12 @@ var (
 		return migrations.NewRunner(pool, logger)
 	}
 	runFromMigrationForInitDatabase = runFromMigration
+	newAuthRevokedSessionStore      = func(pool *pgxpool.Pool) auth.RevokedSessionPersistence {
+		return auth.NewRevokedSessionStore(pool)
+	}
+	newAuthTokenRevokeBus = func(pool *pgxpool.Pool, databaseURL string, logger *slog.Logger) auth.TokenRevokeBus {
+		return pgnotify.NewBus(pool, databaseURL, logger)
+	}
 )
 
 func stopInitDatabaseManagedPostgres(pg initDatabaseManagedPostgres, logger *slog.Logger) {
@@ -188,22 +195,33 @@ func runInitDatabaseMigrations(
 		}
 	}
 
-	if cfg.Database.MigrationsDir != "" {
-		if _, err := os.Stat(cfg.Database.MigrationsDir); err == nil {
-			userRunner := migrations.NewUserRunner(initPool.DB(), cfg.Database.MigrationsDir, logger)
-			if err := userRunner.Bootstrap(ctx); err != nil {
-				return fmt.Errorf("bootstrapping user migrations: %w", err)
-			}
-			userApplied, err := userRunner.Up(ctx)
-			if err != nil {
-				return fmt.Errorf("running user migrations: %w", err)
-			}
-			if userApplied > 0 {
-				logger.Info("applied user migrations", "count", userApplied)
-			}
-		}
+	return runInitDatabaseUserMigrations(ctx, initPool, cfg.Database.MigrationsDir, logger)
+}
+
+func runInitDatabaseUserMigrations(
+	ctx context.Context,
+	initPool initDatabasePool,
+	migrationsDir string,
+	logger *slog.Logger,
+) error {
+	if migrationsDir == "" {
+		return nil
+	}
+	if _, err := os.Stat(migrationsDir); err != nil {
+		return nil
 	}
 
+	userRunner := migrations.NewUserRunner(initPool.DB(), migrationsDir, logger)
+	if err := userRunner.Bootstrap(ctx); err != nil {
+		return fmt.Errorf("bootstrapping user migrations: %w", err)
+	}
+	userApplied, err := userRunner.Up(ctx)
+	if err != nil {
+		return fmt.Errorf("running user migrations: %w", err)
+	}
+	if userApplied > 0 {
+		logger.Info("applied user migrations", "count", userApplied)
+	}
 	return nil
 }
 
@@ -372,6 +390,9 @@ func initCoreServices(ctx context.Context, cfg *config.Config, pool *postgres.Po
 			}
 		}
 		applyOAuthProviderModeConfig(core.authSvc, cfg)
+		if err := configureAuthSessionRevocation(ctx, cfg, pool.DB(), core.authSvc, logger); err != nil {
+			return nil, err
+		}
 		logger.Info("auth enabled", "email_backend", cfg.Email.Backend)
 	}
 	// Conditionally create storage service.
@@ -413,6 +434,26 @@ func initCoreServices(ctx context.Context, cfg *config.Config, pool *postgres.Po
 	}
 
 	return core, nil
+}
+
+func configureAuthSessionRevocation(
+	ctx context.Context,
+	cfg *config.Config,
+	pool *pgxpool.Pool,
+	authSvc *auth.Service,
+	logger *slog.Logger,
+) error {
+	if authSvc == nil || pool == nil || cfg.Database.URL == "" {
+		return nil
+	}
+	bus := newAuthTokenRevokeBus(pool, cfg.Database.URL, logger)
+	if err := authSvc.ConfigureSessionRevocation(ctx, auth.RevocationOptions{
+		Store: newAuthRevokedSessionStore(pool),
+		Bus:   bus,
+	}); err != nil {
+		return fmt.Errorf("configuring auth session revocation: %w", err)
+	}
+	return nil
 }
 
 func configureAuthArgon2(cfg *config.Config) error {

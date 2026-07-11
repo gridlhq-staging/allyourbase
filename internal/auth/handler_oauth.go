@@ -248,7 +248,7 @@ func (h *Handler) normalizeOAuthCallbackRequest(w http.ResponseWriter, r *http.R
 		if stateEntry, ok := h.oauthStateStore.ValidateAndConsumeEntry(req.state); ok {
 			req.returnTo = stateEntry.returnTo
 			req.sseClientID = stateEntry.sseClient
-			req.isSSEClient = req.sseClientID != "" && h.oauthPublisher != nil && h.oauthPublisher.HasClient(req.sseClientID)
+			req.isSSEClient = req.sseClientID != "" && h.oauthPublisher != nil
 			if req.isSSEClient {
 				h.oauthPublisher.PublishOAuth(req.sseClientID, &OAuthEvent{Error: "OAuth authentication was denied or failed"})
 				h.writeOAuthCompletePage(w)
@@ -268,7 +268,7 @@ func (h *Handler) normalizeOAuthCallbackRequest(w http.ResponseWriter, r *http.R
 	}
 	req.returnTo = stateEntry.returnTo
 	req.sseClientID = stateEntry.sseClient
-	req.isSSEClient = req.sseClientID != "" && h.oauthPublisher != nil && h.oauthPublisher.HasClient(req.sseClientID)
+	req.isSSEClient = req.sseClientID != "" && h.oauthPublisher != nil
 
 	req.code = oauthCallbackParam(r, "code")
 	if req.code == "" {

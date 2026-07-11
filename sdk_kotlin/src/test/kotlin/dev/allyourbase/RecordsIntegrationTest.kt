@@ -7,9 +7,11 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import org.junit.jupiter.api.Assumptions.assumeTrue
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertNotNull
 import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
+import java.util.UUID
 
 class RecordsIntegrationTest {
     @Test
@@ -51,6 +53,45 @@ class RecordsIntegrationTest {
         assertEquals(1, categoryFacets?.size)
         assertEquals("docs", categoryFacets?.first()?.jsonObject?.get("value")?.jsonPrimitive?.content)
         assertEquals(2, categoryFacets?.first()?.jsonObject?.get("count")?.jsonPrimitive?.content?.toInt())
+    }
+
+    @Test
+    fun `webauthn login begin decodes live challenge id`() = runTest {
+        val client = RecordsIntegrationEnv.newClient()
+        assumeTrue(client != null)
+        val configuredClient = client ?: return@runTest
+
+        val response = configuredClient.auth.beginWebAuthnLogin(
+            "sdk-kotlin-live-passkey-${UUID.randomUUID()}@example.test",
+        )
+
+        assertTrue(response.challengeId.isNotBlank())
+        assertTrue(response.options["challenge"]?.jsonPrimitive?.content?.isNotBlank() == true)
+        assertNotNull(response.options["allowCredentials"]?.jsonArray)
+    }
+
+    @Test
+    fun `search synonyms round trip normalizes groups on configured server`() = runTest {
+        val client = RecordsIntegrationEnv.newClient()
+        assumeTrue(client?.token?.isNotBlank() == true)
+        val configuredClient = client ?: return@runTest
+
+        val request = SearchSynonymsRequest(
+            groups = listOf(
+                SearchSynonymGroup(terms = listOf("NYC", " new york ")),
+                SearchSynonymGroup(terms = listOf("scifi", "Science Fiction")),
+            ),
+        )
+
+        val written = configuredClient.records.setSynonyms(RecordsIntegrationEnv.collection, request)
+        val read = configuredClient.records.getSynonyms(RecordsIntegrationEnv.collection)
+
+        val expected = listOf(
+            SearchSynonymGroup(terms = listOf("new york", "nyc")),
+            SearchSynonymGroup(terms = listOf("science fiction", "scifi")),
+        )
+        assertEquals(expected, written.groups)
+        assertEquals(expected, read.groups)
     }
 
     @Test

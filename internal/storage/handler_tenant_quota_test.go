@@ -23,21 +23,21 @@ type countBackend struct {
 	putErr   error
 }
 
-func (b *countBackend) Put(_ context.Context, bucket, name string, r io.Reader) (int64, error) {
+func (b *countBackend) Put(_ context.Context, tenantID, bucket, name string, r io.Reader) (int64, error) {
 	b.putCount++
 	n, _ := io.Copy(io.Discard, r)
 	return n, b.putErr
 }
 
-func (b *countBackend) Get(_ context.Context, bucket, name string) (io.ReadCloser, error) {
+func (b *countBackend) Get(_ context.Context, tenantID, bucket, name string) (io.ReadCloser, error) {
 	return nil, nil
 }
 
-func (b *countBackend) Delete(_ context.Context, bucket, name string) error {
+func (b *countBackend) Delete(_ context.Context, tenantID, bucket, name string) error {
 	return nil
 }
 
-func (b *countBackend) Exists(_ context.Context, bucket, name string) (bool, error) {
+func (b *countBackend) Exists(_ context.Context, tenantID, bucket, name string) (bool, error) {
 	return false, nil
 }
 
@@ -122,7 +122,7 @@ func performUpload(t *testing.T, h *Handler, req *http.Request) *httptest.Respon
 
 func newTestUploadHandler(backend *countBackend) *Handler {
 	svc := NewService(nil, backend, "test-sign-key", testutil.DiscardLogger(), 0)
-	return NewHandler(svc, testutil.DiscardLogger(), 1024, "")
+	return NewHandler(svc, testutil.DiscardLogger(), 1024, "", false)
 }
 
 func withUserClaims(req *http.Request, userID string) *http.Request {
@@ -249,6 +249,31 @@ func TestHandleUpload_UserQuotaExceededSkipsUpload(t *testing.T) {
 	rec := performUpload(t, h, req)
 	testutil.Equal(t, http.StatusRequestEntityTooLarge, rec.Code)
 	testutil.Equal(t, 1, reserveCalls)
+	testutil.Equal(t, 0, backend.putCount)
+}
+
+func TestHandleUpload_UserQuotaExceededWithTenantContextUsesTenantMessage(t *testing.T) {
+	t.Parallel()
+	backend := &countBackend{}
+	h := newTestUploadHandler(backend)
+
+	req := newMultipartUploadRequest(t, []byte("small-body"))
+	req = req.WithContext(tenant.ContextWithTenantID(req.Context(), "tenant-1"))
+	req = withUserClaims(req, "quota-user")
+
+	h.mutations.reserveQuota = func(_ context.Context, userID string, bytes int64) error {
+		testutil.Equal(t, "quota-user", userID)
+		testutil.True(t, bytes > 0, "expected reserved bytes from multipart file header")
+		return ErrQuotaExceeded
+	}
+	h.mutations.upload = func(_ context.Context, _, _, _ string, _ *string, _ io.Reader) (*Object, error) {
+		t.Fatal("upload mutation should not run when tenant quota reservation is rejected")
+		return nil, nil
+	}
+
+	rec := performUpload(t, h, req)
+	testutil.Equal(t, http.StatusRequestEntityTooLarge, rec.Code)
+	testutil.Contains(t, rec.Body.String(), "tenant storage quota exceeded")
 	testutil.Equal(t, 0, backend.putCount)
 }
 

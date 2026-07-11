@@ -46,7 +46,9 @@ func (b *WSBridge) SetupHandler(h *ws.Handler) {
 }
 
 func (b *WSBridge) onConnect(c *ws.Conn) {
-	// Register a Hub client with no tables. Tables are added via subscribe.
+	// Register a Hub client with no tables. Tables and tenant are attached in
+	// onSubscribe from authenticated connection state — tenant is intentionally
+	// NOT inferred here, since connect may precede authentication.
 	client := b.hub.Subscribe(map[string]bool{})
 
 	b.mu.Lock()
@@ -89,11 +91,29 @@ func (b *WSBridge) onSubscribe(c *ws.Conn, _ []string, filter string) error {
 		return fmt.Errorf("invalid filter: %w", err)
 	}
 
+	// Attach tenant and filters BEFORE tables. Tables are the delivery gate in
+	// deliverLocalTableEvent, so setting them last guarantees no event is
+	// dispatched until the tenant scope is in place (never a cross-tenant leak).
+	b.hub.SetTenant(hubClientID, tenantFromConn(c))
+	b.hub.SetFilters(hubClientID, filters)
 	// conn.Subscriptions() already reflects the new tables (ws.Handler
 	// calls c.Subscribe before firing OnSubscribe).
 	b.hub.SetTables(hubClientID, c.Subscriptions())
-	b.hub.SetFilters(hubClientID, filters)
 	return nil
+}
+
+// tenantFromConn derives the tenant scope from the authenticated connection's
+// claims. Returns "" for unauthenticated connections, which then receive only
+// wildcard (empty-tenant) events per tenantMatches. For an authenticated
+// session this claims-derived tenant equals the context tenant a publisher tags
+// (tenantIDFromRequest resolves claims.TenantID first), so subscribe and
+// publish sides agree.
+func tenantFromConn(c *ws.Conn) string {
+	claims := c.Claims()
+	if claims == nil {
+		return ""
+	}
+	return claims.TenantID
 }
 
 func (b *WSBridge) onUnsubscribe(c *ws.Conn, _ []string) {
@@ -112,7 +132,7 @@ func (b *WSBridge) onUnsubscribe(c *ws.Conn, _ []string) {
 func (b *WSBridge) forwardEvents(c *ws.Conn, client *Client) {
 	ctx := context.Background()
 	for event := range client.Events() {
-		if !CanSeeRecord(ctx, b.pool, b.schemaCache, b.logger, c.Claims(), event) {
+		if !CanSeeRecord(ctx, b.pool, b.schemaCache, b.logger, c.Claims(), c.ActiveSchema(), event) {
 			continue
 		}
 		if !shouldDeliverEvent(event, client.Filters()) {

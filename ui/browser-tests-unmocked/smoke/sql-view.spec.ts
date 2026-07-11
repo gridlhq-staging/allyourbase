@@ -61,7 +61,25 @@ test.describe("Smoke: SQL View", () => {
     await page.getByRole("button", { name: /^SQL$/i }).click();
 
     const sqlEditor = page.getByLabel("SQL query");
+    const executeButton = page.getByRole("button", { name: /^Execute$/i });
     await expect(sqlEditor).toBeVisible({ timeout: 5000 });
+    await expect(sqlEditor).toContainText("SELECT 1 AS hello;");
+    await expect(page.getByText("Run a query to see results")).toBeVisible();
+    await sqlEditor.click();
+    await page.keyboard.press("ControlOrMeta+A");
+    await page.keyboard.press("Backspace");
+    await expect(executeButton).toBeDisabled();
+    await page.keyboard.type(`SELECT pg_sleep(1), '${rowTitle}' AS title;`);
+    await executeButton.click();
+    await expect(page.getByRole("button", { name: /^Running\.\.\.$/i })).toBeVisible();
+    await expect(page.getByRole("columnheader", { name: "title" })).toBeVisible({ timeout: 5000 });
+
+    await sqlEditor.click();
+    await page.keyboard.press("ControlOrMeta+A");
+    await page.keyboard.type("SELECT * FROM definitely_missing_sql_view_table;");
+    await page.getByRole("button", { name: /^Execute$/i }).click();
+    await expect(page.getByText(/definitely_missing_sql_view_table/i)).toBeVisible({ timeout: 5000 });
+
     await sqlEditor.click();
     await page.keyboard.press("ControlOrMeta+A");
     await page.keyboard.type(`SELECT title FROM ${tableName} WHERE title = '${rowTitle}';`);
@@ -70,5 +88,8 @@ test.describe("Smoke: SQL View", () => {
 
     await expect(page.getByRole("columnheader", { name: "title" })).toBeVisible({ timeout: 5000 });
     await expect(page.getByRole("table").getByText(rowTitle)).toBeVisible({ timeout: 5000 });
+    await expect(page.getByText(/1 row in \d+ms/i)).toBeVisible();
+    await expect(page.getByTitle("Copy as CSV")).toBeVisible();
+    await expect(page.getByTitle("Copy as JSON")).toBeVisible();
   });
 });

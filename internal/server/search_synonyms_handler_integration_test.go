@@ -231,6 +231,11 @@ func TestSearchSynonymsPutReplacesGroupsAndGetReturnsNormalizedGroups(t *testing
 		{Terms: []string{"science fiction", "scifi"}},
 	}}, decodeSynonymGroups(t, w))
 	testutil.Equal(t, 2, synonymRowCount(t, ctx, "public", "posts"))
+
+	w = putSynonymGroups(t, srv, adminToken, [][]string{})
+	testutil.StatusCode(t, http.StatusOK, w.Code)
+	assertSynonymGroups(t, synonymGroupsResponse{Groups: []synonymGroupResponse{}}, decodeSynonymGroups(t, w))
+	testutil.Equal(t, 0, synonymRowCount(t, ctx, "public", "posts"))
 }
 
 func TestSearchSynonymsValidation(t *testing.T) {

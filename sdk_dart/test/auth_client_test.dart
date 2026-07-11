@@ -47,6 +47,11 @@ final _magicLinkConfirmPendingMfaFixture = (jsonDecode(
       .readAsStringSync(),
 ) as Map<Object?, Object?>)
     .cast<String, Object?>();
+final _webauthnLoginBeginFixture = (jsonDecode(
+  File('../tests/contract/fixtures/sdk_contract/webauthn_login_begin_response.json')
+      .readAsStringSync(),
+) as Map<Object?, Object?>)
+    .cast<String, Object?>();
 final _linkEmailFixture = (jsonDecode(
   File('../tests/contract/fixtures/sdk_parity/link_email.json')
       .readAsStringSync(),
@@ -185,6 +190,117 @@ void main() {
         expect(client.token, 'existing_token');
         expect(client.refreshToken, 'existing_refresh');
         expect(events, isEmpty);
+      });
+    });
+
+    group('WebAuthn login', () {
+      group('signInWithPasskey', () {
+        test('runs the passkey ceremony and finishes login', () async {
+          const email = 'passkey@example.com';
+          const assertionResponse = <String, Object?>{
+            'id': 'credential-1',
+            'rawId': 'credential-1',
+            'type': 'public-key',
+            'response': {
+              'authenticatorData': 'auth-data',
+              'clientDataJSON': 'client-data',
+              'signature': 'sig',
+              'userHandle': 'usr_1',
+            },
+          };
+          final beginResponse =
+              WebAuthnLoginBeginResponse.fromJson(_webauthnLoginBeginFixture);
+          final authenticator = _FakePasskeyAuthenticator(assertionResponse);
+          final http = DeterministicHttpClient([
+            StubResponse.json(200, _webauthnLoginBeginFixture),
+            StubResponse.json(200, _authResponseJson),
+          ]);
+          final client = AYBClient('https://api.example.com', httpClient: http);
+          final events = <String>[];
+          client.onAuthStateChange((event, _) => events.add(event));
+
+          final result =
+              await client.auth.signInWithPasskey(email, authenticator);
+
+          expect(authenticator.receivedOptions, [beginResponse.options]);
+          expect(http.requests, hasLength(2));
+          final finishRequest = http.requests[1];
+          expect(finishRequest.method, 'POST');
+          expect(finishRequest.url.toString(),
+              'https://api.example.com/api/auth/webauthn/login/finish');
+          expect(finishRequest.decodeJsonBody(), {
+            'challenge_id': beginResponse.challengeId,
+            'assertion_response': assertionResponse,
+          });
+          expect(result.token, 'jwt_new');
+          expect(result.refreshToken, 'refresh_new');
+          expect(client.token, 'jwt_new');
+          expect(client.refreshToken, 'refresh_new');
+          expect(events, ['SIGNED_IN']);
+        });
+      });
+
+      test('begins login without mutating auth state', () async {
+        const email = 'passkey@example.com';
+        final http = DeterministicHttpClient([
+          StubResponse.json(200, _webauthnLoginBeginFixture),
+        ]);
+        final client = AYBClient('https://api.example.com', httpClient: http);
+        final events = <String>[];
+        client.onAuthStateChange((event, _) => events.add(event));
+
+        final result = await client.auth.beginWebAuthnLogin(email);
+
+        final req = http.requests.single;
+        expect(req.method, 'POST');
+        expect(req.url.toString(),
+            'https://api.example.com/api/auth/webauthn/login/begin');
+        expect(req.decodeJsonBody(), {'email': email});
+        expect(result.challengeId, 'webauthn_challenge_fixture');
+        expect(result.options['challenge'], 'webauthn_login_begin_challenge');
+        expect(client.token, isNull);
+        expect(client.refreshToken, isNull);
+        expect(events, isEmpty);
+      });
+
+      test('finishes login, stores tokens, and emits SIGNED_IN', () async {
+        const challengeId = 'webauthn_challenge_fixture';
+        const assertionResponse = <String, Object?>{
+          'id': 'credential-1',
+          'rawId': 'credential-1',
+          'type': 'public-key',
+          'response': {
+            'authenticatorData': 'auth-data',
+            'clientDataJSON': 'client-data',
+            'signature': 'sig',
+            'userHandle': 'usr_1',
+          },
+        };
+        final http = DeterministicHttpClient([
+          StubResponse.json(200, _authResponseJson),
+        ]);
+        final client = AYBClient('https://api.example.com', httpClient: http);
+        final events = <String>[];
+        client.onAuthStateChange((event, _) => events.add(event));
+
+        final result = await client.auth.finishWebAuthnLogin(
+          challengeId,
+          assertionResponse,
+        );
+
+        final req = http.requests.single;
+        expect(req.method, 'POST');
+        expect(req.url.toString(),
+            'https://api.example.com/api/auth/webauthn/login/finish');
+        expect(req.decodeJsonBody(), {
+          'challenge_id': challengeId,
+          'assertion_response': assertionResponse,
+        });
+        expect(result.token, 'jwt_new');
+        expect(result.refreshToken, 'refresh_new');
+        expect(client.token, 'jwt_new');
+        expect(client.refreshToken, 'refresh_new');
+        expect(events, ['SIGNED_IN']);
       });
     });
 
@@ -768,4 +884,17 @@ String? _header(Map<String, String> headers, String key) {
     }
   }
   return null;
+}
+
+class _FakePasskeyAuthenticator implements PasskeyAuthenticator {
+  _FakePasskeyAuthenticator(this.assertionResponse);
+
+  final JsonMap assertionResponse;
+  final List<JsonMap> receivedOptions = <JsonMap>[];
+
+  @override
+  Future<JsonMap> authenticate(JsonMap options) async {
+    receivedOptions.add(options);
+    return assertionResponse;
+  }
 }

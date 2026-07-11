@@ -18,9 +18,10 @@ type dataloaderContextKey struct{}
 
 // Dataloader is a per-request loader registry keyed by target table/match column.
 type Dataloader struct {
-	pool    *pgxpool.Pool
-	cache   *schema.SchemaCache
-	loaders sync.Map
+	pool         *pgxpool.Pool
+	cache        *schema.SchemaCache
+	activeSchema string
+	loaders      sync.Map
 }
 
 // Loader batches and caches rows by lookup key.
@@ -34,10 +35,11 @@ type Loader struct {
 	singleFn func(ctx context.Context, key interface{}) ([]map[string]any, error)
 }
 
-func NewDataloader(pool *pgxpool.Pool, cache *schema.SchemaCache) *Dataloader {
+func NewDataloader(pool *pgxpool.Pool, cache *schema.SchemaCache, activeSchema string) *Dataloader {
 	return &Dataloader{
-		pool:  pool,
-		cache: cache,
+		pool:         pool,
+		cache:        cache,
+		activeSchema: activeSchema,
 	}
 }
 
@@ -209,7 +211,7 @@ func (d *Dataloader) targetTable(rel *schema.Relationship) *schema.Table {
 	if tbl := d.cache.Tables[rel.ToSchema+"."+rel.ToTable]; tbl != nil {
 		return tbl
 	}
-	return d.cache.TableByName(rel.ToTable)
+	return d.cache.TableByNameInSchema(d.activeSchema, rel.ToTable)
 }
 
 // fetchBatchRows fetches rows from the database where the match column value matches any of the provided keys.

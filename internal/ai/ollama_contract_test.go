@@ -36,6 +36,33 @@ func TestOllamaContractGenerateText(t *testing.T) {
 	assertTextUsage(t, resp.Usage)
 }
 
+func TestOllamaContractGenerateTextStream(t *testing.T) {
+	cfg := ollamaContractConfig()
+	provider, model := resolveContractProvider(t, "ollama", cfg)
+	streamingProvider, ok := provider.(StreamingProvider)
+	if !ok {
+		t.Fatalf("resolved provider %T does not implement StreamingProvider", provider)
+	}
+
+	const sentinel = "AYB_OLLAMA_STREAM_OK"
+	temperature := 0.0
+	stream, err := streamingProvider.GenerateTextStream(contractContext(t), GenerateTextRequest{
+		Model: model,
+		Messages: []Message{
+			TextMessage("user", "Reply with exactly this uppercase token and no other text: "+sentinel),
+		},
+		MaxTokens:   16,
+		Temperature: &temperature,
+	})
+	if err != nil {
+		t.Fatalf("GenerateTextStream: %v", err)
+	}
+	defer stream.Close()
+
+	result := readContractStream(t, stream)
+	assertExactContractText(t, result.Text, sentinel)
+}
+
 func TestOllamaContractGenerateEmbedding(t *testing.T) {
 	cfg := ollamaContractConfig()
 	provider, _ := resolveContractProvider(t, "ollama", cfg)

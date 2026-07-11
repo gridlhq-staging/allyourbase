@@ -8,11 +8,21 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- Real AI token streaming: `GenerateTextStream` is now implemented for Ollama (NDJSON) and Anthropic (SSE), so chat surfaces stream tokens as they are generated instead of delivering one blob at the end. An OpenAI adapter ships alongside them.
+- Multi-node enablers over a shared Postgres LISTEN/NOTIFY bus (`internal/pgnotify`): realtime events fan out across nodes, and token/session revocations propagate durably. AYB can run as N nodes behind a load balancer against one Postgres.
+- Hosted/pooled multi-tenant mode: a `server.require_resolved_tenant` setting (env `AYB_SERVER_REQUIRE_RESOLVED_TENANT`, default off) makes an anonymous request whose tenant cannot be resolved fail closed instead of reading the ambient namespace. Single-tenant self-host behavior is unchanged.
+- `make test-multinode`: an unattended two-node end-to-end lane (shared external Postgres + MinIO, OS-assigned ports) proving cross-node realtime delivery, cross-node session revocation, and per-tenant storage isolation.
+
 ### Changed
 
 - Retired the legacy direct sync pipeline and Makefile guard in favor of Debbie-owned public sync.
+- Resumable uploads stage their partial data in the configured storage backend rather than a node-local temp directory, so an upload started on one node can be completed by another.
 
 ### Fixed
+
+- Storage is now tenant-isolated: object metadata and physical keys are scoped by `tenant_id` and signed URLs are bound to their tenant, fixing a cross-tenant overwrite where two tenants uploading the same bucket+name would clobber each other's bytes.
+- Realtime subscriptions are tenant-scoped: a subscriber for one tenant no longer receives another tenant's row events for a same-named table, and delete events now respect row-level security instead of broadcasting to every subscriber of the table.
+- Storage usage is accounted per tenant: two tenants sharing a user id no longer share one quota balance.
 
 ## [0.0.14-beta] - 2026-07-08
 

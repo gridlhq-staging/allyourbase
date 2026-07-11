@@ -13,6 +13,9 @@ func applyServerEnv(cfg *Config) error {
 	if err := envInt("AYB_SERVER_PORT", &cfg.Server.Port); err != nil {
 		return err
 	}
+	if v := os.Getenv("AYB_SERVER_REQUIRE_RESOLVED_TENANT"); v != "" {
+		cfg.Server.RequireResolvedTenant = v == "true" || v == "1"
+	}
 	if v := os.Getenv("AYB_TLS_DOMAIN"); v != "" {
 		cfg.Server.TLSDomain = v
 	}

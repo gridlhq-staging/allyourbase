@@ -65,7 +65,7 @@ func TestHandleUploadOverwriteEnqueuesCDNPurgeAsync(t *testing.T) {
 		},
 	}
 
-	h := NewHandler(newTestService(), testutil.DiscardLogger(), 10<<20, "https://cdn.example.com")
+	h := NewHandler(newTestService(), testutil.DiscardLogger(), 10<<20, "https://cdn.example.com", false)
 	h.SetCDNProvider(provider)
 	h.mutations.upload = func(_ context.Context, bucket, name, contentType string, userID *string, r io.Reader) (*Object, error) {
 		data, _ := io.ReadAll(r)
@@ -113,7 +113,7 @@ func TestHandleDeleteStillReturnsNoContentWhenPurgeFails(t *testing.T) {
 		},
 	}
 
-	h := NewHandler(newTestService(), testutil.DiscardLogger(), 10<<20, "https://cdn.example.com")
+	h := NewHandler(newTestService(), testutil.DiscardLogger(), 10<<20, "https://cdn.example.com", false)
 	h.SetCDNProvider(provider)
 	h.mutations.getObject = func(_ context.Context, bucket, name string) (*Object, error) {
 		return &Object{Bucket: bucket, Name: name, Size: 5}, nil
@@ -147,7 +147,7 @@ func TestHandleResumablePatchOverwriteEnqueuesCDNPurge(t *testing.T) {
 		},
 	}
 
-	h := NewHandler(newTestService(), testutil.DiscardLogger(), 10<<20, "https://cdn.example.com")
+	h := NewHandler(newTestService(), testutil.DiscardLogger(), 10<<20, "https://cdn.example.com", false)
 	h.SetCDNProvider(provider)
 	h.mutations.appendResumableUpload = func(_ context.Context, id string, offset int64, callerUserID *string, src io.Reader) (*ResumableUpload, bool, error) {
 		data, _ := io.ReadAll(src)
@@ -201,7 +201,7 @@ func TestCDNPurgeUsesDetachedContextWithBoundedTimeout(t *testing.T) {
 		},
 	}
 
-	h := NewHandler(newTestService(), testutil.DiscardLogger(), 10<<20, "https://cdn.example.com")
+	h := NewHandler(newTestService(), testutil.DiscardLogger(), 10<<20, "https://cdn.example.com", false)
 	h.SetCDNProvider(provider)
 	h.cdnPurgeCoordinator.timeout = 25 * time.Millisecond
 	h.mutations.getObject = func(_ context.Context, bucket, name string) (*Object, error) {

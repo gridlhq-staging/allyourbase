@@ -2,6 +2,8 @@ package dev.allyourbase
 
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.ExperimentalSerializationApi
+import kotlinx.serialization.SerialName
+import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonNames
 
 @Serializable
@@ -34,6 +36,25 @@ data class AuthResponse(
 data class MagicLinkRequestResponse(
     val message: String,
 )
+
+@Serializable
+data class WebAuthnLoginBeginResponse(
+    @SerialName("challenge_id")
+    val challengeId: String,
+    val options: JsonObject,
+)
+
+@Serializable
+data class WebAuthnLoginFinishRequest(
+    @SerialName("challenge_id")
+    val challengeId: String,
+    @SerialName("assertion_response")
+    val assertionResponse: JsonObject,
+)
+
+fun interface PasskeyAuthenticator {
+    suspend fun createAssertion(options: JsonObject): JsonObject
+}
 
 sealed interface MagicLinkConfirmResponse {
     data class Authenticated(val auth: AuthResponse) : MagicLinkConfirmResponse

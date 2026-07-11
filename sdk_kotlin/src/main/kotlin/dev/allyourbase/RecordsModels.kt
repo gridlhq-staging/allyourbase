@@ -1,5 +1,6 @@
 package dev.allyourbase
 
+import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonNull
@@ -82,6 +83,21 @@ data class GetParams(
         return items
     }
 }
+
+@Serializable
+data class SearchSynonymGroup(
+    val terms: List<String>,
+)
+
+@Serializable
+data class SearchSynonymsRequest(
+    val groups: List<SearchSynonymGroup>,
+)
+
+@Serializable
+data class SearchSynonymsResponse(
+    val groups: List<SearchSynonymGroup>,
+)
 
 data class ListMetadata(
     val page: Int,

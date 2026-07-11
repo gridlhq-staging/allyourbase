@@ -13,18 +13,7 @@ func TestAnthropicContractGenerateText(t *testing.T) {
 	model := requireContractEnv(t, "AYB_AICONTRACT_ANTHROPIC_MODEL")
 	const sentinel = "AYB_ANTHROPIC_CONTRACT_OK"
 
-	cfg := config.AIConfig{
-		DefaultProvider: "anthropic",
-		DefaultModel:    model,
-		Providers: map[string]config.ProviderConfig{
-			"anthropic": {
-				APIKey:       apiKey,
-				DefaultModel: model,
-			},
-		},
-	}
-
-	provider, resolvedModel := resolveContractProvider(t, "anthropic", cfg)
+	provider, resolvedModel := resolveContractProvider(t, "anthropic", anthropicContractConfig(apiKey, model))
 	temperature := 0.0
 	resp, err := provider.GenerateText(contractContext(t), GenerateTextRequest{
 		Model: resolvedModel,
@@ -46,4 +35,45 @@ func TestAnthropicContractGenerateText(t *testing.T) {
 		t.Fatal("FinishReason is empty")
 	}
 	assertTextUsage(t, resp.Usage)
+}
+
+func TestAnthropicContractGenerateTextStream(t *testing.T) {
+	apiKey := requireContractEnv(t, "ANTHROPIC_API_KEY")
+	model := requireContractEnv(t, "AYB_AICONTRACT_ANTHROPIC_MODEL")
+	provider, resolvedModel := resolveContractProvider(t, "anthropic", anthropicContractConfig(apiKey, model))
+	streamingProvider, ok := provider.(StreamingProvider)
+	if !ok {
+		t.Fatalf("resolved provider %T does not implement StreamingProvider", provider)
+	}
+
+	const sentinel = "AYB_ANTHROPIC_STREAM_OK"
+	temperature := 0.0
+	stream, err := streamingProvider.GenerateTextStream(contractContext(t), GenerateTextRequest{
+		Model: resolvedModel,
+		Messages: []Message{
+			TextMessage("user", "Reply with exactly "+sentinel+" and no other text."),
+		},
+		MaxTokens:   32,
+		Temperature: &temperature,
+	})
+	if err != nil {
+		t.Fatalf("GenerateTextStream: %v", err)
+	}
+	defer stream.Close()
+
+	result := readContractStream(t, stream)
+	assertExactContractText(t, result.Text, sentinel)
+}
+
+func anthropicContractConfig(apiKey, model string) config.AIConfig {
+	return config.AIConfig{
+		DefaultProvider: "anthropic",
+		DefaultModel:    model,
+		Providers: map[string]config.ProviderConfig{
+			"anthropic": {
+				APIKey:       apiKey,
+				DefaultModel: model,
+			},
+		},
+	}
 }

@@ -9,6 +9,12 @@ import pytest
 
 from allyourbase import AYBClient, AYBError
 
+_BASE_LIVE_ENV_MISSING = (
+    not os.environ.get("AYB_TEST_URL") or not os.environ.get("AYB_TEST_COLLECTION")
+)
+_ADMIN_LIVE_ENV_MISSING = _BASE_LIVE_ENV_MISSING or (
+    not os.environ.get("AYB_ADMIN_TOKEN") and not os.environ.get("AYB_ADMIN_PASSWORD")
+)
 _CONTRACT_FIXTURE_DIR = (
     Path(__file__).resolve().parents[2] / "tests" / "contract" / "fixtures" / "sdk_contract"
 )
@@ -17,14 +23,40 @@ _LIST_SEARCH_CONTRACT = json.loads(
 )
 
 
+def _live_base_url() -> str:
+    return os.environ["AYB_TEST_URL"]
+
+
+def _live_collection() -> str:
+    return os.environ["AYB_TEST_COLLECTION"]
+
+
+async def _admin_token(client: AYBClient) -> str:
+    if token := os.environ.get("AYB_ADMIN_TOKEN"):
+        return token
+
+    resp = await client._request(
+        "/api/admin/auth",
+        method="POST",
+        json={"password": os.environ["AYB_ADMIN_PASSWORD"]},
+        skip_auth=True,
+    )
+    if resp is None:
+        raise RuntimeError("Expected response body for admin auth")
+
+    token = str(resp.json().get("token", ""))
+    assert token
+    return token
+
+
 @pytest.mark.skipif(
-    not os.environ.get("AYB_TEST_URL") or not os.environ.get("AYB_TEST_COLLECTION"),
+    _BASE_LIVE_ENV_MISSING,
     reason="AYB_TEST_URL or AYB_TEST_COLLECTION is not set",
 )
 @pytest.mark.asyncio
 async def test_e2e_contract_live_server() -> None:
-    base_url = os.environ["AYB_TEST_URL"]
-    collection = os.environ["AYB_TEST_COLLECTION"]
+    base_url = _live_base_url()
+    collection = _live_collection()
     email = f"sdkpy-{uuid.uuid4().hex[:12]}@example.com"
     password = "P@ssw0rd!123"
 
@@ -91,5 +123,59 @@ async def test_e2e_contract_live_server() -> None:
 
         await client.auth.logout()
         assert client.token is None
+    finally:
+        await client.close()
+
+
+@pytest.mark.skipif(
+    _BASE_LIVE_ENV_MISSING,
+    reason="AYB_TEST_URL or AYB_TEST_COLLECTION is not set",
+)
+@pytest.mark.asyncio
+async def test_e2e_webauthn_begin_live_server() -> None:
+    email = f"sdkpy-passkey-{uuid.uuid4().hex[:12]}@example.com"
+    client = AYBClient(_live_base_url())
+    try:
+        result = await client.auth.begin_webauthn_login(email)
+
+        assert result.challenge_id
+        assert result.options["challenge"]
+        assert result.options["allowCredentials"]
+    finally:
+        await client.close()
+
+
+@pytest.mark.skipif(
+    _ADMIN_LIVE_ENV_MISSING,
+    reason=(
+        "AYB_TEST_URL, AYB_TEST_COLLECTION, and either AYB_ADMIN_TOKEN or "
+        "AYB_ADMIN_PASSWORD must be set"
+    ),
+)
+@pytest.mark.asyncio
+async def test_e2e_synonyms_round_trip_live_server() -> None:
+    collection = _live_collection()
+    client = AYBClient(_live_base_url())
+    try:
+        client.set_api_key(await _admin_token(client))
+        existing = await client.records.get_synonyms(collection)
+        original_groups = [{"terms": group.terms} for group in existing.groups]
+        test_groups = [
+            {"terms": [f" SDKPY-{uuid.uuid4().hex[:12]} ", "Python SDK E2E"]},
+            {"terms": ["Live Synonym Parity", "live synonym contract"]},
+        ]
+        expected_groups = sorted(
+            sorted(term.strip().lower() for term in group["terms"])
+            for group in test_groups
+        )
+
+        try:
+            updated = await client.records.set_synonyms(collection, test_groups)
+            assert [group.terms for group in updated.groups] == expected_groups
+
+            fetched = await client.records.get_synonyms(collection)
+            assert [group.terms for group in fetched.groups] == expected_groups
+        finally:
+            await client.records.set_synonyms(collection, original_groups)
     finally:
         await client.close()

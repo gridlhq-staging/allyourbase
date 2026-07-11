@@ -22,9 +22,12 @@ const fs = require("fs");
 const reportPath = process.argv[2];
 const requiredTests = [
   "TestOllamaContractGenerateText",
+  "TestOllamaContractGenerateTextStream",
   "TestOllamaContractGenerateEmbedding",
   "TestAnthropicContractGenerateText",
-  "TestMoviesChatContractStreamWithRealAnthropicBYOK",
+  "TestAnthropicContractGenerateTextStream",
+  "TestOpenAIContractGenerateText",
+  "TestMoviesChatContractStreamWithRealBYOKProviders",
 ];
 
 if (!reportPath) {

@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"math"
@@ -10,6 +11,7 @@ import (
 	"github.com/allyourbase/ayb/internal/httputil"
 	"github.com/allyourbase/ayb/internal/schema"
 	"github.com/allyourbase/ayb/internal/sqlutil"
+	"github.com/allyourbase/ayb/internal/tenant"
 	"github.com/go-chi/chi/v5"
 )
 
@@ -121,7 +123,7 @@ func (h *Handler) executeReadRPC(w http.ResponseWriter, r *http.Request, fn *sch
 			return
 		}
 		for _, record := range items {
-			h.publishRPCNotifyRecord(notify, record)
+			h.publishRPCNotifyRecord(r.Context(), notify, record)
 		}
 		writeJSON(w, http.StatusOK, items)
 		return
@@ -137,16 +139,16 @@ func (h *Handler) executeReadRPC(w http.ResponseWriter, r *http.Request, fn *sch
 	if !writeRPCDone(w, done) {
 		return
 	}
-	h.publishRPCNotifyRecord(notify, record)
+	h.publishRPCNotifyRecord(r.Context(), notify, record)
 
 	writeRPCRecord(w, record)
 }
 
-func (h *Handler) publishRPCNotifyRecord(notify rpcNotifyContract, record map[string]any) {
+func (h *Handler) publishRPCNotifyRecord(ctx context.Context, notify rpcNotifyContract, record map[string]any) {
 	if !notify.enabled || record == nil {
 		return
 	}
-	h.publishEvent(notify.action, notify.table, record, nil)
+	h.publishEvent(ctx, notify.action, notify.table, record, nil)
 }
 
 // writeRPCDatabaseError keeps scan-time and query-time PostgreSQL failures on
@@ -192,7 +194,7 @@ func (h *Handler) resolveFunction(w http.ResponseWriter, r *http.Request) *schem
 	}
 
 	funcName := chi.URLParam(r, "function")
-	fn := sc.FunctionByName(funcName)
+	fn := sc.FunctionByNameInSchema(tenant.ActiveSchemaFromContext(r.Context()), funcName)
 	if fn == nil {
 		writeError(w, http.StatusNotFound, "function not found: "+funcName)
 		return nil

@@ -135,7 +135,7 @@ func TestLoaderCacheMissAfterBatchFallsBackToSingleFetch(t *testing.T) {
 func TestDataloaderContextRoundTrip(t *testing.T) {
 	t.Parallel()
 
-	dl := NewDataloader(nil, nil)
+	dl := NewDataloader(nil, nil, "public")
 	ctx := ctxWithDataloader(context.Background(), dl)
 	got := dataloaderFromCtx(ctx)
 	testutil.True(t, got == dl, "expected same dataloader instance")
@@ -144,7 +144,7 @@ func TestDataloaderContextRoundTrip(t *testing.T) {
 func TestDataloaderGetLoaderStableByRelationship(t *testing.T) {
 	t.Parallel()
 
-	dl := NewDataloader(nil, &schema.SchemaCache{})
+	dl := NewDataloader(nil, &schema.SchemaCache{}, "public")
 	relA := &schema.Relationship{ToSchema: "public", ToTable: "users", ToColumns: []string{"id"}}
 	relB := &schema.Relationship{ToSchema: "public", ToTable: "users", ToColumns: []string{"id"}}
 	relC := &schema.Relationship{ToSchema: "public", ToTable: "orgs", ToColumns: []string{"id"}}
@@ -155,6 +155,59 @@ func TestDataloaderGetLoaderStableByRelationship(t *testing.T) {
 
 	testutil.True(t, loaderA == loaderB, "expected same loader for same relationship key")
 	testutil.True(t, loaderA != loaderC, "expected different loader for different relationship key")
+}
+
+func TestDataloaderTargetTableExactRelationshipSchemaWins(t *testing.T) {
+	t.Parallel()
+
+	cache := &schema.SchemaCache{
+		Tables: map[string]*schema.Table{
+			"public.profiles":   {Schema: "public", Name: "profiles"},
+			"tenant_a.profiles": {Schema: "tenant_a", Name: "profiles"},
+		},
+	}
+	dl := NewDataloader(nil, cache, "tenant_a")
+
+	tbl := dl.targetTable(&schema.Relationship{ToSchema: "public", ToTable: "profiles"})
+
+	testutil.NotNil(t, tbl)
+	testutil.Equal(t, "public", tbl.Schema)
+	testutil.Equal(t, "profiles", tbl.Name)
+}
+
+func TestDataloaderTargetTableFallbackUsesActiveTenantSchema(t *testing.T) {
+	t.Parallel()
+
+	cache := &schema.SchemaCache{
+		Tables: map[string]*schema.Table{
+			"public.profiles":   {Schema: "public", Name: "profiles"},
+			"tenant_a.profiles": {Schema: "tenant_a", Name: "profiles"},
+		},
+	}
+	dl := NewDataloader(nil, cache, "tenant_a")
+
+	tbl := dl.targetTable(&schema.Relationship{ToTable: "profiles"})
+
+	testutil.NotNil(t, tbl)
+	testutil.Equal(t, "tenant_a", tbl.Schema)
+	testutil.Equal(t, "profiles", tbl.Name)
+}
+
+func TestDataloaderTargetTableFallbackUsesPublicWhenTenantTableMissing(t *testing.T) {
+	t.Parallel()
+
+	cache := &schema.SchemaCache{
+		Tables: map[string]*schema.Table{
+			"public.profiles": {Schema: "public", Name: "profiles"},
+		},
+	}
+	dl := NewDataloader(nil, cache, "tenant_a")
+
+	tbl := dl.targetTable(&schema.Relationship{ToTable: "profiles"})
+
+	testutil.NotNil(t, tbl)
+	testutil.Equal(t, "public", tbl.Schema)
+	testutil.Equal(t, "profiles", tbl.Name)
 }
 
 func TestLoaderLoadDoesNotDeadlockWhenBatchPrimesLoader(t *testing.T) {

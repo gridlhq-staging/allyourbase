@@ -17,6 +17,7 @@ import (
 	"github.com/allyourbase/ayb/internal/auth"
 	"github.com/allyourbase/ayb/internal/realtime"
 	"github.com/allyourbase/ayb/internal/schema"
+	"github.com/allyourbase/ayb/internal/tenant"
 	"github.com/allyourbase/ayb/internal/testutil"
 )
 
@@ -65,6 +66,15 @@ func dialGQLWS(t *testing.T, srv *httptest.Server, withSubprotocol bool) (*webso
 		dialer.Subprotocols = []string{"graphql-transport-ws"}
 	}
 	conn, resp, err := dialer.Dial(wsURL, nil)
+	testutil.NoError(t, err)
+	return conn, resp
+}
+
+func dialGQLWSWithHeaders(t *testing.T, srv *httptest.Server, headers http.Header) (*websocket.Conn, *http.Response) {
+	t.Helper()
+	wsURL := "ws" + strings.TrimPrefix(srv.URL, "http")
+	dialer := websocket.Dialer{Subprotocols: []string{"graphql-transport-ws"}}
+	conn, resp, err := dialer.Dial(wsURL, headers)
 	testutil.NoError(t, err)
 	return conn, resp
 }
@@ -467,6 +477,207 @@ func TestGQLWSRoundTripInitSubscribeRegisters(t *testing.T) {
 		testutil.Equal(t, "s-1", id)
 	case <-time.After(2 * time.Second):
 		t.Fatal("expected subscription registration callback")
+	}
+}
+
+func TestGQLWSSubscribeResolvesBareFieldAgainstActiveSchema(t *testing.T) {
+	t.Parallel()
+
+	cache := testCache([]*schema.Table{
+		{Schema: "tenant_a", Name: "posts", Kind: "table", PrimaryKey: []string{"id"}},
+		{Schema: "tenant_b", Name: "posts", Kind: "table", PrimaryKey: []string{"id"}},
+	})
+	cacheHolder := &schema.CacheHolder{}
+	cacheHolder.SetForTesting(cache)
+	h := NewHandler(nil, cacheHolder, testutil.DiscardLogger())
+	h.SetHub(realtime.NewHub(testutil.DiscardLogger()))
+	defer h.hub.Close()
+
+	conn := newGQLWSConn("conn-active-schema", nil, testutil.DiscardLogger())
+	conn.setActiveSchema("tenant_a")
+	h.onWSSubscribe(context.Background(), conn, "sub-tenant-a", gqlwsSubscribePayload{
+		Query: `subscription { posts { id } }`,
+	})
+	defer h.unsubscribeAllWS(conn.ID())
+
+	h.subMu.Lock()
+	state := h.wsSubs[conn.ID()]["sub-tenant-a"]
+	h.subMu.Unlock()
+	testutil.NotNil(t, state)
+	testutil.Equal(t, "posts", state.table)
+	testutil.Equal(t, "tenant_a", state.activeSchema)
+}
+
+func TestGQLWSSubscribeRejectsPeerOnlyActiveSchemaTable(t *testing.T) {
+	t.Parallel()
+
+	cache := testCache([]*schema.Table{
+		{Schema: "tenant_b", Name: "peer_posts", Kind: "table", PrimaryKey: []string{"id"}},
+	})
+	cacheHolder := &schema.CacheHolder{}
+	cacheHolder.SetForTesting(cache)
+	h := NewHandler(nil, cacheHolder, testutil.DiscardLogger())
+	h.SetHub(realtime.NewHub(testutil.DiscardLogger()))
+	defer h.hub.Close()
+
+	conn := newGQLWSConn("conn-peer-only", nil, testutil.DiscardLogger())
+	conn.setActiveSchema("tenant_a")
+	h.onWSSubscribe(context.Background(), conn, "sub-peer-only", gqlwsSubscribePayload{
+		Query: `subscription { peer_posts { id } }`,
+	})
+
+	h.subMu.Lock()
+	_, registered := h.wsSubs[conn.ID()]["sub-peer-only"]
+	h.subMu.Unlock()
+	testutil.False(t, registered, "peer-only table must not register")
+}
+
+func TestHandlerGQLWSHubDeliveryUsesClaimsTenantScope(t *testing.T) {
+	t.Parallel()
+
+	cache := testCache([]*schema.Table{{
+		Schema: "public",
+		Name:   "posts",
+		Kind:   "table",
+		Columns: []*schema.Column{
+			{Name: "id", TypeName: "integer", IsPrimaryKey: true},
+			{Name: "title", TypeName: "text"},
+		},
+		PrimaryKey: []string{"id"},
+	}})
+	cacheHolder := &schema.CacheHolder{}
+	cacheHolder.SetForTesting(cache)
+
+	h := NewHandler(nil, cacheHolder, testutil.DiscardLogger())
+	h.SetHub(realtime.NewHub(testutil.DiscardLogger()))
+	h.wsHandler.InitTimeout = 200 * time.Millisecond
+	h.wsHandler.SetAuthValidator(&stubGQLWSAuthValidator{
+		validateToken: func(token string) (*auth.Claims, error) {
+			testutil.Equal(t, "tenant-a-token", token)
+			return &auth.Claims{TenantID: "tenant-a"}, nil
+		},
+	})
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		h.ServeHTTP(w, r.WithContext(tenant.ContextWithTenantID(r.Context(), "tenant-a")))
+	}))
+	defer srv.Close()
+
+	headers := http.Header{"Authorization": []string{"Bearer tenant-a-token"}}
+	conn, _ := dialGQLWSWithHeaders(t, srv, headers)
+	defer conn.Close()
+
+	writeGQLWSMessage(t, conn, gqlwsMessage{Type: gqlwsConnectionInit})
+	testutil.Equal(t, gqlwsConnectionAck, readGQLWSMessage(t, conn).Type)
+
+	subPayload, err := json.Marshal(gqlwsSubscribePayload{
+		Query: `subscription { posts { id title } }`,
+	})
+	testutil.NoError(t, err)
+	writeGQLWSMessage(t, conn, gqlwsMessage{ID: "sub-tenant-a", Type: gqlwsSubscribe, Payload: subPayload})
+	waitForWSSubRegistered(t, h, "gqlws-1", "sub-tenant-a")
+
+	h.hub.Publish(&realtime.Event{
+		Action:   "create",
+		Table:    "posts",
+		TenantID: "tenant-b",
+		Record:   map[string]any{"id": 1, "title": "peer"},
+	})
+	h.hub.Publish(&realtime.Event{
+		Action:   "create",
+		Table:    "posts",
+		TenantID: "tenant-a",
+		Record:   map[string]any{"id": 2, "title": "own"},
+	})
+
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		conn.SetReadDeadline(deadline)
+		msg := readGQLWSMessage(t, conn)
+		if msg.Type != gqlwsNext {
+			continue
+		}
+		testutil.Equal(t, "sub-tenant-a", msg.ID)
+		var payload map[string]map[string]any
+		testutil.NoError(t, json.Unmarshal(msg.Payload, &payload))
+		row := payload["data"]["posts"].(map[string]any)
+		testutil.Equal(t, "own", row["title"])
+		testutil.Equal(t, float64(2), row["id"].(float64))
+		return
+	}
+}
+
+func TestHandlerGQLWSHubDeliveryUsesConnectionInitTenantScope(t *testing.T) {
+	t.Parallel()
+
+	cache := testCache([]*schema.Table{{
+		Schema: "public",
+		Name:   "posts",
+		Kind:   "table",
+		Columns: []*schema.Column{
+			{Name: "id", TypeName: "integer", IsPrimaryKey: true},
+			{Name: "title", TypeName: "text"},
+		},
+		PrimaryKey: []string{"id"},
+	}})
+	cacheHolder := &schema.CacheHolder{}
+	cacheHolder.SetForTesting(cache)
+
+	h := NewHandler(nil, cacheHolder, testutil.DiscardLogger())
+	h.SetHub(realtime.NewHub(testutil.DiscardLogger()))
+	h.wsHandler.InitTimeout = 200 * time.Millisecond
+	h.wsHandler.SetAuthValidator(&stubGQLWSAuthValidator{
+		validateToken: func(token string) (*auth.Claims, error) {
+			testutil.Equal(t, "tenant-a-init-token", token)
+			return &auth.Claims{TenantID: "tenant-a"}, nil
+		},
+	})
+
+	srv := httptest.NewServer(h)
+	defer srv.Close()
+
+	conn, _ := dialGQLWS(t, srv, true)
+	defer conn.Close()
+
+	initPayload, err := json.Marshal(gqlwsConnectionInitPayload{Authorization: "Bearer tenant-a-init-token"})
+	testutil.NoError(t, err)
+	writeGQLWSMessage(t, conn, gqlwsMessage{Type: gqlwsConnectionInit, Payload: initPayload})
+	testutil.Equal(t, gqlwsConnectionAck, readGQLWSMessage(t, conn).Type)
+
+	subPayload, err := json.Marshal(gqlwsSubscribePayload{
+		Query: `subscription { posts { id title } }`,
+	})
+	testutil.NoError(t, err)
+	writeGQLWSMessage(t, conn, gqlwsMessage{ID: "sub-tenant-a-init", Type: gqlwsSubscribe, Payload: subPayload})
+	waitForWSSubRegistered(t, h, "gqlws-1", "sub-tenant-a-init")
+
+	h.hub.Publish(&realtime.Event{
+		Action:   "create",
+		Table:    "posts",
+		TenantID: "tenant-b",
+		Record:   map[string]any{"id": 1, "title": "peer"},
+	})
+	h.hub.Publish(&realtime.Event{
+		Action:   "create",
+		Table:    "posts",
+		TenantID: "tenant-a",
+		Record:   map[string]any{"id": 2, "title": "own"},
+	})
+
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		conn.SetReadDeadline(deadline)
+		msg := readGQLWSMessage(t, conn)
+		if msg.Type != gqlwsNext {
+			continue
+		}
+		testutil.Equal(t, "sub-tenant-a-init", msg.ID)
+		var payload map[string]map[string]any
+		testutil.NoError(t, json.Unmarshal(msg.Payload, &payload))
+		row := payload["data"]["posts"].(map[string]any)
+		testutil.Equal(t, "own", row["title"])
+		testutil.Equal(t, float64(2), row["id"].(float64))
+		return
 	}
 }
 

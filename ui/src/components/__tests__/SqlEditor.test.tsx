@@ -319,6 +319,62 @@ describe("SqlEditor", () => {
     expect(mockExecuteSQL).not.toHaveBeenCalled();
   });
 
+  it("requires confirmation for comment-prefixed destructive queries", async () => {
+    mockExecuteSQL.mockResolvedValueOnce({
+      columns: [],
+      rows: [],
+      rowCount: 1,
+      durationMs: 2,
+    });
+    const user = userEvent.setup();
+
+    localStorage.setItem("ayb_sql_query", "-- delete seeded row\nDELETE FROM foo;");
+    render(<SqlEditor />);
+    await user.click(screen.getByRole("button", { name: /Execute/ }));
+
+    expect(mockExecuteSQL).not.toHaveBeenCalled();
+    expect(screen.getByRole("dialog", { name: "Confirm destructive SQL" })).toBeVisible();
+
+    await user.click(screen.getByRole("button", { name: /Execute destructive SQL/ }));
+
+    await waitFor(() => {
+      expect(mockExecuteSQL).toHaveBeenCalledWith("-- delete seeded row\nDELETE FROM foo;");
+      expect(screen.getByText(/1 row affected/)).toBeInTheDocument();
+    });
+  });
+
+  it("requires confirmation for WITH-prefixed destructive queries", async () => {
+    mockExecuteSQL.mockResolvedValueOnce({
+      columns: ["label"],
+      rows: [["row-a"]],
+      rowCount: 1,
+      durationMs: 2,
+    });
+    const user = userEvent.setup();
+
+    localStorage.setItem(
+      "ayb_sql_query",
+      `WITH deleted_rows AS (
+        DELETE FROM foo
+        WHERE label = 'row-a'
+        RETURNING label
+      )
+      SELECT label FROM deleted_rows;`,
+    );
+    render(<SqlEditor />);
+    await user.click(screen.getByRole("button", { name: /Execute/ }));
+
+    expect(mockExecuteSQL).not.toHaveBeenCalled();
+    expect(screen.getByRole("dialog", { name: "Confirm destructive SQL" })).toBeVisible();
+
+    await user.click(screen.getByRole("button", { name: /Execute destructive SQL/ }));
+
+    await waitFor(() => {
+      expect(mockExecuteSQL).toHaveBeenCalledTimes(1);
+      expect(screen.getByText("row-a")).toBeInTheDocument();
+    });
+  });
+
   it("renders JSON object cells as stringified JSON", async () => {
     mockExecuteSQL.mockResolvedValueOnce({
       columns: ["data"],

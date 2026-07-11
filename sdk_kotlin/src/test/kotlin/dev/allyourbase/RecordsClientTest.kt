@@ -194,6 +194,48 @@ class RecordsClientTest {
     }
 
     @Test
+    fun `get synonyms uses trailing slash route and bearer auth`() = runTest {
+        val transport = MockHttpTransport()
+        transport.enqueue(StubResponse(status = 200, json = ContractFixtures.searchSynonymsResponse))
+        val client = AYBClient("https://api.example.com", transport = transport)
+        client.setApiKey("admin-token")
+
+        val result = client.records.getSynonyms("posts")
+
+        val request = transport.requests.first()
+        assertEquals(HttpMethod.GET, request.method)
+        assertEquals("/api/collections/posts/synonyms/", java.net.URI(request.url).path)
+        assertEquals("Bearer admin-token", lowercasedLookup(request.headers, "authorization"))
+        assertNull(lowercasedLookup(request.headers, "content-type"))
+        assertNull(request.body)
+        assertEquals(listOf("new york", "nyc"), result.groups[0].terms)
+        assertEquals(listOf("science fiction", "scifi"), result.groups[1].terms)
+    }
+
+    @Test
+    fun `set synonyms sends exact groups envelope and decodes response`() = runTest {
+        val transport = MockHttpTransport()
+        transport.enqueue(StubResponse(status = 200, json = ContractFixtures.searchSynonymsResponse))
+        val client = AYBClient("https://api.example.com", transport = transport)
+        client.setApiKey("admin-token")
+        val requestEnvelope = json.decodeFromJsonElement(
+            SearchSynonymsRequest.serializer(),
+            ContractFixtures.searchSynonymsRequest,
+        )
+
+        val result = client.records.setSynonyms("posts", requestEnvelope)
+
+        val request = transport.requests.first()
+        assertEquals(HttpMethod.PUT, request.method)
+        assertEquals("/api/collections/posts/synonyms/", java.net.URI(request.url).path)
+        assertEquals("Bearer admin-token", lowercasedLookup(request.headers, "authorization"))
+        assertEquals("application/json", lowercasedLookup(request.headers, "content-type"))
+        assertEquals(ContractFixtures.searchSynonymsRequest, json.parseToJsonElement(request.body!!.decodeToString()).jsonObject)
+        assertEquals(listOf("new york", "nyc"), result.groups[0].terms)
+        assertEquals(listOf("science fiction", "scifi"), result.groups[1].terms)
+    }
+
+    @Test
     fun `errors are surfaced as ayb exception`() = runTest {
         val transport = MockHttpTransport()
         transport.enqueue(

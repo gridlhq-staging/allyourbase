@@ -84,6 +84,20 @@ func newVisibilityIntegrationHandler(pool *pgxpool.Pool) *Handler {
 				Schema:     "public",
 				Name:       "secure_docs",
 				PrimaryKey: []string{"id"},
+				RLSEnabled: true,
+				RLSPolicies: []*schema.RLSPolicy{
+					{
+						Name:       "secure_docs_membership_select",
+						Command:    "SELECT",
+						Permissive: true,
+						UsingExpr: `EXISTS (
+				 SELECT 1
+				 FROM project_memberships pm
+				 WHERE pm.project_id = secure_docs.project_id
+				   AND pm.user_id = current_setting('ayb.user_id', true)
+			 )`,
+					},
+				},
 			},
 		},
 	})
@@ -119,8 +133,8 @@ func TestCanSeeRecordJoinPolicyMembershipAccess(t *testing.T) {
 		Record: map[string]any{"id": "doc-1"},
 	}
 
-	testutil.True(t, h.canSeeRecord(ctx, testClaims("user-member"), event), "member should pass joined-table RLS")
-	testutil.False(t, h.canSeeRecord(ctx, testClaims("user-outsider"), event), "non-member should fail joined-table RLS")
+	testutil.True(t, h.canSeeRecord(ctx, testClaims("user-member"), "public", event), "member should pass joined-table RLS")
+	testutil.False(t, h.canSeeRecord(ctx, testClaims("user-outsider"), "public", event), "non-member should fail joined-table RLS")
 }
 
 func TestCanSeeRecordJoinPolicyMembershipTransitions(t *testing.T) {
@@ -135,34 +149,43 @@ func TestCanSeeRecordJoinPolicyMembershipTransitions(t *testing.T) {
 	}
 	claims := testClaims("user-transitions")
 
-	testutil.False(t, h.canSeeRecord(ctx, claims, event), "without membership the event should be filtered")
+	testutil.False(t, h.canSeeRecord(ctx, claims, "public", event), "without membership the event should be filtered")
 
 	_, err := pg.Pool.Exec(ctx,
 		`INSERT INTO project_memberships (user_id, project_id) VALUES ($1, 'project-1')`,
 		"user-transitions",
 	)
 	testutil.NoError(t, err)
-	testutil.True(t, h.canSeeRecord(ctx, claims, event), "after membership grant the event should pass")
+	testutil.True(t, h.canSeeRecord(ctx, claims, "public", event), "after membership grant the event should pass")
 
 	_, err = pg.Pool.Exec(ctx,
 		`DELETE FROM project_memberships WHERE user_id = $1 AND project_id = 'project-1'`,
 		"user-transitions",
 	)
 	testutil.NoError(t, err)
-	testutil.False(t, h.canSeeRecord(ctx, claims, event), "after membership revoke the event should be filtered again")
+	testutil.False(t, h.canSeeRecord(ctx, claims, "public", event), "after membership revoke the event should be filtered again")
 }
 
-func TestCanSeeRecordDeletePassThroughWithJoinPolicy(t *testing.T) {
+func TestCanSeeRecordDeleteRespectsMembership(t *testing.T) {
 	pg, ctx := setupVisibilityIntegrationDB(t)
 	setupJoinPolicyFixture(t, ctx, pg.Pool)
 
+	_, err := pg.Pool.Exec(ctx,
+		`INSERT INTO project_memberships (user_id, project_id) VALUES ($1, 'project-1')`,
+		"user-member",
+	)
+	testutil.NoError(t, err)
+
 	h := newVisibilityIntegrationHandler(pg.Pool)
 	event := &Event{
-		Action: "delete",
-		Table:  "secure_docs",
-		Record: map[string]any{"id": "doc-1"},
+		Action:    "delete",
+		Table:     "secure_docs",
+		Record:    map[string]any{"id": "doc-1"},
+		OldRecord: map[string]any{"id": "doc-1", "project_id": "project-1"},
 	}
 
-	testutil.True(t, h.canSeeRecord(ctx, testClaims("user-outsider"), event),
-		"delete events should pass through even when user is not currently a member")
+	testutil.False(t, h.canSeeRecord(ctx, testClaims("user-outsider"), "public", event),
+		"non-member should fail deleted-row RLS")
+	testutil.True(t, h.canSeeRecord(ctx, testClaims("user-member"), "public", event),
+		"member should pass deleted-row RLS")
 }

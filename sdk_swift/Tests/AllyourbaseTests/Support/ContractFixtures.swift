@@ -42,6 +42,9 @@ enum ContractFixtures {
     nonisolated(unsafe) static let magicLinkRequestResponse: [String: Any] = loadFixture(at: "sdk_contract/magic_link_request_response.json")
     nonisolated(unsafe) static let magicLinkConfirmResponse: [String: Any] = loadFixture(at: "sdk_contract/magic_link_confirm_success_response.json")
     nonisolated(unsafe) static let magicLinkConfirmPendingMFAResponse: [String: Any] = loadFixture(at: "sdk_contract/magic_link_confirm_pending_mfa_response.json")
+    nonisolated(unsafe) static let webAuthnLoginBeginResponse: [String: Any] = loadFixture(at: "sdk_contract/webauthn_login_begin_response.json")
+    nonisolated(unsafe) static let searchSynonymsResponse: [String: Any] = loadFixture(at: "sdk_contract/search_synonyms_response.json")
+    nonisolated(unsafe) static let searchSynonymsRequest: [String: Any] = loadFixture(at: "sdk_contract/search_synonyms_request.json")
     nonisolated(unsafe) static let linkEmailResponse: [String: Any] = loadParityResponse("link_email.json")
 
     nonisolated(unsafe) static let recordPayload: [String: Any] = [

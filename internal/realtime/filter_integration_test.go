@@ -20,7 +20,7 @@ func TestFilterIntegration(t *testing.T) {
 	filters, err := ParseFilters("status=eq.pending")
 	testutil.NoError(t, err)
 
-	client := hub.SubscribeWithFilter(map[string]bool{"orders": true}, filters)
+	client := hub.SubscribeWithFilter(map[string]bool{"orders": true}, filters, "")
 	defer hub.Unsubscribe(client.ID)
 
 	// Helper to receive and check if event passes filter
@@ -163,7 +163,7 @@ func TestMultiFilterIntegration(t *testing.T) {
 	filters, err := ParseFilters("status=eq.pending,priority=gt.5")
 	testutil.NoError(t, err)
 
-	client := hub.SubscribeWithFilter(map[string]bool{"tasks": true}, filters)
+	client := hub.SubscribeWithFilter(map[string]bool{"tasks": true}, filters, "")
 	defer hub.Unsubscribe(client.ID)
 
 	receiveFiltered := func() (*Event, bool) {
@@ -222,7 +222,7 @@ func TestInOperatorIntegration(t *testing.T) {
 	filters, err := ParseFilters("status=in.pending|active|review")
 	testutil.NoError(t, err)
 
-	client := hub.SubscribeWithFilter(map[string]bool{"issues": true}, filters)
+	client := hub.SubscribeWithFilter(map[string]bool{"issues": true}, filters, "")
 	defer hub.Unsubscribe(client.ID)
 
 	receiveFiltered := func() (*Event, bool) {

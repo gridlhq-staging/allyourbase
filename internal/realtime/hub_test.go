@@ -56,6 +56,36 @@ func TestPublishToNonSubscribedTable(t *testing.T) {
 	}
 }
 
+func TestNewHubWithoutBusDeliversLocalPublishByTable(t *testing.T) {
+	t.Parallel()
+	hub := realtime.NewHub(testutil.DiscardLogger())
+	defer hub.Close()
+
+	usersClient := hub.Subscribe(map[string]bool{"users": true})
+	ordersClient := hub.Subscribe(map[string]bool{"orders": true})
+
+	hub.Publish(&realtime.Event{
+		Action: "create",
+		Table:  "users",
+		Record: map[string]any{"id": 10, "name": "Ada"},
+	})
+
+	select {
+	case event := <-usersClient.Events():
+		testutil.Equal(t, "create", event.Action)
+		testutil.Equal(t, "users", event.Table)
+		testutil.Equal(t, "Ada", event.Record["name"])
+	case <-time.After(100 * time.Millisecond):
+		t.Fatal("users client should receive local users event from nil-bus hub")
+	}
+
+	select {
+	case event := <-ordersClient.Events():
+		t.Fatalf("orders client should not receive users event: %#v", event)
+	case <-time.After(10 * time.Millisecond):
+	}
+}
+
 func TestUnsubscribeRemovesClient(t *testing.T) {
 	t.Parallel()
 	hub := realtime.NewHub(testutil.DiscardLogger())
@@ -489,4 +519,132 @@ func TestSetTablesUnknownClientIsNoop(t *testing.T) {
 
 	// Should not panic.
 	hub.SetTables("nonexistent", map[string]bool{"posts": true})
+}
+
+// --- Tenant Isolation Tests ---
+
+// recvEvent waits briefly for an event on the client's channel and returns it,
+// or nil when nothing arrives within the timeout.
+func recvEvent(client *realtime.Client, timeout time.Duration) *realtime.Event {
+	select {
+	case event := <-client.Events():
+		return event
+	case <-time.After(timeout):
+		return nil
+	}
+}
+
+// TestTenantScopedEventDeliveredOnlyToMatchingTenant covers branch (a) of the
+// tenantMatches truth table: a non-empty event tenant is delivered to the
+// matching-tenant subscriber on the same table and suppressed for every other
+// tenant subscribed to that same table.
+func TestTenantScopedEventDeliveredOnlyToMatchingTenant(t *testing.T) {
+	t.Parallel()
+	hub := realtime.NewHub(testutil.DiscardLogger())
+	defer hub.Close()
+
+	tenantA := hub.SubscribeWithFilter(map[string]bool{"posts": true}, nil, "tenant-a")
+	tenantB := hub.SubscribeWithFilter(map[string]bool{"posts": true}, nil, "tenant-b")
+
+	hub.Publish(&realtime.Event{
+		Action:   "create",
+		Table:    "posts",
+		TenantID: "tenant-a",
+		Record:   map[string]any{"id": 1},
+	})
+
+	got := recvEvent(tenantA, 100*time.Millisecond)
+	testutil.NotNil(t, got)
+	testutil.Equal(t, "tenant-a", got.TenantID)
+
+	testutil.Nil(t, recvEvent(tenantB, 20*time.Millisecond))
+}
+
+// TestEmptyTenantEventIsWildcardDeliveredToEveryTenant covers branch (b): an
+// empty event tenant is the intentional _ayb_notifications wildcard and is
+// delivered regardless of the subscriber's tenant.
+func TestEmptyTenantEventIsWildcardDeliveredToEveryTenant(t *testing.T) {
+	t.Parallel()
+	hub := realtime.NewHub(testutil.DiscardLogger())
+	defer hub.Close()
+
+	tenantA := hub.SubscribeWithFilter(map[string]bool{"_ayb_notifications": true}, nil, "tenant-a")
+	tenantB := hub.SubscribeWithFilter(map[string]bool{"_ayb_notifications": true}, nil, "tenant-b")
+	noTenant := hub.SubscribeWithFilter(map[string]bool{"_ayb_notifications": true}, nil, "")
+
+	hub.Publish(&realtime.Event{
+		Action:   "create",
+		Table:    "_ayb_notifications",
+		TenantID: "",
+		Record:   map[string]any{"id": "n1"},
+	})
+
+	for _, client := range []*realtime.Client{tenantA, tenantB, noTenant} {
+		got := recvEvent(client, 100*time.Millisecond)
+		testutil.NotNil(t, got)
+		testutil.Equal(t, "", got.TenantID)
+	}
+}
+
+// TestEmptyTenantClientReceivesOnlyWildcardEvents covers branch (c): an
+// empty-tenant client receives wildcard (empty-tenant) events but is suppressed
+// (fail closed) for any non-empty tenant event on the same table.
+func TestEmptyTenantClientReceivesOnlyWildcardEvents(t *testing.T) {
+	t.Parallel()
+	hub := realtime.NewHub(testutil.DiscardLogger())
+	defer hub.Close()
+
+	noTenant := hub.SubscribeWithFilter(map[string]bool{"posts": true}, nil, "")
+
+	// Non-empty tenant event: suppressed for the empty-tenant client.
+	hub.Publish(&realtime.Event{
+		Action:   "create",
+		Table:    "posts",
+		TenantID: "tenant-a",
+		Record:   map[string]any{"id": 1},
+	})
+	testutil.Nil(t, recvEvent(noTenant, 20*time.Millisecond))
+
+	// Wildcard (empty tenant) event: delivered.
+	hub.Publish(&realtime.Event{
+		Action:   "create",
+		Table:    "posts",
+		TenantID: "",
+		Record:   map[string]any{"id": 2},
+	})
+	got := recvEvent(noTenant, 100*time.Millisecond)
+	testutil.NotNil(t, got)
+	testutil.Equal(t, "", got.TenantID)
+}
+
+// TestSetTenantAttachesTenantWithoutReRegister proves the focused tenant setter
+// changes a client's delivery scope in place, without unsubscribe/re-subscribe.
+func TestSetTenantAttachesTenantWithoutReRegister(t *testing.T) {
+	t.Parallel()
+	hub := realtime.NewHub(testutil.DiscardLogger())
+	defer hub.Close()
+
+	client := hub.Subscribe(map[string]bool{"posts": true})
+	testutil.Equal(t, 1, hub.ClientCount())
+
+	hub.SetTenant(client.ID, "tenant-a")
+	testutil.Equal(t, 1, hub.ClientCount())
+
+	// tenant-b event now suppressed for this tenant-a client.
+	hub.Publish(&realtime.Event{Action: "create", Table: "posts", TenantID: "tenant-b", Record: map[string]any{"id": 1}})
+	testutil.Nil(t, recvEvent(client, 20*time.Millisecond))
+
+	// tenant-a event delivered.
+	hub.Publish(&realtime.Event{Action: "create", Table: "posts", TenantID: "tenant-a", Record: map[string]any{"id": 2}})
+	got := recvEvent(client, 100*time.Millisecond)
+	testutil.NotNil(t, got)
+	testutil.Equal(t, "tenant-a", got.TenantID)
+}
+
+func TestSetTenantUnknownClientIsNoop(t *testing.T) {
+	t.Parallel()
+	hub := realtime.NewHub(testutil.DiscardLogger())
+
+	// Should not panic.
+	hub.SetTenant("nonexistent", "tenant-a")
 }

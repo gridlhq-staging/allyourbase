@@ -21,6 +21,10 @@ object ContractFixtures {
     val magicLinkRequestResponse: JsonObject = loadJsonObject("sdk_contract/magic_link_request_response.json")
     val magicLinkConfirmSuccessResponse: JsonObject = loadJsonObject("sdk_contract/magic_link_confirm_success_response.json")
     val magicLinkConfirmPendingMfaResponse: JsonObject = loadJsonObject("sdk_contract/magic_link_confirm_pending_mfa_response.json")
+    val webAuthnLoginBeginResponse: JsonObject = loadJsonObject("sdk_contract/webauthn_login_begin_response.json")
+    val authResponse: JsonObject = loadJsonObject("sdk_contract/auth_response.json")
+    val searchSynonymsRequest: JsonObject = loadJsonObject("sdk_contract/search_synonyms_request.json")
+    val searchSynonymsResponse: JsonObject = loadJsonObject("sdk_contract/search_synonyms_response.json")
     val anonymousResponse: JsonObject = parityResponse("anonymous.json")
     val linkEmailResponse: JsonObject = parityResponse("link_email.json")
 }

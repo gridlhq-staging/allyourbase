@@ -1,4 +1,4 @@
-// Package storage resumable.go implements resumable upload sessions using the TUS 1.0.0 protocol, with database-backed session management and temporary file staging. It handles chunk appending, finalization to backend storage, and cleanup of expired uploads with RLS support.
+// Package storage resumable.go implements resumable upload sessions using the TUS 1.0.0 protocol, with database-backed session management and backend-backed chunk staging. It handles session lifecycle, finalization to backend storage, and cleanup of expired uploads with RLS support. The staging byte mechanics live in resumable_staging.go.
 package storage
 
 import (
@@ -6,9 +6,9 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"os"
 	"time"
 
+	"github.com/allyourbase/ayb/internal/tenant"
 	"github.com/jackc/pgx/v5"
 )
 
@@ -52,6 +52,7 @@ func enforceUploadOwnership(upload *ResumableUpload, callerUserID *string) error
 // _ayb_storage_uploads.
 type ResumableUpload struct {
 	ID           string    `json:"id"`
+	TenantID     string    `json:"-"`
 	Bucket       string    `json:"bucket"`
 	Name         string    `json:"name"`
 	Path         string    `json:"-"`
@@ -73,16 +74,18 @@ type resumableQueryer interface {
 	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
 }
 
+// Resumable session IDs are looked up with tenant_id so another tenant cannot
+// append to or finalize a same-ID session if an ID leaks.
 const resumableUploadSelectQuery = `
-SELECT id, bucket, name, path, content_type, user_id,
+SELECT id, tenant_id, bucket, name, path, content_type, user_id,
        total_size, uploaded_size, status, expires_at, created_at, updated_at
   FROM _ayb_storage_uploads
- WHERE id = $1`
+ WHERE id = $1 AND tenant_id = $2`
 
 func scanResumableUpload(row resumableRow) (*ResumableUpload, error) {
 	var upload ResumableUpload
 	if err := row.Scan(
-		&upload.ID, &upload.Bucket, &upload.Name, &upload.Path, &upload.ContentType,
+		&upload.ID, &upload.TenantID, &upload.Bucket, &upload.Name, &upload.Path, &upload.ContentType,
 		&upload.UserID, &upload.TotalSize, &upload.UploadedSize, &upload.Status,
 		&upload.ExpiresAt, &upload.CreatedAt, &upload.UpdatedAt,
 	); err != nil {
@@ -94,70 +97,27 @@ func scanResumableUpload(row resumableRow) (*ResumableUpload, error) {
 	return &upload, nil
 }
 
-func getResumableUpload(ctx context.Context, q resumableQueryer, id string, lock bool) (*ResumableUpload, error) {
+func getResumableUpload(ctx context.Context, q resumableQueryer, id, tenantID string, lock bool) (*ResumableUpload, error) {
 	query := resumableUploadSelectQuery
 	if lock {
 		query = query + " FOR UPDATE"
 	}
-	row := q.QueryRow(ctx, query, id)
+	row := q.QueryRow(ctx, query, id, tenantID)
 	return scanResumableUpload(row)
-}
-
-// appends a chunk from src to the file at path starting at offset, limited to remaining bytes. It validates offset consistency and truncates the file if necessary. Returns the number of bytes written or an error if the chunk would exceed remaining bytes.
-func appendChunk(path string, offset int64, remaining int64, src io.Reader) (int64, error) {
-	f, err := os.OpenFile(path, os.O_RDWR, 0o600)
-	if err != nil {
-		return 0, fmt.Errorf("opening resumable file: %w", err)
-	}
-	defer f.Close()
-
-	if offset < 0 {
-		return 0, fmt.Errorf("offset must not be negative")
-	}
-
-	existing, err := f.Seek(0, io.SeekEnd)
-	if err != nil {
-		return 0, fmt.Errorf("seeking resumable file: %w", err)
-	}
-	if existing < offset {
-		return 0, ErrResumableUploadOffsetMismatch
-	}
-	if existing != offset {
-		if err := f.Truncate(offset); err != nil {
-			return 0, fmt.Errorf("rewinding resumable file: %w", err)
-		}
-	}
-	if _, err := f.Seek(offset, io.SeekStart); err != nil {
-		return 0, fmt.Errorf("positioning resumable file: %w", err)
-	}
-
-	if remaining <= 0 {
-		return 0, ErrResumableUploadInvalidState
-	}
-
-	limited := io.LimitReader(src, remaining+1)
-	written, err := io.Copy(f, limited)
-	if err != nil {
-		return written, fmt.Errorf("writing resumable chunk: %w", err)
-	}
-	if written > remaining {
-		return written, ErrResumableUploadChunkTooLarge
-	}
-	return written, nil
 }
 
 // Resumable cleanup needs tx-scoped quota reclamation so the upload row delete
 // can roll back if usage accounting fails.
-func decrementUsageInTx(ctx context.Context, tx pgx.Tx, userID string, bytes int64) error {
+func decrementUsageInTx(ctx context.Context, tx pgx.Tx, tenantID, userID string, bytes int64) error {
 	if userID == "" || bytes <= 0 {
 		return nil
 	}
 
 	_, err := tx.Exec(ctx,
 		`UPDATE _ayb_storage_usage
-		 SET bytes_used = GREATEST(bytes_used - $2, 0), updated_at = NOW()
-		 WHERE user_id = $1`,
-		userID, bytes,
+		 SET bytes_used = GREATEST(bytes_used - $3, 0), updated_at = NOW()
+		 WHERE tenant_id = $1 AND user_id = $2`,
+		tenantID, userID, bytes,
 	)
 	if err != nil {
 		return fmt.Errorf("decrementing storage usage: %w", err)
@@ -182,37 +142,37 @@ func (s *Service) CreateResumableUpload(ctx context.Context, bucket, name, conte
 	if s.pool == nil {
 		return nil, fmt.Errorf("database pool is not configured")
 	}
+	tenantID := tenant.TenantFromContext(ctx)
 
-	f, err := os.CreateTemp("", "ayb-resumable-*")
+	// The staging token doubles as the backend object key for this upload's
+	// in-progress bytes (_ayb_storage_uploads.path). No backend object is written
+	// yet; an absent object is the empty-upload state until the first append.
+	stagingToken, err := newStagingToken()
 	if err != nil {
-		return nil, fmt.Errorf("creating resumable temp file: %w", err)
-	}
-	tempPath := f.Name()
-	if err := f.Close(); err != nil {
-		_ = os.Remove(tempPath)
-		return nil, fmt.Errorf("closing resumable temp file: %w", err)
+		return nil, err
 	}
 	expiresAt := time.Now().Add(resumableUploadTTL)
 
+	// Store tenant_id on the session so later append/finalize paths can enforce
+	// the same tenant boundary and write the final object into the right namespace.
 	query := `
 		INSERT INTO _ayb_storage_uploads
-		(bucket, name, path, content_type, user_id, total_size, uploaded_size, status, expires_at)
-		VALUES ($1, $2, $3, $4, $5, $6, 0, $7, $8)
-		RETURNING id, bucket, name, path, content_type, user_id, total_size,
+		(tenant_id, bucket, name, path, content_type, user_id, total_size, uploaded_size, status, expires_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, 0, $8, $9)
+		RETURNING id, tenant_id, bucket, name, path, content_type, user_id, total_size,
 		          uploaded_size, status, expires_at, created_at, updated_at`
 
 	var upload ResumableUpload
 	err = s.pool.QueryRow(
 		ctx, query,
-		bucket, name, tempPath, contentType, userID, totalSize,
+		tenantID, bucket, name, stagingToken, contentType, userID, totalSize,
 		resumableUploadStatusActive, expiresAt,
 	).Scan(
-		&upload.ID, &upload.Bucket, &upload.Name, &upload.Path, &upload.ContentType, &upload.UserID,
+		&upload.ID, &upload.TenantID, &upload.Bucket, &upload.Name, &upload.Path, &upload.ContentType, &upload.UserID,
 		&upload.TotalSize, &upload.UploadedSize, &upload.Status, &upload.ExpiresAt,
 		&upload.CreatedAt, &upload.UpdatedAt,
 	)
 	if err != nil {
-		_ = os.Remove(tempPath)
 		return nil, fmt.Errorf("creating resumable upload: %w", err)
 	}
 
@@ -229,7 +189,7 @@ func (s *Service) GetResumableUpload(ctx context.Context, id string, callerUserI
 	if s.pool == nil {
 		return nil, fmt.Errorf("database pool is not configured")
 	}
-	upload, err := getResumableUpload(ctx, s.pool, id, false)
+	upload, err := getResumableUpload(ctx, s.pool, id, tenant.TenantFromContext(ctx), false)
 	if err != nil {
 		return nil, err
 	}
@@ -262,7 +222,8 @@ func (s *Service) AppendResumableUpload(ctx context.Context, id string, offset i
 	}
 	defer tx.Rollback(ctx)
 
-	upload, err := getResumableUpload(ctx, tx, id, true)
+	tenantID := tenant.TenantFromContext(ctx)
+	upload, err := getResumableUpload(ctx, tx, id, tenantID, true)
 	if err != nil {
 		return nil, false, err
 	}
@@ -281,7 +242,9 @@ func (s *Service) AppendResumableUpload(ctx context.Context, id string, offset i
 	}
 
 	remaining := upload.TotalSize - upload.UploadedSize
-	written, err := appendChunk(upload.Path, offset, remaining, src)
+	// Backend I/O stays inside the FOR UPDATE row-lock transaction so concurrent
+	// appends (including cross-node) remain serialized by the Postgres row lock.
+	written, err := s.stageAppendedChunk(ctx, upload, offset, remaining, src)
 	if err != nil {
 		return nil, false, err
 	}
@@ -294,11 +257,12 @@ func (s *Service) AppendResumableUpload(ctx context.Context, id string, offset i
 		shouldFinalize = true
 	}
 
+	// Progress updates are tenant-scoped to match the locked session row.
 	_, err = tx.Exec(ctx,
 		`UPDATE _ayb_storage_uploads
 		 SET uploaded_size = $1, status = $2, updated_at = NOW(), expires_at = NOW() + make_interval(secs => $3)
-		 WHERE id = $4`,
-		upload.UploadedSize, status, int64(resumableUploadTTL.Seconds()), upload.ID)
+		 WHERE id = $4 AND tenant_id = $5`,
+		upload.UploadedSize, status, int64(resumableUploadTTL.Seconds()), upload.ID, tenantID)
 	if err != nil {
 		return nil, false, fmt.Errorf("updating resumable upload progress: %w", err)
 	}
@@ -312,34 +276,36 @@ func (s *Service) AppendResumableUpload(ctx context.Context, id string, offset i
 
 // moves a completed resumable upload's temporary file to backend storage and records it in the database. It applies row-level security constraints and cleans up the backend object if the database insert fails.
 func (s *Service) finalizeUploadObject(ctx context.Context, upload *ResumableUpload) (*Object, error) {
-	f, err := os.Open(upload.Path)
+	staged, err := s.backend.Get(ctx, upload.TenantID, resumableStagingBucket, upload.Path)
 	if err != nil {
-		return nil, fmt.Errorf("opening resumable file: %w", err)
+		return nil, fmt.Errorf("opening staged upload: %w", err)
 	}
-	defer f.Close()
+	defer staged.Close()
 
-	size, err := s.backend.Put(ctx, upload.Bucket, upload.Name, f)
+	size, err := s.backend.Put(ctx, upload.TenantID, upload.Bucket, upload.Name, staged)
 	if err != nil {
 		return nil, err
 	}
 
 	q, done, err := s.withRLS(ctx)
 	if err != nil {
-		_ = s.backend.Delete(ctx, upload.Bucket, upload.Name)
+		_ = s.backend.Delete(ctx, upload.TenantID, upload.Bucket, upload.Name)
 		return nil, err
 	}
 
 	var obj Object
+	// Finalized resumable uploads use the same tenant-local object identity as
+	// direct uploads, including the conflict target.
 	err = q.QueryRow(ctx,
-		`INSERT INTO _ayb_storage_objects (bucket, name, size, content_type, user_id)
-		 VALUES ($1, $2, $3, $4, $5)
-		 ON CONFLICT (bucket, name) DO UPDATE
+		`INSERT INTO _ayb_storage_objects (tenant_id, bucket, name, size, content_type, user_id)
+		 VALUES ($1, $2, $3, $4, $5, $6)
+		 ON CONFLICT (tenant_id, bucket, name) DO UPDATE
 		 SET size = EXCLUDED.size, content_type = EXCLUDED.content_type, user_id = EXCLUDED.user_id, updated_at = NOW()
 		 RETURNING id, bucket, name, size, content_type, user_id, created_at, updated_at`,
-		upload.Bucket, upload.Name, size, upload.ContentType, upload.UserID,
+		upload.TenantID, upload.Bucket, upload.Name, size, upload.ContentType, upload.UserID,
 	).Scan(&obj.ID, &obj.Bucket, &obj.Name, &obj.Size, &obj.ContentType, &obj.UserID, &obj.CreatedAt, &obj.UpdatedAt)
 	if err != nil {
-		_ = s.backend.Delete(ctx, upload.Bucket, upload.Name)
+		_ = s.backend.Delete(ctx, upload.TenantID, upload.Bucket, upload.Name)
 		_ = done(err)
 		if isPermissionDenied(err) {
 			return nil, ErrPermissionDenied
@@ -347,7 +313,7 @@ func (s *Service) finalizeUploadObject(ctx context.Context, upload *ResumableUpl
 		return nil, fmt.Errorf("recording resumable object: %w", err)
 	}
 	if err := done(nil); err != nil {
-		_ = s.backend.Delete(ctx, upload.Bucket, upload.Name)
+		_ = s.backend.Delete(ctx, upload.TenantID, upload.Bucket, upload.Name)
 		return nil, fmt.Errorf("recording resumable object: %w", err)
 	}
 
@@ -365,6 +331,7 @@ func (s *Service) FinalizeResumableUpload(ctx context.Context, id string, caller
 	if s.pool == nil {
 		return nil, fmt.Errorf("database pool is not configured")
 	}
+	tenantID := tenant.TenantFromContext(ctx)
 
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
@@ -374,7 +341,7 @@ func (s *Service) FinalizeResumableUpload(ctx context.Context, id string, caller
 
 	// SKIP LOCKED: if another goroutine is already finalizing this upload,
 	// we get no rows rather than blocking, preventing double-finalize.
-	row := tx.QueryRow(ctx, resumableUploadSelectQuery+" FOR UPDATE SKIP LOCKED", id)
+	row := tx.QueryRow(ctx, resumableUploadSelectQuery+" FOR UPDATE SKIP LOCKED", id, tenantID)
 	upload, err := scanResumableUpload(row)
 	if err != nil {
 		return nil, err
@@ -398,23 +365,25 @@ func (s *Service) FinalizeResumableUpload(ctx context.Context, id string, caller
 	obj, err := s.finalizeUploadObject(ctx, upload)
 	if err != nil {
 		// Reset status so the client can retry.
+		// Reset only this tenant's session; IDs alone are not an isolation boundary.
 		_, _ = tx.Exec(ctx, `UPDATE _ayb_storage_uploads
 			SET status = $1, updated_at = NOW()
-			WHERE id = $2`, resumableUploadStatusActive, id)
+			WHERE id = $2 AND tenant_id = $3`, resumableUploadStatusActive, id, tenantID)
 		_ = tx.Commit(ctx)
 		return nil, err
 	}
 
 	// Delete the upload record within the lock tx.
-	if _, err := tx.Exec(ctx, `DELETE FROM _ayb_storage_uploads WHERE id = $1`, id); err != nil {
+	// Remove only the tenant-scoped session that was locked above.
+	if _, err := tx.Exec(ctx, `DELETE FROM _ayb_storage_uploads WHERE id = $1 AND tenant_id = $2`, id, tenantID); err != nil {
 		return nil, fmt.Errorf("removing resumable upload: %w", err)
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return nil, fmt.Errorf("commit finalize tx: %w", err)
 	}
 
-	if err := os.Remove(upload.Path); err != nil && !os.IsNotExist(err) {
-		s.logger.Warn("failed to remove resumable temp file", "path", upload.Path, "error", err)
+	if err := s.backend.Delete(ctx, upload.TenantID, resumableStagingBucket, upload.Path); err != nil {
+		s.logger.Warn("failed to remove resumable staging object", "path", upload.Path, "error", err)
 	}
 
 	return obj, nil
@@ -434,7 +403,7 @@ func (s *Service) CleanupExpiredResumableUploads(ctx context.Context) (int, erro
 	rows, err := tx.Query(ctx, `
 		DELETE FROM _ayb_storage_uploads
 		WHERE expires_at < NOW()
-		RETURNING path, user_id, total_size`)
+		RETURNING path, tenant_id, user_id, total_size`)
 	if err != nil {
 		return 0, fmt.Errorf("deleting expired resumable uploads: %w", err)
 	}
@@ -442,6 +411,7 @@ func (s *Service) CleanupExpiredResumableUploads(ctx context.Context) (int, erro
 
 	type expiredUpload struct {
 		path      string
+		tenantID  string
 		userID    *string
 		totalSize int64
 	}
@@ -449,7 +419,7 @@ func (s *Service) CleanupExpiredResumableUploads(ctx context.Context) (int, erro
 	expiredUploads := make([]expiredUpload, 0)
 	for rows.Next() {
 		var upload expiredUpload
-		if err := rows.Scan(&upload.path, &upload.userID, &upload.totalSize); err != nil {
+		if err := rows.Scan(&upload.path, &upload.tenantID, &upload.userID, &upload.totalSize); err != nil {
 			return 0, fmt.Errorf("scanning expired resumable upload: %w", err)
 		}
 		expiredUploads = append(expiredUploads, upload)
@@ -461,7 +431,7 @@ func (s *Service) CleanupExpiredResumableUploads(ctx context.Context) (int, erro
 
 	for _, upload := range expiredUploads {
 		if upload.userID != nil {
-			if err := decrementUsageInTx(ctx, tx, *upload.userID, upload.totalSize); err != nil {
+			if err := decrementUsageInTx(ctx, tx, upload.tenantID, *upload.userID, upload.totalSize); err != nil {
 				return 0, fmt.Errorf("reclaiming resumable quota: %w", err)
 			}
 		}
@@ -471,8 +441,8 @@ func (s *Service) CleanupExpiredResumableUploads(ctx context.Context) (int, erro
 	}
 
 	for _, upload := range expiredUploads {
-		if err := os.Remove(upload.path); err != nil && !os.IsNotExist(err) {
-			s.logger.Warn("failed to remove resumable temp file", "path", upload.path, "error", err)
+		if err := s.backend.Delete(ctx, upload.tenantID, resumableStagingBucket, upload.path); err != nil {
+			s.logger.Warn("failed to remove resumable staging object", "path", upload.path, "error", err)
 		}
 	}
 

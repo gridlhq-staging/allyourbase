@@ -1,4 +1,4 @@
-import type { TestInfo } from "@playwright/test";
+import type { APIRequestContext, TestInfo } from "@playwright/test";
 import { test, expect, execSQL, waitForDashboard } from "../fixtures";
 
 /**
@@ -9,8 +9,7 @@ import { test, expect, execSQL, waitForDashboard } from "../fixtures";
  *
  * This test exercises:
  * 1. Empty-state sidebar guidance ("No tables yet" + "Open SQL Editor" CTA)
- *    — only when the database has no user tables; skipped if pre-existing tables
- *    are present (e.g., from prior test runs in a shared environment)
+ *    after clearing visible user relations through the admin SQL fixture seam
  * 2. Empty-state main content hint ("Select a table from the sidebar")
  * 3. Navigation to SQL Editor via onboarding CTA or sidebar nav
  * 4. DDL execution (CREATE TABLE) and automatic schema refresh
@@ -23,6 +22,46 @@ import { test, expect, execSQL, waitForDashboard } from "../fixtures";
  * blog-platform-journey.spec.ts and sql-editor-lifecycle.spec.ts.
  */
 
+async function resetVisibleUserRelations(
+  request: APIRequestContext,
+  adminToken: string,
+): Promise<void> {
+  const result = await execSQL(
+    request,
+    adminToken,
+    `SELECT format(
+       'DROP %s IF EXISTS %I.%I CASCADE',
+       CASE c.relkind
+         WHEN 'v' THEN 'VIEW'
+         WHEN 'm' THEN 'MATERIALIZED VIEW'
+         WHEN 'f' THEN 'FOREIGN TABLE'
+         ELSE 'TABLE'
+       END,
+       n.nspname,
+       c.relname
+     )
+     FROM pg_class c
+     JOIN pg_namespace n ON n.oid = c.relnamespace
+     WHERE c.relkind IN ('r', 'p', 'v', 'm', 'f')
+       AND n.nspname NOT IN ('pg_catalog', 'information_schema', 'pg_toast')
+       AND n.nspname NOT LIKE 'pg_%'
+       AND substring(c.relname from 1 for 5) <> '_ayb_'
+       AND NOT EXISTS (
+         SELECT 1
+         FROM pg_depend dep
+         JOIN pg_extension ext ON ext.oid = dep.refobjid
+         WHERE dep.classid = 'pg_class'::regclass
+           AND dep.objid = c.oid
+           AND dep.deptype = 'e'
+       )
+     ORDER BY n.nspname, c.relname`,
+  );
+
+  for (const row of result.rows) {
+    await execSQL(request, adminToken, String(row[0]));
+  }
+}
+
 test.describe("First Table Journey (Full E2E)", () => {
   // Cleanup queue: SQL statements pushed during tests, drained in afterEach
   const pendingCleanup: string[] = [];
@@ -34,7 +73,11 @@ test.describe("First Table Journey (Full E2E)", () => {
     pendingCleanup.length = 0;
   });
 
-  test("empty dashboard to first table with data", async ({ page }, testInfo: TestInfo) => {
+  test("empty dashboard to first table with data", async ({
+    page,
+    request,
+    adminToken,
+  }, testInfo: TestInfo) => {
     const runId = `${Date.now()}_${testInfo.parallelIndex}_${testInfo.repeatEachIndex}_${testInfo.retry}`;
     const tableName = `first_test_${runId}`;
     const seededName = `hello_${runId}`;
@@ -43,37 +86,25 @@ test.describe("First Table Journey (Full E2E)", () => {
     // Register cleanup before creating resources
     pendingCleanup.push(`DROP TABLE IF EXISTS ${tableName}`);
 
+    await resetVisibleUserRelations(request, adminToken);
+
     // Navigate to the admin dashboard
     await page.goto("/admin/");
     await waitForDashboard(page);
 
     const sidebar = page.locator("aside");
 
-    // --- Empty-state assertions (when database has no user tables) ---
-    // In a clean environment, the sidebar shows "No tables yet" with an
-    // onboarding CTA. In a shared test env, prior runs may leave tables
-    // behind, so we verify empty state when present and skip when not.
-    const emptyStateVisible = await sidebar
-      .getByText("No tables yet")
-      .isVisible()
-      .catch(() => false);
+    // --- Empty-state assertions ---
+    await expect(sidebar.getByText("No tables yet")).toBeVisible();
+    await expect(sidebar.getByText("Create your first table to get started.")).toBeVisible();
+    await expect(sidebar.getByRole("button", { name: "Open SQL Editor" })).toBeVisible();
+    await expect(page.locator("main").getByText("Select a table from the sidebar")).toBeVisible();
+    await expect(
+      page.locator("main").getByText("Use SQL Editor from the sidebar to create one."),
+    ).toBeVisible();
 
-    if (emptyStateVisible) {
-      await expect(
-        sidebar.getByRole("button", { name: "Open SQL Editor" }),
-      ).toBeVisible();
-
-      // Main content should show the empty-selection hint
-      await expect(
-        page.locator("main").getByText("Select a table from the sidebar"),
-      ).toBeVisible();
-
-      // Navigate via the onboarding CTA
-      await sidebar.getByRole("button", { name: "Open SQL Editor" }).click();
-    } else {
-      // Tables exist — navigate via the Database section's SQL Editor button
-      await sidebar.getByRole("button", { name: /^SQL Editor$/i }).click();
-    }
+    // Navigate via the onboarding CTA
+    await sidebar.getByRole("button", { name: "Open SQL Editor" }).click();
 
     // --- SQL Editor should be visible ---
     const sqlInput = page.getByLabel("SQL query");

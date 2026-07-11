@@ -21,9 +21,42 @@ void main() {
   });
 
   group(
-      'Integration: auth smoke',
+    'Integration: auth smoke',
     skip: _env.skipReason,
     () {
+      test(
+        'begins WebAuthn login with live challenge options',
+        () async {
+          final baseUrl = _env.baseUrl;
+          expect(baseUrl, isNotNull);
+
+          final client = AYBClient(baseUrl!);
+          addTearDown(client.close);
+
+          final credentials = _env.newCredentials('webauthn begin');
+          final response =
+              await client.auth.beginWebAuthnLogin(credentials.email);
+
+          expect(response.challengeId, isNotEmpty);
+          expect(
+              response.options['challenge'],
+              isA<String>().having(
+                (value) => value,
+                'challenge',
+                isNotEmpty,
+              ));
+          expect(
+              response.options['rpId'],
+              isA<String>().having(
+                (value) => value,
+                'rpId',
+                isNotEmpty,
+              ));
+          expect(response.options['allowCredentials'], isA<List<Object?>>());
+        },
+        timeout: Timeout(_env.timeout),
+      );
+
       test(
         'registers, refreshes, logs out, logs in, and deletes account',
         () async {
@@ -185,6 +218,72 @@ void main() {
       );
     },
   );
+
+  group(
+    'Integration: records synonyms',
+    skip: _env.adminSkipReason,
+    () {
+      const collection = 'sdk_dart_synonym_probe';
+      late AYBClient client;
+
+      setUpAll(() async {
+        final baseUrl = _env.baseUrl;
+        expect(baseUrl, isNotNull);
+
+        final setupClient = AYBClient(baseUrl!);
+        setupClient.setApiKey(_env.adminToken!);
+        try {
+          await _prepareSearchFixtures(setupClient, collection);
+        } finally {
+          setupClient.close();
+        }
+      });
+
+      tearDownAll(() async {
+        final baseUrl = _env.baseUrl;
+        if (baseUrl == null) {
+          return;
+        }
+
+        final cleanupClient = AYBClient(baseUrl);
+        cleanupClient.setApiKey(_env.adminToken!);
+        try {
+          await _dropSearchFixtures(cleanupClient, collection);
+        } finally {
+          cleanupClient.close();
+        }
+      });
+
+      setUp(() {
+        final baseUrl = _env.baseUrl;
+        expect(baseUrl, isNotNull);
+        client = AYBClient(baseUrl!);
+        client.setApiKey(_env.adminToken!);
+      });
+
+      tearDown(() {
+        client.close();
+      });
+
+      test(
+        'round-trips collection search synonyms',
+        () async {
+          const request = SearchSynonymsRequest(groups: [
+            SearchSynonymGroup(terms: ['scifi', 'science fiction']),
+            SearchSynonymGroup(terms: ['nyc', 'new york']),
+          ]);
+
+          final saved = await client.records.setSynonyms(collection, request);
+          final loaded = await client.records.getSynonyms(collection);
+
+          final expected = _canonicalSynonymGroups(request.groups);
+          expect(_canonicalSynonymGroups(saved.groups), expected);
+          expect(_canonicalSynonymGroups(loaded.groups), expected);
+        },
+        timeout: Timeout(_env.timeout),
+      );
+    },
+  );
 }
 
 Map<String, int> _categoryFacetCounts(ListResponse<JsonMap> result) {
@@ -199,12 +298,21 @@ Map<String, int> _categoryFacetCounts(ListResponse<JsonMap> result) {
   };
 }
 
+List<List<String>> _canonicalSynonymGroups(List<SearchSynonymGroup> groups) {
+  final normalized = groups
+      .map((group) => [...group.terms]..sort())
+      .toList(growable: false)
+    ..sort(
+        (left, right) => left.join('\u0000').compareTo(right.join('\u0000')));
+  return normalized;
+}
+
 Future<void> _prepareSearchFixtures(AYBClient client, String collection) async {
   final safeCollection = _validatedCollectionIdentifier(collection);
   await _adminSql(client, 'DROP TABLE IF EXISTS $safeCollection CASCADE');
   await _adminSql(
-      client,
-      '''
+    client,
+    '''
   CREATE TABLE $safeCollection (
     id text PRIMARY KEY,
     title text NOT NULL,
@@ -217,12 +325,12 @@ Future<void> _prepareSearchFixtures(AYBClient client, String collection) async {
     'ALTER TABLE $safeCollection ENABLE ROW LEVEL SECURITY',
   );
   await _adminSql(
-      client,
-      'CREATE POLICY ${safeCollection}_all ON $safeCollection FOR ALL USING (true) WITH CHECK (true)',
+    client,
+    'CREATE POLICY ${safeCollection}_all ON $safeCollection FOR ALL USING (true) WITH CHECK (true)',
   );
   await _adminSql(
-      client,
-      """
+    client,
+    """
   INSERT INTO $safeCollection (id, title, category) VALUES
     ('one', 'allyourbase migration guide', 'docs'),
     ('two', 'allyourbase search cookbook', 'docs'),

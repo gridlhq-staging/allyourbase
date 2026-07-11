@@ -52,7 +52,7 @@ export function Layout({ schema, onLogout, onRefresh }: LayoutProps) {
 
   useEffect(() => {
     const handler = (event: KeyboardEvent) => {
-      if ((event.metaKey || event.ctrlKey) && event.key === "k") {
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
         event.preventDefault();
         setCmdOpen((current) => !current);
       }

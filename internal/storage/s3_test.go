@@ -14,20 +14,23 @@ func TestS3BackendKey(t *testing.T) {
 	b := &S3Backend{} // key() doesn't use client or bucket
 	tests := []struct {
 		name       string
+		tenantID   string
 		aybBucket  string
 		objectName string
 		want       string
 	}{
-		{"simple", "images", "photo.jpg", "images/photo.jpg"},
-		{"nested name", "docs", "a/b/c/file.txt", "docs/a/b/c/file.txt"},
-		{"empty bucket", "", "file.txt", "/file.txt"},
-		{"empty name", "images", "", "images/"},
-		{"special chars", "uploads", "hello world.txt", "uploads/hello world.txt"},
+		{"simple", "", "images", "photo.jpg", "images/photo.jpg"},
+		{"nested name", "", "docs", "a/b/c/file.txt", "docs/a/b/c/file.txt"},
+		{"empty bucket", "", "", "file.txt", "/file.txt"},
+		{"empty name", "", "images", "", "images/"},
+		{"special chars", "", "uploads", "hello world.txt", "uploads/hello world.txt"},
+		{"tenant prefix", "tenant-1", "images", "photo.jpg", "t/tenant-1/images/photo.jpg"},
+		{"tenant nested name", "tenant-1", "docs", "a/b/c/file.txt", "t/tenant-1/docs/a/b/c/file.txt"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			got := b.key(tt.aybBucket, tt.objectName)
+			got := b.key(tt.tenantID, tt.aybBucket, tt.objectName)
 			testutil.Equal(t, tt.want, got)
 		})
 	}

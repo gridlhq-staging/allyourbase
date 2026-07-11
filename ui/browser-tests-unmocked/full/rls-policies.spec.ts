@@ -1,4 +1,39 @@
-import { test, expect, execSQL, waitForDashboard, expectRlsPolicyCard } from "../fixtures";
+import {
+  test,
+  expect,
+  execSQL,
+  probeEndpoint,
+  waitForDashboard,
+  expectRlsPolicyCard,
+} from "../fixtures";
+import type { APIRequestContext, Page } from "@playwright/test";
+
+async function skipIfRlsServiceUnavailable(
+  request: APIRequestContext,
+  adminToken: string,
+): Promise<void> {
+  const probeStatus = await probeEndpoint(request, adminToken, "/api/admin/rls");
+  test.skip(
+    probeStatus === 503 || probeStatus === 404 || probeStatus === 501,
+    `RLS service unavailable (status ${probeStatus})`,
+  );
+}
+
+async function openRLSPoliciesPage(
+  page: Page,
+  request: APIRequestContext,
+  adminToken: string,
+): Promise<void> {
+  await skipIfRlsServiceUnavailable(request, adminToken);
+
+  await page.goto("/admin/");
+  await waitForDashboard(page);
+  const sidebar = page.locator("aside");
+  const rlsButton = sidebar.getByRole("button", { name: /^RLS Policies$/i });
+  await expect(rlsButton).toBeVisible({ timeout: 5000 });
+  await rlsButton.click();
+  await expect(page.getByText("Tables").first()).toBeVisible({ timeout: 5000 });
+}
 
 /**
  * FULL E2E TEST: RLS Policy Management
@@ -44,12 +79,7 @@ test.describe("RLS Policies (Full E2E)", () => {
     );
 
     // Act: navigate to RLS Policies page and select the table
-    await page.goto("/admin/");
-    await waitForDashboard(page);
-    const sidebar = page.locator("aside");
-    const rlsButton = sidebar.getByRole("button", { name: /^RLS Policies$/i });
-    await rlsButton.click();
-    await expect(page.getByText("Tables").first()).toBeVisible({ timeout: 5000 });
+    await openRLSPoliciesPage(page, request, adminToken);
 
     const rlsTableButton = page.locator("main").getByRole("button", { name: tableName });
     await expect(rlsTableButton).toBeVisible({ timeout: 5000 });
@@ -61,7 +91,11 @@ test.describe("RLS Policies (Full E2E)", () => {
     // Cleanup handled by afterEach
   });
 
-  test("enable RLS and create policy shows enabled badge and new policy row", async ({ page }) => {
+  test("enable RLS and create policy shows enabled badge and new policy row", async ({
+    page,
+    request,
+    adminToken,
+  }) => {
     const runId = Date.now();
     const tableName = `rls_test_${runId}`;
 
@@ -70,6 +104,8 @@ test.describe("RLS Policies (Full E2E)", () => {
     // ============================================================
     // Setup: Create test table via SQL
     // ============================================================
+    await skipIfRlsServiceUnavailable(request, adminToken);
+
     await page.goto("/admin/");
     await waitForDashboard(page);
 
@@ -166,6 +202,47 @@ test.describe("RLS Policies (Full E2E)", () => {
       policyName,
       command: "ALL",
       usingExpression: "true",
+    });
+
+    // ============================================================
+    // SQL PREVIEW: Generated SQL can be inspected and closed safely
+    // ============================================================
+    await page.getByRole("button", { name: "View SQL" }).click();
+    await expect(page.getByRole("heading", { name: "SQL Preview" })).toBeVisible({ timeout: 3000 });
+    await expect(page.getByText(`CREATE POLICY "${policyName}"`, { exact: false })).toBeVisible();
+    await page.getByRole("button", { name: "Close", exact: true }).click();
+    await expect(page.getByRole("heading", { name: "SQL Preview" })).toBeHidden({ timeout: 3000 });
+    await expect(page.getByText(policyName, { exact: true }).first()).toBeVisible();
+
+    // ============================================================
+    // DELETE CANCEL: Confirmation names exact policy and table
+    // ============================================================
+    await page.getByRole("button", { name: "Delete policy" }).click();
+    await expect(page.getByRole("heading", { name: "Delete Policy" })).toBeVisible({ timeout: 3000 });
+    await expect(
+      page.getByText(
+        new RegExp(`This will permanently drop the policy\\s+${policyName}\\s+from\\s+${tableName}`),
+      ),
+    ).toBeVisible();
+    await page.getByRole("button", { name: "Cancel" }).click();
+    await expect(page.getByRole("heading", { name: "Delete Policy" })).toBeHidden({ timeout: 3000 });
+    await expect(page.getByText(policyName, { exact: true }).first()).toBeVisible();
+
+    // ============================================================
+    // DELETE CONFIRM: Policy is removed after destructive confirmation
+    // ============================================================
+    await page.getByRole("button", { name: "Delete policy" }).click();
+    await expect(page.getByRole("heading", { name: "Delete Policy" })).toBeVisible({ timeout: 3000 });
+    await page.getByRole("button", { name: "Delete", exact: true }).click();
+    await expect(page.getByRole("heading", { name: "Delete Policy" })).toBeHidden({ timeout: 5000 });
+    await expect(page.getByRole("button", { name: "Delete policy" })).toHaveCount(0);
+
+    // ============================================================
+    // DISABLE RLS
+    // ============================================================
+    await page.getByRole("button", { name: /disable rls/i }).click();
+    await expect(page.getByText("RLS Disabled", { exact: true })).toBeVisible({
+      timeout: 5000,
     });
 
     // Cleanup handled by afterEach

@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"log/slog"
 	"net/http"
@@ -12,7 +13,9 @@ import (
 	"github.com/allyourbase/ayb/internal/httputil"
 	"github.com/allyourbase/ayb/internal/realtime"
 	"github.com/allyourbase/ayb/internal/schema"
+	"github.com/allyourbase/ayb/internal/tenant"
 	"github.com/allyourbase/ayb/internal/testutil"
+	"github.com/go-chi/chi/v5"
 )
 
 // testSchema creates a minimal schema cache with a "users" table for testing.
@@ -81,6 +84,17 @@ func doRequest(handler http.Handler, method, path string, body string) *httptest
 	return w
 }
 
+func requestWithCollectionParam(tableName, activeSchema string) *http.Request {
+	req := httptest.NewRequest(http.MethodGet, "/collections/"+tableName, nil)
+	rctx := chi.NewRouteContext()
+	rctx.URLParams.Add("table", tableName)
+	ctx := context.WithValue(req.Context(), chi.RouteCtxKey, rctx)
+	if activeSchema != "" {
+		ctx = tenant.ContextWithActiveSchema(ctx, activeSchema)
+	}
+	return req.WithContext(ctx)
+}
+
 func decodeError(t *testing.T, w *httptest.ResponseRecorder) httputil.ErrorResponse {
 	t.Helper()
 	var resp httputil.ErrorResponse
@@ -98,7 +112,62 @@ func TestNewHandlerNormalizesTypedNilHub(t *testing.T) {
 		t.Fatal("expected typed nil realtime hub to normalize to nil")
 	}
 
-	h.publishEvent("create", "users", map[string]any{"id": "123"}, nil)
+	h.publishEvent(context.Background(), "create", "users", map[string]any{"id": "123"}, nil)
+}
+
+func TestResolveTableUsesActiveTenantSchema(t *testing.T) {
+	t.Parallel()
+
+	sc := testSchema()
+	sc.Tables["tenant_a.users"] = &schema.Table{
+		Schema:     "tenant_a",
+		Name:       "users",
+		Kind:       "table",
+		Columns:    []*schema.Column{{Name: "id", TypeName: "uuid"}},
+		PrimaryKey: []string{"id"},
+	}
+	h := NewHandler(nil, testCacheHolder(sc), slog.Default(), nil, nil, nil)
+
+	tbl := h.resolveTable(httptest.NewRecorder(), requestWithCollectionParam("users", "tenant_a"))
+
+	testutil.NotNil(t, tbl)
+	testutil.Equal(t, "tenant_a", tbl.Schema)
+	testutil.Equal(t, "users", tbl.Name)
+}
+
+func TestResolveTableFallsBackToPublicForActiveTenantSchema(t *testing.T) {
+	t.Parallel()
+
+	h := NewHandler(nil, testCacheHolder(testSchema()), slog.Default(), nil, nil, nil)
+
+	tbl := h.resolveTable(httptest.NewRecorder(), requestWithCollectionParam("logs", "tenant_a"))
+
+	testutil.NotNil(t, tbl)
+	testutil.Equal(t, "public", tbl.Schema)
+	testutil.Equal(t, "logs", tbl.Name)
+}
+
+func TestResolveTablePreservesPublicModeNonPublicFallback(t *testing.T) {
+	t.Parallel()
+
+	sc := &schema.SchemaCache{
+		Tables: map[string]*schema.Table{
+			"selfhost.items": {
+				Schema:     "selfhost",
+				Name:       "items",
+				Kind:       "table",
+				Columns:    []*schema.Column{{Name: "id", TypeName: "uuid"}},
+				PrimaryKey: []string{"id"},
+			},
+		},
+	}
+	h := NewHandler(nil, testCacheHolder(sc), slog.Default(), nil, nil, nil)
+
+	tbl := h.resolveTable(httptest.NewRecorder(), requestWithCollectionParam("items", "public"))
+
+	testutil.NotNil(t, tbl)
+	testutil.Equal(t, "selfhost", tbl.Schema)
+	testutil.Equal(t, "items", tbl.Name)
 }
 
 // --- Schema not ready ---

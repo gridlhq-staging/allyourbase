@@ -1,4 +1,3 @@
-// Package searchsynonyms.
 package searchsynonyms
 
 import (
@@ -19,8 +18,11 @@ type Group struct {
 type Groups []Group
 
 func NormalizeGroups(groups Groups) (Groups, error) {
-	if len(groups) == 0 {
+	if groups == nil {
 		return nil, fmt.Errorf("groups is required")
+	}
+	if len(groups) == 0 {
+		return Groups{}, nil
 	}
 
 	seen := make(map[string]struct{})

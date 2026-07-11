@@ -32,18 +32,7 @@ func NewOpenAIProvider(apiKey, baseURL string) *OpenAIProvider {
 }
 
 func (p *OpenAIProvider) GenerateText(ctx context.Context, req GenerateTextRequest) (GenerateTextResponse, error) {
-	messages := buildOpenAIMessages(req)
-
-	body := openaiRequest{
-		Model:    req.Model,
-		Messages: messages,
-	}
-	if req.MaxTokens > 0 {
-		body.MaxTokens = &req.MaxTokens
-	}
-	if req.Temperature != nil {
-		body.Temperature = req.Temperature
-	}
+	body := buildOpenAIChatRequest(req, false)
 
 	payload, err := json.Marshal(body)
 	if err != nil {
@@ -139,6 +128,21 @@ func buildOpenAIMessages(req GenerateTextRequest) []openaiMessage {
 	return msgs
 }
 
+func buildOpenAIChatRequest(req GenerateTextRequest, stream bool) openaiRequest {
+	body := openaiRequest{
+		Model:    req.Model,
+		Messages: buildOpenAIMessages(req),
+		Stream:   stream,
+	}
+	if req.MaxTokens > 0 {
+		body.MaxTokens = &req.MaxTokens
+	}
+	if req.Temperature != nil {
+		body.Temperature = req.Temperature
+	}
+	return body
+}
+
 // --- OpenAI wire types ---
 
 type openaiRequest struct {
@@ -146,6 +150,7 @@ type openaiRequest struct {
 	Messages    []openaiMessage `json:"messages"`
 	MaxTokens   *int            `json:"max_tokens,omitempty"`
 	Temperature *float64        `json:"temperature,omitempty"`
+	Stream      bool            `json:"stream,omitempty"`
 }
 
 // openaiMessage supports both simple string content and multimodal arrays.

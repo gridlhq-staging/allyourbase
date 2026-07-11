@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -23,6 +24,7 @@ import (
 	"github.com/allyourbase/ayb/internal/billing"
 	"github.com/allyourbase/ayb/internal/config"
 	"github.com/allyourbase/ayb/internal/jobs"
+	"github.com/allyourbase/ayb/internal/postgres"
 	"github.com/allyourbase/ayb/internal/support"
 	"github.com/allyourbase/ayb/internal/testutil"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -36,6 +38,103 @@ func TestBuildBillingService_DisabledProviderReturnsNoop(t *testing.T) {
 	customer, err := svc.CreateCustomer(context.Background(), "tenant-1")
 	testutil.NoError(t, err)
 	testutil.Equal(t, "tenant-1", customer.TenantID)
+}
+
+type fakeAuthRevocationStore struct {
+	loads    int
+	cleanups int
+}
+
+func (s *fakeAuthRevocationStore) Upsert(context.Context, string, time.Time) error {
+	return nil
+}
+
+func (s *fakeAuthRevocationStore) LoadActive(context.Context) ([]auth.RevokedSession, error) {
+	s.loads++
+	return nil, nil
+}
+
+func (s *fakeAuthRevocationStore) CleanupExpired(context.Context) (int64, error) {
+	s.cleanups++
+	return 0, nil
+}
+
+type fakeAuthTokenRevokeBus struct {
+	subscribes int
+}
+
+func (b *fakeAuthTokenRevokeBus) Publish(context.Context, string, string, any) error {
+	return nil
+}
+
+func (b *fakeAuthTokenRevokeBus) Subscribe(context.Context, string, func(string, json.RawMessage)) error {
+	b.subscribes++
+	return nil
+}
+
+func TestInitCoreServicesAuthDisabledDoesNotBuildRevocationBus(t *testing.T) {
+	origStore := newAuthRevokedSessionStore
+	origBus := newAuthTokenRevokeBus
+	t.Cleanup(func() {
+		newAuthRevokedSessionStore = origStore
+		newAuthTokenRevokeBus = origBus
+	})
+
+	storeCalls := 0
+	busCalls := 0
+	newAuthRevokedSessionStore = func(*pgxpool.Pool) auth.RevokedSessionPersistence {
+		storeCalls++
+		return &fakeAuthRevocationStore{}
+	}
+	newAuthTokenRevokeBus = func(*pgxpool.Pool, string, *slog.Logger) auth.TokenRevokeBus {
+		busCalls++
+		return &fakeAuthTokenRevokeBus{}
+	}
+
+	cfg := config.Default()
+	cfg.Auth.Enabled = false
+	cfg.Storage.Enabled = false
+	cfg.Database.URL = "postgres://user:pass@localhost/db"
+
+	core, err := initCoreServices(context.Background(), cfg, &postgres.Pool{}, testNoopLogger())
+	testutil.NoError(t, err)
+	testutil.Nil(t, core.authSvc)
+	testutil.Equal(t, 0, storeCalls)
+	testutil.Equal(t, 0, busCalls)
+}
+
+func TestConfigureAuthSessionRevocationWiresStoreAndBusOnce(t *testing.T) {
+	origStore := newAuthRevokedSessionStore
+	origBus := newAuthTokenRevokeBus
+	t.Cleanup(func() {
+		newAuthRevokedSessionStore = origStore
+		newAuthTokenRevokeBus = origBus
+	})
+
+	store := &fakeAuthRevocationStore{}
+	bus := &fakeAuthTokenRevokeBus{}
+	storeCalls := 0
+	busCalls := 0
+	newAuthRevokedSessionStore = func(*pgxpool.Pool) auth.RevokedSessionPersistence {
+		storeCalls++
+		return store
+	}
+	newAuthTokenRevokeBus = func(*pgxpool.Pool, string, *slog.Logger) auth.TokenRevokeBus {
+		busCalls++
+		return bus
+	}
+
+	cfg := config.Default()
+	cfg.Database.URL = "postgres://user:pass@localhost/db"
+	authSvc := auth.NewService(nil, cfg.Auth.JWTSecret, time.Hour, 24*time.Hour, 8, testNoopLogger())
+	err := configureAuthSessionRevocation(context.Background(), cfg, &pgxpool.Pool{}, authSvc, testNoopLogger())
+	testutil.NoError(t, err)
+	t.Cleanup(authSvc.StopSessionRevocation)
+
+	testutil.Equal(t, 1, storeCalls)
+	testutil.Equal(t, 1, busCalls)
+	testutil.Equal(t, 1, store.loads)
+	testutil.Equal(t, 1, store.cleanups)
 }
 
 func TestBuildBillingService_StripeWithoutPoolFallsBackNoop(t *testing.T) {

@@ -156,6 +156,10 @@ test.describe("Smoke: Table Browser CRUD", () => {
     await waitForDashboard(page);
     await openTableFromSidebar(page, tableName);
 
+    await expect(page.getByText(`Existing Post ${runId}`)).toBeVisible({
+      timeout: 5000,
+    });
+
     // ============================================================
     // CREATE: Add new record via UI
     // ============================================================
@@ -236,14 +240,12 @@ test.describe("Smoke: Table Browser CRUD", () => {
     await expect(deleteButton).toBeVisible({ timeout: 5000 });
     await deleteButton.click();
 
-    // Check if confirmation modal appears (some UIs may delete immediately)
-    const confirmButton = page.getByRole("button", { name: /^(delete|confirm|yes)$/i }).last();
-    const isConfirmVisible = await confirmButton.isVisible({ timeout: 2000 }).catch(() => false);
-
-    if (isConfirmVisible) {
-      // Confirmation modal exists, click it
-      await confirmButton.click();
-    }
+    await expect(page.getByRole("heading", { name: "Delete record?" })).toBeVisible({
+      timeout: 5000,
+    });
+    await expect(page.getByText(`This will permanently delete the record from ${tableName}.`)).toBeVisible();
+    const confirmButton = page.getByText("Delete", { exact: true });
+    await confirmButton.click();
 
     // Verify record is gone from table
     await expect(page.getByText(`Fourth Post (Edited) ${runId}`)).not.toBeVisible({
@@ -288,22 +290,12 @@ test.describe("Smoke: Table Browser CRUD", () => {
     await expect(page.getByText(`Draft Post 1 ${runId}`)).toBeVisible();
     await expect(page.getByText(`Published Post 2 ${runId}`)).toBeVisible();
 
-    // Apply filter
-    const filterButton = page.getByRole("button", { name: /filter/i });
-    await expect(filterButton).toBeVisible({ timeout: 5000 });
-    await filterButton.click();
-
-    // Wait for filter input to appear
-    const filterInput = page.getByPlaceholder(/filter|expression/i).or(
-      page.getByLabel(/filter/i)
-    );
+    const filterInput = page.getByPlaceholder(/filter|expression/i);
     await expect(filterInput).toBeVisible({ timeout: 5000 });
 
-    // Enter filter expression
     await filterInput.fill("status='published'");
 
-    // Apply filter
-    const applyButton = page.getByRole("button", { name: /apply/i });
+    const applyButton = page.getByRole("button", { name: /^Apply$/i });
     await applyButton.click();
 
     // Assert: only published posts visible
@@ -311,17 +303,10 @@ test.describe("Smoke: Table Browser CRUD", () => {
     await expect(page.getByText(`Published Post 2 ${runId}`)).toBeVisible();
     await expect(page.getByText(`Draft Post 1 ${runId}`)).toBeHidden();
 
-    // Clear filter
-    const clearButton = page
-      .getByRole("button", { name: /clear|reset/i })
-      .or(page.getByLabel(/clear filter/i));
+    await filterInput.clear();
+    await applyButton.click();
 
-    if (await clearButton.isVisible({ timeout: 2000 })) {
-      await clearButton.click();
-
-      // Verify all records visible again
-      await expect(page.getByText(`Draft Post 1 ${runId}`)).toBeVisible({ timeout: 5000 });
-    }
+    await expect(page.getByText(`Draft Post 1 ${runId}`)).toBeVisible({ timeout: 5000 });
 
     // Cleanup handled by afterEach
   });

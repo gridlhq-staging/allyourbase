@@ -117,6 +117,14 @@ func buildTablesAndColumnsQuery() (string, []any) {
 		WHERE c.relkind IN ('r', 'v', 'm', 'p', 'f')
 		  AND a.attnum > 0
 		  AND NOT a.attisdropped
+		  AND NOT EXISTS (
+		    SELECT 1
+		    FROM pg_depend dep
+		    JOIN pg_extension ext ON ext.oid = dep.refobjid
+		    WHERE dep.classid = 'pg_class'::regclass
+		      AND dep.objid = c.oid
+		      AND dep.deptype = 'e'
+		  )
 		  AND %s%s
 		ORDER BY n.nspname, c.relname, a.attnum`, filter, extraFilter)
 	return query, args

@@ -3,8 +3,10 @@ package allyourbase
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"testing"
 	"time"
 )
@@ -148,4 +150,107 @@ func assertFacetCounts(t *testing.T, actual []FacetValueCount, expected map[stri
 	if len(remaining) > 0 {
 		t.Fatalf("missing facet buckets: %+v", remaining)
 	}
+}
+
+func TestE2EWebAuthnBeginLive(t *testing.T) {
+	baseURL := os.Getenv("AYB_TEST_URL")
+	if baseURL == "" {
+		t.Skip("AYB_TEST_URL not set")
+	}
+
+	c := NewClient(baseURL)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	email := fmt.Sprintf("probe-%d@example.com", time.Now().UnixNano())
+	resp, err := c.Auth.BeginWebAuthnLogin(ctx, email)
+	if err != nil {
+		t.Fatalf("BeginWebAuthnLogin: %v", err)
+	}
+	if resp.ChallengeID == "" {
+		t.Fatal("expected non-empty ChallengeID")
+	}
+	if resp.Options.Challenge == "" {
+		t.Fatal("expected non-empty Options.Challenge")
+	}
+	if resp.Options.RPID == "" {
+		t.Fatal("expected non-empty Options.RPID")
+	}
+	if resp.Options.AllowCredentials == nil {
+		t.Fatal("expected non-nil Options.AllowCredentials")
+	}
+}
+
+func TestE2ESynonymsRoundTripLive(t *testing.T) {
+	baseURL := os.Getenv("AYB_TEST_URL")
+	if baseURL == "" {
+		t.Skip("AYB_TEST_URL not set")
+	}
+	adminToken := os.Getenv("AYB_TEST_ADMIN_TOKEN")
+	if adminToken == "" {
+		t.Skip("AYB_TEST_ADMIN_TOKEN not set")
+	}
+	collection := os.Getenv("AYB_TEST_COLLECTION")
+	if collection == "" {
+		t.Skip("AYB_TEST_COLLECTION not set")
+	}
+
+	c := NewClient(baseURL)
+	c.SetTokens(adminToken, "")
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	baseline, err := c.Records.GetSynonyms(ctx, collection)
+	if err != nil {
+		t.Fatalf("GetSynonyms (baseline): %v", err)
+	}
+	t.Cleanup(func() {
+		restore := SearchSynonymsRequest{Groups: []SearchSynonymsGroup{}}
+		if baseline != nil && len(baseline.Groups) > 0 {
+			restore.Groups = make([]SearchSynonymsGroup, len(baseline.Groups))
+			copy(restore.Groups, baseline.Groups)
+		}
+		cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cleanupCancel()
+		_, _ = c.Records.SetSynonyms(cleanupCtx, collection, restore)
+	})
+
+	probeGroup := SearchSynonymsGroup{Terms: []string{"new york", "nyc"}}
+	setReq := SearchSynonymsRequest{Groups: []SearchSynonymsGroup{probeGroup}}
+	_, err = c.Records.SetSynonyms(ctx, collection, setReq)
+	if err != nil {
+		t.Fatalf("SetSynonyms: %v", err)
+	}
+
+	got, err := c.Records.GetSynonyms(ctx, collection)
+	if err != nil {
+		t.Fatalf("GetSynonyms (after set): %v", err)
+	}
+	assertSynonymGroupPresent(t, got.Groups, probeGroup.Terms)
+}
+
+func assertSynonymGroupPresent(t *testing.T, groups []SearchSynonymsGroup, wantTerms []string) {
+	t.Helper()
+	sorted := make([]string, len(wantTerms))
+	copy(sorted, wantTerms)
+	sort.Strings(sorted)
+
+	for _, g := range groups {
+		actual := make([]string, len(g.Terms))
+		copy(actual, g.Terms)
+		sort.Strings(actual)
+		if len(actual) == len(sorted) {
+			match := true
+			for i := range actual {
+				if actual[i] != sorted[i] {
+					match = false
+					break
+				}
+			}
+			if match {
+				return
+			}
+		}
+	}
+	t.Fatalf("expected synonym group containing %v, got groups %+v", wantTerms, groups)
 }

@@ -10,6 +10,7 @@ import (
 
 	"github.com/allyourbase/ayb/internal/edgefunc"
 	"github.com/allyourbase/ayb/internal/jobs"
+	"github.com/allyourbase/ayb/internal/pgnotify"
 	"github.com/allyourbase/ayb/internal/storage"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -43,10 +44,10 @@ func isNilStorageEventRegistrar(registrar storageEventRegistrar) bool {
 var newDBTriggerWorkerRunner = func(
 	eventStore edgefunc.DBTriggerEventStore,
 	dispatcher *edgefunc.DBTriggerDispatcher,
-	connString string,
+	bus *pgnotify.Bus,
 	logger *slog.Logger,
 ) dbTriggerWorkerRunner {
-	return edgefunc.NewDBTriggerWorker(eventStore, dispatcher, connString, logger)
+	return edgefunc.NewDBTriggerWorker(eventStore, dispatcher, bus, logger)
 }
 
 var newCronFallbackScheduler = func(dbPool *pgxpool.Pool) edgefunc.JobsScheduler {
@@ -102,10 +103,14 @@ func wireEdgeTriggerRuntime(
 		))
 	}
 
+	var notifyBus *pgnotify.Bus
+	if dbPool != nil && dbConnString != "" {
+		notifyBus = pgnotify.NewBus(dbPool, dbConnString, logger)
+	}
 	worker := newDBTriggerWorkerRunner(
 		edgefunc.NewDBTriggerEventPostgresStore(dbPool),
 		edgefunc.NewDBTriggerDispatcher(dbStore, invoker, edgefunc.WithDBDispatcherLogger(logger)),
-		dbConnString,
+		notifyBus,
 		logger,
 	)
 	go func() {

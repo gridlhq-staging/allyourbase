@@ -67,7 +67,7 @@ func wireServices(
 		schemaCache: schemaCache,
 		logger:      logger,
 	}
-	phase := &wireServicesPhaseState{state: &shutdownState{}}
+	phase := &wireServicesPhaseState{state: &shutdownState{authSvc: core.authSvc}}
 
 	if err := wireServerAndVaultBootstrap(args, phase); err != nil {
 		return nil, err

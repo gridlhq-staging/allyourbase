@@ -1,5 +1,19 @@
+import 'dart:convert';
+import 'dart:io';
+
 import 'package:allyourbase/allyourbase.dart';
 import 'package:test/test.dart';
+
+final _searchSynonymsRequestFixture = (jsonDecode(
+  File('../tests/contract/fixtures/sdk_contract/search_synonyms_request.json')
+      .readAsStringSync(),
+) as Map<Object?, Object?>)
+    .cast<String, Object?>();
+final _searchSynonymsResponseFixture = (jsonDecode(
+  File('../tests/contract/fixtures/sdk_contract/search_synonyms_response.json')
+      .readAsStringSync(),
+) as Map<Object?, Object?>)
+    .cast<String, Object?>();
 
 void main() {
   group('User', () {
@@ -43,6 +57,63 @@ void main() {
       expect(auth.refreshToken, 'rt_abc');
       expect(auth.user.id, 'usr_123');
       expect(auth.user.email, 'dev@example.com');
+    });
+  });
+
+  group('WebAuthnLoginFinishRequest', () {
+    test('toJson emits server snake_case wire keys', () {
+      const assertionResponse = <String, Object?>{
+        'id': 'credential-1',
+        'type': 'public-key',
+        'response': {
+          'clientDataJSON': 'client-data',
+          'authenticatorData': 'auth-data',
+          'signature': 'sig',
+        },
+      };
+
+      const request = WebAuthnLoginFinishRequest(
+        challengeId: 'webauthn_challenge_fixture',
+        assertionResponse: assertionResponse,
+      );
+
+      expect(request.toJson(), {
+        'challenge_id': 'webauthn_challenge_fixture',
+        'assertion_response': assertionResponse,
+      });
+    });
+  });
+
+  group('SearchSynonymsRequest', () {
+    test('toJson emits exact canonical groups envelope', () {
+      const request = SearchSynonymsRequest(groups: [
+        SearchSynonymGroup(terms: ['scifi', 'science fiction']),
+        SearchSynonymGroup(terms: ['nyc', 'new york']),
+      ]);
+
+      expect(request.toJson(), {
+        'groups': [
+          {
+            'terms': ['scifi', 'science fiction'],
+          },
+          {
+            'terms': ['nyc', 'new york'],
+          },
+        ],
+      });
+      expect(request.toJson(), _searchSynonymsRequestFixture);
+    });
+  });
+
+  group('SearchSynonymsResponse', () {
+    test('fromJson decodes normalized fixture groups', () {
+      final response =
+          SearchSynonymsResponse.fromJson(_searchSynonymsResponseFixture);
+
+      expect(response.groups, hasLength(2));
+      expect(response.groups[0].terms, ['new york', 'nyc']);
+      expect(response.groups[1].terms, ['science fiction', 'scifi']);
+      expect(response.toJson(), _searchSynonymsResponseFixture);
     });
   });
 

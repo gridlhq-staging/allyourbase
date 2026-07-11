@@ -389,6 +389,75 @@ void main() {
     });
   });
 
+  group('RecordsClient.synonyms', () {
+    test('getSynonyms sends GET to the encoded collection synonyms route',
+        () async {
+      final apiKeyClient =
+          AYBClient('https://api.example.com', httpClient: http);
+      apiKeyClient.setApiKey('admin-token');
+      http.enqueue(StubResponse.json(200, {
+        'groups': [
+          {
+            'terms': ['new york', 'nyc'],
+          },
+        ],
+      }));
+
+      final response =
+          await apiKeyClient.records.getSynonyms('posts/../../admin');
+
+      expect(http.requests, hasLength(1));
+      final req = http.requests.first;
+      expect(req.method, 'GET');
+      expect(
+        req.url.toString(),
+        'https://api.example.com/api/collections/posts%2F..%2F..%2Fadmin/synonyms/',
+      );
+      expect(req.headers['Authorization'], 'Bearer admin-token');
+      expect(response.groups.single.terms, ['new york', 'nyc']);
+    });
+
+    test('setSynonyms sends PUT with SearchSynonymsRequest JSON body',
+        () async {
+      final apiKeyClient =
+          AYBClient('https://api.example.com', httpClient: http);
+      apiKeyClient.setApiKey('admin-token');
+      const request = SearchSynonymsRequest(groups: [
+        SearchSynonymGroup(terms: ['scifi', 'science fiction']),
+        SearchSynonymGroup(terms: ['nyc', 'new york']),
+      ]);
+      http.enqueue(StubResponse.json(200, {
+        'groups': [
+          {
+            'terms': ['new york', 'nyc'],
+          },
+          {
+            'terms': ['science fiction', 'scifi'],
+          },
+        ],
+      }));
+
+      final response =
+          await apiKeyClient.records.setSynonyms('posts/../../admin', request);
+
+      expect(http.requests, hasLength(1));
+      final req = http.requests.first;
+      expect(req.method, 'PUT');
+      expect(
+        req.url.toString(),
+        'https://api.example.com/api/collections/posts%2F..%2F..%2Fadmin/synonyms/',
+      );
+      expect(req.headers['content-type'], 'application/json');
+      expect(req.headers['Authorization'], 'Bearer admin-token');
+      expect(req.body, jsonEncode(request.toJson()));
+      expect(req.decodeJsonBody(), request.toJson());
+      expect(response.groups.map((group) => group.terms).toList(), [
+        ['new york', 'nyc'],
+        ['science fiction', 'scifi'],
+      ]);
+    });
+  });
+
   group('ListParams', () {
     test('builds query map with all fields', () {
       final params = ListParams(

@@ -11,6 +11,7 @@ import (
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"strconv"
 	"strings"
@@ -23,7 +24,9 @@ import (
 	"github.com/allyourbase/ayb/internal/schema"
 	"github.com/allyourbase/ayb/internal/server"
 	"github.com/allyourbase/ayb/internal/storage"
+	"github.com/allyourbase/ayb/internal/tenant"
 	"github.com/allyourbase/ayb/internal/testutil"
+	"github.com/golang-jwt/jwt/v5"
 )
 
 func applyStorageTemplate(t *testing.T, baseURL, adminJWT, template, payload string) int {
@@ -140,10 +143,40 @@ func userToken(t *testing.T, authSvc *auth.Service, userID, email string) string
 	return token
 }
 
+func tenantContextJWT(t *testing.T, tenantID, subject string) string {
+	t.Helper()
+	now := time.Now().UTC()
+	claims := &auth.Claims{
+		RegisteredClaims: jwt.RegisteredClaims{
+			Subject:   subject,
+			IssuedAt:  jwt.NewNumericDate(now),
+			ExpiresAt: jwt.NewNumericDate(now.Add(time.Hour)),
+		},
+		Email:    subject + "@example.com",
+		TenantID: tenantID,
+	}
+	tok := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
+	signed, err := tok.SignedString([]byte("jwt-secret-test-at-least-32-chars!!"))
+	testutil.NoError(t, err)
+	return signed
+}
+
 func clearStorageData(t *testing.T) {
 	t.Helper()
 	_, err := sharedPG.Pool.Exec(context.Background(), "TRUNCATE _ayb_storage_uploads, _ayb_storage_objects, _ayb_storage_buckets")
 	testutil.NoError(t, err)
+}
+
+func assertStorageDownloadBody(t *testing.T, ctx context.Context, svc *storage.Service, bucket, name, want string) *storage.Object {
+	t.Helper()
+	rc, obj, err := svc.Download(ctx, bucket, name)
+	testutil.NoError(t, err)
+	defer rc.Close()
+
+	got, err := io.ReadAll(rc)
+	testutil.NoError(t, err)
+	testutil.Equal(t, want, string(got))
+	return obj
 }
 
 func TestStorageUploadAndServe(t *testing.T) {
@@ -240,24 +273,24 @@ func TestStorageList(t *testing.T) {
 }
 
 func TestStorageSignedURL(t *testing.T) {
-	ts := setupServer(t)
+	ts, _, _, tenantID := setupServerWithTenantAuthAndStorageAdmin(t)
 	defer ts.Close()
+	clearStorageData(t)
 
-	// Upload.
-	body := &bytes.Buffer{}
-	w := multipart.NewWriter(body)
-	fw, _ := w.CreateFormFile("file", "signed.txt")
-	fw.Write([]byte("signed content"))
-	w.Close()
-
-	resp, err := http.Post(ts.URL+"/api/storage/signbucket", w.FormDataContentType(), body)
+	adminJWT := adminToken(t, ts.URL)
+	resp, err := uploadFile(t, ts.URL, "signbucket", "signed.txt", "signed content", requestHeaders{token: adminJWT, tenantID: tenantID})
 	testutil.NoError(t, err)
 	testutil.StatusCode(t, http.StatusCreated, resp.StatusCode)
 	resp.Body.Close()
 
 	// Generate signed URL.
 	signBody := bytes.NewReader([]byte(`{"expiresIn": 3600}`))
-	resp, err = http.Post(ts.URL+"/api/storage/signbucket/signed.txt/sign", "application/json", signBody)
+	req, err := http.NewRequest(http.MethodPost, ts.URL+"/api/storage/signbucket/signed.txt/sign", signBody)
+	testutil.NoError(t, err)
+	req.Header.Set("Authorization", "Bearer "+adminJWT)
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Tenant-ID", tenantID)
+	resp, err = http.DefaultClient.Do(req)
 	testutil.NoError(t, err)
 	testutil.StatusCode(t, http.StatusOK, resp.StatusCode)
 
@@ -267,14 +300,144 @@ func TestStorageSignedURL(t *testing.T) {
 
 	signedURL := signResp["url"]
 	testutil.True(t, signedURL != "", "should have a URL")
+	parsedSignedURL, err := url.Parse(signedURL)
+	testutil.NoError(t, err)
+	testutil.Equal(t, tenantID, parsedSignedURL.Query().Get("tenant"))
 
-	// Fetch via signed URL.
+	// Fetch via signed URL without depending on a second tenant resolver.
 	resp, err = http.Get(ts.URL + signedURL)
 	testutil.NoError(t, err)
 	testutil.StatusCode(t, http.StatusOK, resp.StatusCode)
 	got, _ := io.ReadAll(resp.Body)
 	resp.Body.Close()
 	testutil.Equal(t, "signed content", string(got))
+}
+
+func TestStorageSignedURLTenantIsolation(t *testing.T) {
+	ts, storageSvc, _, tenantA := setupServerWithTenantAuthAndStorageAdmin(t)
+	defer ts.Close()
+	clearStorageData(t)
+
+	adminJWT := adminToken(t, ts.URL)
+	ctx := context.Background()
+	tenantSvc := tenant.NewService(sharedPG.Pool, testutil.DiscardLogger())
+	tenantB := createQuotaTestTenant(t, ctx, tenantSvc, "signed-url-isolation").ID
+	ctxA := tenant.ContextWithTenantID(ctx, tenantA)
+	ctxB := tenant.ContextWithTenantID(ctx, tenantB)
+
+	const (
+		bucket      = "signedshared"
+		objectName  = "same.txt"
+		bodyTenantA = "tenant-a-signed-body"
+		bodyTenantB = "tenant-b-signed-body"
+	)
+	_, err := storageSvc.CreateBucket(ctxA, bucket, false)
+	testutil.NoError(t, err)
+	_, err = storageSvc.CreateBucket(ctxB, bucket, false)
+	testutil.NoError(t, err)
+	_, err = storageSvc.Upload(ctxA, bucket, objectName, "text/plain", nil, strings.NewReader(bodyTenantA))
+	testutil.NoError(t, err)
+	_, err = storageSvc.Upload(ctxB, bucket, objectName, "text/plain", nil, strings.NewReader(bodyTenantB))
+	testutil.NoError(t, err)
+
+	signBody := bytes.NewReader([]byte(`{"expiresIn":3600}`))
+	req, err := http.NewRequest(http.MethodPost, ts.URL+"/api/storage/"+bucket+"/"+objectName+"/sign", signBody)
+	testutil.NoError(t, err)
+	req.Header.Set("Authorization", "Bearer "+adminJWT)
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Tenant-ID", tenantA)
+	resp, err := http.DefaultClient.Do(req)
+	testutil.NoError(t, err)
+	testutil.StatusCode(t, http.StatusOK, resp.StatusCode)
+	var signResp map[string]string
+	testutil.NoError(t, json.NewDecoder(resp.Body).Decode(&signResp))
+	resp.Body.Close()
+
+	signedURL := signResp["url"]
+	parsedSignedURL, err := url.Parse(signedURL)
+	testutil.NoError(t, err)
+	testutil.Equal(t, tenantA, parsedSignedURL.Query().Get("tenant"))
+
+	reqGet, err := http.NewRequest(http.MethodGet, ts.URL+signedURL, nil)
+	testutil.NoError(t, err)
+	reqGet.Header.Set("X-Tenant-ID", tenantB)
+	resp, err = http.DefaultClient.Do(reqGet)
+	testutil.NoError(t, err)
+	testutil.StatusCode(t, http.StatusOK, resp.StatusCode)
+	got, err := io.ReadAll(resp.Body)
+	testutil.NoError(t, err)
+	resp.Body.Close()
+	testutil.Equal(t, bodyTenantA, string(got))
+}
+
+func TestStoragePublicServeTenantIsolation(t *testing.T) {
+	ts, storageSvc, _, tenantA := setupServerWithTenantAuthAndStorageAdmin(t)
+	defer ts.Close()
+	clearStorageData(t)
+
+	ctx := context.Background()
+	tenantSvc := tenant.NewService(sharedPG.Pool, testutil.DiscardLogger())
+	tenantB := createQuotaTestTenant(t, ctx, tenantSvc, "public-serve-isolation").ID
+	ctxA := tenant.ContextWithTenantID(ctx, tenantA)
+	ctxB := tenant.ContextWithTenantID(ctx, tenantB)
+
+	const (
+		bucket      = "publicshared"
+		objectName  = "same.txt"
+		bodyTenantA = "tenant-a-public-body"
+		bodyTenantB = "tenant-b-public-body"
+	)
+	_, err := storageSvc.CreateBucket(ctxA, bucket, true)
+	testutil.NoError(t, err)
+	_, err = storageSvc.CreateBucket(ctxB, bucket, true)
+	testutil.NoError(t, err)
+	_, err = storageSvc.Upload(ctxA, bucket, objectName, "text/plain", nil, strings.NewReader(bodyTenantA))
+	testutil.NoError(t, err)
+	_, err = storageSvc.Upload(ctxB, bucket, objectName, "text/plain", nil, strings.NewReader(bodyTenantB))
+	testutil.NoError(t, err)
+
+	testCases := []struct {
+		name     string
+		tenantID string
+		token    string
+		wantBody string
+	}{
+		{name: "anonymous header tenant a", tenantID: tenantA, wantBody: bodyTenantA},
+		{name: "anonymous header tenant b", tenantID: tenantB, wantBody: bodyTenantB},
+		{
+			name:     "jwt tenant a",
+			token:    tenantContextJWT(t, tenantA, "public-serve-user-a"),
+			wantBody: bodyTenantA,
+		},
+		{
+			name:     "jwt tenant b",
+			token:    tenantContextJWT(t, tenantB, "public-serve-user-b"),
+			wantBody: bodyTenantB,
+		},
+	}
+
+	for _, tc := range testCases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			req, err := http.NewRequest(http.MethodGet, ts.URL+"/api/storage/"+bucket+"/"+objectName, nil)
+			testutil.NoError(t, err)
+			if tc.tenantID != "" {
+				req.Header.Set("X-Tenant-ID", tc.tenantID)
+			}
+			if tc.token != "" {
+				req.Header.Set("Authorization", "Bearer "+tc.token)
+			}
+
+			resp, err := http.DefaultClient.Do(req)
+			testutil.NoError(t, err)
+			defer resp.Body.Close()
+			testutil.StatusCode(t, http.StatusOK, resp.StatusCode)
+			testutil.Equal(t, "public, max-age=31536000, immutable", resp.Header.Get("Cache-Control"))
+			got, err := io.ReadAll(resp.Body)
+			testutil.NoError(t, err)
+			testutil.Equal(t, tc.wantBody, string(got))
+		})
+	}
 }
 
 func TestStorageBucketAPICreateUpdateDelete(t *testing.T) {
@@ -402,7 +565,7 @@ func TestStorageBucketACLAndCacheBehavior(t *testing.T) {
 	testutil.Equal(t, "private, no-cache", resp.Header.Get("Cache-Control"))
 	resp.Body.Close()
 
-	sign := storageSvc.SignURL(privateName, "private.txt", time.Hour)
+	sign := storageSvc.SignURL(context.Background(), privateName, "private.txt", time.Hour)
 	resp, err = http.Get(ts.URL + "/api/storage/" + privateName + "/private.txt?" + sign)
 	testutil.NoError(t, err)
 	testutil.StatusCode(t, http.StatusOK, resp.StatusCode)
@@ -457,6 +620,173 @@ func TestStorageBucketServiceLifecycle(t *testing.T) {
 	testutil.ErrorContains(t, err, "bucket not found")
 }
 
+func TestStorageTenantIsolationMetadata(t *testing.T) {
+	_, storageSvc, _, tenantA := setupServerWithTenantAuthAndStorageAdmin(t)
+	clearStorageData(t)
+
+	ctx := context.Background()
+	tenantSvc := tenant.NewService(sharedPG.Pool, testutil.DiscardLogger())
+	tenantB := createQuotaTestTenant(t, ctx, tenantSvc, "storage-isolation").ID
+	ctxA := tenant.ContextWithTenantID(ctx, tenantA)
+	ctxB := tenant.ContextWithTenantID(ctx, tenantB)
+
+	userA := "abababab-1111-1111-1111-111111111111"
+	userB := "abababab-2222-2222-2222-222222222222"
+	ensureStorageTestUser(t, userA, "tenant-a-storage@example.com")
+	ensureStorageTestUser(t, userB, "tenant-b-storage@example.com")
+
+	bucketA, err := storageSvc.CreateBucket(ctxA, "sharedbucket", false)
+	testutil.NoError(t, err)
+	bucketB, err := storageSvc.CreateBucket(ctxB, "sharedbucket", true)
+	testutil.NoError(t, err)
+	testutil.Equal(t, "sharedbucket", bucketA.Name)
+	testutil.Equal(t, "sharedbucket", bucketB.Name)
+	testutil.False(t, bucketA.Public)
+	testutil.True(t, bucketB.Public)
+
+	gotBucketA, err := storageSvc.GetBucket(ctxA, "sharedbucket")
+	testutil.NoError(t, err)
+	gotBucketB, err := storageSvc.GetBucket(ctxB, "sharedbucket")
+	testutil.NoError(t, err)
+	testutil.False(t, gotBucketA.Public)
+	testutil.True(t, gotBucketB.Public)
+
+	bucketsA, err := storageSvc.ListBuckets(ctxA)
+	testutil.NoError(t, err)
+	testutil.Equal(t, 1, len(bucketsA))
+	testutil.Equal(t, "sharedbucket", bucketsA[0].Name)
+	testutil.False(t, bucketsA[0].Public)
+	bucketsB, err := storageSvc.ListBuckets(ctxB)
+	testutil.NoError(t, err)
+	testutil.Equal(t, 1, len(bucketsB))
+	testutil.Equal(t, "sharedbucket", bucketsB[0].Name)
+	testutil.True(t, bucketsB[0].Public)
+
+	const (
+		directBodyA = "tenant-a-bytes"
+		directBodyB = "tenant-b-bytes"
+	)
+	_, err = storageSvc.Upload(ctxA, "sharedbucket", "same.txt", "text/plain", &userA, strings.NewReader(directBodyA))
+	testutil.NoError(t, err)
+	_, err = storageSvc.Upload(ctxB, "sharedbucket", "same.txt", "text/plain", &userB, strings.NewReader(directBodyB))
+	testutil.NoError(t, err)
+
+	objA, err := storageSvc.GetObject(ctxA, "sharedbucket", "same.txt")
+	testutil.NoError(t, err)
+	objB, err := storageSvc.GetObject(ctxB, "sharedbucket", "same.txt")
+	testutil.NoError(t, err)
+	testutil.Equal(t, userA, *objA.UserID)
+	testutil.Equal(t, userB, *objB.UserID)
+	testutil.Equal(t, int64(len(directBodyA)), objA.Size)
+	testutil.Equal(t, int64(len(directBodyB)), objB.Size)
+
+	downloadedA := assertStorageDownloadBody(t, ctxA, storageSvc, "sharedbucket", "same.txt", directBodyA)
+	downloadedB := assertStorageDownloadBody(t, ctxB, storageSvc, "sharedbucket", "same.txt", directBodyB)
+	testutil.Equal(t, userA, *downloadedA.UserID)
+	testutil.Equal(t, userB, *downloadedB.UserID)
+
+	listA, totalA, err := storageSvc.ListObjects(ctxA, "sharedbucket", "", 100, 0)
+	testutil.NoError(t, err)
+	testutil.Equal(t, 1, totalA)
+	testutil.Equal(t, 1, len(listA))
+	testutil.Equal(t, userA, *listA[0].UserID)
+	listB, totalB, err := storageSvc.ListObjects(ctxB, "sharedbucket", "", 100, 0)
+	testutil.NoError(t, err)
+	testutil.Equal(t, 1, totalB)
+	testutil.Equal(t, 1, len(listB))
+	testutil.Equal(t, userB, *listB[0].UserID)
+
+	err = storageSvc.DeleteObject(ctxA, "sharedbucket", "same.txt")
+	testutil.NoError(t, err)
+	_, err = storageSvc.GetObject(ctxA, "sharedbucket", "same.txt")
+	testutil.ErrorContains(t, err, "object not found")
+	objB, err = storageSvc.GetObject(ctxB, "sharedbucket", "same.txt")
+	testutil.NoError(t, err)
+	testutil.Equal(t, userB, *objB.UserID)
+	downloadedB = assertStorageDownloadBody(t, ctxB, storageSvc, "sharedbucket", "same.txt", directBodyB)
+	testutil.Equal(t, userB, *downloadedB.UserID)
+
+	err = storageSvc.DeleteBucket(ctxA, "sharedbucket", false)
+	testutil.NoError(t, err)
+	_, err = storageSvc.GetBucket(ctxA, "sharedbucket")
+	testutil.ErrorContains(t, err, "bucket not found")
+	gotBucketB, err = storageSvc.GetBucket(ctxB, "sharedbucket")
+	testutil.NoError(t, err)
+	testutil.True(t, gotBucketB.Public)
+}
+
+func TestStorageTenantIsolationResumableMetadata(t *testing.T) {
+	_, storageSvc, _, tenantA := setupServerWithTenantAuthAndStorageAdmin(t)
+	clearStorageData(t)
+
+	ctx := context.Background()
+	tenantSvc := tenant.NewService(sharedPG.Pool, testutil.DiscardLogger())
+	tenantB := createQuotaTestTenant(t, ctx, tenantSvc, "storage-resumable-isolation").ID
+	ctxA := tenant.ContextWithTenantID(ctx, tenantA)
+	ctxB := tenant.ContextWithTenantID(ctx, tenantB)
+
+	userA := "cdcdcdcd-1111-1111-1111-111111111111"
+	userB := "cdcdcdcd-2222-2222-2222-222222222222"
+	ensureStorageTestUser(t, userA, "tenant-a-resumable@example.com")
+	ensureStorageTestUser(t, userB, "tenant-b-resumable@example.com")
+
+	_, err := storageSvc.CreateBucket(ctxA, "sharedbucket", false)
+	testutil.NoError(t, err)
+	_, err = storageSvc.CreateBucket(ctxB, "sharedbucket", true)
+	testutil.NoError(t, err)
+
+	const (
+		bodyA = "tenant-a-resumable"
+		bodyB = "tenant-b-resumable-content"
+	)
+	uploadA, err := storageSvc.CreateResumableUpload(ctxA, "sharedbucket", "same.txt", "text/plain", &userA, int64(len(bodyA)))
+	testutil.NoError(t, err)
+	uploadB, err := storageSvc.CreateResumableUpload(ctxB, "sharedbucket", "same.txt", "text/plain", &userB, int64(len(bodyB)))
+	testutil.NoError(t, err)
+
+	_, err = storageSvc.GetResumableUpload(ctxB, uploadA.ID, nil)
+	testutil.ErrorContains(t, err, "resumable upload not found")
+
+	_, shouldFinalize, err := storageSvc.AppendResumableUpload(ctxA, uploadA.ID, 0, &userA, strings.NewReader(bodyA))
+	testutil.NoError(t, err)
+	testutil.True(t, shouldFinalize)
+	_, shouldFinalize, err = storageSvc.AppendResumableUpload(ctxB, uploadB.ID, 0, &userB, strings.NewReader(bodyB))
+	testutil.NoError(t, err)
+	testutil.True(t, shouldFinalize)
+
+	objA, err := storageSvc.FinalizeResumableUpload(ctxA, uploadA.ID, &userA)
+	testutil.NoError(t, err)
+	objB, err := storageSvc.FinalizeResumableUpload(ctxB, uploadB.ID, &userB)
+	testutil.NoError(t, err)
+	testutil.Equal(t, userA, *objA.UserID)
+	testutil.Equal(t, userB, *objB.UserID)
+	testutil.Equal(t, int64(len(bodyA)), objA.Size)
+	testutil.Equal(t, int64(len(bodyB)), objB.Size)
+
+	gotA, err := storageSvc.GetObject(ctxA, "sharedbucket", "same.txt")
+	testutil.NoError(t, err)
+	gotB, err := storageSvc.GetObject(ctxB, "sharedbucket", "same.txt")
+	testutil.NoError(t, err)
+	testutil.Equal(t, userA, *gotA.UserID)
+	testutil.Equal(t, userB, *gotB.UserID)
+
+	downloadedA := assertStorageDownloadBody(t, ctxA, storageSvc, "sharedbucket", "same.txt", bodyA)
+	downloadedB := assertStorageDownloadBody(t, ctxB, storageSvc, "sharedbucket", "same.txt", bodyB)
+	testutil.Equal(t, userA, *downloadedA.UserID)
+	testutil.Equal(t, userB, *downloadedB.UserID)
+
+	listA, totalA, err := storageSvc.ListObjects(ctxA, "sharedbucket", "", 100, 0)
+	testutil.NoError(t, err)
+	testutil.Equal(t, 1, totalA)
+	testutil.Equal(t, 1, len(listA))
+	testutil.Equal(t, userA, *listA[0].UserID)
+	listB, totalB, err := storageSvc.ListObjects(ctxB, "sharedbucket", "", 100, 0)
+	testutil.NoError(t, err)
+	testutil.Equal(t, 1, totalB)
+	testutil.Equal(t, 1, len(listB))
+	testutil.Equal(t, userB, *listB[0].UserID)
+}
+
 func TestStorageRLSUserIsolationAdminBypassAndPolicyUpdate(t *testing.T) {
 	ts, storageSvc, authSvc, tenantID := setupServerWithTenantAuthAndStorageAdmin(t)
 	defer ts.Close()
@@ -485,6 +815,7 @@ func TestStorageRLSUserIsolationAdminBypassAndPolicyUpdate(t *testing.T) {
 	reqA, err := http.NewRequest(http.MethodGet, ts.URL+"/api/storage/"+bucket, nil)
 	testutil.NoError(t, err)
 	reqA.Header.Set("Authorization", "Bearer "+userA)
+	reqA.Header.Set("X-Tenant-ID", tenantID)
 	respA, err := http.DefaultClient.Do(reqA)
 	testutil.NoError(t, err)
 	testutil.StatusCode(t, http.StatusOK, respA.StatusCode)
@@ -499,6 +830,7 @@ func TestStorageRLSUserIsolationAdminBypassAndPolicyUpdate(t *testing.T) {
 	reqUserBReadA, err := http.NewRequest(http.MethodGet, ts.URL+"/api/storage/"+bucket+"/a.txt", nil)
 	testutil.NoError(t, err)
 	reqUserBReadA.Header.Set("Authorization", "Bearer "+userB)
+	reqUserBReadA.Header.Set("X-Tenant-ID", tenantID)
 	respUserBReadA, err := http.DefaultClient.Do(reqUserBReadA)
 	testutil.NoError(t, err)
 	testutil.StatusCode(t, http.StatusNotFound, respUserBReadA.StatusCode)
@@ -515,6 +847,7 @@ func TestStorageRLSUserIsolationAdminBypassAndPolicyUpdate(t *testing.T) {
 	reqAdminReadA, err := http.NewRequest(http.MethodGet, ts.URL+"/api/storage/"+bucket+"/a.txt", nil)
 	testutil.NoError(t, err)
 	reqAdminReadA.Header.Set("Authorization", "Bearer "+adminJWT)
+	reqAdminReadA.Header.Set("X-Tenant-ID", tenantID)
 	respAdminReadA, err := http.DefaultClient.Do(reqAdminReadA)
 	testutil.NoError(t, err)
 	testutil.StatusCode(t, http.StatusOK, respAdminReadA.StatusCode)
@@ -525,6 +858,7 @@ func TestStorageRLSUserIsolationAdminBypassAndPolicyUpdate(t *testing.T) {
 	reqSignA, err := http.NewRequest(http.MethodPost, ts.URL+"/api/storage/"+bucket+"/a.txt/sign", signBodyA)
 	testutil.NoError(t, err)
 	reqSignA.Header.Set("Authorization", "Bearer "+userA)
+	reqSignA.Header.Set("X-Tenant-ID", tenantID)
 	reqSignA.Header.Set("Content-Type", "application/json")
 	respSignA, err := http.DefaultClient.Do(reqSignA)
 	testutil.NoError(t, err)
@@ -539,6 +873,7 @@ func TestStorageRLSUserIsolationAdminBypassAndPolicyUpdate(t *testing.T) {
 	// so the signed URL bypasses RLS and serves the file.
 	reqSignedGet, err := http.NewRequest(http.MethodGet, ts.URL+signedURL, nil)
 	testutil.NoError(t, err)
+	reqSignedGet.Header.Set("X-Tenant-ID", tenantID)
 	respSignedGet, err := http.DefaultClient.Do(reqSignedGet)
 	testutil.NoError(t, err)
 	testutil.StatusCode(t, http.StatusOK, respSignedGet.StatusCode)
@@ -552,6 +887,7 @@ func TestStorageRLSUserIsolationAdminBypassAndPolicyUpdate(t *testing.T) {
 	reqSignB, err := http.NewRequest(http.MethodPost, ts.URL+"/api/storage/"+bucket+"/a.txt/sign", signBodyB)
 	testutil.NoError(t, err)
 	reqSignB.Header.Set("Authorization", "Bearer "+userB)
+	reqSignB.Header.Set("X-Tenant-ID", tenantID)
 	reqSignB.Header.Set("Content-Type", "application/json")
 	respSignB, err := http.DefaultClient.Do(reqSignB)
 	testutil.NoError(t, err)
@@ -564,6 +900,7 @@ func TestStorageRLSUserIsolationAdminBypassAndPolicyUpdate(t *testing.T) {
 	reqUserBReadA2, err := http.NewRequest(http.MethodGet, ts.URL+"/api/storage/"+bucket+"/a.txt", nil)
 	testutil.NoError(t, err)
 	reqUserBReadA2.Header.Set("Authorization", "Bearer "+userB)
+	reqUserBReadA2.Header.Set("X-Tenant-ID", tenantID)
 	respUserBReadA2, err := http.DefaultClient.Do(reqUserBReadA2)
 	testutil.NoError(t, err)
 	testutil.StatusCode(t, http.StatusOK, respUserBReadA2.StatusCode)
@@ -593,7 +930,10 @@ func TestStorageResumableUploadCreateResumeComplete(t *testing.T) {
 	_, id := createResumableSessionWithHeaders(t, ts.URL, bucket, "hello.txt", 12, requestHeaders{token: userJWT, tenantID: tenantID})
 
 	var bytesUsed int64
-	err = sharedPG.Pool.QueryRow(ctx, `SELECT bytes_used FROM _ayb_storage_usage WHERE user_id = $1`, userID).Scan(&bytesUsed)
+	err = sharedPG.Pool.QueryRow(ctx,
+		`SELECT bytes_used FROM _ayb_storage_usage WHERE tenant_id = $1 AND user_id = $2`,
+		tenantID, userID,
+	).Scan(&bytesUsed)
 	testutil.NoError(t, err)
 	testutil.Equal(t, int64(12), bytesUsed)
 
@@ -612,6 +952,7 @@ func TestStorageResumableUploadCreateResumeComplete(t *testing.T) {
 	getReq, err := http.NewRequest(http.MethodGet, ts.URL+"/api/storage/"+bucket+"/hello.txt", nil)
 	testutil.NoError(t, err)
 	getReq.Header.Set("Authorization", "Bearer "+userJWT)
+	getReq.Header.Set("X-Tenant-ID", tenantID)
 	getResp, err := http.DefaultClient.Do(getReq)
 	testutil.NoError(t, err)
 	testutil.StatusCode(t, http.StatusOK, getResp.StatusCode)
@@ -620,7 +961,10 @@ func TestStorageResumableUploadCreateResumeComplete(t *testing.T) {
 	getResp.Body.Close()
 	testutil.Equal(t, "hello world!", string(body))
 
-	err = sharedPG.Pool.QueryRow(ctx, `SELECT bytes_used FROM _ayb_storage_usage WHERE user_id = $1`, userID).Scan(&bytesUsed)
+	err = sharedPG.Pool.QueryRow(ctx,
+		`SELECT bytes_used FROM _ayb_storage_usage WHERE tenant_id = $1 AND user_id = $2`,
+		tenantID, userID,
+	).Scan(&bytesUsed)
 	testutil.NoError(t, err)
 	testutil.Equal(t, int64(12), bytesUsed)
 }
@@ -693,6 +1037,7 @@ func TestStorageResumableUploadInterruptedResume(t *testing.T) {
 	getReq, err := http.NewRequest(http.MethodGet, ts.URL+"/api/storage/"+bucket+"/resume.txt", nil)
 	testutil.NoError(t, err)
 	getReq.Header.Set("Authorization", "Bearer "+userJWT)
+	getReq.Header.Set("X-Tenant-ID", tenantID)
 	getResp, err := http.DefaultClient.Do(getReq)
 	testutil.NoError(t, err)
 	testutil.StatusCode(t, http.StatusOK, getResp.StatusCode)
@@ -759,15 +1104,21 @@ func TestStorageResumableUploadExpiration(t *testing.T) {
 	_, expiredID := createResumableSessionWithHeaders(t, ts.URL, bucket, "expire.txt", expiredSize, requestHeaders{token: userJWT, tenantID: tenantID})
 	_, activeID := createResumableSessionWithHeaders(t, ts.URL, bucket, "keep.txt", activeSize, requestHeaders{token: userJWT, tenantID: tenantID})
 
-	var expiredPath string
-	err = sharedPG.Pool.QueryRow(context.Background(), `SELECT path FROM _ayb_storage_uploads WHERE id = $1`, expiredID).Scan(&expiredPath)
-	testutil.NoError(t, err)
-	var activePath string
-	err = sharedPG.Pool.QueryRow(context.Background(), `SELECT path FROM _ayb_storage_uploads WHERE id = $1`, activeID).Scan(&activePath)
-	testutil.NoError(t, err)
+	// Stage real backend bytes for each session so cleanup exercises staging-blob
+	// removal for the expired upload while the active upload's staged bytes must
+	// survive. Partial chunks keep both sessions in the active (resumable) state.
+	expiredPartial := patchResumableChunkWithHeaders(t, ts.URL, expiredID, 0, []byte("ab"), requestHeaders{token: userJWT, tenantID: tenantID})
+	testutil.StatusCode(t, http.StatusNoContent, expiredPartial.StatusCode)
+	expiredPartial.Body.Close()
+	activePartial := patchResumableChunkWithHeaders(t, ts.URL, activeID, 0, []byte("abc"), requestHeaders{token: userJWT, tenantID: tenantID})
+	testutil.StatusCode(t, http.StatusNoContent, activePartial.StatusCode)
+	activePartial.Body.Close()
 
 	var reservedBytes int64
-	err = sharedPG.Pool.QueryRow(context.Background(), `SELECT bytes_used FROM _ayb_storage_usage WHERE user_id = $1`, userID).Scan(&reservedBytes)
+	err = sharedPG.Pool.QueryRow(context.Background(),
+		`SELECT bytes_used FROM _ayb_storage_usage WHERE tenant_id = $1 AND user_id = $2`,
+		tenantID, userID,
+	).Scan(&reservedBytes)
 	testutil.NoError(t, err)
 	testutil.Equal(t, expiredSize+activeSize, reservedBytes)
 
@@ -802,7 +1153,10 @@ func TestStorageResumableUploadExpiration(t *testing.T) {
 	testutil.Equal(t, 0, remainingExpired)
 
 	var bytesUsed int64
-	err = sharedPG.Pool.QueryRow(context.Background(), `SELECT bytes_used FROM _ayb_storage_usage WHERE user_id = $1`, userID).Scan(&bytesUsed)
+	err = sharedPG.Pool.QueryRow(context.Background(),
+		`SELECT bytes_used FROM _ayb_storage_usage WHERE tenant_id = $1 AND user_id = $2`,
+		tenantID, userID,
+	).Scan(&bytesUsed)
 	testutil.NoError(t, err)
 	testutil.Equal(t, activeSize, bytesUsed)
 
@@ -810,10 +1164,24 @@ func TestStorageResumableUploadExpiration(t *testing.T) {
 	testutil.StatusCode(t, http.StatusOK, activeHead.StatusCode)
 	activeHead.Body.Close()
 
-	_, err = os.Stat(expiredPath)
-	testutil.True(t, os.IsNotExist(err))
-	_, err = os.Stat(activePath)
+	// The active upload's staged bytes must have survived cleanup: resuming with
+	// the remaining bytes finalizes to the exact content.
+	activeResume := patchResumableChunkWithHeaders(t, ts.URL, activeID, 3, []byte("def"), requestHeaders{token: userJWT, tenantID: tenantID})
+	testutil.StatusCode(t, http.StatusNoContent, activeResume.StatusCode)
+	testutil.Equal(t, "6", activeResume.Header.Get("Upload-Offset"))
+	activeResume.Body.Close()
+
+	getReq, err := http.NewRequest(http.MethodGet, ts.URL+"/api/storage/"+bucket+"/keep.txt", nil)
 	testutil.NoError(t, err)
+	getReq.Header.Set("Authorization", "Bearer "+userJWT)
+	getReq.Header.Set("X-Tenant-ID", tenantID)
+	getResp, err := http.DefaultClient.Do(getReq)
+	testutil.NoError(t, err)
+	testutil.StatusCode(t, http.StatusOK, getResp.StatusCode)
+	body, err := io.ReadAll(getResp.Body)
+	testutil.NoError(t, err)
+	getResp.Body.Close()
+	testutil.Equal(t, "abcdef", string(body))
 }
 
 func TestStorageResumableUploadExpirationOwnerlessNoQuotaMutation(t *testing.T) {
@@ -826,9 +1194,9 @@ func TestStorageResumableUploadExpirationOwnerlessNoQuotaMutation(t *testing.T) 
 	userID := "abababab-abab-abab-abab-abababababab"
 	ensureStorageTestUser(t, userID, "resumable-ownerless@example.com")
 	_, err = sharedPG.Pool.Exec(context.Background(),
-		`INSERT INTO _ayb_storage_usage (user_id, bytes_used, updated_at)
-		 VALUES ($1, $2, NOW())`,
-		userID, int64(99))
+		`INSERT INTO _ayb_storage_usage (tenant_id, user_id, bytes_used, updated_at)
+		 VALUES ($1, $2, $3, NOW())`,
+		tenantID, userID, int64(99))
 	testutil.NoError(t, err)
 
 	adminJWT := adminToken(t, ts.URL)
@@ -838,11 +1206,16 @@ func TestStorageResumableUploadExpirationOwnerlessNoQuotaMutation(t *testing.T) 
 
 	_, uploadID := createResumableSessionWithHeaders(t, ts.URL, bucket, "ownerless.txt", 7, requestHeaders{token: adminJWT, tenantID: tenantID})
 
-	var uploadPath string
 	var uploadUserID *string
-	err = sharedPG.Pool.QueryRow(context.Background(), `SELECT path, user_id FROM _ayb_storage_uploads WHERE id = $1`, uploadID).Scan(&uploadPath, &uploadUserID)
+	err = sharedPG.Pool.QueryRow(context.Background(), `SELECT user_id FROM _ayb_storage_uploads WHERE id = $1`, uploadID).Scan(&uploadUserID)
 	testutil.NoError(t, err)
 	testutil.True(t, uploadUserID == nil, "expected ownerless upload")
+
+	// Stage real backend bytes (admin owns the ownerless session) so cleanup
+	// exercises staging-blob removal, not just the DB row delete.
+	partial := patchResumableChunkWithHeaders(t, ts.URL, uploadID, 0, []byte("abc"), requestHeaders{token: adminJWT, tenantID: tenantID})
+	testutil.StatusCode(t, http.StatusNoContent, partial.StatusCode)
+	partial.Body.Close()
 
 	_, err = sharedPG.Pool.Exec(context.Background(),
 		`UPDATE _ayb_storage_uploads SET expires_at = NOW() - interval '1 hour' WHERE id = $1`, uploadID)
@@ -858,12 +1231,17 @@ func TestStorageResumableUploadExpirationOwnerlessNoQuotaMutation(t *testing.T) 
 	testutil.Equal(t, 0, remainingUpload)
 
 	var bytesUsed int64
-	err = sharedPG.Pool.QueryRow(context.Background(), `SELECT bytes_used FROM _ayb_storage_usage WHERE user_id = $1`, userID).Scan(&bytesUsed)
+	err = sharedPG.Pool.QueryRow(context.Background(),
+		`SELECT bytes_used FROM _ayb_storage_usage WHERE tenant_id = $1 AND user_id = $2`,
+		tenantID, userID,
+	).Scan(&bytesUsed)
 	testutil.NoError(t, err)
 	testutil.Equal(t, int64(99), bytesUsed)
 
-	_, err = os.Stat(uploadPath)
-	testutil.True(t, os.IsNotExist(err))
+	// The session (and its staged blob) is fully removed: resuming it is a 404.
+	head := headResumableSessionWithHeaders(t, ts.URL, uploadID, requestHeaders{token: adminJWT, tenantID: tenantID})
+	testutil.StatusCode(t, http.StatusNotFound, head.StatusCode)
+	head.Body.Close()
 }
 
 func TestStorageResumableUploadConcurrentIDs(t *testing.T) {

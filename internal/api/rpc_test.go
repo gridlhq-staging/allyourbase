@@ -16,6 +16,7 @@ import (
 	"github.com/allyourbase/ayb/internal/schema"
 	"github.com/allyourbase/ayb/internal/tenant"
 	"github.com/allyourbase/ayb/internal/testutil"
+	"github.com/go-chi/chi/v5"
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
@@ -75,6 +76,17 @@ func rpcRequest(handler http.Handler, funcName string, body string) *httptest.Re
 	return w
 }
 
+func requestWithRPCFunctionParam(funcName, activeSchema string) *http.Request {
+	req := httptest.NewRequest(http.MethodPost, "/rpc/"+funcName, nil)
+	rctx := chi.NewRouteContext()
+	rctx.URLParams.Add("function", funcName)
+	ctx := context.WithValue(req.Context(), chi.RouteCtxKey, rctx)
+	if activeSchema != "" {
+		ctx = tenant.ContextWithActiveSchema(ctx, activeSchema)
+	}
+	return req.WithContext(ctx)
+}
+
 // --- Schema not ready ---
 
 func TestRPCSchemaCacheNotReady(t *testing.T) {
@@ -95,6 +107,57 @@ func TestRPCFunctionNotFound(t *testing.T) {
 	testutil.Equal(t, http.StatusNotFound, w.Code)
 	resp := decodeError(t, w)
 	testutil.Contains(t, resp.Message, "function not found")
+}
+
+func TestResolveFunctionUsesActiveTenantSchema(t *testing.T) {
+	t.Parallel()
+
+	sc := testSchemaWithFunctions()
+	sc.Functions["tenant_a.add_numbers"] = &schema.Function{
+		Schema:     "tenant_a",
+		Name:       "add_numbers",
+		ReturnType: "integer",
+		Parameters: []*schema.FuncParam{
+			{Name: "a", Type: "integer", Position: 1},
+			{Name: "b", Type: "integer", Position: 2},
+		},
+	}
+	h := NewHandler(nil, testCacheHolder(sc), slog.Default(), nil, nil, nil)
+
+	fn := h.resolveFunction(httptest.NewRecorder(), requestWithRPCFunctionParam("add_numbers", "tenant_a"))
+
+	testutil.NotNil(t, fn)
+	testutil.Equal(t, "tenant_a", fn.Schema)
+	testutil.Equal(t, "add_numbers", fn.Name)
+}
+
+func TestResolveFunctionFallsBackToPublicForActiveTenantSchema(t *testing.T) {
+	t.Parallel()
+
+	h := NewHandler(nil, testCacheHolder(testSchemaWithFunctions()), slog.Default(), nil, nil, nil)
+
+	fn := h.resolveFunction(httptest.NewRecorder(), requestWithRPCFunctionParam("cleanup_old_data", "tenant_a"))
+
+	testutil.NotNil(t, fn)
+	testutil.Equal(t, "public", fn.Schema)
+	testutil.Equal(t, "cleanup_old_data", fn.Name)
+}
+
+func TestResolveFunctionPreservesPublicModeNonPublicFallback(t *testing.T) {
+	t.Parallel()
+
+	sc := &schema.SchemaCache{
+		Functions: map[string]*schema.Function{
+			"selfhost.refresh_stats": {Schema: "selfhost", Name: "refresh_stats", ReturnType: "void", IsVoid: true},
+		},
+	}
+	h := NewHandler(nil, testCacheHolder(sc), slog.Default(), nil, nil, nil)
+
+	fn := h.resolveFunction(httptest.NewRecorder(), requestWithRPCFunctionParam("refresh_stats", "public"))
+
+	testutil.NotNil(t, fn)
+	testutil.Equal(t, "selfhost", fn.Schema)
+	testutil.Equal(t, "refresh_stats", fn.Name)
 }
 
 // --- Invalid body ---
@@ -653,6 +716,40 @@ func (h *rpcRequestPathHarness) doRPCWithClaims(function, body string, headers m
 	return w
 }
 
+// doRPCWithTenant issues an RPC request whose context carries a resolved tenant
+// ID, mirroring how the tenant middleware tags requests in production.
+func (h *rpcRequestPathHarness) doRPCWithTenant(function, body string, headers map[string]string, tenantID string) *httptest.ResponseRecorder {
+	var req *http.Request
+	if body != "" {
+		req = httptest.NewRequest(http.MethodPost, "/rpc/"+function, strings.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+	} else {
+		req = httptest.NewRequest(http.MethodPost, "/rpc/"+function, nil)
+	}
+	for k, v := range headers {
+		req.Header.Set(k, v)
+	}
+	ctx := tenant.ContextWithRequestConn(req.Context(), h.conn)
+	ctx = tenant.ContextWithTenantID(ctx, tenantID)
+	req = req.WithContext(ctx)
+	w := httptest.NewRecorder()
+	h.router.ServeHTTP(w, req)
+	return w
+}
+
+// assertPublishedTenant asserts every published hub and dispatcher event carries
+// the expected tenant tag.
+func (h *rpcRequestPathHarness) assertPublishedTenant(t *testing.T, tenantID string) {
+	t.Helper()
+	testutil.True(t, len(h.hub.events) > 0, "expected at least one published event")
+	for _, event := range h.hub.events {
+		testutil.Equal(t, tenantID, event.TenantID)
+	}
+	for _, event := range h.dispatcher.events {
+		testutil.Equal(t, tenantID, event.TenantID)
+	}
+}
+
 func (h *rpcRequestPathHarness) assertNoPublish(t *testing.T) {
 	t.Helper()
 	testutil.Equal(t, 0, len(h.hub.events))
@@ -878,6 +975,38 @@ func TestRPCHandleRejectsNotifyHeadersBeforeExecution(t *testing.T) {
 			{"id": "u1", "email": "ada@example.com"},
 			{"id": "u2", "email": "grace@example.com"},
 		})
+	})
+}
+
+// TestRPCHandlePublishesTenantTaggedNotifyEvents proves the RPC notify publish
+// path tags events with the request tenant, and that an untagged (no-tenant)
+// request produces an empty-tenant (wildcard) event.
+func TestRPCHandlePublishesTenantTaggedNotifyEvents(t *testing.T) {
+	t.Parallel()
+
+	headers := map[string]string{
+		"X-Notify-Table":  "users",
+		"X-Notify-Action": "update",
+	}
+
+	t.Run("tenant_context_tags_published_events", func(t *testing.T) {
+		t.Parallel()
+		h := newRPCRequestPathHarness()
+		w := h.doRPCWithTenant("get_active_users", `{"min_age": 18}`, headers, "tenant-x")
+		testutil.Equal(t, http.StatusOK, w.Code)
+		h.assertPublishedEvents(t, "update", "users", []map[string]any{
+			{"id": "u1", "email": "ada@example.com"},
+			{"id": "u2", "email": "grace@example.com"},
+		})
+		h.assertPublishedTenant(t, "tenant-x")
+	})
+
+	t.Run("no_tenant_context_yields_empty_wildcard_tenant", func(t *testing.T) {
+		t.Parallel()
+		h := newRPCRequestPathHarness()
+		w := h.doRPC("get_profile", "", headers)
+		testutil.Equal(t, http.StatusOK, w.Code)
+		h.assertPublishedTenant(t, "")
 	})
 }
 

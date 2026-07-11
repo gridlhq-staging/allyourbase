@@ -42,6 +42,53 @@ func TestFunctionByName(t *testing.T) {
 	})
 }
 
+func TestFunctionByNameInSchema(t *testing.T) {
+	t.Parallel()
+
+	sc := &SchemaCache{
+		Functions: map[string]*Function{
+			"public.tenant_items_count": {Schema: "public", Name: "tenant_items_count", ReturnType: "integer"},
+			"globex.tenant_items_count": {Schema: "globex", Name: "tenant_items_count", ReturnType: "integer"},
+			"initech.tenant_items_count": {
+				Schema:     "initech",
+				Name:       "tenant_items_count",
+				ReturnType: "integer",
+			},
+			"public.default_limit": {Schema: "public", Name: "default_limit", ReturnType: "integer"},
+			"custom.legacy_limit":  {Schema: "custom", Name: "legacy_limit", ReturnType: "integer"},
+		},
+	}
+
+	for i := 0; i < 64; i++ {
+		fn := sc.FunctionByNameInSchema("globex", "tenant_items_count")
+		testutil.NotNil(t, fn)
+		testutil.Equal(t, "globex", fn.Schema)
+		testutil.Equal(t, "tenant_items_count", fn.Name)
+	}
+	for i := 0; i < 64; i++ {
+		fn := sc.FunctionByNameInSchema("initech", "tenant_items_count")
+		testutil.NotNil(t, fn)
+		testutil.Equal(t, "initech", fn.Schema)
+		testutil.Equal(t, "tenant_items_count", fn.Name)
+	}
+	fallback := sc.FunctionByNameInSchema("globex", "default_limit")
+	testutil.NotNil(t, fallback)
+	testutil.Equal(t, "public", fallback.Schema)
+	testutil.Equal(t, "default_limit", fallback.Name)
+
+	publicDefault := sc.FunctionByNameInSchema("", "tenant_items_count")
+	testutil.NotNil(t, publicDefault)
+	testutil.Equal(t, "public", publicDefault.Schema)
+	testutil.Equal(t, "tenant_items_count", publicDefault.Name)
+
+	legacyFallback := sc.FunctionByNameInSchema("public", "legacy_limit")
+	testutil.NotNil(t, legacyFallback)
+	testutil.Equal(t, "custom", legacyFallback.Schema)
+	testutil.Equal(t, "legacy_limit", legacyFallback.Name)
+
+	testutil.Nil(t, sc.FunctionByNameInSchema("globex", "missing_function"))
+}
+
 func TestFunction_ParamByName(t *testing.T) {
 	t.Parallel()
 
@@ -196,6 +243,64 @@ func TestTableByName_NonPublicFallback(t *testing.T) {
 
 	// Not found at all.
 	testutil.Nil(t, sc.TableByName("nonexistent"))
+}
+
+func TestTableByNameLegacyFindsNonPublicWhenPublicMissing(t *testing.T) {
+	t.Parallel()
+
+	sc := &SchemaCache{
+		Tables: map[string]*Table{
+			"app.settings": {Schema: "app", Name: "settings"},
+		},
+	}
+
+	tbl := sc.TableByName("settings")
+	testutil.NotNil(t, tbl)
+	testutil.Equal(t, "app", tbl.Schema)
+	testutil.Equal(t, "settings", tbl.Name)
+}
+
+func TestTableByNameInSchema(t *testing.T) {
+	t.Parallel()
+
+	sc := &SchemaCache{
+		Tables: map[string]*Table{
+			"public.items":    {Schema: "public", Name: "items"},
+			"globex.items":    {Schema: "globex", Name: "items"},
+			"initech.items":   {Schema: "initech", Name: "items"},
+			"public.audit":    {Schema: "public", Name: "audit"},
+			"custom.settings": {Schema: "custom", Name: "settings"},
+		},
+	}
+
+	for i := 0; i < 64; i++ {
+		tbl := sc.TableByNameInSchema("globex", "items")
+		testutil.NotNil(t, tbl)
+		testutil.Equal(t, "globex", tbl.Schema)
+		testutil.Equal(t, "items", tbl.Name)
+	}
+	for i := 0; i < 64; i++ {
+		tbl := sc.TableByNameInSchema("initech", "items")
+		testutil.NotNil(t, tbl)
+		testutil.Equal(t, "initech", tbl.Schema)
+		testutil.Equal(t, "items", tbl.Name)
+	}
+	fallback := sc.TableByNameInSchema("globex", "audit")
+	testutil.NotNil(t, fallback)
+	testutil.Equal(t, "public", fallback.Schema)
+	testutil.Equal(t, "audit", fallback.Name)
+
+	publicDefault := sc.TableByNameInSchema("", "items")
+	testutil.NotNil(t, publicDefault)
+	testutil.Equal(t, "public", publicDefault.Schema)
+	testutil.Equal(t, "items", publicDefault.Name)
+
+	legacyFallback := sc.TableByNameInSchema("public", "settings")
+	testutil.NotNil(t, legacyFallback)
+	testutil.Equal(t, "custom", legacyFallback.Schema)
+	testutil.Equal(t, "settings", legacyFallback.Name)
+
+	testutil.Nil(t, sc.TableByNameInSchema("globex", "missing_table"))
 }
 
 func TestTable_HasGeometry_NoColumns(t *testing.T) {

@@ -430,6 +430,32 @@ func TestTenantIDFromRequest(t *testing.T) {
 	})
 }
 
+// TestAuthenticatedTenantSourcesAgree pins the Stage-2 invariant that the WebSocket
+// subscribe side (which derives tenant from auth.Claims.TenantID) can never
+// silently disagree with the SSE/publish side (which derives tenant from the
+// request context that resolveTenantContext populates). Because
+// tenantIDFromRequest resolves claims.TenantID first, the context tenant a
+// publisher tags equals the claims tenant a WS subscriber scopes to for any
+// authenticated session.
+func TestAuthenticatedTenantSourcesAgree(t *testing.T) {
+	t.Parallel()
+
+	const claimTenant = "tenant-42"
+	claims := &auth.Claims{TenantID: claimTenant}
+
+	// WS subscribe side reads the tenant directly off the claims.
+	wsSubscribeTenant := claims.TenantID
+
+	// SSE/publish side reads the tenant off the resolved request context, which
+	// resolveTenantContext derives via tenantIDFromRequest.
+	req := httptest.NewRequest(http.MethodGet, "/api/realtime/ws", nil)
+	req = req.WithContext(auth.ContextWithClaims(req.Context(), claims))
+	publishSideTenant := tenantIDFromRequest(req)
+
+	testutil.Equal(t, claimTenant, publishSideTenant)
+	testutil.Equal(t, wsSubscribeTenant, publishSideTenant)
+}
+
 func TestIsTenantRecoveryEndpoint(t *testing.T) {
 	t.Parallel()
 
@@ -1108,6 +1134,7 @@ func TestSetTenantSearchPathSchemaModeSetsSearchPath(t *testing.T) {
 
 	h := s.setTenantSearchPath(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		testutil.True(t, tenant.RequestConnFromContext(r.Context()) != nil, "expected request connection in context")
+		testutil.Equal(t, "tenant-a", tenant.ActiveSchemaFromContext(r.Context()))
 		w.WriteHeader(http.StatusOK)
 	}))
 
@@ -1139,6 +1166,7 @@ func TestSetTenantSearchPathSharedModePassThrough(t *testing.T) {
 	}
 
 	h := s.setTenantSearchPath(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		testutil.Equal(t, "public", tenant.ActiveSchemaFromContext(r.Context()))
 		w.WriteHeader(http.StatusNoContent)
 	}))
 
@@ -1167,6 +1195,7 @@ func TestSetTenantSearchPathMissingTenantIDPassThrough(t *testing.T) {
 	}
 
 	h := s.setTenantSearchPath(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		testutil.Equal(t, "public", tenant.ActiveSchemaFromContext(r.Context()))
 		w.WriteHeader(http.StatusAccepted)
 	}))
 

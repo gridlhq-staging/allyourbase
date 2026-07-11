@@ -13,6 +13,14 @@ function untrackSeededFile(seededFileNames: string[], fileName: string): void {
   }
 }
 
+function storageUnavailableMessage(err: unknown): string | null {
+  const msg = err instanceof Error ? err.message : String(err);
+  if (msg.includes("status 415")) {
+    return msg;
+  }
+  return null;
+}
+
 test.describe("Smoke: Storage", () => {
   const seededFileNames: string[] = [];
 
@@ -45,9 +53,12 @@ test.describe("Smoke: Storage", () => {
         "seed verify content",
       );
     } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      test.skip(msg.includes("415") || msg.includes("Unsupported"), `Storage upload not available: ${msg}`);
-      return;
+      const msg = storageUnavailableMessage(err);
+      if (msg) {
+        test.skip(true, `Storage upload not available: ${msg}`);
+        return;
+      }
+      throw err;
     }
 
     // Act: navigate to Storage page
@@ -60,11 +71,24 @@ test.describe("Smoke: Storage", () => {
     await expect(
       page.getByRole("button", { name: "Upload", exact: true }),
     ).toBeVisible({ timeout: 5000 });
+    await expect(page.getByLabel("Bucket name")).toHaveValue("default");
+    await expect(page.getByText(/\d+ files?/).first()).toBeVisible();
+    await expect(page.getByRole("button", { name: "CDN Purge" })).toBeVisible();
+    await expect(page.getByRole("columnheader", { name: "Name" })).toBeVisible();
+    await expect(page.getByRole("columnheader", { name: "Type" })).toBeVisible();
+    await expect(page.getByRole("columnheader", { name: "Size" })).toBeVisible();
+    await expect(page.getByRole("columnheader", { name: "Created" })).toBeVisible();
+    await expect(page.getByRole("columnheader", { name: "Actions" })).toBeVisible();
 
     // Assert: seeded file name appears in the list
-    await expect(page.getByText(fileName).first()).toBeVisible({
-      timeout: 5000,
-    });
+    const seededRow = page.locator("tr").filter({ hasText: fileName }).first();
+    await expect(seededRow).toBeVisible({ timeout: 5000 });
+    await expect(seededRow.getByText("text/plain")).toBeVisible();
+    await expect(seededRow.getByRole("button", { name: "Copy name" })).toBeVisible();
+    await expect(seededRow.getByRole("link", { name: "Download" })).toBeVisible();
+    await expect(seededRow.getByRole("button", { name: "Copy signed URL" })).toBeVisible();
+    await expect(seededRow.getByRole("button", { name: "Copy download URL" })).toBeVisible();
+    await expect(seededRow.getByRole("button", { name: "Delete" })).toBeVisible();
   });
 
   test("upload file and delete via storage UI", async ({ page, request, adminToken }) => {
@@ -73,9 +97,12 @@ test.describe("Smoke: Storage", () => {
       const probeFile = await seedFile(request, adminToken, "default", `probe-${Date.now()}.txt`, "probe");
       await deleteFile(request, adminToken, "default", probeFile.name).catch(() => {});
     } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      test.skip(msg.includes("415") || msg.includes("Unsupported"), `Storage upload not available: ${msg}`);
-      return;
+      const msg = storageUnavailableMessage(err);
+      if (msg) {
+        test.skip(true, `Storage upload not available: ${msg}`);
+        return;
+      }
+      throw err;
     }
 
     const runId = Date.now();
@@ -129,6 +156,7 @@ test.describe("Smoke: Storage", () => {
 
     // Step 8: Confirm deletion
     await expect(page.getByText("Are you sure")).toBeVisible({ timeout: 3000 });
+    await expect(page.getByText(fileName, { exact: true })).toHaveCount(2);
     await page
       .getByRole("button", { name: "Delete", exact: true })
       .last()

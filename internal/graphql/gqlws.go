@@ -22,6 +22,7 @@ import (
 	"github.com/allyourbase/ayb/internal/auth"
 	"github.com/allyourbase/ayb/internal/httputil"
 	"github.com/allyourbase/ayb/internal/schema"
+	"github.com/allyourbase/ayb/internal/tenant"
 )
 
 const (
@@ -91,16 +92,17 @@ type GQLWSHandler struct {
 }
 
 type GQLWSConn struct {
-	id          string
-	ws          *websocket.Conn
-	claims      *auth.Claims
-	initialized bool
-	mu          sync.Mutex
-	subs        map[string]bool
-	send        chan []byte
-	done        chan struct{}
-	once        sync.Once
-	logger      *slog.Logger
+	id           string
+	ws           *websocket.Conn
+	claims       *auth.Claims
+	activeSchema string
+	initialized  bool
+	mu           sync.Mutex
+	subs         map[string]bool
+	send         chan []byte
+	done         chan struct{}
+	once         sync.Once
+	logger       *slog.Logger
 }
 
 func NewGQLWSHandler(pool *pgxpool.Pool, cache func() *schema.SchemaCache, logger *slog.Logger) *GQLWSHandler {
@@ -144,6 +146,7 @@ func (h *GQLWSHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	conn := newGQLWSConn(fmt.Sprintf("gqlws-%d", h.nextID.Add(1)), wsConn, h.logger)
+	conn.setActiveSchema(tenant.ActiveSchemaFromContext(r.Context()))
 	if wsConn.Subprotocol() != gqlwsSubprotocol {
 		conn.Close(closeInternalError, "subprotocol graphql-transport-ws required")
 		return
@@ -188,6 +191,24 @@ func (c *GQLWSConn) Claims() *auth.Claims {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	return c.claims
+}
+
+func (c *GQLWSConn) ActiveSchema() string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.activeSchema == "" {
+		return "public"
+	}
+	return c.activeSchema
+}
+
+func (c *GQLWSConn) setActiveSchema(activeSchema string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if activeSchema == "" {
+		activeSchema = "public"
+	}
+	c.activeSchema = activeSchema
 }
 
 func (c *GQLWSConn) setClaims(claims *auth.Claims) {

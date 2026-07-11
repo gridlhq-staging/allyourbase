@@ -1,4 +1,10 @@
-import { test, expect, execSQL, waitForDashboard } from "../fixtures";
+import {
+  buildParallelSafeRunID,
+  execSQL,
+  expect,
+  test,
+  waitForDashboard,
+} from "../fixtures";
 
 /**
  * SMOKE TEST: Admin Dashboard Setup
@@ -20,30 +26,74 @@ test.describe("Smoke: Admin Dashboard Setup", () => {
     pendingCleanup.length = 0;
   });
 
-  test("dashboard loads with all sidebar sections", async ({ page }) => {
+  test("dashboard loads with shell chrome and command palette entry points", async ({ page }) => {
+    const commandPaletteShortcut = process.platform === "darwin" ? "Meta+K" : "Control+K";
+
     // Act: Navigate to admin dashboard
     await page.goto("/admin/");
     await waitForDashboard(page);
 
-    // Assert: Dashboard heading visible
+    const sidebar = page.locator("aside");
+    const commandPaletteHint = sidebar.getByRole("button", { name: "Search... K" });
+
+    await expect(sidebar.getByText("Allyourbase")).toBeVisible();
+    await expect(commandPaletteHint).toBeVisible();
+
+    for (const section of ["Tables", "Database", "Services", "Messaging", "Admin", "AI", "Auth"]) {
+      await expect(sidebar.getByText(section, { exact: true })).toBeVisible();
+    }
+
+    await expect(sidebar.getByRole("button", { name: /^SQL Editor$/i })).toBeVisible();
+    await expect(sidebar.getByRole("button", { name: /^Storage$/i })).toBeVisible();
+    await expect(sidebar.getByRole("button", { name: /^Users$/i })).toBeVisible();
+    await expect(sidebar.getByRole("button", { name: /^Refresh schema$/i })).toBeVisible();
+    await expect(sidebar.getByRole("button", { name: /Switch to (dark|light) mode/i })).toBeVisible();
+    await expect(sidebar.getByRole("button", { name: /^Log out$/i })).toBeVisible();
+
+    await commandPaletteHint.click();
+    await expect(page.getByRole("dialog", { name: "Command palette" })).toBeVisible();
+    await page.keyboard.press("Escape");
+    await expect(page.getByRole("dialog", { name: "Command palette" })).toBeHidden();
+
+    await page.keyboard.press(commandPaletteShortcut);
+    await expect(page.getByRole("dialog", { name: "Command palette" })).toBeVisible();
+    await page.keyboard.press("Escape");
+  });
+
+  test("dashboard selects the first sorted table on load", async ({
+    page,
+    request,
+    adminToken,
+  }, testInfo) => {
+    const runId = buildParallelSafeRunID(testInfo).replaceAll("_", "");
+    const schemaName = `a0_shell_${runId}`;
+    const firstTableName = "alpha_first";
+    const secondTableName = "zeta_second";
+
+    pendingCleanup.push(`DROP SCHEMA IF EXISTS ${schemaName} CASCADE;`);
+
+    await execSQL(
+      request,
+      adminToken,
+      `CREATE SCHEMA ${schemaName};
+       CREATE TABLE ${schemaName}.${secondTableName} (id SERIAL PRIMARY KEY);
+       CREATE TABLE ${schemaName}.${firstTableName} (id SERIAL PRIMARY KEY);`,
+    );
+
+    await page.goto("/admin/");
     await waitForDashboard(page);
 
-    // Assert: Sidebar sections are present
     const sidebar = page.locator("aside");
+    await expect(sidebar.getByRole("button", { name: `${schemaName}.${firstTableName}` })).toBeVisible();
+    await expect(page.getByRole("heading", { name: `${schemaName}.${firstTableName}` })).toBeVisible();
+    await expect(page.getByRole("button", { name: /^Data$/i })).toBeVisible();
 
-    // DATABASE section
-    await expect(sidebar.getByRole("button", { name: /^SQL Editor$/i })).toBeVisible();
+    await page.getByTestId("nav-schema-designer").click();
+    await expect(page.getByRole("heading", { name: "Schema Designer" })).toBeVisible();
 
-    // SERVICES section (Storage, Webhooks, etc.)
-    // Note: Using flexible matching since exact labels may vary
-    await expect(
-      sidebar.getByText(/Storage|Webhooks/i).first()
-    ).toBeVisible({ timeout: 5000 });
-
-    // ADMIN section
-    await expect(
-      sidebar.getByText(/Users|API Keys/i).first()
-    ).toBeVisible({ timeout: 5000 });
+    await sidebar.getByRole("button", { name: `${schemaName}.${secondTableName}` }).click();
+    await expect(page.getByRole("heading", { name: `${schemaName}.${secondTableName}` })).toBeVisible();
+    await expect(page.getByRole("button", { name: /^Data$/i })).toBeVisible();
   });
 
   test("first-run journey creates first table and verifies first row in table data view", async ({

@@ -12,12 +12,13 @@ import (
 )
 
 type gqlwsSubscriptionState struct {
-	hubClientID string
-	cancel      context.CancelFunc
-	table       string
-	fieldName   string
-	where       map[string]any
-	selection   map[string]*projectionField
+	hubClientID  string
+	cancel       context.CancelFunc
+	table        string
+	activeSchema string
+	fieldName    string
+	where        map[string]any
+	selection    map[string]*projectionField
 }
 
 type projectionField struct {
@@ -45,22 +46,28 @@ func (h *Handler) onWSSubscribe(ctx context.Context, conn *GQLWSConn, id string,
 		conn.SendError(id, []map[string]string{{"message": "unknown subscription table"}})
 		return
 	}
-	tbl := cache.TableByName(sub.table)
-	if tbl == nil || skipSubscriptionTable(tbl) {
+	activeSchema := conn.ActiveSchema()
+	tbl := cache.TableByNameInSchema(activeSchema, sub.table)
+	if tbl == nil || (activeSchema != "public" && tbl.Schema != activeSchema) || skipSubscriptionTable(tbl) {
 		conn.removeSubscription(id)
 		conn.SendError(id, []map[string]string{{"message": "unknown subscription table"}})
 		return
 	}
 
-	hubClient := h.hub.Subscribe(map[string]bool{sub.table: true})
+	tenantID := ""
+	if claims := conn.Claims(); claims != nil {
+		tenantID = claims.TenantID
+	}
+	hubClient := h.hub.SubscribeWithFilter(map[string]bool{sub.table: true}, nil, tenantID)
 	subCtx, cancel := context.WithCancel(context.Background())
 	state := &gqlwsSubscriptionState{
-		hubClientID: hubClient.ID,
-		cancel:      cancel,
-		table:       sub.table,
-		fieldName:   sub.fieldName,
-		where:       sub.where,
-		selection:   sub.selection,
+		hubClientID:  hubClient.ID,
+		cancel:       cancel,
+		table:        sub.table,
+		activeSchema: activeSchema,
+		fieldName:    sub.fieldName,
+		where:        sub.where,
+		selection:    sub.selection,
 	}
 	h.storeSubscriptionState(conn.ID(), id, state)
 	go h.forwardSubscriptionEvents(subCtx, conn, id, hubClient, state)
@@ -257,7 +264,7 @@ func (h *Handler) forwardSubscriptionEvents(ctx context.Context, conn *GQLWSConn
 			if !ok {
 				return
 			}
-			if !h.canDeliverEvent(ctx, conn, event, state.where) {
+			if !h.canDeliverEvent(ctx, conn, event, state) {
 				continue
 			}
 			payload := map[string]any{
@@ -268,18 +275,18 @@ func (h *Handler) forwardSubscriptionEvents(ctx context.Context, conn *GQLWSConn
 	}
 }
 
-func (h *Handler) canDeliverEvent(ctx context.Context, conn *GQLWSConn, event *realtime.Event, where map[string]any) bool {
+func (h *Handler) canDeliverEvent(ctx context.Context, conn *GQLWSConn, event *realtime.Event, state *gqlwsSubscriptionState) bool {
 	if event == nil {
 		return false
 	}
-	if !realtime.CanSeeRecord(ctx, h.pool, h.cacheHolder, h.logger, conn.Claims(), event) {
+	if !realtime.CanSeeRecord(ctx, h.pool, h.cacheHolder, h.logger, conn.Claims(), state.activeSchema, event) {
 		return false
 	}
 	row := eventRecordForDelivery(event)
 	if row == nil {
 		return false
 	}
-	return matchesGraphQLWhere(where, row)
+	return matchesGraphQLWhere(state.where, row)
 }
 
 func eventRecordForDelivery(event *realtime.Event) map[string]any {

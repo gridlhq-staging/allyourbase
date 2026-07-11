@@ -3,6 +3,7 @@ package allyourbase
 import (
 	"context"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -150,6 +151,94 @@ func TestRecordsListEscapesCollectionPathSegment(t *testing.T) {
 	c := NewClient(ts.URL)
 	if _, err := c.Records.List(context.Background(), collection, ListParams{}); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestRecordsGetSynonyms(t *testing.T) {
+	responseData := mustLoadContractFixture(t, "search_synonyms_response.json")
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			t.Fatalf("method = %s", r.Method)
+		}
+		if r.Header.Get("Authorization") != "Bearer admin-token" {
+			t.Fatalf("authorization = %q", r.Header.Get("Authorization"))
+		}
+		wantPath := "/api/collections/posts%2F..%2F..%2Fadmin/synonyms/"
+		if r.URL.EscapedPath() != wantPath {
+			t.Fatalf("escaped path = %q, want %q", r.URL.EscapedPath(), wantPath)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write(responseData)
+	}))
+	defer ts.Close()
+
+	c := NewClient(ts.URL, WithAPIKey("admin-token"))
+	res, err := c.Records.GetSynonyms(context.Background(), "posts/../../admin")
+	if err != nil {
+		t.Fatal(err)
+	}
+	expectedTerms := [][]string{
+		{"new york", "nyc"},
+		{"science fiction", "scifi"},
+	}
+	if !reflect.DeepEqual(searchSynonymsTerms(res.Groups), expectedTerms) {
+		t.Fatalf("unexpected synonym groups: %+v", res.Groups)
+	}
+}
+
+func TestRecordsSetSynonyms(t *testing.T) {
+	requestData := mustLoadContractFixture(t, "search_synonyms_request.json")
+	responseData := mustLoadContractFixture(t, "search_synonyms_response.json")
+	var req SearchSynonymsRequest
+	if err := json.Unmarshal(requestData, &req); err != nil {
+		t.Fatalf("decode search_synonyms_request: %v", err)
+	}
+	var expectedEnvelope map[string]any
+	if err := json.Unmarshal(requestData, &expectedEnvelope); err != nil {
+		t.Fatalf("decode expected search_synonyms_request envelope: %v", err)
+	}
+
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPut {
+			t.Fatalf("method = %s", r.Method)
+		}
+		if r.Header.Get("Authorization") != "Bearer admin-token" {
+			t.Fatalf("authorization = %q", r.Header.Get("Authorization"))
+		}
+		if r.Header.Get("Content-Type") != "application/json" {
+			t.Fatalf("content-type = %q", r.Header.Get("Content-Type"))
+		}
+		if r.URL.EscapedPath() != "/api/collections/posts/synonyms/" {
+			t.Fatalf("escaped path = %q", r.URL.EscapedPath())
+		}
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			t.Fatalf("read request body: %v", err)
+		}
+		var actualEnvelope map[string]any
+		if err := json.Unmarshal(body, &actualEnvelope); err != nil {
+			t.Fatalf("decode request body: %v", err)
+		}
+		if !reflect.DeepEqual(actualEnvelope, expectedEnvelope) {
+			t.Fatalf("request envelope mismatch\nactual:   %#v\nexpected: %#v", actualEnvelope, expectedEnvelope)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write(responseData)
+	}))
+	defer ts.Close()
+
+	c := NewClient(ts.URL)
+	c.SetTokens("admin-token", "")
+	res, err := c.Records.SetSynonyms(context.Background(), "posts", req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	expectedTerms := [][]string{
+		{"new york", "nyc"},
+		{"science fiction", "scifi"},
+	}
+	if !reflect.DeepEqual(searchSynonymsTerms(res.Groups), expectedTerms) {
+		t.Fatalf("unexpected synonym groups: %+v", res.Groups)
 	}
 }
 

@@ -37,6 +37,22 @@ func (sc *SchemaCache) TableByName(name string) *Table {
 	return nil
 }
 
+// TableByNameInSchema returns a table by unqualified name for an active schema.
+func (sc *SchemaCache) TableByNameInSchema(activeSchema, name string) *Table {
+	if activeSchema == "" {
+		activeSchema = "public"
+	}
+	if activeSchema == "public" {
+		return sc.TableByName(name)
+	}
+	if activeSchema != "public" {
+		if t, ok := sc.Tables[activeSchema+"."+name]; ok {
+			return t
+		}
+	}
+	return sc.Tables["public."+name]
+}
+
 // TableList returns all tables as a sorted slice.
 func (sc *SchemaCache) TableList() []*Table {
 	tables := make([]*Table, 0, len(sc.Tables))
@@ -250,6 +266,25 @@ func (sc *SchemaCache) FunctionByName(name string) *Function {
 		}
 	}
 	return nil
+}
+
+// FunctionByNameInSchema returns a function by unqualified name for an active schema.
+func (sc *SchemaCache) FunctionByNameInSchema(activeSchema, name string) *Function {
+	if sc.Functions == nil {
+		return nil
+	}
+	if activeSchema == "" {
+		activeSchema = "public"
+	}
+	if activeSchema == "public" {
+		return sc.FunctionByName(name)
+	}
+	if activeSchema != "public" {
+		if f, ok := sc.Functions[activeSchema+"."+name]; ok {
+			return f
+		}
+	}
+	return sc.Functions["public."+name]
 }
 
 // relkindToString converts pg_class.relkind to a human-readable string.

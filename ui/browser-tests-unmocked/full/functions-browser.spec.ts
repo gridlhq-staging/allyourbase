@@ -142,4 +142,52 @@ test.describe("Functions Browser (Full E2E)", () => {
     // Verify the result value — exact match avoids matching durations like "8ms"
     await expect(page.getByText("8", { exact: true }).last()).toBeVisible();
   });
+
+  test("unnamed-parameter function is shown as non-callable", async ({
+    page,
+    request,
+    adminToken,
+  }) => {
+    const runId = Date.now();
+    const funcName = `test_unnamed_${runId}`;
+
+    // Arrange: create a function whose single parameter has no name, so it
+    // cannot be called via the REST RPC endpoint. SQL is an Arrange shortcut.
+    // The parameter is intentionally unused with a constant body: referencing
+    // it as `$1` would be read as a bind placeholder, and `execSQL` splits on
+    // `;`, so the body must contain neither a placeholder nor a semicolon.
+    await execSQL(
+      request,
+      adminToken,
+      `CREATE OR REPLACE FUNCTION public.${funcName}(integer) RETURNS integer AS $$ SELECT 42 $$ LANGUAGE SQL`,
+    );
+
+    try {
+      await page.goto("/admin/");
+      await waitForDashboard(page);
+
+      const sidebar = page.locator("aside");
+      await waitForFunctionToAppear(page, sidebar, funcName);
+      await expect(page.getByText(funcName).first()).toBeVisible({
+        timeout: 5000,
+      });
+
+      // Expand the function row to reveal its callable-state panel.
+      await page.getByRole("button", { name: new RegExp(funcName) }).click();
+
+      // The non-callable notice appears and no Execute action is offered.
+      await expect(
+        page.getByText(/unnamed parameters and cannot be called/i),
+      ).toBeVisible({ timeout: 5000 });
+      await expect(
+        page.getByRole("button", { name: /^Execute$/i }),
+      ).toHaveCount(0);
+    } finally {
+      await execSQL(
+        request,
+        adminToken,
+        `DROP FUNCTION IF EXISTS public.${funcName}(integer)`,
+      ).catch(() => {});
+    }
+  });
 });

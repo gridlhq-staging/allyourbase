@@ -15,9 +15,13 @@ from allyourbase.types import (
     MagicLinkConfirmResponse,
     MagicLinkRequestResponse,
     RealtimeEvent,
+    SearchSynonymGroup,
+    SearchSynonymsRequest,
+    SearchSynonymsResponse,
     StorageListResponse,
     StorageObject,
     User,
+    WebAuthnLoginBeginResponse,
 )
 
 _CONTRACT_FIXTURE_DIR = (
@@ -34,6 +38,15 @@ _MAGIC_LINK_CONFIRM_SUCCESS_FIXTURE = json.loads(
 )
 _MAGIC_LINK_CONFIRM_PENDING_MFA_FIXTURE = json.loads(
     (_CONTRACT_FIXTURE_DIR / "magic_link_confirm_pending_mfa_response.json").read_text()
+)
+_WEBAUTHN_LOGIN_BEGIN_RESPONSE_FIXTURE = json.loads(
+    (_CONTRACT_FIXTURE_DIR / "webauthn_login_begin_response.json").read_text()
+)
+_SEARCH_SYNONYMS_REQUEST_FIXTURE = json.loads(
+    (_CONTRACT_FIXTURE_DIR / "search_synonyms_request.json").read_text()
+)
+_SEARCH_SYNONYMS_RESPONSE_FIXTURE = json.loads(
+    (_CONTRACT_FIXTURE_DIR / "search_synonyms_response.json").read_text()
 )
 _ANONYMOUS_FIXTURE = json.loads((_PARITY_FIXTURE_DIR / "anonymous.json").read_text())
 _LINK_EMAIL_FIXTURE = json.loads((_PARITY_FIXTURE_DIR / "link_email.json").read_text())
@@ -72,7 +85,9 @@ def test_magic_link_request_response_matches_canonical_shape() -> None:
 
 def test_magic_link_confirm_response_parses_success_and_pending_mfa_payloads() -> None:
     success_response = MagicLinkConfirmResponse.model_validate(_MAGIC_LINK_CONFIRM_SUCCESS_FIXTURE)
-    pending_response = MagicLinkConfirmResponse.model_validate(_MAGIC_LINK_CONFIRM_PENDING_MFA_FIXTURE)
+    pending_response = MagicLinkConfirmResponse.model_validate(
+        _MAGIC_LINK_CONFIRM_PENDING_MFA_FIXTURE
+    )
 
     assert success_response.is_pending_mfa is False
     assert success_response.user is not None
@@ -84,6 +99,19 @@ def test_magic_link_confirm_response_parses_success_and_pending_mfa_payloads() -
     assert pending_response.is_pending_mfa is True
     assert pending_response.mfa_pending is True
     assert pending_response.mfa_token == "mfa_pending_token_stage1"
+
+
+def test_webauthn_login_begin_response_matches_canonical_shape() -> None:
+    response = WebAuthnLoginBeginResponse.model_validate(_WEBAUTHN_LOGIN_BEGIN_RESPONSE_FIXTURE)
+
+    assert response.challenge_id == "webauthn_challenge_fixture"
+    assert response.options["challenge"] == "webauthn_login_begin_challenge"
+    assert response.options["rpId"] == "127.0.0.1"
+    assert response.options["timeout"] == 300000
+    assert response.options["allowCredentials"][0] == {
+        "id": "webauthn_login_begin_credential_a",
+        "type": "public-key",
+    }
 
 
 def test_user_model_accepts_snake_case_and_camelcase_auth_fields() -> None:
@@ -172,6 +200,26 @@ def test_list_response_shape() -> None:
     assert response.items[1]["title"] == "Second"
 
 
+def test_search_synonyms_request_fixture_matches_canonical_shape() -> None:
+    response = SearchSynonymsRequest.model_validate(_SEARCH_SYNONYMS_REQUEST_FIXTURE)
+
+    assert isinstance(response.groups[0], SearchSynonymGroup)
+    assert [group.terms for group in response.groups] == [
+        ["scifi", "science fiction"],
+        ["nyc", "new york"],
+    ]
+
+
+def test_search_synonyms_response_fixture_matches_canonical_shape() -> None:
+    response = SearchSynonymsResponse.model_validate(_SEARCH_SYNONYMS_RESPONSE_FIXTURE)
+
+    assert isinstance(response.groups[0], SearchSynonymGroup)
+    assert [group.terms for group in response.groups] == [
+        ["new york", "nyc"],
+        ["science fiction", "scifi"],
+    ]
+
+
 def test_batch_result_with_and_without_body() -> None:
     a = BatchResult.model_validate({"index": 0, "status": 201, "body": {"id": "x"}})
     b = BatchResult.model_validate({"index": 2, "status": 204})
@@ -248,12 +296,18 @@ def test_realtime_event_shape() -> None:
 async def test_geojson_round_trip_plain_dict() -> None:
     polygon = {
         "type": "Polygon",
-        "coordinates": [[[-73.9, 40.7], [-73.8, 40.7], [-73.8, 40.8], [-73.9, 40.8], [-73.9, 40.7]]],
+        "coordinates": [
+            [[-73.9, 40.7], [-73.8, 40.7], [-73.8, 40.8], [-73.9, 40.8], [-73.9, 40.7]]
+        ],
     }
     requests: list[httpx.Request] = []
     responses = [
-        httpx.Response(status_code=201, json={"id": "zone_1", "name": "Manhattan", "geometry": polygon}),
-        httpx.Response(status_code=200, json={"id": "zone_1", "name": "Manhattan", "geometry": polygon}),
+        httpx.Response(
+            status_code=201, json={"id": "zone_1", "name": "Manhattan", "geometry": polygon}
+        ),
+        httpx.Response(
+            status_code=200, json={"id": "zone_1", "name": "Manhattan", "geometry": polygon}
+        ),
     ]
 
     def handler(request: httpx.Request) -> httpx.Response:

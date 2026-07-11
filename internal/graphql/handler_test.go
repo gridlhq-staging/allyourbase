@@ -11,6 +11,7 @@ import (
 
 	"github.com/allyourbase/ayb/internal/realtime"
 	"github.com/allyourbase/ayb/internal/schema"
+	"github.com/allyourbase/ayb/internal/tenant"
 	"github.com/allyourbase/ayb/internal/testutil"
 	"github.com/graphql-go/graphql/language/parser"
 )
@@ -332,6 +333,45 @@ func TestHandlerPublishesCollectedMutationEventsToHub(t *testing.T) {
 		testutil.Equal(t, 7, event.Record["id"])
 	case <-time.After(2 * time.Second):
 		t.Fatal("expected mutation event to be published")
+	}
+}
+
+// TestHandlerTagsMutationEventsWithRequestTenant proves GraphQL mutation fanout
+// tags events with the request tenant, so a same-table subscriber on another
+// tenant never receives them.
+func TestHandlerTagsMutationEventsWithRequestTenant(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	hub := realtime.NewHub(testutil.DiscardLogger())
+	h.SetHub(hub)
+	tenantA := hub.SubscribeWithFilter(map[string]bool{"posts": true}, nil, "tenant-a")
+	defer hub.Unsubscribe(tenantA.ID)
+	tenantB := hub.SubscribeWithFilter(map[string]bool{"posts": true}, nil, "tenant-b")
+	defer hub.Unsubscribe(tenantB.ID)
+
+	ctx := tenant.ContextWithTenantID(context.Background(), "tenant-a")
+	ctx = ctxWithMutationEventCollector(ctx)
+	addMutationEvent(ctx, &realtime.Event{
+		Action: "create",
+		Table:  "posts",
+		Record: map[string]any{"id": 9, "title": "scoped"},
+	})
+
+	h.publishCollectedMutationEvents(ctx)
+
+	select {
+	case event := <-tenantA.Events():
+		testutil.Equal(t, "tenant-a", event.TenantID)
+		testutil.Equal(t, 9, event.Record["id"])
+	case <-time.After(2 * time.Second):
+		t.Fatal("expected tenant-a subscriber to receive the mutation event")
+	}
+
+	select {
+	case event := <-tenantB.Events():
+		t.Fatalf("tenant-b subscriber must not receive tenant-a event: %#v", event)
+	case <-time.After(50 * time.Millisecond):
 	}
 }
 

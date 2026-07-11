@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/allyourbase/ayb/internal/schema"
+	"github.com/allyourbase/ayb/internal/tenant"
 	"github.com/allyourbase/ayb/internal/testutil"
 	"github.com/go-chi/chi/v5"
 )
@@ -165,6 +166,85 @@ func TestAdminVectorIndexCreate_ColumnNotVector(t *testing.T) {
 	var resp map[string]any
 	json.NewDecoder(w.Body).Decode(&resp)
 	testutil.Contains(t, resp["message"].(string), "not a vector column")
+}
+
+func TestResolveVectorIndexTableUsesActiveTenantSchema(t *testing.T) {
+	t.Parallel()
+
+	sc := vectorAdminSchemaCache()
+	sc.Tables["public.documents"].Columns = []*schema.Column{
+		{Name: "id", TypeName: "uuid", IsPrimaryKey: true},
+		{Name: "embedding", TypeName: "text"},
+	}
+	sc.Tables["tenant_a.documents"] = &schema.Table{
+		Schema: "tenant_a",
+		Name:   "documents",
+		Kind:   "table",
+		Columns: []*schema.Column{
+			{Name: "id", TypeName: "uuid", IsPrimaryKey: true},
+			{Name: "embedding", TypeName: "vector(3)", IsVector: true, VectorDim: 3},
+		},
+		PrimaryKey: []string{"id"},
+	}
+	s, _ := vectorAdminTestServer(sc)
+	req := httptest.NewRequest(http.MethodPost, "/admin/vector/indexes", nil)
+	req = req.WithContext(tenant.ContextWithActiveSchema(req.Context(), "tenant_a"))
+
+	gotSchema, ok := s.resolveVectorIndexTable(httptest.NewRecorder(), req, &vectorIndexRequest{
+		Table:  "documents",
+		Column: "embedding",
+	})
+
+	testutil.True(t, ok, "expected tenant table vector column to validate")
+	testutil.Equal(t, "tenant_a", gotSchema)
+}
+
+func TestResolveVectorIndexTableFallsBackToPublicForActiveTenantSchema(t *testing.T) {
+	t.Parallel()
+
+	s, _ := vectorAdminTestServer(vectorAdminSchemaCache())
+	req := httptest.NewRequest(http.MethodPost, "/admin/vector/indexes", nil)
+	req = req.WithContext(tenant.ContextWithActiveSchema(req.Context(), "tenant_a"))
+
+	gotSchema, ok := s.resolveVectorIndexTable(httptest.NewRecorder(), req, &vectorIndexRequest{
+		Table:  "documents",
+		Column: "embedding",
+	})
+
+	testutil.True(t, ok, "expected public table fallback to validate")
+	testutil.Equal(t, "public", gotSchema)
+}
+
+func TestResolveVectorIndexTablePreservesPublicModeNonPublicFallback(t *testing.T) {
+	t.Parallel()
+
+	sc := &schema.SchemaCache{
+		Tables: map[string]*schema.Table{
+			"selfhost.documents": {
+				Schema: "selfhost",
+				Name:   "documents",
+				Kind:   "table",
+				Columns: []*schema.Column{
+					{Name: "id", TypeName: "uuid", IsPrimaryKey: true},
+					{Name: "embedding", TypeName: "vector(3)", IsVector: true, VectorDim: 3},
+				},
+				PrimaryKey: []string{"id"},
+			},
+		},
+		HasPgVector: true,
+		Schemas:     []string{"selfhost"},
+	}
+	s, _ := vectorAdminTestServer(sc)
+	req := httptest.NewRequest(http.MethodPost, "/admin/vector/indexes", nil)
+	req = req.WithContext(tenant.ContextWithActiveSchema(req.Context(), "public"))
+
+	gotSchema, ok := s.resolveVectorIndexTable(httptest.NewRecorder(), req, &vectorIndexRequest{
+		Table:  "documents",
+		Column: "embedding",
+	})
+
+	testutil.True(t, ok, "expected public-mode non-public fallback to validate")
+	testutil.Equal(t, "selfhost", gotSchema)
 }
 
 // --- List indexes tests ---

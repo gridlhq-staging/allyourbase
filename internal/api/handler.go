@@ -288,7 +288,7 @@ func (h *Handler) resolveTable(w http.ResponseWriter, r *http.Request) *schema.T
 	}
 
 	tableName := chi.URLParam(r, "table")
-	tbl := sc.TableByName(tableName)
+	tbl := sc.TableByNameInSchema(tenant.ActiveSchemaFromContext(r.Context()), tableName)
 	if tbl == nil {
 		writeError(w, http.StatusNotFound, "collection not found: "+tableName)
 		return nil

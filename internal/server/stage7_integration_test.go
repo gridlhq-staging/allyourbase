@@ -165,6 +165,7 @@ func TestSchemaIsolation_SearchPathResetAfterRequest(t *testing.T) {
 	handler := srv.setTenantSearchPath(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		requestConn := tenant.RequestConnFromContext(r.Context())
 		testutil.True(t, requestConn != nil, "expected request connection in context")
+		testutil.Equal(t, schemaTenant.Slug, tenant.ActiveSchemaFromContext(r.Context()))
 
 		// Record backend PID to prove same-session in post-request check.
 		err := requestConn.QueryRow(r.Context(), `SELECT pg_backend_pid()`).Scan(&requestPID)

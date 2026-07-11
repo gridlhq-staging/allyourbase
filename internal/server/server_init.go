@@ -13,6 +13,7 @@ import (
 	"github.com/allyourbase/ayb/internal/config"
 	"github.com/allyourbase/ayb/internal/logging"
 	"github.com/allyourbase/ayb/internal/observability"
+	"github.com/allyourbase/ayb/internal/pgnotify"
 	"github.com/allyourbase/ayb/internal/realtime"
 	"github.com/allyourbase/ayb/internal/replica"
 	"github.com/allyourbase/ayb/internal/schema"
@@ -152,7 +153,11 @@ func initObservability(cfg *config.Config, pool *pgxpool.Pool, poolRouter *repli
 // broadcast/presence, connection manager with lifecycle governance, and
 // realtime inspector. Registers realtime metrics if httpMetrics is available.
 func initRealtimeHub(cfg *config.Config, pool *pgxpool.Pool, schemaCache *schema.CacheHolder, authSvc *auth.Service, logger *slog.Logger, httpMetrics *observability.HTTPMetrics) (*realtime.Hub, *ws.Handler, *realtime.ConnectionManager, *realtime.Inspector) {
-	hub := realtime.NewHub(logger)
+	var bus *pgnotify.Bus
+	if pool != nil && cfg.Database.URL != "" {
+		bus = pgnotify.NewBus(pool, cfg.Database.URL, logger)
+	}
+	hub := realtime.NewHubWithBus(logger, bus)
 
 	// WebSocket realtime transport.
 	var wsAuthValidator ws.TokenValidator
@@ -316,7 +321,7 @@ func (s *Server) initDefaults(logger *slog.Logger) {
 
 	// Construct storage handler before route registration.
 	if s.storageSvc != nil {
-		s.storageHandler = storage.NewHandler(s.storageSvc, s.logger, s.cfg.Storage.MaxFileSizeBytes(), s.cfg.Storage.CDNURL, s.isAdminToken)
+		s.storageHandler = storage.NewHandler(s.storageSvc, s.logger, s.cfg.Storage.MaxFileSizeBytes(), s.cfg.Storage.CDNURL, s.cfg.Server.RequireResolvedTenant, s.isAdminToken)
 		s.storageHandler.SetCDNProvider(newStorageCDNProvider(s.cfg.Storage.CDN, s.logger))
 		s.applyTenantQuotaDependenciesToStorageHandler()
 		s.storageCDNPurgeAllRL = auth.NewRateLimiter(storageCDNPurgeAllRateLimit, storageCDNPurgeAllRateLimitWindow)

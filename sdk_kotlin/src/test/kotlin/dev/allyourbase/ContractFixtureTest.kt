@@ -2,7 +2,12 @@ package dev.allyourbase
 
 import kotlinx.serialization.json.Json
 import kotlinx.coroutines.test.runTest
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.encodeToJsonElement
+import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.put
+import kotlinx.serialization.json.putJsonObject
 import org.junit.jupiter.api.Assertions.assertNotNull
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNull
@@ -58,6 +63,62 @@ class ContractFixtureTest {
     }
 
     @Test
+    fun `webauthn login fixtures decode snake case challenge and finish auth response`() = runTest {
+        val begin = json.decodeFromJsonElement(
+            WebAuthnLoginBeginResponse.serializer(),
+            ContractFixtures.webAuthnLoginBeginResponse,
+        )
+        assertEquals("webauthn_challenge_fixture", begin.challengeId)
+        assertEquals("webauthn_login_begin_challenge", begin.options["challenge"]!!.jsonPrimitive.content)
+
+        val transport = MockHttpTransport()
+        transport.enqueue(StubResponse(status = 200, json = ContractFixtures.authResponse))
+        val client = AYBClient("https://api.example.com", transport = transport)
+        val finish = client.auth.finishWebAuthnLogin("webauthn_challenge_fixture", ContractFixtures.webAuthnLoginBeginResponse)
+
+        assertEquals("jwt_stage3", finish.token)
+        assertEquals("refresh_stage3", finish.refreshToken)
+        assertEquals("dev@allyourbase.io", finish.user.email)
+    }
+
+    @Test
+    fun `webauthn passkey seam preserves fixture options and snake case finish payload`() = runTest {
+        val begin = json.decodeFromJsonElement(
+            WebAuthnLoginBeginResponse.serializer(),
+            ContractFixtures.webAuthnLoginBeginResponse,
+        )
+        val assertionResponse = buildJsonObject {
+            put("id", "credential-id")
+            put("rawId", "credential-id")
+            put("type", "public-key")
+            putJsonObject("response") {
+                put("clientDataJSON", "client-data-json")
+                put("authenticatorData", "authenticator-data")
+                put("signature", "signature")
+                put("userHandle", "user-handle")
+            }
+        }
+        var capturedOptions: kotlinx.serialization.json.JsonObject? = null
+        val authenticator = PasskeyAuthenticator { options ->
+            capturedOptions = options
+            assertionResponse
+        }
+
+        val assertion = authenticator.createAssertion(begin.options)
+        val payload = json.encodeToJsonElement(
+            WebAuthnLoginFinishRequest.serializer(),
+            WebAuthnLoginFinishRequest(begin.challengeId, assertion),
+        ).jsonObject
+
+        assertEquals(begin.options, capturedOptions)
+        assertEquals(assertionResponse, assertion)
+        assertEquals("webauthn_challenge_fixture", payload["challenge_id"]!!.jsonPrimitive.content)
+        assertEquals(assertionResponse, payload["assertion_response"])
+        assertNull(payload["challengeId"])
+        assertNull(payload["assertionResponse"])
+    }
+
+    @Test
     fun `list response fixture decodes metadata and items`() {
         val payload = """
             {
@@ -76,6 +137,17 @@ class ContractFixtureTest {
         assertEquals(2, decoded.items.size)
         assertEquals(2, decoded.metadata.totalItems)
         assertEquals("rec_1", decoded.items.first()["id"]?.toString()?.trim('"'))
+    }
+
+    @Test
+    fun `search synonyms response fixture decodes normalized groups`() {
+        val response = json.decodeFromJsonElement(
+            SearchSynonymsResponse.serializer(),
+            ContractFixtures.searchSynonymsResponse,
+        )
+
+        assertEquals(listOf("new york", "nyc"), response.groups[0].terms)
+        assertEquals(listOf("science fiction", "scifi"), response.groups[1].terms)
     }
 
     @Test

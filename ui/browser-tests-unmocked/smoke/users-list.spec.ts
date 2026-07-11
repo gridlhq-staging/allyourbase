@@ -1,4 +1,11 @@
-import { test, expect, execSQL, probeEndpoint, waitForDashboard } from "../fixtures";
+import {
+  test,
+  expect,
+  cleanupUserByEmail,
+  ensureUserByEmail,
+  probeEndpoint,
+  waitForDashboard,
+} from "../fixtures";
 
 /**
  * SMOKE TEST: Users - List View
@@ -7,6 +14,16 @@ import { test, expect, execSQL, probeEndpoint, waitForDashboard } from "../fixtu
  */
 
 test.describe("Smoke: Users List", () => {
+  const userEmails: string[] = [];
+
+  test.afterEach(async ({ request, adminToken }) => {
+    while (userEmails.length > 0) {
+      const email = userEmails.pop();
+      if (!email) continue;
+      await cleanupUserByEmail(request, adminToken, email).catch(() => {});
+    }
+  });
+
   test("seeded user renders in users list", async ({ page, request, adminToken }) => {
     const probeStatus = await probeEndpoint(request, adminToken, "/api/admin/users/");
     test.skip(
@@ -17,12 +34,9 @@ test.describe("Smoke: Users List", () => {
     const runId = Date.now();
     const testEmail = `seed-verify-${runId}@test.com`;
 
-    // Arrange: seed a user via SQL
-    await execSQL(
-      request,
-      adminToken,
-      `INSERT INTO _ayb_users (email, password_hash) VALUES ('${testEmail}', '$argon2id$v=19$m=65536,t=3,p=4$dGVzdHNhbHQ$dGVzdGhhc2g') ON CONFLICT DO NOTHING;`,
-    );
+    // Arrange: seed a user through the shared fixture seam
+    const seededUser = await ensureUserByEmail(request, adminToken, testEmail);
+    userEmails.push(testEmail);
 
     // Act: navigate to Users page
     await page.goto("/admin/");
@@ -35,9 +49,26 @@ test.describe("Smoke: Users List", () => {
     await expect(page.getByText(testEmail).first()).toBeVisible({ timeout: 5000 });
 
     // Assert: search input is present (page fully loaded)
-    await expect(page.getByPlaceholder(/search/i)).toBeVisible({ timeout: 3000 });
+    const searchInput = page.getByPlaceholder(/search/i);
+    await expect(searchInput).toBeVisible({ timeout: 3000 });
 
-    // Cleanup
-    await execSQL(request, adminToken, `DELETE FROM _ayb_users WHERE email = '${testEmail}';`);
+    await expect(page.getByRole("columnheader", { name: "Email" })).toBeVisible();
+    await expect(page.getByRole("columnheader", { name: "Verified" })).toBeVisible();
+    await expect(page.getByRole("columnheader", { name: "Created" })).toBeVisible();
+    await expect(page.getByRole("columnheader", { name: "Actions" })).toBeVisible();
+
+    const main = page.getByRole("main");
+    await searchInput.fill(testEmail);
+    await main.getByRole("button", { name: "Search", exact: true }).click();
+    const seededRow = page.getByRole("row", { name: new RegExp(testEmail) }).first();
+    await expect(seededRow).toBeVisible({ timeout: 5000 });
+    await expect(seededRow.getByText(seededUser.id)).toBeVisible();
+    await expect(page.getByText(/^1 user$/)).toBeVisible();
+    await expect(page.getByText("1 / 1")).toBeVisible();
+    await expect(page.getByRole("button", { name: "Previous page" })).toBeDisabled();
+    await expect(page.getByRole("button", { name: "Next page" })).toBeDisabled();
+
+    userEmails.pop();
+    await cleanupUserByEmail(request, adminToken, testEmail);
   });
 });

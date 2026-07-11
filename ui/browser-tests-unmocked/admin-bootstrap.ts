@@ -1,6 +1,3 @@
-/**
- * @module ui/browser-tests-unmocked/admin-bootstrap.ts
- */
 import type { APIRequestContext } from "@playwright/test";
 import { readFileSync } from "fs";
 import { join } from "path";
@@ -10,6 +7,30 @@ export type AdminBootstrapCredential = {
   source: "env-password" | "saved-admin-auth";
   value: string;
 };
+
+const MISSING_ADMIN_BOOTSTRAP_CREDENTIAL_MESSAGE =
+  "No admin password found. Either set AYB_ADMIN_PASSWORD or ensure `ayb start` is running (writes ~/.ayb/admin-token).";
+
+class MissingAdminBootstrapCredentialError extends Error {
+  constructor() {
+    super(MISSING_ADMIN_BOOTSTRAP_CREDENTIAL_MESSAGE);
+    this.name = "MissingAdminBootstrapCredentialError";
+  }
+}
+
+function isMissingSavedAdminAuthError(error: unknown): boolean {
+  return (
+    error instanceof Error &&
+    (error as Error & { code?: string }).code === "ENOENT"
+  );
+}
+
+function describeError(error: unknown): string {
+  if (error instanceof Error) {
+    return error.message;
+  }
+  return String(error);
+}
 
 function readSavedAdminAuth(): string {
   const tokenPath = join(homedir(), ".ayb", "admin-token");
@@ -30,9 +51,13 @@ export function resolveAdminBootstrapCredential(): AdminBootstrapCredential {
       source: "saved-admin-auth",
       value: readSavedAdminAuth(),
     };
-  } catch {
+  } catch (error) {
+    if (isMissingSavedAdminAuthError(error)) {
+      throw new MissingAdminBootstrapCredentialError();
+    }
+
     throw new Error(
-      "No admin password found. Either set AYB_ADMIN_PASSWORD or ensure `ayb start` is running (writes ~/.ayb/admin-token).",
+      `Failed to read saved admin auth from ~/.ayb/admin-token: ${describeError(error)}`,
     );
   }
 }
@@ -43,7 +68,16 @@ export function resolveAdminBootstrapCredential(): AdminBootstrapCredential {
 export async function resolveAdminPasswordForBrowserLogin(
   request: APIRequestContext,
 ): Promise<string | null> {
-  const credential = resolveAdminBootstrapCredential();
+  let credential: AdminBootstrapCredential;
+  try {
+    credential = resolveAdminBootstrapCredential();
+  } catch (error) {
+    if (!(error instanceof MissingAdminBootstrapCredentialError)) {
+      throw error;
+    }
+    return null;
+  }
+
   if (credential.source === "env-password") {
     return credential.value;
   }

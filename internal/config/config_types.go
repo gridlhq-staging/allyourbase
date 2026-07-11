@@ -74,13 +74,14 @@ type APIConfig struct {
 }
 
 type ServerConfig struct {
-	Host               string   `toml:"host"`
-	Port               int      `toml:"port"`
-	SiteURL            string   `toml:"site_url"` // public base URL for email action links (e.g. "https://myapp.example.com")
-	CORSAllowedOrigins []string `toml:"cors_allowed_origins"`
-	AllowedIPs         []string `toml:"allowed_ips"`
-	BodyLimit          string   `toml:"body_limit"`
-	ShutdownTimeout    int      `toml:"shutdown_timeout"`
+	Host                  string   `toml:"host"`
+	Port                  int      `toml:"port"`
+	SiteURL               string   `toml:"site_url"` // public base URL for email action links (e.g. "https://myapp.example.com")
+	CORSAllowedOrigins    []string `toml:"cors_allowed_origins"`
+	AllowedIPs            []string `toml:"allowed_ips"`
+	BodyLimit             string   `toml:"body_limit"`
+	ShutdownTimeout       int      `toml:"shutdown_timeout"`
+	RequireResolvedTenant bool     `toml:"require_resolved_tenant"`
 	// TLS — set tls_domain to enable automatic HTTPS via Let's Encrypt.
 	TLSEnabled bool   `toml:"tls_enabled"` // auto-set when TLSDomain is non-empty
 	TLSDomain  string `toml:"tls_domain"`

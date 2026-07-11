@@ -18,12 +18,13 @@ import (
 )
 
 type Handler struct {
-	svc           *Service
-	isAdmin       func(*http.Request) bool
-	logger        *slog.Logger
-	maxFileSize   int64
-	cdnURL        string
-	uploadTimeout time.Duration
+	svc                   *Service
+	isAdmin               func(*http.Request) bool
+	logger                *slog.Logger
+	maxFileSize           int64
+	cdnURL                string
+	uploadTimeout         time.Duration
+	requireResolvedTenant bool
 
 	mutations           handlerMutations
 	cdnPurgeCoordinator *cdnPurgeCoordinator
@@ -52,19 +53,20 @@ const (
 	defaultUploadTimeout = 5 * time.Minute
 )
 
-func NewHandler(svc *Service, logger *slog.Logger, maxFileSize int64, cdnURL string, isAdmin ...func(*http.Request) bool) *Handler {
+func NewHandler(svc *Service, logger *slog.Logger, maxFileSize int64, cdnURL string, requireResolvedTenant bool, isAdmin ...func(*http.Request) bool) *Handler {
 	var isAdminFn func(*http.Request) bool
 	if len(isAdmin) > 0 {
 		isAdminFn = isAdmin[0]
 	}
 	return &Handler{
-		svc:           svc,
-		isAdmin:       isAdminFn,
-		logger:        logger,
-		maxFileSize:   maxFileSize,
-		cdnURL:        strings.TrimSpace(cdnURL),
-		uploadTimeout: defaultUploadTimeout,
-		mutations:     newHandlerMutations(svc),
+		svc:                   svc,
+		isAdmin:               isAdminFn,
+		logger:                logger,
+		maxFileSize:           maxFileSize,
+		cdnURL:                strings.TrimSpace(cdnURL),
+		uploadTimeout:         defaultUploadTimeout,
+		requireResolvedTenant: requireResolvedTenant,
+		mutations:             newHandlerMutations(svc),
 		cdnPurgeCoordinator: newCDNPurgeCoordinator(
 			NopCDNProvider{},
 			logger,
@@ -113,6 +115,23 @@ func (h *Handler) HandleList(w http.ResponseWriter, r *http.Request) {
 	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
 	offset, _ := strconv.Atoi(r.URL.Query().Get("offset"))
 
+	if h.requireResolvedTenant && tenant.TenantFromContext(r.Context()) == "" {
+		isPublic, err := h.isBucketPublic(r.Context(), bucket)
+		if err != nil {
+			if errors.Is(err, ErrInvalidBucket) {
+				httputil.WriteError(w, http.StatusBadRequest, err.Error())
+				return
+			}
+			h.logger.Error("checking bucket access", "error", err)
+			httputil.WriteError(w, http.StatusInternalServerError, "internal error")
+			return
+		}
+		if h.rejectUnresolvedPublicRead(r.Context(), isPublic) {
+			httputil.WriteError(w, http.StatusNotFound, "file not found")
+			return
+		}
+	}
+
 	objects, total, err := h.svc.ListObjects(r.Context(), bucket, prefix, limit, offset)
 	if err != nil {
 		if errors.Is(err, ErrInvalidBucket) {
@@ -153,11 +172,14 @@ func (h *Handler) HandleServe(w http.ResponseWriter, r *http.Request) {
 
 	// Check for signed URL params.
 	if sig := r.URL.Query().Get("sig"); sig != "" {
-		exp := r.URL.Query().Get("exp")
-		if !h.svc.ValidateSignedURL(bucket, name, exp, sig) {
+		validation := h.svc.ValidateSignedURL(bucket, name, r.URL.Query())
+		if !validation.Valid {
 			httputil.WriteErrorWithDocURL(w, http.StatusForbidden, "invalid or expired signed URL",
 				"https://allyourbase.io/guide/file-storage")
 			return
+		}
+		if validation.TenantID != "" {
+			r = r.WithContext(tenant.ContextWithTenantID(r.Context(), validation.TenantID))
 		}
 		// Signed URL is valid — serve the file without further auth checks.
 		// Treat signed URLs as private to avoid cache leakage.
@@ -177,9 +199,16 @@ func (h *Handler) HandleServe(w http.ResponseWriter, r *http.Request) {
 			httputil.WriteError(w, http.StatusUnauthorized, "missing auth token")
 			return
 		}
+	} else if h.rejectUnresolvedPublicRead(r.Context(), isPublic) {
+		httputil.WriteError(w, http.StatusNotFound, "file not found")
+		return
 	}
 
 	h.serveFile(w, r, bucket, name, isPublic)
+}
+
+func (h *Handler) rejectUnresolvedPublicRead(ctx context.Context, isPublic bool) bool {
+	return isPublic && h.requireResolvedTenant && tenant.TenantFromContext(ctx) == ""
 }
 
 // isBucketPublic determines whether a bucket allows public access. Without a database pool it returns true for backward compatibility. If a bucket has no metadata record, it is treated as implicitly public.

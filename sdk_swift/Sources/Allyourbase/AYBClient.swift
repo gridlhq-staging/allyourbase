@@ -255,6 +255,33 @@ public final class AuthClient {
         )
     }
 
+    public func beginWebAuthnLogin(email: String) async throws -> WebAuthnLoginBeginResponse {
+        return try await client.request(
+            "/api/auth/webauthn/login/begin",
+            method: .post,
+            body: ["email": email],
+            decode: WebAuthnLoginBeginResponse.decode
+        )
+    }
+
+    public func finishWebAuthnLogin(
+        challengeId: String,
+        assertionResponse: [String: Any]
+    ) async throws -> AuthResponse {
+        let response: AuthResponse = try await client.request(
+            "/api/auth/webauthn/login/finish",
+            method: .post,
+            body: [
+                "challenge_id": challengeId,
+                "assertion_response": assertionResponse,
+            ],
+            decode: AuthResponse.decode
+        )
+        client.setTokens(response.token, refreshToken: response.refreshToken)
+        client.emitAuthState(.signedIn)
+        return response
+    }
+
     public func confirmMagicLink(token: String) async throws -> MagicLinkConfirmResponse {
         let response: MagicLinkConfirmResponse = try await client.request(
             "/api/auth/magic-link/confirm",
@@ -422,6 +449,42 @@ public final class RecordsClient {
                 }
             }
         )
+    }
+
+    public func getSynonyms(_ collection: String) async throws -> SearchSynonymsResponse {
+        return try await client.request(
+            searchSynonymsPath(collection),
+            method: .get,
+            decode: SearchSynonymsResponse.decode
+        )
+    }
+
+    public func setSynonyms(
+        _ collection: String,
+        request: SearchSynonymsRequest
+    ) async throws -> SearchSynonymsResponse {
+        return try await client.request(
+            searchSynonymsPath(collection),
+            method: .put,
+            body: request.toDictionary(),
+            decode: SearchSynonymsResponse.decode
+        )
+    }
+
+    public func setSynonyms(
+        _ collection: String,
+        groups: [SearchSynonymGroup]
+    ) async throws -> SearchSynonymsResponse {
+        return try await setSynonyms(collection, request: SearchSynonymsRequest(groups: groups))
+    }
+
+    private func searchSynonymsPath(_ collection: String) -> String {
+        "/api/collections/\(encodePathSegment(collection))/synonyms/"
+    }
+
+    private func encodePathSegment(_ value: String) -> String {
+        let allowed = CharacterSet(charactersIn: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_.~")
+        return value.addingPercentEncoding(withAllowedCharacters: allowed) ?? value
     }
 }
 

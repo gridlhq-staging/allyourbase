@@ -11,6 +11,8 @@ import type {
   FacetValueSearchParams as PublicFacetValueSearchParams,
   FacetValueSearchResponse as PublicFacetValueSearchResponse,
   ListResponse as PublicListResponse,
+  SearchSynonymsRequest as PublicSearchSynonymsRequest,
+  SearchSynonymsResponse as PublicSearchSynonymsResponse,
   SearchHit as PublicSearchHit,
   StorageObject as PublicStorageObject,
   User as PublicUser,
@@ -23,6 +25,8 @@ import type {
   FacetValueSearchParams,
   FacetValueSearchResponse,
   ListResponse,
+  SearchSynonymsRequest,
+  SearchSynonymsResponse,
   SearchHit,
   StorageObject,
   User,
@@ -62,6 +66,8 @@ describe("SDK contract fixtures", () => {
     const assertStorageType = (_value: StorageObject): void => {};
     const assertUserType = (_value: User): void => {};
     const assertWebAuthnBeginType = (_value: WebAuthnLoginBeginResponse): void => {};
+    const assertSearchSynonymsRequestType = (_value: SearchSynonymsRequest): void => {};
+    const assertSearchSynonymsResponseType = (_value: SearchSynonymsResponse): void => {};
     const assertFacetHitType = (_value: FacetValueSearchHit): void => {};
     const assertFacetParamsType = (_value: FacetValueSearchParams): void => {};
     const assertFacetResponseType = (_value: FacetValueSearchResponse): void => {};
@@ -72,6 +78,8 @@ describe("SDK contract fixtures", () => {
     assertStorageType({} as PublicStorageObject);
     assertUserType({} as PublicUser);
     assertWebAuthnBeginType({} as PublicWebAuthnLoginBeginResponse);
+    assertSearchSynonymsRequestType({} as PublicSearchSynonymsRequest);
+    assertSearchSynonymsResponseType({} as PublicSearchSynonymsResponse);
     assertFacetHitType({} as PublicFacetValueSearchHit);
     assertFacetParamsType({} as PublicFacetValueSearchParams);
     assertFacetResponseType({} as PublicFacetValueSearchResponse);
@@ -349,19 +357,7 @@ describe("SDK contract fixtures", () => {
     const fetchFn = mockFetchSequence([
       {
         status: 200,
-        body: {
-          challenge_id: "webauthn-challenge-stage3",
-          options: {
-            challenge: "Y2hhbGxlbmdl",
-            rpId: "example.com",
-            allowCredentials: [
-              {
-                id: "Y3JlZA",
-                type: "public-key",
-              },
-            ],
-          },
-        },
+        body: loadContractFixture("webauthn_login_begin_response.json"),
       },
     ]);
 
@@ -369,12 +365,84 @@ describe("SDK contract fixtures", () => {
     const response = await client.auth.beginWebAuthnLogin("dev@allyourbase.io");
 
     expect(response).toEqual({
-      challengeId: "webauthn-challenge-stage3",
+      challengeId: "webauthn_challenge_fixture",
       options: {
-        challenge: "Y2hhbGxlbmdl",
-        rpId: "example.com",
-        allowCredentials: [{ id: "Y3JlZA", type: "public-key" }],
+        allowCredentials: [
+          {
+            id: "webauthn_login_begin_credential_a",
+            type: "public-key",
+          },
+        ],
+        challenge: "webauthn_login_begin_challenge",
+        rpId: "127.0.0.1",
+        timeout: 300000,
       },
+    });
+    expect(response.options.challenge).toBe("webauthn_login_begin_challenge");
+    expect(response.options.allowCredentials).toEqual([
+      { id: "webauthn_login_begin_credential_a", type: "public-key" },
+    ]);
+  });
+
+  it("search synonym fixtures pin PUT request and normalized response envelopes", async () => {
+    const requestFixture = loadContractFixture(
+      "search_synonyms_request.json",
+    ) as SearchSynonymsRequest;
+    const responseFixture = loadContractFixture(
+      "search_synonyms_response.json",
+    ) as SearchSynonymsResponse;
+    const fetchFn = mockFetchSequence([{ status: 200, body: responseFixture }]);
+    const client = new AYBClient("https://api.example.com", { fetch: fetchFn });
+    client.setApiKey("admin-token");
+
+    const response = await client.searchSettings.setSynonyms(
+      "sdk_contract_synonyms_fixture",
+      requestFixture,
+    );
+
+    expect(response).toEqual(responseFixture);
+    expect(response.groups.map((group) => group.terms)).toEqual([
+      ["new york", "nyc"],
+      ["science fiction", "scifi"],
+    ]);
+
+    const call = fetchFn.mock.calls[0];
+    expect(call[0]).toBe(
+      "https://api.example.com/api/collections/sdk_contract_synonyms_fixture/synonyms/",
+    );
+    expect(call[1]?.method).toBe("PUT");
+    expect(call[1]?.headers).toMatchObject({
+      Authorization: "Bearer admin-token",
+      "Content-Type": "application/json",
+    });
+    expect(call[1]?.body).toBe(JSON.stringify(requestFixture));
+  });
+
+  it("search synonym response fixture decodes through the GET owner", async () => {
+    const responseFixture = loadContractFixture(
+      "search_synonyms_response.json",
+    ) as SearchSynonymsResponse;
+    const fetchFn = mockFetchSequence([{ status: 200, body: responseFixture }]);
+    const client = new AYBClient("https://api.example.com", { fetch: fetchFn });
+    client.setApiKey("admin-token");
+
+    const response = await client.searchSettings.getSynonyms(
+      "sdk_contract_synonyms_fixture",
+    );
+
+    expect(response).toEqual({
+      groups: [
+        { terms: ["new york", "nyc"] },
+        { terms: ["science fiction", "scifi"] },
+      ],
+    });
+
+    const call = fetchFn.mock.calls[0];
+    expect(call[0]).toBe(
+      "https://api.example.com/api/collections/sdk_contract_synonyms_fixture/synonyms/",
+    );
+    expect(call[1]?.headers).toMatchObject({
+      Authorization: "Bearer admin-token",
     });
   });
 });

@@ -19,6 +19,7 @@ func TestDefault(t *testing.T) {
 	testutil.Equal(t, 8090, cfg.Server.Port)
 	testutil.Equal(t, "1MB", cfg.Server.BodyLimit)
 	testutil.Equal(t, 10, cfg.Server.ShutdownTimeout)
+	testutil.Equal(t, false, cfg.Server.RequireResolvedTenant)
 	testutil.SliceLen(t, cfg.Server.CORSAllowedOrigins, 1)
 	testutil.Equal(t, "*", cfg.Server.CORSAllowedOrigins[0])
 	testutil.SliceLen(t, cfg.Server.AllowedIPs, 0)
@@ -1257,6 +1258,7 @@ func TestLoadMissingFileUsesDefaults(t *testing.T) {
 	testutil.NoError(t, err)
 	testutil.Equal(t, 8090, cfg.Server.Port)
 	testutil.Equal(t, "127.0.0.1", cfg.Server.Host)
+	testutil.Equal(t, false, cfg.Server.RequireResolvedTenant)
 }
 
 func TestLoadInvalidTOML(t *testing.T) {
@@ -1273,6 +1275,7 @@ func TestLoadEnvOverrides(t *testing.T) {
 	// Set env vars, then clean up.
 	t.Setenv("AYB_SERVER_HOST", "envhost")
 	t.Setenv("AYB_SERVER_PORT", "9999")
+	t.Setenv("AYB_SERVER_REQUIRE_RESOLVED_TENANT", "true")
 	t.Setenv("AYB_SERVER_ALLOWED_IPS", "203.0.113.10, 198.51.100.0/24")
 	t.Setenv("AYB_DATABASE_URL", "postgresql://envdb")
 	t.Setenv("AYB_DATABASE_REPLICA_URLS", "postgresql://replica-1/db,postgresql://replica-2/db")
@@ -1295,6 +1298,7 @@ func TestLoadEnvOverrides(t *testing.T) {
 
 	testutil.Equal(t, "envhost", cfg.Server.Host)
 	testutil.Equal(t, 9999, cfg.Server.Port)
+	testutil.Equal(t, true, cfg.Server.RequireResolvedTenant)
 	testutil.SliceLen(t, cfg.Server.AllowedIPs, 2)
 	testutil.Equal(t, "203.0.113.10", cfg.Server.AllowedIPs[0])
 	testutil.Equal(t, "198.51.100.0/24", cfg.Server.AllowedIPs[1])
@@ -2095,6 +2099,7 @@ func TestIsValidKey(t *testing.T) {
 		{"server.port", true},
 		{"server.host", true},
 		{"server.site_url", true},
+		{"server.require_resolved_tenant", true},
 		{"server.allowed_ips", true},
 		{"admin.allowed_ips", true},
 		{"database.url", true},
@@ -2150,6 +2155,7 @@ func TestGetValue(t *testing.T) {
 		{"server.host", "127.0.0.1", false},
 		{"server.port", 8090, false},
 		{"server.site_url", "", false},
+		{"server.require_resolved_tenant", false, false},
 		{"database.max_conns", 25, false},
 		{"server.allowed_ips", "203.0.113.10,198.51.100.0/24", false},
 		{"admin.allowed_ips", "2001:db8::1", false},
@@ -2336,6 +2342,17 @@ func TestSetValueBoolean(t *testing.T) {
 	data, err := os.ReadFile(tomlPath)
 	testutil.NoError(t, err)
 	testutil.Contains(t, string(data), "enabled = true")
+}
+
+func TestSetValueServerRequireResolvedTenant(t *testing.T) {
+	dir := t.TempDir()
+	tomlPath := filepath.Join(dir, "ayb.toml")
+
+	testutil.NoError(t, SetValue(tomlPath, "server.require_resolved_tenant", "true"))
+
+	cfg, err := Load(tomlPath, nil)
+	testutil.NoError(t, err)
+	testutil.Equal(t, true, cfg.Server.RequireResolvedTenant)
 }
 
 func TestSetValueAuditConfig(t *testing.T) {

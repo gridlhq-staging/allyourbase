@@ -7,16 +7,19 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/url"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/allyourbase/ayb/internal/edgefunc"
 	"github.com/allyourbase/ayb/internal/jobs"
+	"github.com/allyourbase/ayb/internal/pgnotify"
 	"github.com/allyourbase/ayb/internal/sqlutil"
 	"github.com/allyourbase/ayb/internal/storage"
 	"github.com/allyourbase/ayb/internal/testutil"
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 )
 
 // --- DB Trigger Integration Tests ---
@@ -263,6 +266,146 @@ func TestDBTriggerIntegration_DisabledTriggerDoesNotQueue(t *testing.T) {
 		testutil.True(t, e.TriggerID != trigger.ID,
 			"disabled trigger should not queue events, found event %s", e.ID)
 	}
+}
+
+func TestDBTriggerWorkerStart_ProcessesNotifyBeforePollFallback(t *testing.T) {
+	ctx := context.Background()
+	drainEvents(t)
+
+	fn := deployTriggerTestFunction(t, `function handler(req) {
+		return { statusCode: 200, body: req.body };
+	}`)
+	table := createTriggerTargetTable(t)
+	dbTriggerStore := edgefunc.NewDBTriggerPostgresStore(testPool)
+	dbTriggerSvc := edgefunc.NewDBTriggerService(dbTriggerStore)
+
+	trigger, err := dbTriggerSvc.Create(ctx, edgefunc.CreateDBTriggerInput{
+		FunctionID: fn.ID.String(),
+		TableName:  table,
+		Schema:     "public",
+		Events:     []edgefunc.DBTriggerEvent{edgefunc.DBEventInsert},
+	})
+	testutil.NoError(t, err)
+	t.Cleanup(func() {
+		_ = dbTriggerSvc.Delete(context.Background(), trigger.ID)
+	})
+
+	applicationName := "ayb_test_db_trigger_worker_" + strings.ReplaceAll(uuid.NewString(), "-", "")
+	workerDone, cancelWorker := startDBTriggerWorker(t, withApplicationName(t, testConnString, applicationName))
+	defer stopDBTriggerWorker(t, cancelWorker, workerDone)
+	waitForDBTriggerWorkerListenerPID(t, applicationName)
+
+	insertedAt := time.Now()
+	_, err = testPool.Exec(ctx, fmt.Sprintf(
+		`INSERT INTO %s (value) VALUES ('worker-notify')`,
+		sqlutil.QuoteIdent(table),
+	))
+	testutil.NoError(t, err)
+
+	waitForDBTriggerSuccessLog(t, fn.ID, trigger.ID, 2*time.Second)
+	elapsed := time.Since(insertedAt)
+	testutil.True(t, elapsed < 5*time.Second,
+		"worker should process NOTIFY before 5s poll fallback; elapsed=%s", elapsed)
+	assertDBTriggerQueueCompleted(t, trigger.ID)
+}
+
+func TestDBTriggerWorkerStart_ProcessesQueuedEventOnListenTimeoutWithoutNotify(t *testing.T) {
+	ctx := context.Background()
+	drainEvents(t)
+
+	fn := deployTriggerTestFunction(t, `function handler(req) {
+		return { statusCode: 200, body: req.body };
+	}`)
+	table := createTriggerTargetTable(t)
+	dbTriggerStore := edgefunc.NewDBTriggerPostgresStore(testPool)
+	dbTriggerSvc := edgefunc.NewDBTriggerService(dbTriggerStore)
+
+	trigger, err := dbTriggerSvc.Create(ctx, edgefunc.CreateDBTriggerInput{
+		FunctionID: fn.ID.String(),
+		TableName:  table,
+		Schema:     "public",
+		Events:     []edgefunc.DBTriggerEvent{edgefunc.DBEventInsert},
+	})
+	testutil.NoError(t, err)
+	t.Cleanup(func() {
+		_ = dbTriggerSvc.Delete(context.Background(), trigger.ID)
+	})
+
+	applicationName := "ayb_test_db_trigger_worker_" + strings.ReplaceAll(uuid.NewString(), "-", "")
+	workerDone, cancelWorker := startDBTriggerWorker(
+		t,
+		withApplicationName(t, testConnString, applicationName),
+		edgefunc.WithDBTriggerWorkerTiming(100*time.Millisecond),
+	)
+	defer stopDBTriggerWorker(t, cancelWorker, workerDone)
+	waitForDBTriggerWorkerListenerPID(t, applicationName)
+
+	insertedAt := time.Now()
+	_, err = testPool.Exec(ctx,
+		`INSERT INTO _ayb_edge_trigger_events (trigger_id, table_name, schema_name, operation, row_id, payload)
+		 VALUES ($1, $2, 'public', 'INSERT', 'direct-row-1', '{"value":"worker-timeout"}'::jsonb)`,
+		trigger.ID,
+		table,
+	)
+	testutil.NoError(t, err)
+
+	waitForDBTriggerSuccessLog(t, fn.ID, trigger.ID, 2*time.Second)
+	elapsed := time.Since(insertedAt)
+	testutil.True(t, elapsed < 5*time.Second,
+		"worker should process queued event on LISTEN timeout before 5s poll fallback; elapsed=%s", elapsed)
+	assertDBTriggerQueueCompleted(t, trigger.ID)
+}
+
+func TestDBTriggerWorkerStart_ReconnectsAfterListenerBackendTermination(t *testing.T) {
+	ctx := context.Background()
+	drainEvents(t)
+
+	fn := deployTriggerTestFunction(t, `function handler(req) {
+		return { statusCode: 200, body: req.body };
+	}`)
+	table := createTriggerTargetTable(t)
+	dbTriggerStore := edgefunc.NewDBTriggerPostgresStore(testPool)
+	dbTriggerSvc := edgefunc.NewDBTriggerService(dbTriggerStore)
+
+	trigger, err := dbTriggerSvc.Create(ctx, edgefunc.CreateDBTriggerInput{
+		FunctionID: fn.ID.String(),
+		TableName:  table,
+		Schema:     "public",
+		Events:     []edgefunc.DBTriggerEvent{edgefunc.DBEventInsert},
+	})
+	testutil.NoError(t, err)
+	t.Cleanup(func() {
+		_ = dbTriggerSvc.Delete(context.Background(), trigger.ID)
+	})
+
+	applicationName := "ayb_test_db_trigger_worker_" + strings.ReplaceAll(uuid.NewString(), "-", "")
+	connString := withApplicationName(t, testConnString, applicationName)
+	workerDone, cancelWorker := startDBTriggerWorker(
+		t,
+		connString,
+		edgefunc.WithDBTriggerWorkerTiming(30*time.Second),
+	)
+	defer stopDBTriggerWorker(t, cancelWorker, workerDone)
+
+	initialPID := waitForDBTriggerWorkerListenerPID(t, applicationName)
+	var terminated bool
+	err = testPool.QueryRow(ctx, `SELECT pg_terminate_backend($1)`, initialPID).Scan(&terminated)
+	testutil.NoError(t, err)
+	testutil.True(t, terminated, "expected pg_terminate_backend to terminate listener PID %d", initialPID)
+	waitForDBTriggerWorkerListenerPIDChange(t, applicationName, initialPID)
+
+	insertedAt := time.Now()
+	_, err = testPool.Exec(ctx, fmt.Sprintf(
+		`INSERT INTO %s (value) VALUES ('worker-reconnect')`,
+		sqlutil.QuoteIdent(table),
+	))
+	testutil.NoError(t, err)
+
+	waitForDBTriggerSuccessLog(t, fn.ID, trigger.ID, 2*time.Second)
+	elapsed := time.Since(insertedAt)
+	testutil.True(t, elapsed < 5*time.Second,
+		"reconnected worker should process NOTIFY before 5s poll fallback; elapsed=%s", elapsed)
+	assertDBTriggerQueueCompleted(t, trigger.ID)
 }
 
 // --- Cron Trigger Integration Tests ---
@@ -643,6 +786,179 @@ func drainEvents(t *testing.T) {
 			_ = eventStore.MarkCompleted(ctx, e.ID)
 		}
 	}
+}
+
+func startDBTriggerWorker(
+	t *testing.T,
+	connString string,
+	opts ...edgefunc.DBTriggerWorkerOption,
+) (<-chan error, context.CancelFunc) {
+	t.Helper()
+
+	store := edgefunc.NewPostgresStore(testPool)
+	logStore := edgefunc.NewPostgresLogStore(testPool)
+	pool := edgefunc.NewPool(2)
+	t.Cleanup(pool.Close)
+
+	svc := edgefunc.NewService(store, pool, logStore)
+	dbTriggerStore := edgefunc.NewDBTriggerPostgresStore(testPool)
+	bus := pgnotify.NewBus(testPool, connString, testutil.DiscardLogger())
+	worker := edgefunc.NewDBTriggerWorker(
+		edgefunc.NewDBTriggerEventPostgresStore(testPool),
+		edgefunc.NewDBTriggerDispatcher(dbTriggerStore, svc),
+		bus,
+		testutil.DiscardLogger(),
+		opts...,
+	)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() {
+		done <- worker.Start(ctx)
+	}()
+	return done, cancel
+}
+
+func stopDBTriggerWorker(t *testing.T, cancel context.CancelFunc, done <-chan error) {
+	t.Helper()
+
+	cancel()
+	select {
+	case err := <-done:
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("DBTriggerWorker.Start returned %v, want context.Canceled", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("DBTriggerWorker.Start did not exit after context cancellation")
+	}
+	drainEvents(t)
+}
+
+func waitForDBTriggerSuccessLog(
+	t *testing.T,
+	functionID uuid.UUID,
+	triggerID string,
+	timeout time.Duration,
+) *edgefunc.LogEntry {
+	t.Helper()
+
+	ctx := context.Background()
+	logStore := edgefunc.NewPostgresLogStore(testPool)
+	deadline := time.After(timeout)
+	ticker := time.NewTicker(25 * time.Millisecond)
+	defer ticker.Stop()
+
+	for {
+		logs, err := logStore.ListByFunction(ctx, functionID, edgefunc.LogListOptions{
+			Page:        1,
+			PerPage:     20,
+			Status:      "success",
+			TriggerType: string(edgefunc.TriggerDB),
+		})
+		testutil.NoError(t, err)
+		for _, log := range logs {
+			if log.TriggerID == triggerID {
+				return log
+			}
+		}
+
+		select {
+		case <-ticker.C:
+		case <-deadline:
+			t.Fatalf("timed out waiting for success db trigger log for trigger %s", triggerID)
+		}
+	}
+}
+
+func assertDBTriggerQueueCompleted(t *testing.T, triggerID string) {
+	t.Helper()
+
+	var status string
+	var attempts int
+	err := testPool.QueryRow(context.Background(),
+		`SELECT status, attempts
+		 FROM _ayb_edge_trigger_events
+		 WHERE trigger_id = $1
+		 ORDER BY created_at DESC
+		 LIMIT 1`,
+		triggerID,
+	).Scan(&status, &attempts)
+	testutil.NoError(t, err)
+	testutil.Equal(t, string(edgefunc.DBEventStatusCompleted), status)
+	testutil.Equal(t, 1, attempts)
+}
+
+func withApplicationName(t *testing.T, connString, applicationName string) string {
+	t.Helper()
+
+	u, err := url.Parse(connString)
+	testutil.NoError(t, err)
+	values := u.Query()
+	values.Set("application_name", applicationName)
+	u.RawQuery = values.Encode()
+	return u.String()
+}
+
+func waitForDBTriggerWorkerListenerPID(t *testing.T, applicationName string) int {
+	t.Helper()
+
+	deadline := time.After(3 * time.Second)
+	ticker := time.NewTicker(25 * time.Millisecond)
+	defer ticker.Stop()
+
+	for {
+		if pid := dbTriggerWorkerListenerPID(t, applicationName); pid != 0 {
+			return pid
+		}
+
+		select {
+		case <-ticker.C:
+		case <-deadline:
+			t.Fatalf("timed out waiting for DB trigger worker listener PID for application_name %q", applicationName)
+		}
+	}
+}
+
+func waitForDBTriggerWorkerListenerPIDChange(t *testing.T, applicationName string, previous int) int {
+	t.Helper()
+
+	deadline := time.After(5 * time.Second)
+	ticker := time.NewTicker(25 * time.Millisecond)
+	defer ticker.Stop()
+
+	for {
+		if pid := dbTriggerWorkerListenerPID(t, applicationName); pid != 0 && pid != previous {
+			return pid
+		}
+
+		select {
+		case <-ticker.C:
+		case <-deadline:
+			t.Fatalf("timed out waiting for DB trigger worker listener PID for %q to change from %d",
+				applicationName, previous)
+		}
+	}
+}
+
+func dbTriggerWorkerListenerPID(t *testing.T, applicationName string) int {
+	t.Helper()
+
+	var pid int
+	err := testPool.QueryRow(context.Background(),
+		`SELECT pid
+		 FROM pg_stat_activity
+		 WHERE datname = current_database()
+		   AND application_name = $1
+		   AND query = 'LISTEN ayb_edge_trigger'
+		 ORDER BY backend_start DESC
+		 LIMIT 1`,
+		applicationName,
+	).Scan(&pid)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return 0
+	}
+	testutil.NoError(t, err)
+	return pid
 }
 
 // testJobsSchedulerAdapter adapts jobs.Service to edgefunc.JobsScheduler for integration tests.

@@ -10,6 +10,7 @@ import (
 	"github.com/allyourbase/ayb/internal/httputil"
 	"github.com/allyourbase/ayb/internal/realtime"
 	"github.com/allyourbase/ayb/internal/schema"
+	"github.com/allyourbase/ayb/internal/tenant"
 )
 
 // errBatchNotFound is returned when a batch update/delete targets a non-existent row.
@@ -87,8 +88,13 @@ func (h *Handler) handleBatch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Publish events after successful commit.
+	// Publish events after successful commit. Tag every batch event with the
+	// request tenant here — the single post-commit publish owner for batch — so
+	// same-table events cannot leak across tenants. Tenant context is stable for
+	// the whole request, so one lookup applies to every event in the batch.
+	tenantID := tenant.TenantFromContext(r.Context())
 	for _, event := range events {
+		event.TenantID = tenantID
 		if h.hub != nil {
 			h.hub.Publish(event)
 		}

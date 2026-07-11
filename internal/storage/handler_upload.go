@@ -1,4 +1,3 @@
-// Package storage contains multipart upload request handling helpers.
 package storage
 
 import (
@@ -60,7 +59,11 @@ func (h *Handler) HandleUpload(w http.ResponseWriter, r *http.Request) {
 	if input.trackedUser {
 		if err := h.mutations.reserveQuota(r.Context(), *input.userID, input.size); err != nil {
 			if errors.Is(err, ErrQuotaExceeded) {
-				httputil.WriteError(w, http.StatusRequestEntityTooLarge, "storage quota exceeded")
+				message := "storage quota exceeded"
+				if tenantID != "" {
+					message = "tenant storage quota exceeded"
+				}
+				httputil.WriteError(w, http.StatusRequestEntityTooLarge, message)
 				return
 			}
 			h.logger.Error("quota reservation error", "error", err)

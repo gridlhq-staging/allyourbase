@@ -90,6 +90,32 @@ await client.auth.verifyEmail('verification-token');
 await client.auth.logout();
 ```
 
+### Passkey sign-in
+
+`signInWithPasskey` composes the WebAuthn begin and finish API calls while a
+user-supplied `PasskeyAuthenticator` performs the device ceremony.
+
+```dart
+class PlatformPasskeyAuthenticator extends PasskeyAuthenticator {
+  @override
+  Future<JsonMap> authenticate(JsonMap options) async {
+    return startPlatformPasskeyCeremony(options);
+  }
+}
+
+final auth = await client.auth.signInWithPasskey(
+  'user@example.com',
+  PlatformPasskeyAuthenticator(),
+);
+
+print(auth.token);
+```
+
+The Dart SDK stays pure Dart and does not include Flutter, platform channels, or
+native passkey plugins. A real native `PasskeyAuthenticator` belongs in a
+separate Flutter package. On-device FaceID, biometric, or platform ceremony
+validation is outside autonomous SDK validation scope.
+
 ### Token management
 
 ```dart

@@ -13,6 +13,7 @@ import kotlin.time.Duration.Companion.seconds
 enum class HttpMethod {
     GET,
     POST,
+    PUT,
     PATCH,
     DELETE,
 }
@@ -72,6 +73,7 @@ class KtorHttpTransport(
 private fun HttpMethod.toKtor(): io.ktor.http.HttpMethod = when (this) {
     HttpMethod.GET -> io.ktor.http.HttpMethod.Get
     HttpMethod.POST -> io.ktor.http.HttpMethod.Post
+    HttpMethod.PUT -> io.ktor.http.HttpMethod.Put
     HttpMethod.PATCH -> io.ktor.http.HttpMethod.Patch
     HttpMethod.DELETE -> io.ktor.http.HttpMethod.Delete
 }

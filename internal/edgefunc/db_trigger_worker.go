@@ -7,8 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/jackc/pgx/v5"
-
+	"github.com/allyourbase/ayb/internal/pgnotify"
 	"github.com/allyourbase/ayb/internal/sqlutil"
 )
 
@@ -19,11 +18,8 @@ const (
 	// dbTriggerPollInterval is the fallback polling interval when LISTEN is unavailable.
 	dbTriggerPollInterval = 5 * time.Second
 
-	// dbTriggerListenTimeout is the max wait time per WaitForNotification call.
+	// dbTriggerListenTimeout is the max wait time per raw listener notification read.
 	dbTriggerListenTimeout = 30 * time.Second
-
-	// dbTriggerReconnectDelay is the delay before reconnecting after a LISTEN connection loss.
-	dbTriggerReconnectDelay = 5 * time.Second
 
 	// dbTriggerBatchSize is the number of events claimed per poll cycle.
 	dbTriggerBatchSize = 10
@@ -33,115 +29,81 @@ const (
 // from the queue table. It uses LISTEN/NOTIFY for low-latency wakeup with
 // a fallback poll timer for reliability.
 type DBTriggerWorker struct {
-	eventStore DBTriggerEventStore
-	dispatcher *DBTriggerDispatcher
-	connString string
-	logger     *slog.Logger
+	eventStore    DBTriggerEventStore
+	dispatcher    *DBTriggerDispatcher
+	bus           *pgnotify.Bus
+	logger        *slog.Logger
+	listenTimeout time.Duration
+}
+
+// DBTriggerWorkerOption customizes DB trigger worker behavior.
+type DBTriggerWorkerOption func(*DBTriggerWorker)
+
+// WithDBTriggerWorkerTiming overrides the listener wait timeout (the interval
+// after which an idle LISTEN drains the durable queue).
+//
+// It deliberately takes ONLY the listen timeout. Reconnect backoff is not a
+// worker concern: since the pgnotify consolidation the worker listens through
+// pgnotify.Bus.ListenRaw, which owns reconnect-with-backoff. An earlier
+// signature accepted a second reconnect-delay argument and silently discarded
+// it -- a knob that looks configurable but does nothing is worse than no knob.
+func WithDBTriggerWorkerTiming(listenTimeout time.Duration) DBTriggerWorkerOption {
+	return func(w *DBTriggerWorker) {
+		if listenTimeout > 0 {
+			w.listenTimeout = listenTimeout
+		}
+	}
 }
 
 // NewDBTriggerWorker creates a new worker that processes DB trigger events.
 func NewDBTriggerWorker(
 	eventStore DBTriggerEventStore,
 	dispatcher *DBTriggerDispatcher,
-	connString string,
+	bus *pgnotify.Bus,
 	logger *slog.Logger,
+	opts ...DBTriggerWorkerOption,
 ) *DBTriggerWorker {
-	return &DBTriggerWorker{
-		eventStore: eventStore,
-		dispatcher: dispatcher,
-		connString: connString,
-		logger:     logger,
+	w := &DBTriggerWorker{
+		eventStore:    eventStore,
+		dispatcher:    dispatcher,
+		bus:           bus,
+		logger:        logger,
+		listenTimeout: dbTriggerListenTimeout,
 	}
+	for _, opt := range opts {
+		if opt != nil {
+			opt(w)
+		}
+	}
+	return w
 }
 
 // Start runs the worker loop. It attempts to establish a LISTEN connection
 // for low-latency event processing, falling back to periodic polling if
 // the connection fails. Blocks until ctx is cancelled.
 func (w *DBTriggerWorker) Start(ctx context.Context) error {
-	// Try LISTEN mode first
-	conn, err := pgx.Connect(ctx, w.connString)
-	if err != nil {
-		w.logger.Warn("db trigger worker: could not establish listener, falling back to polling",
-			"error", err)
-		return w.runPoller(ctx)
-	}
-
-	if _, err := conn.Exec(ctx, "LISTEN "+dbTriggerNotifyChannel); err != nil {
-		conn.Close(ctx)
-		w.logger.Warn("db trigger worker: LISTEN failed, falling back to polling",
-			"error", err)
+	if w.bus == nil {
+		w.logger.Warn("db trigger worker: listener bus unavailable, falling back to polling")
 		return w.runPoller(ctx)
 	}
 
 	w.logger.Info("db trigger worker: listening for events",
 		"channel", dbTriggerNotifyChannel)
 
-	// Process any events that were queued before we started listening
-	w.processAvailableEvents(ctx)
-
-	return w.runListener(ctx, conn)
-}
-
-// runListener waits for notifications and processes events. Reconnects on failure.
-func (w *DBTriggerWorker) runListener(ctx context.Context, conn *pgx.Conn) error {
-	// Use a closure so the defer closes whichever connection is current at exit,
-	// not the original one captured at defer registration time.
-	defer func() {
-		if conn != nil {
-			conn.Close(context.Background())
-		}
-	}()
-
-	for {
-		waitCtx, cancel := context.WithTimeout(ctx, dbTriggerListenTimeout)
-		_, err := conn.WaitForNotification(waitCtx)
-		cancel()
-
-		if ctx.Err() != nil {
-			return ctx.Err()
-		}
-
-		if err != nil {
-			// Timeout is normal — just process any pending events and loop
-			if waitCtx.Err() == context.DeadlineExceeded {
-				w.processAvailableEvents(ctx)
-				continue
-			}
-
-			// Connection lost — try to reconnect
-			w.logger.Warn("db trigger worker: listener connection lost, reconnecting",
-				"error", err, "delay", dbTriggerReconnectDelay)
-			conn.Close(context.Background())
-			conn = nil
-
-			select {
-			case <-ctx.Done():
-				return ctx.Err()
-			case <-time.After(dbTriggerReconnectDelay):
-			}
-
-			newConn, err := pgx.Connect(ctx, w.connString)
-			if err != nil {
-				w.logger.Warn("db trigger worker: reconnect failed, falling back to polling",
-					"error", err)
-				return w.runPoller(ctx)
-			}
-			if _, err := newConn.Exec(ctx, "LISTEN "+dbTriggerNotifyChannel); err != nil {
-				newConn.Close(context.Background())
-				w.logger.Warn("db trigger worker: LISTEN on reconnect failed, falling back to polling",
-					"error", err)
-				return w.runPoller(ctx)
-			}
-
-			conn = newConn
-			// Process any events missed during reconnect
-			w.processAvailableEvents(ctx)
-			continue
-		}
-
-		// Notification received — process events
+	err := w.bus.ListenRaw(ctx, dbTriggerNotifyChannel, func(string) {
 		w.processAvailableEvents(ctx)
+	},
+		pgnotify.WithRawListenStartHandler(w.processAvailableEvents),
+		pgnotify.WithRawListenTimeout(w.listenTimeout),
+		pgnotify.WithRawListenTimeoutHandler(w.processAvailableEvents),
+		pgnotify.WithRawListenReconnectFailurePolicy(pgnotify.RawListenReconnectReturnFailure),
+	)
+	if err != nil && ctx.Err() == nil {
+		w.logger.Warn("db trigger worker: listener failed, falling back to polling",
+			"error", err)
+		return w.runPoller(ctx)
 	}
+	return err
 }
 
 // runPoller periodically processes events when LISTEN is unavailable.

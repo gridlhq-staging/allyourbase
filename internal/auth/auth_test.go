@@ -35,6 +35,18 @@ func newJWTTestServiceWithClock(tokenDur time.Duration, now func() time.Time) *S
 	}
 }
 
+func TestNewServiceDefaultsToInMemoryOnlyDenyList(t *testing.T) {
+	t.Parallel()
+
+	svc := NewService(nil, testSecret, time.Hour, 24*time.Hour, 8, testutil.DiscardLogger())
+
+	testutil.NotNil(t, svc.denyList)
+	testutil.Equal(t, nil, svc.denyList.currentStore())
+	testutil.Equal(t, nil, svc.denyList.currentBus())
+	testutil.NoError(t, svc.denyList.Add("session-1", time.Hour))
+	testutil.True(t, svc.denyList.IsDenied("session-1"), "default denylist should remain in-memory")
+}
+
 func TestHashAndVerifyPassword(t *testing.T) {
 	t.Parallel()
 	hash, err := hashPassword("mypassword123")

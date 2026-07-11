@@ -131,6 +131,24 @@ func TestConn_AuthState(t *testing.T) {
 	}
 }
 
+func TestConn_ActiveSchemaDefaultsAndRoundTrips(t *testing.T) {
+	t.Parallel()
+	sc, _, cleanup := dialTestServer(t)
+	defer cleanup()
+
+	if got := sc.ActiveSchema(); got != "public" {
+		t.Fatalf("default active schema = %q, want public", got)
+	}
+	sc.SetActiveSchema("tenant_a")
+	if got := sc.ActiveSchema(); got != "tenant_a" {
+		t.Fatalf("active schema = %q, want tenant_a", got)
+	}
+	sc.SetActiveSchema("")
+	if got := sc.ActiveSchema(); got != "public" {
+		t.Fatalf("empty active schema = %q, want public", got)
+	}
+}
+
 func TestConn_PresenceState(t *testing.T) {
 	t.Parallel()
 	sc, _, cleanup := dialTestServer(t)

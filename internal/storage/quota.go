@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/allyourbase/ayb/internal/tenant"
 	"github.com/jackc/pgx/v5"
 )
 
@@ -33,11 +34,11 @@ WITH user_quota AS (
 	WHERE u.id = $1
 ),
 usage_upsert AS (
-	INSERT INTO _ayb_storage_usage AS su (user_id, bytes_used, updated_at)
-	SELECT uq.user_id, $2, NOW()
+	INSERT INTO _ayb_storage_usage AS su (tenant_id, user_id, bytes_used, updated_at)
+	SELECT $4, uq.user_id, $2, NOW()
 	FROM user_quota uq
 	WHERE uq.quota_bytes <= 0 OR $2 <= uq.quota_bytes
-	ON CONFLICT (user_id) DO UPDATE
+	ON CONFLICT (tenant_id, user_id) DO UPDATE
 	SET bytes_used = su.bytes_used + EXCLUDED.bytes_used, updated_at = NOW()
 	WHERE
 		(SELECT uq.quota_bytes FROM user_quota uq WHERE uq.user_id = su.user_id) <= 0
@@ -58,7 +59,8 @@ func (s *Service) ReserveQuota(ctx context.Context, userID string, bytes int64) 
 
 	var userExists bool
 	var reserved bool
-	if err := s.pool.QueryRow(ctx, reserveQuotaSQL, userID, bytes, s.defaultQuotaBytes).Scan(&userExists, &reserved); err != nil {
+	tenantID := tenant.TenantFromContext(ctx)
+	if err := s.pool.QueryRow(ctx, reserveQuotaSQL, userID, bytes, s.defaultQuotaBytes, tenantID).Scan(&userExists, &reserved); err != nil {
 		return fmt.Errorf("reserving quota: %w", err)
 	}
 	if !userExists {
@@ -79,12 +81,13 @@ func (s *Service) CheckQuota(ctx context.Context, userID string, additionalBytes
 
 	var bytesUsed int64
 	var quotaMB *int
+	tenantID := tenant.TenantFromContext(ctx)
 
 	err := s.pool.QueryRow(ctx,
 		`SELECT COALESCE(su.bytes_used, 0), u.storage_quota_mb
 		 FROM _ayb_users u
-		 LEFT JOIN _ayb_storage_usage su ON su.user_id = u.id
-		 WHERE u.id = $1`, userID,
+		 LEFT JOIN _ayb_storage_usage su ON su.tenant_id = $2 AND su.user_id = u.id
+		 WHERE u.id = $1`, userID, tenantID,
 	).Scan(&bytesUsed, &quotaMB)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -116,11 +119,11 @@ func (s *Service) IncrementUsage(ctx context.Context, userID string, bytes int64
 	}
 
 	_, err := s.pool.Exec(ctx,
-		`INSERT INTO _ayb_storage_usage (user_id, bytes_used, updated_at)
-		 VALUES ($1, $2, NOW())
-		 ON CONFLICT (user_id) DO UPDATE
-		 SET bytes_used = _ayb_storage_usage.bytes_used + $2, updated_at = NOW()`,
-		userID, bytes,
+		`INSERT INTO _ayb_storage_usage (tenant_id, user_id, bytes_used, updated_at)
+		 VALUES ($1, $2, $3, NOW())
+		 ON CONFLICT (tenant_id, user_id) DO UPDATE
+		 SET bytes_used = _ayb_storage_usage.bytes_used + $3, updated_at = NOW()`,
+		tenant.TenantFromContext(ctx), userID, bytes,
 	)
 	if err != nil {
 		return fmt.Errorf("incrementing storage usage: %w", err)
@@ -137,9 +140,9 @@ func (s *Service) DecrementUsage(ctx context.Context, userID string, bytes int64
 
 	_, err := s.pool.Exec(ctx,
 		`UPDATE _ayb_storage_usage
-		 SET bytes_used = GREATEST(bytes_used - $2, 0), updated_at = NOW()
-		 WHERE user_id = $1`,
-		userID, bytes,
+		 SET bytes_used = GREATEST(bytes_used - $3, 0), updated_at = NOW()
+		 WHERE tenant_id = $1 AND user_id = $2`,
+		tenant.TenantFromContext(ctx), userID, bytes,
 	)
 	if err != nil {
 		return fmt.Errorf("decrementing storage usage: %w", err)
@@ -155,12 +158,13 @@ func (s *Service) GetUsage(ctx context.Context, userID string) (*QuotaInfo, erro
 
 	var bytesUsed int64
 	var quotaMB *int
+	tenantID := tenant.TenantFromContext(ctx)
 
 	err := s.pool.QueryRow(ctx,
 		`SELECT COALESCE(su.bytes_used, 0), u.storage_quota_mb
 		 FROM _ayb_users u
-		 LEFT JOIN _ayb_storage_usage su ON su.user_id = u.id
-		 WHERE u.id = $1`, userID,
+		 LEFT JOIN _ayb_storage_usage su ON su.tenant_id = $2 AND su.user_id = u.id
+		 WHERE u.id = $1`, userID, tenantID,
 	).Scan(&bytesUsed, &quotaMB)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -179,6 +183,25 @@ func (s *Service) GetUsage(ctx context.Context, userID string) (*QuotaInfo, erro
 		QuotaBytes: quotaBytes,
 		QuotaMB:    quotaMB,
 	}, nil
+}
+
+// GetTenantUsage returns the System 1 storage usage rollup for one tenant.
+func (s *Service) GetTenantUsage(ctx context.Context, tenantID string) (int64, error) {
+	if s.pool == nil {
+		return 0, fmt.Errorf("database pool is not configured")
+	}
+
+	var bytesUsed int64
+	err := s.pool.QueryRow(ctx,
+		`SELECT COALESCE(SUM(bytes_used), 0)
+		 FROM _ayb_storage_usage
+		 WHERE tenant_id = $1`,
+		tenantID,
+	).Scan(&bytesUsed)
+	if err != nil {
+		return 0, fmt.Errorf("getting tenant usage: %w", err)
+	}
+	return bytesUsed, nil
 }
 
 // SetUserQuota sets a per-user quota override. Pass nil to remove the override

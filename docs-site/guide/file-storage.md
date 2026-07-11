@@ -48,6 +48,9 @@ When auth is disabled, routes are mounted directly without auth middleware.
 - Buckets with metadata `public=true` expose public object URLs.
 - Buckets with no metadata record are treated as implicitly public.
 - Signed URL validation on `GET /api/storage/{bucket}/{name}` bypasses auth if signature is valid.
+- The `server.require_resolved_tenant` security toggle can make anonymous public
+  list and object reads fail closed unless AYB resolves a tenant. See
+  [Tenant resolution for public storage reads](/guide/security#tenant-resolution-for-public-storage-reads).
 
 Signed URL creation:
 

@@ -1,15 +1,22 @@
 package realtime_test
 
 import (
+	"context"
+	"errors"
+	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/allyourbase/ayb/internal/auth"
 	"github.com/allyourbase/ayb/internal/realtime"
+	"github.com/allyourbase/ayb/internal/schema"
+	"github.com/allyourbase/ayb/internal/tenant"
 	"github.com/allyourbase/ayb/internal/testutil"
 	"github.com/allyourbase/ayb/internal/ws"
 	"github.com/gorilla/websocket"
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 // wsConnect dials a test server and reads the initial "connected" message.
@@ -280,6 +287,133 @@ func TestBridgeWSDoesNotInterfereWithSSE(t *testing.T) {
 	// WS client receives it.
 	msg := wsReadEvent(t, conn, time.Second)
 	testutil.Equal(t, "create", msg.Action)
+}
+
+// tenantTokenValidator maps bearer tokens to claims carrying a TenantID, so a
+// WebSocket connection authenticates with a known tenant scope.
+type tenantTokenValidator struct {
+	tokens map[string]string // token → tenant ID
+}
+
+func (v *tenantTokenValidator) ValidateToken(token string) (*auth.Claims, error) {
+	if tenantID, ok := v.tokens[token]; ok {
+		return &auth.Claims{TenantID: tenantID}, nil
+	}
+	return nil, errors.New("invalid token")
+}
+
+func (v *tenantTokenValidator) ValidateAPIKey(context.Context, string) (*auth.Claims, error) {
+	return nil, errors.New("api keys not supported in test")
+}
+
+// setupAuthedBridgeServer wires a Hub, WSBridge, and auth-enabled ws.Handler so
+// tests can drive the claims-derived tenant path through onSubscribe.
+func setupAuthedBridgeServer(t *testing.T, tokens map[string]string) (*realtime.Hub, *httptest.Server) {
+	t.Helper()
+	hub := realtime.NewHub(testutil.DiscardLogger())
+	wsHandler := ws.NewHandler(&tenantTokenValidator{tokens: tokens}, testutil.DiscardLogger())
+	bridge := realtime.NewWSBridge(hub, nil, nil, testutil.DiscardLogger())
+	bridge.SetupHandler(wsHandler)
+	srv := httptest.NewServer(wsHandler)
+	t.Cleanup(func() {
+		wsHandler.Shutdown()
+		hub.Close()
+		srv.Close()
+	})
+	return hub, srv
+}
+
+func wsConnectWithToken(t *testing.T, url, token string) *websocket.Conn {
+	t.Helper()
+	wsURL := "ws" + url[len("http"):]
+	header := http.Header{"Authorization": []string{"Bearer " + token}}
+	conn, _, err := websocket.DefaultDialer.Dial(wsURL, header)
+	testutil.NoError(t, err)
+
+	var msg ws.ServerMessage
+	err = conn.ReadJSON(&msg)
+	testutil.NoError(t, err)
+	testutil.Equal(t, "connected", msg.Type)
+	return conn
+}
+
+// TestBridgeTenantScopedDeliveryFromClaims proves the WebSocket bridge scopes a
+// hub client to the tenant taken from its authenticated claims, so a tenant-a
+// event reaches the tenant-a connection and is suppressed for the tenant-b
+// connection subscribed to the same table.
+func TestBridgeTenantScopedDeliveryFromClaims(t *testing.T) {
+	t.Parallel()
+	hub, srv := setupAuthedBridgeServer(t, map[string]string{
+		"token-a": "tenant-a",
+		"token-b": "tenant-b",
+	})
+
+	connA := wsConnectWithToken(t, srv.URL, "token-a")
+	defer connA.Close()
+	connB := wsConnectWithToken(t, srv.URL, "token-b")
+	defer connB.Close()
+
+	wsSendJSON(t, connA, map[string]any{"type": "subscribe", "tables": []string{"posts"}})
+	wsReadReply(t, connA)
+	wsSendJSON(t, connB, map[string]any{"type": "subscribe", "tables": []string{"posts"}})
+	wsReadReply(t, connB)
+
+	hub.Publish(&realtime.Event{
+		Action:   "create",
+		Table:    "posts",
+		TenantID: "tenant-a",
+		Record:   map[string]any{"id": 1},
+	})
+
+	// tenant-a connection receives it.
+	msg := wsReadEvent(t, connA, time.Second)
+	testutil.Equal(t, "create", msg.Action)
+	testutil.Equal(t, "posts", msg.Table)
+
+	// tenant-b connection must not.
+	_ = connB.SetReadDeadline(time.Now().Add(100 * time.Millisecond))
+	var leaked ws.ServerMessage
+	err := connB.ReadJSON(&leaked)
+	testutil.True(t, err != nil, "tenant-b connection must not receive a tenant-a event")
+}
+
+func TestBridgeForwardingUsesConnectionActiveSchema(t *testing.T) {
+	t.Parallel()
+
+	hub := realtime.NewHub(testutil.DiscardLogger())
+	wsHandler := ws.NewHandler(&tenantTokenValidator{tokens: map[string]string{"token-a": "tenant-a"}}, testutil.DiscardLogger())
+	cache := schema.NewCacheHolder(nil, testutil.DiscardLogger())
+	cache.SetForTesting(&schema.SchemaCache{Tables: map[string]*schema.Table{
+		"tenant_b.peer_only": {Schema: "tenant_b", Name: "peer_only", Kind: "table", PrimaryKey: []string{"id"}},
+	}})
+	bridge := realtime.NewWSBridge(hub, &pgxpool.Pool{}, cache, testutil.DiscardLogger())
+	bridge.SetupHandler(wsHandler)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		ctx := tenant.ContextWithActiveSchema(r.Context(), "tenant_a")
+		wsHandler.ServeHTTP(w, r.WithContext(ctx))
+	}))
+	t.Cleanup(func() {
+		wsHandler.Shutdown()
+		hub.Close()
+		srv.Close()
+	})
+
+	conn := wsConnectWithToken(t, srv.URL, "token-a")
+	defer conn.Close()
+	wsSendJSON(t, conn, map[string]any{"type": "subscribe", "tables": []string{"peer_only"}})
+	wsReadReply(t, conn)
+
+	hub.Publish(&realtime.Event{
+		Action:   "create",
+		Table:    "peer_only",
+		TenantID: "tenant-a",
+		Record:   map[string]any{"id": 1},
+	})
+
+	_ = conn.SetReadDeadline(time.Now().Add(100 * time.Millisecond))
+	var leaked ws.ServerMessage
+	err := conn.ReadJSON(&leaked)
+	testutil.True(t, err != nil, "active schema tenant_a must fail closed for tenant_b-only metadata")
 }
 
 func TestBridgeInvalidFilterRejected(t *testing.T) {

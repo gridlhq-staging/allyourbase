@@ -13,6 +13,7 @@ import (
 
 	"github.com/allyourbase/ayb/internal/auth"
 	"github.com/allyourbase/ayb/internal/httputil"
+	"github.com/allyourbase/ayb/internal/tenant"
 )
 
 // TokenValidator abstracts token validation for testability.
@@ -89,6 +90,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	id := fmt.Sprintf("ws-%d", h.nextID.Add(1))
 	c := newConn(id, wsConn, h.logger)
+	c.SetActiveSchema(tenant.ActiveSchemaFromContext(r.Context()))
 	h.setConnDropHook(c)
 
 	h.trackConn(c)

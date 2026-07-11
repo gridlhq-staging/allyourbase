@@ -1,12 +1,24 @@
 from __future__ import annotations
 
+import json
+from pathlib import Path
 from urllib.parse import parse_qs, quote
 
 import pytest
 
 from allyourbase.client import AYBClient
 from allyourbase.errors import AYBError
-from allyourbase.types import BatchOperation, ListResponse
+from allyourbase.types import BatchOperation, ListResponse, SearchSynonymsResponse
+
+_CONTRACT_FIXTURE_DIR = (
+    Path(__file__).resolve().parents[2] / "tests" / "contract" / "fixtures" / "sdk_contract"
+)
+_SEARCH_SYNONYMS_REQUEST_FIXTURE = json.loads(
+    (_CONTRACT_FIXTURE_DIR / "search_synonyms_request.json").read_text()
+)
+_SEARCH_SYNONYMS_RESPONSE_FIXTURE = json.loads(
+    (_CONTRACT_FIXTURE_DIR / "search_synonyms_response.json").read_text()
+)
 
 
 async def test_list_no_params(httpx_mock: pytest.fixture) -> None:
@@ -112,6 +124,57 @@ async def test_list_search_params_omit_false_flags_but_keep_numeric_zero(
     req = httpx_mock.get_request()
     assert req is not None
     assert parse_qs(req.url.query.decode(), keep_blank_values=True) == expected_query
+
+
+async def test_set_synonyms_sends_collection_scoped_put_with_auth(
+    httpx_mock: pytest.fixture,
+) -> None:
+    httpx_mock.add_response(json=_SEARCH_SYNONYMS_RESPONSE_FIXTURE)
+    client = AYBClient("https://api.example.com")
+    client.set_api_key("admin-token")
+
+    result = await client.records.set_synonyms(
+        "sdk_contract_synonyms_fixture",
+        _SEARCH_SYNONYMS_REQUEST_FIXTURE,
+    )
+
+    assert isinstance(result, SearchSynonymsResponse)
+    assert [group.terms for group in result.groups] == [
+        ["new york", "nyc"],
+        ["science fiction", "scifi"],
+    ]
+    req = httpx_mock.get_request()
+    assert req is not None
+    assert req.method == "PUT"
+    assert str(req.url) == (
+        "https://api.example.com/api/collections/sdk_contract_synonyms_fixture/synonyms/"
+    )
+    assert req.headers["authorization"] == "Bearer admin-token"
+    assert req.content == (
+        b'{"groups":[{"terms":["scifi","science fiction"]},'
+        b'{"terms":["nyc","new york"]}]}'
+    )
+
+
+async def test_get_synonyms_escapes_collection_path_and_sends_auth(
+    httpx_mock: pytest.fixture,
+) -> None:
+    httpx_mock.add_response(json=_SEARCH_SYNONYMS_RESPONSE_FIXTURE)
+    client = AYBClient("https://api.example.com")
+    client.set_api_key("admin-token")
+
+    result = await client.records.get_synonyms("posts/../../admin")
+
+    assert isinstance(result, SearchSynonymsResponse)
+    assert [group.terms for group in result.groups] == [
+        ["new york", "nyc"],
+        ["science fiction", "scifi"],
+    ]
+    req = httpx_mock.get_request()
+    assert req is not None
+    assert req.method == "GET"
+    assert req.url.raw_path.decode() == "/api/collections/posts%2F..%2F..%2Fadmin/synonyms/"
+    assert req.headers["authorization"] == "Bearer admin-token"
 
 
 async def test_list_accepts_cursor_envelope(httpx_mock: pytest.fixture) -> None:

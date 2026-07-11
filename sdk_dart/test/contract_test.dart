@@ -26,6 +26,21 @@ final _magicLinkConfirmPendingMfaFixture = (jsonDecode(
       .readAsStringSync(),
 ) as Map<Object?, Object?>)
     .cast<String, Object?>();
+final _webauthnLoginBeginFixture = (jsonDecode(
+  File('../tests/contract/fixtures/sdk_contract/webauthn_login_begin_response.json')
+      .readAsStringSync(),
+) as Map<Object?, Object?>)
+    .cast<String, Object?>();
+final _searchSynonymsRequestFixture = (jsonDecode(
+  File('../tests/contract/fixtures/sdk_contract/search_synonyms_request.json')
+      .readAsStringSync(),
+) as Map<Object?, Object?>)
+    .cast<String, Object?>();
+final _searchSynonymsResponseFixture = (jsonDecode(
+  File('../tests/contract/fixtures/sdk_contract/search_synonyms_response.json')
+      .readAsStringSync(),
+) as Map<Object?, Object?>)
+    .cast<String, Object?>();
 final _anonymousFixture = (jsonDecode(
   File('../tests/contract/fixtures/sdk_parity/anonymous.json')
       .readAsStringSync(),
@@ -110,6 +125,69 @@ void main() {
       expect(response.isPendingMFA, isTrue);
       expect(response.mfaToken, 'mfa_pending_token_stage1');
       expect(response.auth, isNull);
+    });
+  });
+
+  group('Contract: WebAuthn login responses', () {
+    test('WebAuthnLoginBeginResponse parses canonical begin payload', () {
+      final response =
+          WebAuthnLoginBeginResponse.fromJson(_webauthnLoginBeginFixture);
+      final allowCredentials = response.options['allowCredentials'] as List;
+      final firstCredential = allowCredentials.first as Map<String, Object?>;
+
+      expect(response.challengeId, 'webauthn_challenge_fixture');
+      expect(response.options['challenge'], 'webauthn_login_begin_challenge');
+      expect(response.options['rpId'], '127.0.0.1');
+      expect(response.options['timeout'], 300000);
+      expect(firstCredential['id'], 'webauthn_login_begin_credential_a');
+      expect(firstCredential['type'], 'public-key');
+    });
+
+    test('WebAuthnLoginFinishRequest emits canonical finish payload', () {
+      const assertionResponse = <String, Object?>{
+        'id': 'credential-1',
+        'rawId': 'credential-1',
+        'type': 'public-key',
+        'response': {
+          'authenticatorData': 'auth-data',
+          'clientDataJSON': 'client-data',
+          'signature': 'sig',
+          'userHandle': 'usr_1',
+        },
+      };
+      final beginResponse =
+          WebAuthnLoginBeginResponse.fromJson(_webauthnLoginBeginFixture);
+      final request = WebAuthnLoginFinishRequest(
+        challengeId: beginResponse.challengeId,
+        assertionResponse: assertionResponse,
+      );
+
+      expect(request.toJson(), {
+        'challenge_id': 'webauthn_challenge_fixture',
+        'assertion_response': assertionResponse,
+      });
+    });
+  });
+
+  group('Contract: search synonym fixtures', () {
+    test('SearchSynonymsRequest emits canonical PUT envelope', () {
+      const request = SearchSynonymsRequest(groups: [
+        SearchSynonymGroup(terms: ['scifi', 'science fiction']),
+        SearchSynonymGroup(terms: ['nyc', 'new york']),
+      ]);
+
+      expect(request.toJson(), _searchSynonymsRequestFixture);
+    });
+
+    test('SearchSynonymsResponse decodes normalized server envelope', () {
+      final response =
+          SearchSynonymsResponse.fromJson(_searchSynonymsResponseFixture);
+
+      expect(response.toJson(), _searchSynonymsResponseFixture);
+      expect(response.groups.map((group) => group.terms), [
+        ['new york', 'nyc'],
+        ['science fiction', 'scifi'],
+      ]);
     });
   });
 

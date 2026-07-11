@@ -170,6 +170,26 @@ adds `Vary: Origin` so caches key correctly. See
 [Configuration](/guide/configuration) for the full configuration and environment
 mapping.
 
+## Tenant resolution for public storage reads
+
+`server.require_resolved_tenant` (env:
+`AYB_SERVER_REQUIRE_RESOLVED_TENANT`) controls whether anonymous public storage
+reads require AYB to resolve a tenant before serving data. The default is
+`false` so existing self-hosted deployments keep ambient-tenant compatibility.
+
+When set to `true`, unsigned anonymous public storage reads fail closed if the
+request has no resolved tenant:
+
+- `GET /api/storage/{bucket}` list requests for public or implicitly public
+  buckets return HTTP `404`.
+- `GET /api/storage/{bucket}/{name}` object requests for public or implicitly
+  public buckets return HTTP `404`.
+
+Signed object URLs are evaluated before the public-read check. A valid signed
+URL still bypasses normal auth and serves the object with private cache
+behavior; if the signed URL carries a tenant ID, AYB adds that tenant to the
+request context before serving.
+
 ## Secrets management endpoints
 
 Admin secrets endpoints:

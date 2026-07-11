@@ -12,9 +12,12 @@ from allyourbase.types import (
     MagicLinkConfirmResponse,
     MagicLinkRequestResponse,
     User,
+    WebAuthnLoginBeginResponse,
 )
 
-_FIXTURE_DIR = Path(__file__).resolve().parents[2] / "tests" / "contract" / "fixtures" / "sdk_parity"
+_FIXTURE_DIR = (
+    Path(__file__).resolve().parents[2] / "tests" / "contract" / "fixtures" / "sdk_parity"
+)
 _CONTRACT_FIXTURE_DIR = (
     Path(__file__).resolve().parents[2] / "tests" / "contract" / "fixtures" / "sdk_contract"
 )
@@ -28,6 +31,10 @@ _MAGIC_LINK_CONFIRM_SUCCESS_FIXTURE = json.loads(
 _MAGIC_LINK_CONFIRM_PENDING_MFA_FIXTURE = json.loads(
     (_CONTRACT_FIXTURE_DIR / "magic_link_confirm_pending_mfa_response.json").read_text()
 )
+_WEBAUTHN_LOGIN_BEGIN_RESPONSE_FIXTURE = json.loads(
+    (_CONTRACT_FIXTURE_DIR / "webauthn_login_begin_response.json").read_text()
+)
+_AUTH_RESPONSE_FIXTURE = json.loads((_CONTRACT_FIXTURE_DIR / "auth_response.json").read_text())
 _LINK_EMAIL_FIXTURE = json.loads((_FIXTURE_DIR / "link_email.json").read_text())
 
 
@@ -84,7 +91,73 @@ async def test_login_sends_request_stores_tokens_emits_event(httpx_mock: pytest.
     assert events == ["SIGNED_IN"]
 
 
-async def test_sign_in_anonymously_stores_tokens_and_emits_event(httpx_mock: pytest.fixture) -> None:
+async def test_begin_webauthn_login_sends_email_without_mutating_tokens(
+    httpx_mock: pytest.fixture,
+) -> None:
+    httpx_mock.add_response(json=_WEBAUTHN_LOGIN_BEGIN_RESPONSE_FIXTURE)
+    client = AYBClient("https://api.example.com")
+
+    result = await client.auth.begin_webauthn_login("dev@allyourbase.io")
+
+    assert isinstance(result, WebAuthnLoginBeginResponse)
+    assert result.challenge_id == "webauthn_challenge_fixture"
+    assert result.options == _WEBAUTHN_LOGIN_BEGIN_RESPONSE_FIXTURE["options"]
+    req = httpx_mock.get_request()
+    assert req is not None
+    assert req.method == "POST"
+    assert str(req.url) == "https://api.example.com/api/auth/webauthn/login/begin"
+    assert req.content == b'{"email":"dev@allyourbase.io"}'
+    assert client.token is None
+    assert client.refresh_token is None
+
+
+async def test_finish_webauthn_login_sends_assertion_stores_tokens_emits_event(
+    httpx_mock: pytest.fixture,
+) -> None:
+    httpx_mock.add_response(json=_AUTH_RESPONSE_FIXTURE)
+    client = AYBClient("https://api.example.com")
+    assertion = {
+        "id": "webauthn_login_begin_credential_a",
+        "rawId": "d2ViYXV0aG5fbG9naW5fYmVnaW5fY3JlZGVudGlhbF9h",
+        "type": "public-key",
+        "response": {
+            "clientDataJSON": "Y2xpZW50LWRhdGE",
+            "authenticatorData": "YXV0aC1kYXRh",
+            "signature": "c2lnbmF0dXJl",
+            "userHandle": None,
+        },
+        "clientExtensionResults": {},
+    }
+    events: list[tuple[str, dict[str, str] | None]] = []
+    client.on_auth_state_change(lambda e, s: events.append((e, s)))
+
+    result = await client.auth.finish_webauthn_login(
+        "webauthn_challenge_fixture",
+        assertion,
+    )
+
+    assert isinstance(result, AuthResponse)
+    assert result.token == "jwt_stage3"
+    assert result.refresh_token == "refresh_stage3"
+    assert result.user.email == "dev@allyourbase.io"
+    assert client.token == "jwt_stage3"
+    assert client.refresh_token == "refresh_stage3"
+    req = httpx_mock.get_request()
+    assert req is not None
+    assert req.method == "POST"
+    assert str(req.url) == "https://api.example.com/api/auth/webauthn/login/finish"
+    assert json.loads(req.content) == {
+        "challenge_id": "webauthn_challenge_fixture",
+        "assertion_response": assertion,
+    }
+    assert events == [
+        ("SIGNED_IN", {"token": "jwt_stage3", "refresh_token": "refresh_stage3"}),
+    ]
+
+
+async def test_sign_in_anonymously_stores_tokens_and_emits_event(
+    httpx_mock: pytest.fixture,
+) -> None:
     httpx_mock.add_response(json=_ANONYMOUS_FIXTURE["response"], status_code=201)
     client = AYBClient("https://api.example.com")
 

@@ -7,6 +7,7 @@ import 'package:http/http.dart' as http;
 import 'package:http_parser/http_parser.dart' show MediaType;
 
 import 'errors.dart';
+import 'passkey.dart';
 import 'sse/sse_parser.dart';
 import 'types.dart';
 
@@ -248,6 +249,43 @@ class AuthClient {
       '/api/auth/login',
       method: 'POST',
       body: {'email': email, 'password': password},
+      decode: (value) => AuthResponse.fromJson(value as JsonMap),
+    );
+    client.setTokensInternal(response.token, response.refreshToken);
+    client.emitAuthEvent(AuthStateEvent.signedIn);
+    return response;
+  }
+
+  Future<WebAuthnLoginBeginResponse> beginWebAuthnLogin(String email) {
+    return client.request<WebAuthnLoginBeginResponse>(
+      '/api/auth/webauthn/login/begin',
+      method: 'POST',
+      body: {'email': email},
+      decode: (value) => WebAuthnLoginBeginResponse.fromJson(value as JsonMap),
+    );
+  }
+
+  Future<AuthResponse> signInWithPasskey(
+    String email,
+    PasskeyAuthenticator authenticator,
+  ) async {
+    final beginResponse = await beginWebAuthnLogin(email);
+    final assertionResponse =
+        await authenticator.authenticate(beginResponse.options);
+    return finishWebAuthnLogin(beginResponse.challengeId, assertionResponse);
+  }
+
+  Future<AuthResponse> finishWebAuthnLogin(
+    String challengeId,
+    JsonMap assertionResponse,
+  ) async {
+    final response = await client.request<AuthResponse>(
+      '/api/auth/webauthn/login/finish',
+      method: 'POST',
+      body: WebAuthnLoginFinishRequest(
+        challengeId: challengeId,
+        assertionResponse: assertionResponse,
+      ).toJson(),
       decode: (value) => AuthResponse.fromJson(value as JsonMap),
     );
     client.setTokensInternal(response.token, response.refreshToken);
@@ -715,16 +753,57 @@ class RecordsClient {
     );
   }
 
+  /// Get search synonym groups for a collection.
+  Future<SearchSynonymsResponse> getSynonyms(String collection) {
+    return client.request<SearchSynonymsResponse>(
+      _buildCollectionUri(
+        collection,
+        const <String, String>{},
+        childSegments: const ['synonyms'],
+        trailingSlash: true,
+      ),
+      decode: (value) => SearchSynonymsResponse.fromJson(value as JsonMap),
+    );
+  }
+
+  /// Replace search synonym groups for a collection.
+  Future<SearchSynonymsResponse> setSynonyms(
+    String collection,
+    SearchSynonymsRequest request,
+  ) {
+    return client.request<SearchSynonymsResponse>(
+      _buildCollectionUri(
+        collection,
+        const <String, String>{},
+        childSegments: const ['synonyms'],
+        trailingSlash: true,
+      ),
+      method: 'PUT',
+      body: request.toJson(),
+      decode: (value) => SearchSynonymsResponse.fromJson(value as JsonMap),
+    );
+  }
+
   String _buildCollectionUri(
     String collection,
     Map<String, String> queryMap, {
     String? id,
+    List<String> childSegments = const <String>[],
+    bool trailingSlash = false,
   }) {
-    final pathSegment = id != null
-        ? '/api/collections/$collection/$id'
-        : '/api/collections/$collection';
-    if (queryMap.isEmpty) return pathSegment;
-    return Uri(path: pathSegment, queryParameters: queryMap).toString();
+    final pathSegments = <String>[
+      'api',
+      'collections',
+      collection,
+      if (id != null) id,
+      ...childSegments,
+      if (trailingSlash) '',
+    ];
+    final uri = Uri(
+      pathSegments: pathSegments,
+      queryParameters: queryMap.isEmpty ? null : queryMap,
+    );
+    return '/$uri';
   }
 }
 

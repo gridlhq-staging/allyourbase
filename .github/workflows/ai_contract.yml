@@ -14,6 +14,7 @@ jobs:
     timeout-minutes: 45
     env:
       ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
 
     steps:
       - uses: actions/checkout@v6
@@ -93,6 +94,77 @@ jobs:
 
           printf 'AYB_AICONTRACT_ANTHROPIC_MODEL=%s\n' "$selected_model" >> "$GITHUB_ENV"
 
+      - name: Probe OpenAI contract model
+        run: |
+          if [ -z "${OPENAI_API_KEY:-}" ]; then
+            echo "OPENAI_API_KEY secret is required for the AI contract lane." >&2
+            exit 1
+          fi
+
+          curl -fsS https://api.openai.com/v1/models \
+            -H "Authorization: Bearer ${OPENAI_API_KEY}" \
+            -o /tmp/openai-models.json
+
+          selected_model="$(
+            node - /tmp/openai-models.json <<'NODE'
+          const fs = require("fs");
+          const modelsPath = process.argv[2];
+          const payload = JSON.parse(fs.readFileSync(modelsPath, "utf8"));
+          const models = (payload.data || [])
+            .map((item) => typeof item.id === "string" ? item.id.trim() : "")
+            .filter(Boolean);
+          const preferredPrefixes = [
+            "gpt-4o-mini",
+            "gpt-4.1-mini",
+            "gpt-4o",
+            "gpt-4.1",
+            "gpt-3.5-turbo",
+          ];
+          const forbidden = [
+            "audio",
+            "embedding",
+            "image",
+            "instruct",
+            "moderation",
+            "realtime",
+            "search",
+            "transcribe",
+            "tts",
+            "whisper",
+          ];
+          const hasChatPrefix = (model) => (
+            model.startsWith("gpt") ||
+            model.startsWith("chatgpt") ||
+            /^o[0-9]/.test(model)
+          );
+          const isChatModel = (model) => (
+            hasChatPrefix(model) && !forbidden.some((fragment) => model.includes(fragment))
+          );
+          for (const prefix of preferredPrefixes) {
+            const model = models.find((candidate) => (
+              (candidate === prefix || candidate.startsWith(`${prefix}-`)) && isChatModel(candidate)
+            ));
+            if (model) {
+              process.stdout.write(model);
+              process.exit(0);
+            }
+          }
+          const fallback = models.find(isChatModel);
+          if (fallback) {
+            process.stdout.write(fallback);
+            process.exit(0);
+          }
+          process.exit(1);
+          NODE
+          )"
+
+          if [ -z "$selected_model" ]; then
+            echo "No OpenAI chat-capable contract model found in the live models response." >&2
+            exit 1
+          fi
+
+          printf 'AYB_AICONTRACT_OPENAI_MODEL=%s\n' "$selected_model" >> "$GITHUB_ENV"
+
       - name: Run AI contract tests
         run: go run ./internal/testutil/cmd/testpg -- go tool gotestsum --jsonfile /tmp/aicontract.json -- -tags=integration,aicontract -count=1 -run 'Contract' ./internal/ai/ ./internal/server/
 
@@ -111,4 +183,5 @@ jobs:
             /tmp/ollama-health.log
             /tmp/ollama-pull-*.log
             /tmp/anthropic-*.json
+            /tmp/openai-models.json
           if-no-files-found: warn

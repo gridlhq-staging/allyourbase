@@ -4,6 +4,8 @@ package ai
 
 import (
 	"context"
+	"errors"
+	"io"
 	"os"
 	"strings"
 	"testing"
@@ -50,6 +52,35 @@ func assertExactContractText(t *testing.T, got, want string) {
 
 	if strings.TrimSpace(got) != want {
 		t.Fatalf("response text = %q; want exactly %q", got, want)
+	}
+}
+
+type contractStreamResult struct {
+	Text          string
+	NonEmptyReads int
+}
+
+func readContractStream(t *testing.T, stream io.Reader) contractStreamResult {
+	t.Helper()
+
+	buf := make([]byte, 4096)
+	var out []byte
+	nonEmptyReads := 0
+	for {
+		n, err := stream.Read(buf)
+		if n > 0 {
+			nonEmptyReads++
+			out = append(out, buf[:n]...)
+		}
+		if errors.Is(err, io.EOF) {
+			return contractStreamResult{
+				Text:          string(out),
+				NonEmptyReads: nonEmptyReads,
+			}
+		}
+		if err != nil {
+			t.Fatalf("Read stream: %v", err)
+		}
 	}
 }
 

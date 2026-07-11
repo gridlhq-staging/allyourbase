@@ -21,6 +21,7 @@ import (
 	"github.com/allyourbase/ayb/internal/auth"
 	"github.com/allyourbase/ayb/internal/realtime"
 	"github.com/allyourbase/ayb/internal/schema"
+	"github.com/allyourbase/ayb/internal/tenant"
 )
 
 // graphQLRequest is the expected JSON body for a GraphQL POST request.
@@ -327,7 +328,8 @@ func (h *Handler) prepareExecutionContext(w http.ResponseWriter, baseContext con
 	if h.hub != nil {
 		executionContext = ctxWithMutationEventCollector(executionContext)
 	}
-	executionContext = ctxWithDataloader(executionContext, NewDataloader(h.pool, cache))
+	activeSchema := tenant.ActiveSchemaFromContext(baseContext)
+	executionContext = ctxWithDataloader(executionContext, NewDataloader(h.pool, cache, activeSchema))
 	return executionContext, tx, true
 }
 
@@ -372,7 +374,12 @@ func (h *Handler) publishCollectedMutationEvents(ctx context.Context) {
 	if h.hub == nil {
 		return
 	}
+	// Tag every collected mutation event with the request tenant so same-table
+	// GraphQL fanout cannot leak across tenants. Tenant context is stable for the
+	// whole request, so one lookup applies to every collected event.
+	tenantID := tenant.TenantFromContext(ctx)
 	for _, event := range mutationEventsFromContext(ctx) {
+		event.TenantID = tenantID
 		h.hub.Publish(event)
 	}
 }

@@ -101,7 +101,7 @@ func (h *Handler) HandleSign(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	token := h.svc.SignURL(bucket, name, expiry)
+	token := h.svc.SignURL(r.Context(), bucket, name, expiry)
 	url := signedObjectPath(bucket, name, token)
 	httputil.WriteJSON(w, http.StatusOK, signResponse{URL: url})
 }

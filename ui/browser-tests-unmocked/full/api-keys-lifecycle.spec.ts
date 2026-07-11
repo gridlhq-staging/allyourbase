@@ -104,9 +104,26 @@ test.describe("API Keys Lifecycle (Full E2E)", () => {
     const appName = `orders-app-${runId}`;
     const keyName = `orders-key-${runId}`;
     const appRateLimit = "120 req/60s";
+    const clipboardWrites: string[] = [];
     keyNames.push(keyName);
     appNames.push(appName);
     userEmails.push(testEmail);
+
+    await page.exposeFunction("captureApiKeyClipboardWrite", (value: string) => {
+      clipboardWrites.push(value);
+    });
+    await page.addInitScript(() => {
+      Object.defineProperty(navigator, "clipboard", {
+        value: {
+          writeText: async (value: string) => {
+            await (window as unknown as {
+              captureApiKeyClipboardWrite: (clipboardValue: string) => Promise<void>;
+            }).captureApiKeyClipboardWrite(value);
+          },
+        },
+        configurable: true,
+      });
+    });
 
     // Arrange: create user and app via SQL helpers.
     const user = await ensureUserByEmail(request, adminToken, testEmail);
@@ -152,9 +169,19 @@ test.describe("API Keys Lifecycle (Full E2E)", () => {
     // VERIFY: Key created modal shows the key
     // ============================================================
     await expect(page.getByText("API Key Created")).toBeVisible({ timeout: 5000 });
+    await expect(page.getByText("Copy this key now. It will not be shown again.")).toBeVisible();
+    const revealedKey = await page.getByText(/^ayb_[a-f0-9]+$/).innerText();
+    expect(revealedKey).toMatch(/^ayb_[a-f0-9]+$/);
+    const expectedKeyPrefix = revealedKey.slice(0, 12);
     await expect(page.getByText(keyName, { exact: true }).first()).toBeVisible({ timeout: 3000 });
     await expect(page.getByText(appName, { exact: true }).first()).toBeVisible({ timeout: 3000 });
     await expect(page.getByText(appRateLimit).first()).toBeVisible({ timeout: 3000 });
+
+    await page.context().grantPermissions(["clipboard-write"]);
+    await page.getByRole("button", { name: "Copy to clipboard" }).click();
+    await expect.poll(() => clipboardWrites).toEqual([revealedKey]);
+    await expect(page.getByText("Failed to copy to clipboard")).toBeHidden();
+    await expect(page.getByText(revealedKey, { exact: true })).toBeVisible();
 
     // Close the created modal by clicking Done
     const doneBtn = page.getByRole("button", { name: /^done$/i });
@@ -181,6 +208,16 @@ test.describe("API Keys Lifecycle (Full E2E)", () => {
     const revokeButton = activeKeyRow.getByRole("button", { name: "Revoke key" });
 
     await expect(revokeButton).toBeVisible({ timeout: 3000 });
+    await revokeButton.click();
+
+    await expect(page.getByText("Revoke API Key")).toBeVisible({ timeout: 2000 });
+    await expect(
+      page.getByText(new RegExp(`${escapeRegExp(keyName)} \\(${escapeRegExp(expectedKeyPrefix)}\\.\\.\\.\\)`)),
+    ).toBeVisible();
+    await page.getByRole("button", { name: "Cancel" }).click();
+    await expect(page.getByText("Revoke API Key")).toBeHidden({ timeout: 2000 });
+    await expect(activeKeyRow.getByText("Active")).toBeVisible({ timeout: 2000 });
+
     await revokeButton.click();
 
     // Confirm revocation

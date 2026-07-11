@@ -20,7 +20,7 @@ func TestRLSAuthoritative(t *testing.T) {
 	testutil.NoError(t, err)
 
 	// Subscribe with filter
-	client := hub.SubscribeWithFilter(map[string]bool{"orders": true}, filters)
+	client := hub.SubscribeWithFilter(map[string]bool{"orders": true}, filters, "")
 	defer hub.Unsubscribe(client.ID)
 
 	// Simulate an event for a row that:

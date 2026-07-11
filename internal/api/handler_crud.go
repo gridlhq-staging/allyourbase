@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"strconv"
@@ -9,6 +10,7 @@ import (
 	"github.com/allyourbase/ayb/internal/httputil"
 	"github.com/allyourbase/ayb/internal/realtime"
 	"github.com/allyourbase/ayb/internal/schema"
+	"github.com/allyourbase/ayb/internal/tenant"
 	"github.com/go-chi/chi/v5"
 )
 
@@ -205,7 +207,7 @@ func (h *Handler) handleCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusCreated, record)
-	h.publishEvent("create", tbl.Name, record, nil)
+	h.publishEvent(r.Context(), "create", tbl.Name, record, nil)
 }
 
 // handleUpdate handles PATCH /collections/{table}/{id}
@@ -277,7 +279,7 @@ func (h *Handler) handleUpdate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, record)
-	h.publishEvent("update", tbl.Name, record, oldRecord)
+	h.publishEvent(r.Context(), "update", tbl.Name, record, oldRecord)
 }
 
 func (h *Handler) encryptUpdatedRecord(w http.ResponseWriter, tbl *schema.Table, data map[string]any) bool {
@@ -438,18 +440,21 @@ func (h *Handler) handleDelete(w http.ResponseWriter, r *http.Request) {
 	for i, pk := range tbl.PrimaryKey {
 		eventRecord[pk] = pkValues[i]
 	}
-	h.publishEvent("delete", tbl.Name, eventRecord, deletedRecord)
+	h.publishEvent(r.Context(), "delete", tbl.Name, eventRecord, deletedRecord)
 }
 
-// publishEvent sends a realtime event to the hub and webhook dispatcher.
-// oldRecord is the pre-mutation row (for UPDATE/DELETE filter evaluation); nil for INSERT.
-func (h *Handler) publishEvent(action, table string, record, oldRecord map[string]any) {
+// publishEvent sends a realtime event to the hub and webhook dispatcher. It is
+// the single CRUD publish owner: it tags the event with the request tenant from
+// ctx so same-table events cannot leak across tenants. oldRecord is the
+// pre-mutation row (for UPDATE/DELETE filter evaluation); nil for INSERT.
+func (h *Handler) publishEvent(ctx context.Context, action, table string, record, oldRecord map[string]any) {
 	if h.hub == nil && h.dispatcher == nil {
 		return
 	}
 	event := &realtime.Event{
 		Action:    action,
 		Table:     table,
+		TenantID:  tenant.TenantFromContext(ctx),
 		Record:    record,
 		OldRecord: oldRecord,
 	}

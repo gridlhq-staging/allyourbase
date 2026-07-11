@@ -36,30 +36,37 @@ func newFakeBackend() *fakeBackend {
 	return &fakeBackend{files: make(map[string][]byte)}
 }
 
-func (f *fakeBackend) Put(_ context.Context, bucket, name string, r io.Reader) (int64, error) {
+func (f *fakeBackend) key(tenantID, bucket, name string) string {
+	if tenantID != "" {
+		return "t/" + tenantID + "/" + bucket + "/" + name
+	}
+	return bucket + "/" + name
+}
+
+func (f *fakeBackend) Put(_ context.Context, tenantID, bucket, name string, r io.Reader) (int64, error) {
 	data, err := io.ReadAll(r)
 	if err != nil {
 		return 0, err
 	}
-	f.files[bucket+"/"+name] = data
+	f.files[f.key(tenantID, bucket, name)] = data
 	return int64(len(data)), nil
 }
 
-func (f *fakeBackend) Get(_ context.Context, bucket, name string) (io.ReadCloser, error) {
-	data, ok := f.files[bucket+"/"+name]
+func (f *fakeBackend) Get(_ context.Context, tenantID, bucket, name string) (io.ReadCloser, error) {
+	data, ok := f.files[f.key(tenantID, bucket, name)]
 	if !ok {
 		return nil, ErrNotFound
 	}
 	return io.NopCloser(bytes.NewReader(data)), nil
 }
 
-func (f *fakeBackend) Delete(_ context.Context, bucket, name string) error {
-	delete(f.files, bucket+"/"+name)
+func (f *fakeBackend) Delete(_ context.Context, tenantID, bucket, name string) error {
+	delete(f.files, f.key(tenantID, bucket, name))
 	return nil
 }
 
-func (f *fakeBackend) Exists(_ context.Context, bucket, name string) (bool, error) {
-	_, ok := f.files[bucket+"/"+name]
+func (f *fakeBackend) Exists(_ context.Context, tenantID, bucket, name string) (bool, error) {
+	_, ok := f.files[f.key(tenantID, bucket, name)]
 	return ok, nil
 }
 
@@ -78,7 +85,7 @@ func testRouter(h *Handler) *chi.Mux {
 
 func TestHandleUploadMissingFile(t *testing.T) {
 	t.Parallel()
-	h := NewHandler(newTestService(), testutil.DiscardLogger(), 10<<20, "")
+	h := NewHandler(newTestService(), testutil.DiscardLogger(), 10<<20, "", false)
 	router := testRouter(h)
 
 	// Empty multipart form — no "file" field.
@@ -97,7 +104,7 @@ func TestHandleUploadMissingFile(t *testing.T) {
 
 func TestHandleUploadInvalidBucket(t *testing.T) {
 	t.Parallel()
-	h := NewHandler(newTestService(), testutil.DiscardLogger(), 10<<20, "")
+	h := NewHandler(newTestService(), testutil.DiscardLogger(), 10<<20, "", false)
 	router := testRouter(h)
 
 	body := &bytes.Buffer{}
@@ -117,7 +124,7 @@ func TestHandleUploadInvalidBucket(t *testing.T) {
 func TestHandleUploadReturnsInternalErrorWhenMutationUploadFails(t *testing.T) {
 	t.Parallel()
 
-	h := NewHandler(newTestService(), testutil.DiscardLogger(), 10<<20, "")
+	h := NewHandler(newTestService(), testutil.DiscardLogger(), 10<<20, "", false)
 	h.mutations.upload = func(_ context.Context, _, _, _ string, _ *string, _ io.Reader) (*Object, error) {
 		return nil, errors.New("storage backend unavailable")
 	}
@@ -141,7 +148,7 @@ func TestHandleUploadReturnsInternalErrorWhenMutationUploadFails(t *testing.T) {
 func TestHandleUploadReturnsInternalErrorPromptlyWhenUploadContextEnds(t *testing.T) {
 	t.Parallel()
 
-	h := NewHandler(newTestService(), testutil.DiscardLogger(), 10<<20, "")
+	h := NewHandler(newTestService(), testutil.DiscardLogger(), 10<<20, "", false)
 	uploadStarted := make(chan struct{})
 	h.mutations.upload = func(ctx context.Context, _, _, _ string, _ *string, _ io.Reader) (*Object, error) {
 		close(uploadStarted)
@@ -183,7 +190,7 @@ func TestHandleUploadReturnsInternalErrorPromptlyWhenUploadContextEnds(t *testin
 func TestHandleUpload_TimesOutOnSlowBackend(t *testing.T) {
 	t.Parallel()
 
-	h := NewHandler(newTestService(), testutil.DiscardLogger(), 10<<20, "")
+	h := NewHandler(newTestService(), testutil.DiscardLogger(), 10<<20, "", false)
 	h.SetUploadTimeout(100 * time.Millisecond)
 
 	uploadStarted := make(chan struct{}, 1)
@@ -244,7 +251,7 @@ func TestHandleUpload_TimesOutOnSlowBackend(t *testing.T) {
 func TestHandleUpload_FastUploadNotAffectedByTimeout(t *testing.T) {
 	t.Parallel()
 
-	h := NewHandler(newTestService(), testutil.DiscardLogger(), 10<<20, "")
+	h := NewHandler(newTestService(), testutil.DiscardLogger(), 10<<20, "", false)
 	h.SetUploadTimeout(5 * time.Second)
 
 	rollbackCalled := false
@@ -300,7 +307,7 @@ func TestHandleUpload_FastUploadNotAffectedByTimeout(t *testing.T) {
 func TestHandleResumableCreateRollsBackReservedQuotaWhenCreateFails(t *testing.T) {
 	t.Parallel()
 
-	h := NewHandler(newTestService(), testutil.DiscardLogger(), 10<<20, "")
+	h := NewHandler(newTestService(), testutil.DiscardLogger(), 10<<20, "", false)
 
 	reserveCalls := 0
 	createCalls := 0
@@ -351,7 +358,7 @@ func TestHandleResumableCreateRollsBackReservedQuotaWhenCreateFails(t *testing.T
 func TestHandleResumablePatch_RecoversAfterTransientFinalizeFailure(t *testing.T) {
 	t.Parallel()
 
-	h := NewHandler(newTestService(), testutil.DiscardLogger(), 10<<20, "")
+	h := NewHandler(newTestService(), testutil.DiscardLogger(), 10<<20, "", false)
 
 	const uploadID = "upload-123"
 	const userID = "quota-user"
@@ -468,7 +475,7 @@ func TestHandleDeleteReturnsMappedErrorsWhenGetObjectFails(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			h := NewHandler(newTestService(), testutil.DiscardLogger(), 10<<20, "")
+			h := NewHandler(newTestService(), testutil.DiscardLogger(), 10<<20, "", false)
 			h.mutations.getObject = func(_ context.Context, bucket, name string) (*Object, error) {
 				testutil.Equal(t, "private-bucket", bucket)
 				testutil.Equal(t, "folder/file.txt", name)
@@ -540,7 +547,7 @@ func TestHandleDeleteReturnsMappedErrorsWhenDeleteFails(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			h := NewHandler(newTestService(), testutil.DiscardLogger(), 10<<20, "")
+			h := NewHandler(newTestService(), testutil.DiscardLogger(), 10<<20, "", false)
 			h.mutations.getObject = func(_ context.Context, bucket, name string) (*Object, error) {
 				testutil.Equal(t, "private-bucket", bucket)
 				testutil.Equal(t, "folder/file.txt", name)
@@ -574,7 +581,7 @@ func TestHandleDeleteReturnsMappedErrorsWhenDeleteFails(t *testing.T) {
 func TestHandleDeleteStillReturnsNoContentWhenDecrementUsageFails(t *testing.T) {
 	t.Parallel()
 
-	h := NewHandler(newTestService(), testutil.DiscardLogger(), 10<<20, "")
+	h := NewHandler(newTestService(), testutil.DiscardLogger(), 10<<20, "", false)
 	userID := "delete-user"
 	h.mutations.getObject = func(_ context.Context, bucket, name string) (*Object, error) {
 		testutil.Equal(t, "private-bucket", bucket)
@@ -611,7 +618,7 @@ func TestHandleDeleteStillReturnsNoContentWhenDecrementUsageFails(t *testing.T) 
 
 func TestPublicObjectResponseURLUsesCDN(t *testing.T) {
 	t.Parallel()
-	h := NewHandler(newTestService(), testutil.DiscardLogger(), 10<<20, "https://cdn.example.com")
+	h := NewHandler(newTestService(), testutil.DiscardLogger(), 10<<20, "https://cdn.example.com", false)
 	req := httptest.NewRequest(http.MethodGet, "/api/storage/images/photo.jpg", nil)
 	req.Host = "api.example.com"
 	obj := Object{Bucket: "images", Name: "photo.jpg"}
@@ -621,7 +628,7 @@ func TestPublicObjectResponseURLUsesCDN(t *testing.T) {
 
 func TestPublicObjectResponseURLEmptyCDNUsesOrigin(t *testing.T) {
 	t.Parallel()
-	h := NewHandler(newTestService(), testutil.DiscardLogger(), 10<<20, "")
+	h := NewHandler(newTestService(), testutil.DiscardLogger(), 10<<20, "", false)
 	req := httptest.NewRequest(http.MethodGet, "/api/storage/images/photo.jpg", nil)
 	req.Host = "api.example.com"
 	obj := Object{Bucket: "images", Name: "photo.jpg"}
@@ -631,7 +638,7 @@ func TestPublicObjectResponseURLEmptyCDNUsesOrigin(t *testing.T) {
 
 func TestPublicObjectResponseURLPrivateBucketEmpty(t *testing.T) {
 	t.Parallel()
-	h := NewHandler(newTestService(), testutil.DiscardLogger(), 10<<20, "https://cdn.example.com")
+	h := NewHandler(newTestService(), testutil.DiscardLogger(), 10<<20, "https://cdn.example.com", false)
 	req := httptest.NewRequest(http.MethodGet, "/api/storage/images/photo.jpg", nil)
 	req.Host = "api.example.com"
 	obj := Object{Bucket: "images", Name: "photo.jpg"}
@@ -647,7 +654,7 @@ func TestSignedObjectPathNotRewrittenForCDN(t *testing.T) {
 
 func TestHandleSignedURLInvalid(t *testing.T) {
 	t.Parallel()
-	h := NewHandler(newTestService(), testutil.DiscardLogger(), 10<<20, "")
+	h := NewHandler(newTestService(), testutil.DiscardLogger(), 10<<20, "", false)
 	router := testRouter(h)
 
 	// Request with invalid signature — rejected before hitting DB.
@@ -666,11 +673,11 @@ func TestHandleSignedURLInvalid(t *testing.T) {
 func TestHandleSignedURLExpired(t *testing.T) {
 	t.Parallel()
 	svc := newTestService()
-	h := NewHandler(svc, testutil.DiscardLogger(), 10<<20, "")
+	h := NewHandler(svc, testutil.DiscardLogger(), 10<<20, "", false)
 	router := testRouter(h)
 
 	// Generate a signed URL that already expired.
-	token := svc.SignURL("images", "photo.jpg", -time.Second)
+	token := svc.SignURL(context.Background(), "images", "photo.jpg", -time.Second)
 	req := httptest.NewRequest(http.MethodGet, "/api/storage/images/photo.jpg?"+token, nil)
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
@@ -680,7 +687,7 @@ func TestHandleSignedURLExpired(t *testing.T) {
 
 func TestHandleUploadNoContentType(t *testing.T) {
 	t.Parallel()
-	h := NewHandler(newTestService(), testutil.DiscardLogger(), 10<<20, "")
+	h := NewHandler(newTestService(), testutil.DiscardLogger(), 10<<20, "", false)
 	router := testRouter(h)
 
 	// Non-multipart request body.
@@ -857,7 +864,7 @@ func TestParseTransformOptions(t *testing.T) {
 
 func TestServeTransformedJPEG(t *testing.T) {
 	t.Parallel()
-	h := NewHandler(newTestService(), testutil.DiscardLogger(), 10<<20, "")
+	h := NewHandler(newTestService(), testutil.DiscardLogger(), 10<<20, "", false)
 	imgData := makeHandlerTestJPEG(t, 800, 600)
 	obj := &Object{Bucket: "img", Name: "photo.jpg", Size: int64(len(imgData)), ContentType: "image/jpeg"}
 	reader := io.NopCloser(bytes.NewReader(imgData))
@@ -879,7 +886,7 @@ func TestServeTransformedJPEG(t *testing.T) {
 
 func TestServeTransformedFormatConversion(t *testing.T) {
 	t.Parallel()
-	h := NewHandler(newTestService(), testutil.DiscardLogger(), 10<<20, "")
+	h := NewHandler(newTestService(), testutil.DiscardLogger(), 10<<20, "", false)
 	imgData := makeHandlerTestJPEG(t, 400, 300)
 	obj := &Object{Bucket: "img", Name: "photo.jpg", Size: int64(len(imgData)), ContentType: "image/jpeg"}
 	reader := io.NopCloser(bytes.NewReader(imgData))
@@ -899,7 +906,7 @@ func TestServeTransformedFormatConversion(t *testing.T) {
 
 func TestServeTransformedPNG(t *testing.T) {
 	t.Parallel()
-	h := NewHandler(newTestService(), testutil.DiscardLogger(), 10<<20, "")
+	h := NewHandler(newTestService(), testutil.DiscardLogger(), 10<<20, "", false)
 	imgData := makeHandlerTestPNG(t, 600, 400)
 	obj := &Object{Bucket: "img", Name: "icon.png", Size: int64(len(imgData)), ContentType: "image/png"}
 	reader := io.NopCloser(bytes.NewReader(imgData))
@@ -914,7 +921,7 @@ func TestServeTransformedPNG(t *testing.T) {
 
 func TestServeTransformedCoverMode(t *testing.T) {
 	t.Parallel()
-	h := NewHandler(newTestService(), testutil.DiscardLogger(), 10<<20, "")
+	h := NewHandler(newTestService(), testutil.DiscardLogger(), 10<<20, "", false)
 	imgData := makeHandlerTestJPEG(t, 800, 600)
 	obj := &Object{Bucket: "img", Name: "photo.jpg", Size: int64(len(imgData)), ContentType: "image/jpeg"}
 	reader := io.NopCloser(bytes.NewReader(imgData))
@@ -932,7 +939,7 @@ func TestServeTransformedCoverMode(t *testing.T) {
 
 func TestServeTransformedNonImage(t *testing.T) {
 	t.Parallel()
-	h := NewHandler(newTestService(), testutil.DiscardLogger(), 10<<20, "")
+	h := NewHandler(newTestService(), testutil.DiscardLogger(), 10<<20, "", false)
 	obj := &Object{Bucket: "docs", Name: "readme.txt", Size: 100, ContentType: "text/plain"}
 	reader := io.NopCloser(bytes.NewReader([]byte("hello world")))
 
@@ -946,7 +953,7 @@ func TestServeTransformedNonImage(t *testing.T) {
 
 func TestServeTransformedInvalidParams(t *testing.T) {
 	t.Parallel()
-	h := NewHandler(newTestService(), testutil.DiscardLogger(), 10<<20, "")
+	h := NewHandler(newTestService(), testutil.DiscardLogger(), 10<<20, "", false)
 	imgData := makeHandlerTestJPEG(t, 400, 300)
 	obj := &Object{Bucket: "img", Name: "photo.jpg", Size: int64(len(imgData)), ContentType: "image/jpeg"}
 
@@ -975,7 +982,7 @@ func TestServeTransformedInvalidParams(t *testing.T) {
 
 func TestServeTransformedCacheHeader(t *testing.T) {
 	t.Parallel()
-	h := NewHandler(newTestService(), testutil.DiscardLogger(), 10<<20, "")
+	h := NewHandler(newTestService(), testutil.DiscardLogger(), 10<<20, "", false)
 	imgData := makeHandlerTestJPEG(t, 400, 300)
 	obj := &Object{
 		ID: "obj-1", Bucket: "img", Name: "photo.jpg",
@@ -995,7 +1002,7 @@ func TestServeTransformedCacheHeader(t *testing.T) {
 
 func TestServeTransformedCacheHeaderPrivate(t *testing.T) {
 	t.Parallel()
-	h := NewHandler(newTestService(), testutil.DiscardLogger(), 10<<20, "")
+	h := NewHandler(newTestService(), testutil.DiscardLogger(), 10<<20, "", false)
 	imgData := makeHandlerTestJPEG(t, 400, 300)
 	obj := &Object{
 		ID: "obj-2", Bucket: "img", Name: "photo.jpg",
@@ -1036,7 +1043,7 @@ func TestTransformCacheControlPrivate(t *testing.T) {
 
 func TestServeTransformedWebP(t *testing.T) {
 	t.Parallel()
-	h := NewHandler(newTestService(), testutil.DiscardLogger(), 10<<20, "")
+	h := NewHandler(newTestService(), testutil.DiscardLogger(), 10<<20, "", false)
 	imgData := makeHandlerTestJPEG(t, 400, 300)
 	obj := &Object{
 		ID: "obj-3", Bucket: "img", Name: "photo.jpg",
@@ -1125,7 +1132,7 @@ func TestParseTransformOptionsCropInvalid(t *testing.T) {
 
 func TestServeTransformedCropCenter(t *testing.T) {
 	t.Parallel()
-	h := NewHandler(newTestService(), testutil.DiscardLogger(), 10<<20, "")
+	h := NewHandler(newTestService(), testutil.DiscardLogger(), 10<<20, "", false)
 	imgData := makeHandlerTestJPEG(t, 800, 600)
 	obj := &Object{
 		ID: "obj-4", Bucket: "img", Name: "photo.jpg",
@@ -1170,7 +1177,7 @@ func makeHandlerTestGIF(t *testing.T, w, h, frames int) []byte {
 
 func TestServeTransformedAnimatedGIFPassthrough(t *testing.T) {
 	t.Parallel()
-	h := NewHandler(newTestService(), testutil.DiscardLogger(), 10<<20, "")
+	h := NewHandler(newTestService(), testutil.DiscardLogger(), 10<<20, "", false)
 	gifData := makeHandlerTestGIF(t, 200, 150, 3) // 3 frames = animated
 	obj := &Object{
 		ID: "obj-5", Bucket: "img", Name: "anim.gif",
@@ -1192,7 +1199,7 @@ func TestServeTransformedAnimatedGIFPassthrough(t *testing.T) {
 
 func TestServeTransformedAnimatedGIFPassthroughPrivateCache(t *testing.T) {
 	t.Parallel()
-	h := NewHandler(newTestService(), testutil.DiscardLogger(), 10<<20, "")
+	h := NewHandler(newTestService(), testutil.DiscardLogger(), 10<<20, "", false)
 	gifData := makeHandlerTestGIF(t, 200, 150, 3)
 	obj := &Object{
 		ID: "obj-5b", Bucket: "img", Name: "anim.gif",
@@ -1211,7 +1218,7 @@ func TestServeTransformedAnimatedGIFPassthroughPrivateCache(t *testing.T) {
 
 func TestServeTransformedAnimatedGIFPassthroughWithAVIFRequest(t *testing.T) {
 	t.Parallel()
-	h := NewHandler(newTestService(), testutil.DiscardLogger(), 10<<20, "")
+	h := NewHandler(newTestService(), testutil.DiscardLogger(), 10<<20, "", false)
 	gifData := makeHandlerTestGIF(t, 200, 150, 3)
 	obj := &Object{
 		ID: "obj-5c", Bucket: "img", Name: "anim.gif",
@@ -1235,7 +1242,7 @@ func TestServeTransformedStaticGIFTransformed(t *testing.T) {
 	// source format for imaging.Transform (we only support JPEG/PNG/WebP decode).
 	// This test verifies we return an appropriate error for static GIF with transforms.
 	t.Parallel()
-	h := NewHandler(newTestService(), testutil.DiscardLogger(), 10<<20, "")
+	h := NewHandler(newTestService(), testutil.DiscardLogger(), 10<<20, "", false)
 	gifData := makeHandlerTestGIF(t, 200, 150, 1) // 1 frame = static
 	obj := &Object{
 		ID: "obj-6", Bucket: "img", Name: "static.gif",
@@ -1257,7 +1264,7 @@ func TestServeTransformedStaticGIFTransformed(t *testing.T) {
 
 func TestServeTransformedETagDeterministic(t *testing.T) {
 	t.Parallel()
-	h := NewHandler(newTestService(), testutil.DiscardLogger(), 10<<20, "")
+	h := NewHandler(newTestService(), testutil.DiscardLogger(), 10<<20, "", false)
 	imgData := makeHandlerTestJPEG(t, 400, 300)
 	obj := &Object{
 		ID: "obj-8", Bucket: "img", Name: "photo.jpg",
@@ -1279,7 +1286,7 @@ func TestServeTransformedETagDeterministic(t *testing.T) {
 
 func TestServeTransformedETagDiffersPerTransform(t *testing.T) {
 	t.Parallel()
-	h := NewHandler(newTestService(), testutil.DiscardLogger(), 10<<20, "")
+	h := NewHandler(newTestService(), testutil.DiscardLogger(), 10<<20, "", false)
 	imgData := makeHandlerTestJPEG(t, 400, 300)
 	obj := &Object{
 		ID: "obj-9", Bucket: "img", Name: "photo.jpg",
@@ -1301,7 +1308,7 @@ func TestServeTransformedETagDiffersPerTransform(t *testing.T) {
 
 func TestServeTransformed304NotModified(t *testing.T) {
 	t.Parallel()
-	h := NewHandler(newTestService(), testutil.DiscardLogger(), 10<<20, "")
+	h := NewHandler(newTestService(), testutil.DiscardLogger(), 10<<20, "", false)
 	imgData := makeHandlerTestJPEG(t, 400, 300)
 	obj := &Object{
 		ID: "obj-10", Bucket: "img", Name: "photo.jpg",
@@ -1327,7 +1334,7 @@ func TestServeTransformed304NotModified(t *testing.T) {
 
 func TestServeTransformed304NotModifiedWithTokenList(t *testing.T) {
 	t.Parallel()
-	h := NewHandler(newTestService(), testutil.DiscardLogger(), 10<<20, "")
+	h := NewHandler(newTestService(), testutil.DiscardLogger(), 10<<20, "", false)
 	imgData := makeHandlerTestJPEG(t, 400, 300)
 	obj := &Object{
 		ID: "obj-10b", Bucket: "img", Name: "photo.jpg",
@@ -1348,7 +1355,7 @@ func TestServeTransformed304NotModifiedWithTokenList(t *testing.T) {
 
 func TestServeTransformed304WrongETag(t *testing.T) {
 	t.Parallel()
-	h := NewHandler(newTestService(), testutil.DiscardLogger(), 10<<20, "")
+	h := NewHandler(newTestService(), testutil.DiscardLogger(), 10<<20, "", false)
 	imgData := makeHandlerTestJPEG(t, 400, 300)
 	obj := &Object{
 		ID: "obj-11", Bucket: "img", Name: "photo.jpg",

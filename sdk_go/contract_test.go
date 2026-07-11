@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"reflect"
 	"testing"
 )
 
@@ -15,6 +16,58 @@ func mustLoadContractFixture(t *testing.T, name string) []byte {
 		t.Fatalf("read fixture %s: %v", name, err)
 	}
 	return data
+}
+
+func TestContractSearchSynonymsFixturesDecodeThroughModelOwners(t *testing.T) {
+	resData := mustLoadContractFixture(t, "search_synonyms_response.json")
+	var res SearchSynonymsResponse
+	if err := json.Unmarshal(resData, &res); err != nil {
+		t.Fatalf("decode search_synonyms_response: %v", err)
+	}
+	expectedResponseTerms := [][]string{
+		{"new york", "nyc"},
+		{"science fiction", "scifi"},
+	}
+	if !reflect.DeepEqual(searchSynonymsTerms(res.Groups), expectedResponseTerms) {
+		t.Fatalf("unexpected response groups: %+v", res.Groups)
+	}
+
+	reqData := mustLoadContractFixture(t, "search_synonyms_request.json")
+	var req SearchSynonymsRequest
+	if err := json.Unmarshal(reqData, &req); err != nil {
+		t.Fatalf("decode search_synonyms_request: %v", err)
+	}
+	actualData, err := json.Marshal(req)
+	if err != nil {
+		t.Fatalf("marshal search_synonyms_request: %v", err)
+	}
+
+	var expectedEnvelope map[string]any
+	if err := json.Unmarshal(reqData, &expectedEnvelope); err != nil {
+		t.Fatalf("decode expected search_synonyms_request envelope: %v", err)
+	}
+	var actualEnvelope map[string]any
+	if err := json.Unmarshal(actualData, &actualEnvelope); err != nil {
+		t.Fatalf("decode actual search_synonyms_request envelope: %v", err)
+	}
+	if !reflect.DeepEqual(actualEnvelope, expectedEnvelope) {
+		t.Fatalf("request envelope mismatch\nactual:   %#v\nexpected: %#v", actualEnvelope, expectedEnvelope)
+	}
+	expectedRequestTerms := [][]string{
+		{"scifi", "science fiction"},
+		{"nyc", "new york"},
+	}
+	if !reflect.DeepEqual(searchSynonymsTerms(req.Groups), expectedRequestTerms) {
+		t.Fatalf("unexpected request groups: %+v", req.Groups)
+	}
+}
+
+func searchSynonymsTerms(groups []SearchSynonymsGroup) [][]string {
+	terms := make([][]string, len(groups))
+	for i, group := range groups {
+		terms[i] = group.Terms
+	}
+	return terms
 }
 
 func TestContractMagicLinkFixturesDecodeThroughModelOwners(t *testing.T) {
@@ -46,6 +99,67 @@ func TestContractMagicLinkFixturesDecodeThroughModelOwners(t *testing.T) {
 	}
 	if confirm.Auth.User.UpdatedAt != nil {
 		t.Fatalf("expected nil updated_at, got %+v", confirm.Auth.User.UpdatedAt)
+	}
+}
+
+func TestContractWebAuthnLoginBeginResponseFixture(t *testing.T) {
+	data := mustLoadContractFixture(t, "webauthn_login_begin_response.json")
+	var out WebAuthnLoginBeginResponse
+	if err := json.Unmarshal(data, &out); err != nil {
+		t.Fatalf("decode webauthn_login_begin_response: %v", err)
+	}
+	if out.ChallengeID != "webauthn_challenge_fixture" {
+		t.Fatalf("unexpected challenge_id %q", out.ChallengeID)
+	}
+	if out.Options.Challenge != "webauthn_login_begin_challenge" {
+		t.Fatalf("unexpected challenge %q", out.Options.Challenge)
+	}
+	if out.Options.RPID != "127.0.0.1" {
+		t.Fatalf("unexpected rpId %q", out.Options.RPID)
+	}
+	if len(out.Options.AllowCredentials) == 0 {
+		t.Fatalf("expected allowCredentials to be populated")
+	}
+	first := out.Options.AllowCredentials[0]
+	if first.ID != "webauthn_login_begin_credential_a" || first.Type != "public-key" {
+		t.Fatalf("unexpected first allow credential %+v", first)
+	}
+
+	field, ok := reflect.TypeOf(WebAuthnLoginBeginResponse{}).FieldByName("ChallengeID")
+	if !ok {
+		t.Fatalf("ChallengeID field missing")
+	}
+	if field.Tag.Get("json") != "challenge_id" {
+		t.Fatalf("ChallengeID json tag must own challenge_id, got %q", field.Tag.Get("json"))
+	}
+}
+
+func TestContractWebAuthnFinishReusesAuthResponseFixture(t *testing.T) {
+	data := mustLoadContractFixture(t, "auth_response.json")
+	var out AuthResponse
+	if err := json.Unmarshal(data, &out); err != nil {
+		t.Fatalf("decode auth_response: %v", err)
+	}
+	if out.Token != "jwt_stage3" {
+		t.Fatalf("unexpected token %q", out.Token)
+	}
+	if out.RefreshToken != "refresh_stage3" {
+		t.Fatalf("unexpected refresh token %q", out.RefreshToken)
+	}
+	if out.User.ID != "usr_1" {
+		t.Fatalf("unexpected user id %q", out.User.ID)
+	}
+	if out.User.Email != "dev@allyourbase.io" {
+		t.Fatalf("unexpected email %q", out.User.Email)
+	}
+	if out.User.EmailVerified == nil || !*out.User.EmailVerified {
+		t.Fatalf("expected email_verified=true, got %+v", out.User.EmailVerified)
+	}
+	if out.User.CreatedAt != "2026-01-01T00:00:00Z" {
+		t.Fatalf("unexpected created_at %q", out.User.CreatedAt)
+	}
+	if out.User.UpdatedAt != nil {
+		t.Fatalf("expected updated_at nil, got %+v", out.User.UpdatedAt)
 	}
 }
 

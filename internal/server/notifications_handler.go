@@ -145,6 +145,11 @@ func (s *Server) handleNotificationsCreate(w http.ResponseWriter, r *http.Reques
 				"created_at": n.CreatedAt,
 			}
 		}
+		// Intentional wildcard: _ayb_notifications events are published with an
+		// empty Event.TenantID so they fan out to every subscriber regardless of
+		// tenant (branch (b) of realtime.tenantMatches). Per-user visibility is
+		// enforced downstream by the RLS-scoped CanSeeRecord check in the realtime
+		// handler, not by tenant tagging here.
 		s.hub.Publish(&realtime.Event{Action: "create", Table: "_ayb_notifications", Record: record})
 	}
 

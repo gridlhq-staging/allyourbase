@@ -42,7 +42,9 @@ async def test_upload_with_content_type(httpx_mock: pytest.fixture) -> None:
     httpx_mock.add_response(status_code=201, json=obj)
     client = AYBClient("https://api.example.com")
 
-    result = await client.storage.upload("avatars", BytesIO(b"abc"), "note.txt", content_type="text/plain")
+    result = await client.storage.upload(
+        "avatars", BytesIO(b"abc"), "note.txt", content_type="text/plain"
+    )
 
     assert result.content_type == "text/plain"
     req = httpx_mock.get_request()

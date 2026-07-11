@@ -377,6 +377,19 @@ func (s *streamingProviderStub) GenerateTextStream(_ context.Context, _ ai.Gener
 	return newSliceReadCloser(s.chunks), nil
 }
 
+type streamPreferredProviderStub struct {
+	syncCalled bool
+}
+
+func (s *streamPreferredProviderStub) GenerateText(_ context.Context, _ ai.GenerateTextRequest) (ai.GenerateTextResponse, error) {
+	s.syncCalled = true
+	return ai.GenerateTextResponse{Text: "sync fallback text"}, nil
+}
+
+func (s *streamPreferredProviderStub) GenerateTextStream(_ context.Context, _ ai.GenerateTextRequest) (io.ReadCloser, error) {
+	return newSliceReadCloser([]string{"stream text"}), nil
+}
+
 // nonEmbeddingProvider satisfies Provider but not EmbeddingProvider.
 type nonEmbeddingProvider struct{}
 
@@ -462,6 +475,26 @@ func TestHandleMoviesChatStreamSSEEvents(t *testing.T) {
 	testutil.Contains(t, out, "event: done")
 	testutil.Contains(t, out, "hel")
 	testutil.Contains(t, out, "lo")
+}
+
+func TestHandleMoviesChatStreamPrefersStreamingProviderForSingleDelta(t *testing.T) {
+	t.Parallel()
+	provider := &streamPreferredProviderStub{}
+	reg := ai.NewRegistry()
+	reg.Register("openai", provider)
+	s := moviesTestServer(reg, nil)
+
+	body := `{"messages":[{"role":"user","content":"hi"}],"provider":"openai","model":"gpt-4o"}`
+	req := httptest.NewRequest(http.MethodPost, "/admin/movies/chat/stream", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	s.handleMoviesChatStream(w, req)
+	testutil.Equal(t, http.StatusOK, w.Code)
+
+	out := w.Body.String()
+	testutil.Contains(t, out, `"text":"stream text"`)
+	testutil.True(t, !strings.Contains(out, "sync fallback text"), "SSE output should not contain synchronous fallback text")
+	testutil.True(t, !provider.syncCalled, "GenerateText should not be called when provider implements StreamingProvider")
 }
 
 // TestResolveMoviesProviderBYOKBypassesRegistered proves that when BYOK is

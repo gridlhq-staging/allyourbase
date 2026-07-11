@@ -51,6 +51,8 @@ test.describe("Table Browser Advanced (Full E2E)", () => {
     // Assert: seeded records appear in the table
     await expect(page.getByText(`Seed Alpha ${runId}`)).toBeVisible({ timeout: 5000 });
     await expect(page.getByText(`Seed Beta ${runId}`)).toBeVisible();
+    await expect(page.locator("tr").filter({ hasText: `Seed Alpha ${runId}` }).first()).toBeVisible();
+    await expect(page.locator("tr").filter({ hasText: `Seed Beta ${runId}` }).first()).toBeVisible();
 
     // Cleanup handled by afterEach
   });
@@ -115,6 +117,9 @@ test.describe("Table Browser Advanced (Full E2E)", () => {
     // Verify Data tab is active and records are visible
     await expect(page.getByText("Alpha Product")).toBeVisible({ timeout: 5000 });
     await expect(page.getByText("Beta Service")).toBeVisible();
+    await expect(page.getByText("Gamma Tool")).toBeVisible();
+    await expect(page.getByText("Delta Widget")).toBeVisible();
+    await expect(page.getByText("Epsilon Device")).toBeVisible();
 
     // ============================================================
     // FILTER: Apply advanced filter
@@ -130,8 +135,10 @@ test.describe("Table Browser Advanced (Full E2E)", () => {
     // Verify only active records visible
     await expect(page.getByText("Alpha Product")).toBeVisible({ timeout: 3000 });
     await expect(page.getByText("Gamma Tool")).toBeVisible();
+    await expect(page.getByText("Delta Widget")).toBeVisible();
     // Inactive records should not be visible
     await expect(page.getByText("Beta Service")).not.toBeVisible({ timeout: 2000 });
+    await expect(page.getByText("Epsilon Device")).not.toBeVisible({ timeout: 2000 });
 
     // Clear filter
     await filterInput.clear();
@@ -139,6 +146,7 @@ test.describe("Table Browser Advanced (Full E2E)", () => {
 
     // All records visible again
     await expect(page.getByText("Beta Service")).toBeVisible({ timeout: 3000 });
+    await expect(page.getByText("Epsilon Device")).toBeVisible();
 
     // ============================================================
     // SORT: Click column header to sort ascending
@@ -158,6 +166,7 @@ test.describe("Table Browser Advanced (Full E2E)", () => {
     // Now Gamma should be first and Alpha last
     await expect(rows.first()).toContainText("Gamma Tool", { timeout: 3000 });
     await expect(rows.nth(4)).toContainText("Alpha Product");
+    await expect(rows.first()).not.toContainText("Alpha Product");
 
     // ============================================================
     // ROW INTERACTION: Click edit button on a row
@@ -171,6 +180,9 @@ test.describe("Table Browser Advanced (Full E2E)", () => {
     await editBtn.click();
 
     // Verify edit form/drawer opened — check for a form label that only appears in the edit drawer
+    await expect(page.getByRole("heading", { name: "Edit Record" })).toBeVisible({
+      timeout: 2000,
+    });
     await expect(page.getByLabel("name")).toBeVisible({ timeout: 2000 });
 
     // Dismiss the drawer before cleanup navigation

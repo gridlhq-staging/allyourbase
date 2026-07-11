@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/allyourbase/ayb/internal/tenant"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 )
@@ -24,13 +25,22 @@ func (s *Service) CreateBucket(ctx context.Context, name string, public bool) (*
 	if err := validateBucket(name); err != nil {
 		return nil, err
 	}
+	tenantID := tenant.TenantFromContext(ctx)
+
+	// The staging bucket is reserved for in-progress resumable upload bytes; a
+	// caller-created bucket of the same name would collide with staged blobs.
+	if name == resumableStagingBucket {
+		return nil, fmt.Errorf("%w: bucket name is reserved", ErrInvalidBucket)
+	}
 
 	var b Bucket
+	// Bucket names are tenant-local; global uniqueness would block pooled tenants
+	// from using the same bucket name.
 	err := s.pool.QueryRow(ctx,
-		`INSERT INTO _ayb_storage_buckets (name, public)
-		 VALUES ($1, $2)
+		`INSERT INTO _ayb_storage_buckets (tenant_id, name, public)
+		 VALUES ($1, $2, $3)
 		 RETURNING id, name, public, created_at, updated_at`,
-		name, public,
+		tenantID, name, public,
 	).Scan(&b.ID, &b.Name, &b.Public, &b.CreatedAt, &b.UpdatedAt)
 	if err != nil {
 		var pgErr *pgconn.PgError
@@ -48,13 +58,15 @@ func (s *Service) GetBucket(ctx context.Context, name string) (*Bucket, error) {
 	if err := validateBucket(name); err != nil {
 		return nil, err
 	}
+	tenantID := tenant.TenantFromContext(ctx)
 
 	var b Bucket
+	// Bucket metadata and ACLs are tenant-owned even when bucket names match.
 	err := s.pool.QueryRow(ctx,
 		`SELECT id, name, public, created_at, updated_at
 		 FROM _ayb_storage_buckets
-		 WHERE name = $1`,
-		name,
+		 WHERE tenant_id = $1 AND name = $2`,
+		tenantID, name,
 	).Scan(&b.ID, &b.Name, &b.Public, &b.CreatedAt, &b.UpdatedAt)
 	if err != nil {
 		return nil, wrapBucketLookupError(err)
@@ -65,7 +77,15 @@ func (s *Service) GetBucket(ctx context.Context, name string) (*Bucket, error) {
 
 // ListBuckets returns all configured buckets, sorted by name.
 func (s *Service) ListBuckets(ctx context.Context) ([]Bucket, error) {
-	rows, err := s.pool.Query(ctx, `SELECT id, name, public, created_at, updated_at FROM _ayb_storage_buckets ORDER BY name`)
+	tenantID := tenant.TenantFromContext(ctx)
+	// Bucket listings must not reveal another tenant's bucket names or ACLs.
+	rows, err := s.pool.Query(ctx,
+		`SELECT id, name, public, created_at, updated_at
+		 FROM _ayb_storage_buckets
+		 WHERE tenant_id = $1
+		 ORDER BY name`,
+		tenantID,
+	)
 	if err != nil {
 		return nil, fmt.Errorf("listing buckets: %w", err)
 	}
@@ -91,14 +111,16 @@ func (s *Service) UpdateBucket(ctx context.Context, name string, public bool) (*
 	if err := validateBucket(name); err != nil {
 		return nil, err
 	}
+	tenantID := tenant.TenantFromContext(ctx)
 
 	var b Bucket
+	// Update the tenant-local bucket row only; name alone is not unique anymore.
 	err := s.pool.QueryRow(ctx,
 		`UPDATE _ayb_storage_buckets
-		 SET public = $2, updated_at = NOW()
-		 WHERE name = $1
+		 SET public = $3, updated_at = NOW()
+		 WHERE tenant_id = $1 AND name = $2
 		 RETURNING id, name, public, created_at, updated_at`,
-		name, public,
+		tenantID, name, public,
 	).Scan(&b.ID, &b.Name, &b.Public, &b.CreatedAt, &b.UpdatedAt)
 	if err != nil {
 		return nil, wrapBucketLookupError(err)
@@ -112,10 +134,16 @@ func (s *Service) DeleteBucket(ctx context.Context, name string, force bool) err
 	if err := validateBucket(name); err != nil {
 		return err
 	}
+	tenantID := tenant.TenantFromContext(ctx)
 
 	if !force {
 		var objectCount int
-		if err := s.pool.QueryRow(ctx, `SELECT COUNT(*) FROM _ayb_storage_objects WHERE bucket = $1`, name).Scan(&objectCount); err != nil {
+		// Non-force delete checks only this tenant's objects so another tenant's
+		// same-named bucket cannot block deletion.
+		if err := s.pool.QueryRow(ctx,
+			`SELECT COUNT(*) FROM _ayb_storage_objects WHERE tenant_id = $1 AND bucket = $2`,
+			tenantID, name,
+		).Scan(&objectCount); err != nil {
 			return fmt.Errorf("checking bucket object count: %w", err)
 		}
 		if objectCount > 0 {
@@ -134,7 +162,12 @@ func (s *Service) DeleteBucket(ctx context.Context, name string, force bool) err
 	}
 	defer tx.Rollback(ctx)
 
-	objRows, err := tx.Query(ctx, `SELECT name FROM _ayb_storage_objects WHERE bucket = $1`, name)
+	// Force delete selects only this tenant's objects; backend cleanup below
+	// uses the same tenantID namespace.
+	objRows, err := tx.Query(ctx,
+		`SELECT name FROM _ayb_storage_objects WHERE tenant_id = $1 AND bucket = $2`,
+		tenantID, name,
+	)
 	if err != nil {
 		return fmt.Errorf("querying bucket objects: %w", err)
 	}
@@ -152,11 +185,17 @@ func (s *Service) DeleteBucket(ctx context.Context, name string, force bool) err
 		return fmt.Errorf("iterating bucket objects: %w", err)
 	}
 
-	if _, err := tx.Exec(ctx, `DELETE FROM _ayb_storage_objects WHERE bucket = $1`, name); err != nil {
+	if _, err := tx.Exec(ctx,
+		`DELETE FROM _ayb_storage_objects WHERE tenant_id = $1 AND bucket = $2`,
+		tenantID, name,
+	); err != nil {
 		return fmt.Errorf("deleting bucket objects: %w", err)
 	}
 
-	tag, err := tx.Exec(ctx, `DELETE FROM _ayb_storage_buckets WHERE name = $1`, name)
+	tag, err := tx.Exec(ctx,
+		`DELETE FROM _ayb_storage_buckets WHERE tenant_id = $1 AND name = $2`,
+		tenantID, name,
+	)
 	if err != nil {
 		return fmt.Errorf("deleting bucket metadata: %w", err)
 	}
@@ -171,7 +210,7 @@ func (s *Service) DeleteBucket(ctx context.Context, name string, force bool) err
 	// Backend file cleanup happens after the DB transaction commits.
 	// Log and continue on individual file errors to avoid leaving partial state.
 	for _, objectName := range objectNames {
-		if err := s.backend.Delete(ctx, name, objectName); err != nil {
+		if err := s.backend.Delete(ctx, tenantID, name, objectName); err != nil {
 			s.logger.Error("failed to delete backend file during force bucket delete",
 				"bucket", name, "object", objectName, "error", err)
 		}
@@ -181,7 +220,11 @@ func (s *Service) DeleteBucket(ctx context.Context, name string, force bool) err
 }
 
 func (s *Service) deleteBucketRow(ctx context.Context, name string) error {
-	tag, err := s.pool.Exec(ctx, `DELETE FROM _ayb_storage_buckets WHERE name = $1`, name)
+	// Bucket row deletion is tenant-scoped because bucket names are reusable.
+	tag, err := s.pool.Exec(ctx,
+		`DELETE FROM _ayb_storage_buckets WHERE tenant_id = $1 AND name = $2`,
+		tenant.TenantFromContext(ctx), name,
+	)
 	if err != nil {
 		return fmt.Errorf("deleting bucket metadata: %w", err)
 	}

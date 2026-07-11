@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -14,6 +15,7 @@ import (
 	"github.com/allyourbase/ayb/internal/httputil"
 	"github.com/allyourbase/ayb/internal/schema"
 	"github.com/allyourbase/ayb/internal/sqlutil"
+	"github.com/allyourbase/ayb/internal/tenant"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -62,9 +64,10 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	activeSchema := tenant.ActiveSchemaFromContext(r.Context())
 
 	tablesParam := r.URL.Query().Get("tables")
-	tables, ok := h.parseRealtimeTableSubscriptions(w, tablesParam)
+	tables, ok := h.parseRealtimeTableSubscriptions(w, activeSchema, tablesParam)
 	if !ok {
 		return
 	}
@@ -87,7 +90,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	flusher.Flush()
 
 	h.logger.Info("realtime client connected", "clientID", client.ID, "tables", tablesParam)
-	h.streamRealtimeSSEEvents(w, flusher, ctx, claims, client)
+	h.streamRealtimeSSEEvents(w, flusher, ctx, claims, activeSchema, client)
 }
 
 // authenticateRealtimeRequest validates the bearer token or API key from the request, returning the authenticated claims or writing an error response if authentication fails.
@@ -96,9 +99,14 @@ func (h *Handler) authenticateRealtimeRequest(w http.ResponseWriter, r *http.Req
 		return nil, true
 	}
 
-	token := extractToken(r)
+	token, fromQuery := extractToken(r)
 	if token == "" {
 		httputil.WriteErrorWithDocURL(w, http.StatusUnauthorized, "authentication required",
+			"https://allyourbase.io/guide/realtime")
+		return nil, false
+	}
+	if fromQuery && auth.IsAPIKey(token) {
+		httputil.WriteErrorWithDocURL(w, http.StatusUnauthorized, "API keys must be sent in the Authorization header",
 			"https://allyourbase.io/guide/realtime")
 		return nil, false
 	}
@@ -123,7 +131,7 @@ func (h *Handler) authenticateRealtimeRequest(w http.ResponseWriter, r *http.Req
 }
 
 // parseRealtimeTableSubscriptions splits the comma-separated tables parameter, validates each table name against the schema cache, and returns the subscription set.
-func (h *Handler) parseRealtimeTableSubscriptions(w http.ResponseWriter, tablesParam string) (map[string]bool, bool) {
+func (h *Handler) parseRealtimeTableSubscriptions(w http.ResponseWriter, activeSchema, tablesParam string) (map[string]bool, bool) {
 	if tablesParam == "" {
 		httputil.WriteErrorWithDocURL(w, http.StatusBadRequest, "tables parameter is required",
 			"https://allyourbase.io/guide/realtime")
@@ -137,7 +145,7 @@ func (h *Handler) parseRealtimeTableSubscriptions(w http.ResponseWriter, tablesP
 		if name == "" {
 			continue
 		}
-		if sc != nil && sc.TableByName(name) == nil && name != internalNotificationsTable {
+		if sc != nil && !realtimeTableExistsInActiveSchema(sc, activeSchema, name) && name != internalNotificationsTable {
 			httputil.WriteErrorWithDocURL(w, http.StatusBadRequest, "unknown table: "+name,
 				"https://allyourbase.io/guide/realtime")
 			return nil, false
@@ -165,7 +173,9 @@ func (h *Handler) parseRealtimeFilters(w http.ResponseWriter, filterParam string
 
 // setupRealtimeSSEClient subscribes a new client to the realtime hub with the requested table filters, registers it with the connection manager if configured, and returns the client with a cleanup function.
 func (h *Handler) setupRealtimeSSEClient(w http.ResponseWriter, r *http.Request, claims *auth.Claims, tables map[string]bool, filters Filters) (*Client, context.Context, func(), bool) {
-	client := h.hub.SubscribeWithFilter(tables, filters)
+	// Attach the request tenant at subscribe time so the client starts tenant-
+	// scoped before any event can be delivered — no unregister/re-register churn.
+	client := h.hub.SubscribeWithFilter(tables, filters, tenant.TenantFromContext(r.Context()))
 	ctx, cancel := context.WithCancel(r.Context())
 
 	cleanup := func() {
@@ -210,7 +220,7 @@ func (h *Handler) applySSEHeaders(w http.ResponseWriter) {
 	w.Header().Set("X-Accel-Buffering", "no") // disable nginx buffering
 }
 
-func (h *Handler) streamRealtimeSSEEvents(w http.ResponseWriter, flusher http.Flusher, ctx context.Context, claims *auth.Claims, client *Client) {
+func (h *Handler) streamRealtimeSSEEvents(w http.ResponseWriter, flusher http.Flusher, ctx context.Context, claims *auth.Claims, activeSchema string, client *Client) {
 	for {
 		select {
 		case <-ctx.Done():
@@ -219,7 +229,7 @@ func (h *Handler) streamRealtimeSSEEvents(w http.ResponseWriter, flusher http.Fl
 			if !open {
 				return
 			}
-			if !h.canSeeRecord(ctx, claims, event) {
+			if !h.canSeeRecord(ctx, claims, activeSchema, event) {
 				continue
 			}
 			if !shouldDeliverEvent(event, client.Filters()) {
@@ -274,23 +284,22 @@ func (h *Handler) serveOAuthSSE(w http.ResponseWriter, r *http.Request, flusher 
 	}
 }
 
-// canSeeRecord delegates to the package-level CanSeeRecord function.
-func (h *Handler) canSeeRecord(ctx context.Context, claims *auth.Claims, event *Event) bool {
-	return CanSeeRecord(ctx, h.pool, h.schemaCache, h.logger, claims, event)
+func (h *Handler) canSeeRecord(ctx context.Context, claims *auth.Claims, activeSchema string, event *Event) bool {
+	return CanSeeRecord(ctx, h.pool, h.schemaCache, h.logger, claims, activeSchema, event)
 }
 
 // CanSeeRecord checks whether the authenticated user can see the event's record
 // via an RLS-scoped SELECT. This per-event SELECT is evaluated by Postgres
 // under the ayb_authenticated role, so full RLS policy logic applies, including
 // join/EXISTS-based policies on related tables.
-//
 // Returns true when:
 //   - no pool is available (RLS filtering disabled)
 //   - no claims (unauthenticated client, no RLS applies)
-//   - the event is a delete (record is gone, can't verify)
+//   - schema metadata or primary-key values are missing
+//   - delete events lack OldRecord or SELECT-applicable RLS policies
 //   - the RLS-scoped SELECT finds the row
-func CanSeeRecord(ctx context.Context, pool *pgxpool.Pool, schemaCache *schema.CacheHolder, logger *slog.Logger, claims *auth.Claims, event *Event) bool {
-	if pool == nil || claims == nil || event.Action == "delete" {
+func CanSeeRecord(ctx context.Context, pool *pgxpool.Pool, schemaCache *schema.CacheHolder, logger *slog.Logger, claims *auth.Claims, activeSchema string, event *Event) bool {
+	if pool == nil || claims == nil {
 		return true
 	}
 
@@ -298,36 +307,63 @@ func CanSeeRecord(ctx context.Context, pool *pgxpool.Pool, schemaCache *schema.C
 	if sc == nil {
 		return true
 	}
-	tbl := sc.TableByName(event.Table)
+	tbl := sc.TableByNameInSchema(activeSchema, event.Table)
+	if tbl != nil && activeSchema != "" && activeSchema != "public" && tbl.Schema != activeSchema && event.Table != internalNotificationsTable {
+		return false
+	}
 	if tbl == nil || len(tbl.PrimaryKey) == 0 {
 		if event.Table != internalNotificationsTable {
-			return true
+			return activeSchema == "" || activeSchema == "public"
 		}
 
 		id, ok := event.Record["id"]
 		if !ok {
 			return true
 		}
-		tx, err := pool.Begin(ctx)
-		if err != nil {
-			logger.Error("rls filter: begin tx", "error", err)
-			return false
-		}
-		defer tx.Rollback(ctx)
-		if err := auth.SetRLSContext(ctx, tx, claims); err != nil {
-			logger.Error("rls filter: set rls context", "error", err)
-			return false
-		}
-		var one int
-		err = tx.QueryRow(ctx, `SELECT 1 FROM public."_ayb_notifications" WHERE id = $1`, id).Scan(&one)
-		return err == nil
+		return runVisibilityCheck(ctx, pool, logger, claims, `SELECT 1 FROM public."_ayb_notifications" WHERE id = $1`, []any{id})
+	}
+
+	if event.Action == "delete" {
+		return canSeeDeletedRecord(ctx, pool, logger, tbl, event.OldRecord, claims)
 	}
 
 	query, args := buildVisibilityCheck(tbl, event.Record)
 	if query == "" {
-		return true // missing PK values in record
+		return activeSchema == "" || activeSchema == "public"
 	}
 
+	return runVisibilityCheck(ctx, pool, logger, claims, query, args)
+}
+
+func realtimeTableExistsInActiveSchema(sc *schema.SchemaCache, activeSchema, name string) bool {
+	tbl := sc.TableByNameInSchema(activeSchema, name)
+	if tbl == nil {
+		return false
+	}
+	return activeSchema == "" || activeSchema == "public" || tbl.Schema == activeSchema
+}
+
+// canSeeDeletedRecord applies the delete-visibility truth table. It fails open
+// for nil pool, nil claims, nil schema cache, missing table/PK metadata except
+// _ayb_notifications, nil OldRecord, missing OldRecord PK values, and tables
+// without RLS SELECT/ALL policies. Otherwise it evaluates OldRecord against the
+// table's SELECT-applicable UsingExpr policies under the request user's RLS
+// context and delivers only when the deleted row would have been visible.
+func canSeeDeletedRecord(ctx context.Context, pool *pgxpool.Pool, logger *slog.Logger, tbl *schema.Table, oldRecord map[string]any, claims *auth.Claims) bool {
+	if oldRecord == nil || !recordHasPrimaryKeyValues(tbl, oldRecord) {
+		return true
+	}
+
+	predicate, enforce := deleteVisibilityPredicate(tbl)
+	if !enforce {
+		return true
+	}
+
+	query, args := buildDeletedVisibilityCheck(tbl, predicate, oldRecord)
+	return runVisibilityCheck(ctx, pool, logger, claims, query, args)
+}
+
+func runVisibilityCheck(ctx context.Context, pool *pgxpool.Pool, logger *slog.Logger, claims *auth.Claims, query string, args []any) bool {
 	tx, err := pool.Begin(ctx)
 	if err != nil {
 		logger.Error("rls filter: begin tx", "error", err)
@@ -343,6 +379,81 @@ func CanSeeRecord(ctx context.Context, pool *pgxpool.Pool, schemaCache *schema.C
 	var one int
 	err = tx.QueryRow(ctx, query, args...).Scan(&one)
 	return err == nil
+}
+
+func deleteVisibilityPredicate(tbl *schema.Table) (string, bool) {
+	if !tbl.RLSEnabled {
+		return "", false
+	}
+	var permissive []string
+	var restrictive []string
+	for _, policy := range tbl.RLSPolicies {
+		if policy == nil {
+			continue
+		}
+		command := strings.ToUpper(strings.TrimSpace(policy.Command))
+		if command != "ALL" && command != "SELECT" {
+			continue
+		}
+		expr := strings.TrimSpace(policy.UsingExpr)
+		if expr == "" {
+			expr = "TRUE"
+		}
+		if policy.Permissive {
+			permissive = append(permissive, expr)
+		} else {
+			restrictive = append(restrictive, expr)
+		}
+	}
+	if len(permissive) == 0 && len(restrictive) == 0 {
+		return "", false
+	}
+	if len(permissive) == 0 {
+		return "FALSE", true
+	}
+	clauses := append([]string{joinPolicyPredicates(permissive, " OR ")}, restrictive...)
+	return joinPolicyPredicates(clauses, " AND "), true
+}
+
+func joinPolicyPredicates(predicates []string, sep string) string {
+	wrapped := make([]string, len(predicates))
+	for i, predicate := range predicates {
+		wrapped[i] = "(" + predicate + ")"
+	}
+	return strings.Join(wrapped, sep)
+}
+
+func recordHasPrimaryKeyValues(tbl *schema.Table, record map[string]any) bool {
+	for _, pk := range tbl.PrimaryKey {
+		value, ok := record[pk]
+		if !ok || value == nil {
+			return false
+		}
+	}
+	return true
+}
+
+func buildDeletedVisibilityCheck(tbl *schema.Table, predicate string, record map[string]any) (string, []any) {
+	columns := make([]string, 0, len(record))
+	for column := range record {
+		columns = append(columns, column)
+	}
+	sort.Strings(columns)
+
+	args := make([]any, 0, len(columns))
+	placeholders := make([]string, len(columns))
+	quotedColumns := make([]string, len(columns))
+	for i, column := range columns {
+		placeholders[i] = deletedRecordPlaceholder(tbl, column, i+1)
+		quotedColumns[i] = sqlutil.QuoteIdent(column)
+		args = append(args, record[column])
+	}
+	query := fmt.Sprintf("SELECT 1 FROM (VALUES (%s)) AS %s (%s) WHERE %s",
+		strings.Join(placeholders, ", "),
+		sqlutil.QuoteIdent(tbl.Name),
+		strings.Join(quotedColumns, ", "),
+		predicate)
+	return query, args
 }
 
 // buildVisibilityCheck builds a SELECT 1 query scoped to a row's PK.
@@ -368,35 +479,4 @@ func buildVisibilityCheck(tbl *schema.Table, record map[string]any) (string, []a
 		args = append(args, v)
 	}
 	return sb.String(), args
-}
-
-// extractToken gets the JWT from the Authorization header or token query parameter.
-// EventSource (browser SSE API) does not support custom headers, so the query
-// parameter provides an alternative authentication path.
-func extractToken(r *http.Request) string {
-	if token, ok := httputil.ExtractBearerToken(r); ok {
-		return token
-	}
-	return r.URL.Query().Get("token")
-}
-
-// shouldDeliverEvent applies column-level filters to determine if an event should
-// be delivered. Returns true for unfiltered subscriptions. For UPDATE events,
-// evaluates both old and new row values to handle enter/leave filter transitions.
-func shouldDeliverEvent(event *Event, filters Filters) bool {
-	if len(filters) == 0 {
-		return true
-	}
-
-	match := filters.Matches(event.OldRecord, event.Record)
-	return ShouldDeliver(event.Action, match)
-}
-
-func sanitizeEventForClient(event *Event) *Event {
-	if event == nil {
-		return nil
-	}
-	clean := *event
-	clean.OldRecord = nil
-	return &clean
 }

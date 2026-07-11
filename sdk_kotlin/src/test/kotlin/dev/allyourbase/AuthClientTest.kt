@@ -4,6 +4,7 @@ import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 import kotlinx.serialization.json.putJsonObject
@@ -104,6 +105,100 @@ class AuthClientTest {
         assertEquals("/api/auth/magic-link", java.net.URI(request.url).path)
         val body = json.parseToJsonElement(request.body!!.decodeToString()) as JsonObject
         assertEquals("fixture@example.com", body["email"]!!.jsonPrimitive.content)
+    }
+
+    @Test
+    fun `begin webauthn login posts email and decodes challenge response`() = runTest {
+        val transport = MockHttpTransport()
+        transport.enqueue(StubResponse(status = 200, json = ContractFixtures.webAuthnLoginBeginResponse))
+        val client = AYBClient("https://api.example.com", transport = transport)
+
+        val response = client.auth.beginWebAuthnLogin("passkey@example.com")
+
+        assertEquals("webauthn_challenge_fixture", response.challengeId)
+        assertEquals("webauthn_login_begin_challenge", response.options["challenge"]!!.jsonPrimitive.content)
+        assertNull(client.token)
+        assertNull(client.refreshToken)
+
+        val request = transport.requests.single()
+        assertEquals(HttpMethod.POST, request.method)
+        assertEquals("/api/auth/webauthn/login/begin", java.net.URI(request.url).path)
+        val body = json.parseToJsonElement(request.body!!.decodeToString()) as JsonObject
+        assertEquals("passkey@example.com", body["email"]!!.jsonPrimitive.content)
+    }
+
+    @Test
+    fun `finish webauthn login serializes snake case assertion request and signs in`() = runTest {
+        val transport = MockHttpTransport()
+        transport.enqueue(StubResponse(status = 200, json = ContractFixtures.authResponse))
+        val client = AYBClient("https://api.example.com", transport = transport)
+        val events = mutableListOf<AuthStateEvent>()
+        client.onAuthStateChange { event, _ -> events.add(event) }
+
+        val assertionResponse = buildJsonObject {
+            put("id", "credential-id")
+            put("type", "public-key")
+        }
+        val response = client.auth.finishWebAuthnLogin("webauthn_challenge_fixture", assertionResponse)
+
+        assertEquals("jwt_stage3", response.token)
+        assertEquals("refresh_stage3", client.refreshToken)
+        assertEquals("jwt_stage3", client.token)
+        assertEquals(listOf(AuthStateEvent.SIGNED_IN), events)
+
+        val request = transport.requests.single()
+        assertEquals(HttpMethod.POST, request.method)
+        assertEquals("/api/auth/webauthn/login/finish", java.net.URI(request.url).path)
+        val body = json.parseToJsonElement(request.body!!.decodeToString()) as JsonObject
+        assertEquals("webauthn_challenge_fixture", body["challenge_id"]!!.jsonPrimitive.content)
+        assertEquals("credential-id", body["assertion_response"]!!.jsonObject["id"]!!.jsonPrimitive.content)
+        assertNull(body["challengeId"])
+        assertNull(body["assertionResponse"])
+    }
+
+    @Test
+    fun `sign in with passkey composes begin authenticator and finish`() = runTest {
+        val transport = MockHttpTransport()
+        transport.enqueue(StubResponse(status = 200, json = ContractFixtures.webAuthnLoginBeginResponse))
+        transport.enqueue(StubResponse(status = 200, json = ContractFixtures.authResponse))
+        val client = AYBClient("https://api.example.com", transport = transport)
+        val events = mutableListOf<AuthStateEvent>()
+        client.onAuthStateChange { event, _ -> events.add(event) }
+
+        val expectedBegin = json.decodeFromJsonElement(
+            WebAuthnLoginBeginResponse.serializer(),
+            ContractFixtures.webAuthnLoginBeginResponse,
+        )
+        val assertionResponse = buildPasskeyAssertionResponse()
+        val authenticatorRequests = mutableListOf<JsonObject>()
+        val authenticator = PasskeyAuthenticator { options ->
+            authenticatorRequests.add(options)
+            assertionResponse
+        }
+
+        val response = client.auth.signInWithPasskey("passkey@example.com", authenticator)
+
+        assertEquals("jwt_stage3", response.token)
+        assertEquals("jwt_stage3", client.token)
+        assertEquals("refresh_stage3", client.refreshToken)
+        assertEquals(listOf(AuthStateEvent.SIGNED_IN), events)
+        assertEquals(listOf(expectedBegin.options), authenticatorRequests)
+
+        assertEquals(2, transport.requests.size)
+        val beginRequest = transport.requests[0]
+        assertEquals(HttpMethod.POST, beginRequest.method)
+        assertEquals("/api/auth/webauthn/login/begin", java.net.URI(beginRequest.url).path)
+        val beginBody = json.parseToJsonElement(beginRequest.body!!.decodeToString()) as JsonObject
+        assertEquals("passkey@example.com", beginBody["email"]!!.jsonPrimitive.content)
+
+        val finishRequest = transport.requests[1]
+        assertEquals(HttpMethod.POST, finishRequest.method)
+        assertEquals("/api/auth/webauthn/login/finish", java.net.URI(finishRequest.url).path)
+        val finishBody = json.parseToJsonElement(finishRequest.body!!.decodeToString()) as JsonObject
+        assertEquals("webauthn_challenge_fixture", finishBody["challenge_id"]!!.jsonPrimitive.content)
+        assertEquals(assertionResponse, finishBody["assertion_response"])
+        assertNull(finishBody["challengeId"])
+        assertNull(finishBody["assertionResponse"])
     }
 
     @Test
@@ -299,4 +394,15 @@ class AuthClientTest {
         }
     }
 
+    private fun buildPasskeyAssertionResponse() = buildJsonObject {
+        put("id", "credential-id")
+        put("rawId", "credential-id")
+        put("type", "public-key")
+        putJsonObject("response") {
+            put("clientDataJSON", "client-data-json")
+            put("authenticatorData", "authenticator-data")
+            put("signature", "signature")
+            put("userHandle", "user-handle")
+        }
+    }
 }

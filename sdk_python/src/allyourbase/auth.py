@@ -1,13 +1,14 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, Dict
 
 from allyourbase.types import (
     AuthResponse,
     MagicLinkConfirmResponse,
     MagicLinkRequestResponse,
     User,
+    WebAuthnLoginBeginResponse,
 )
 
 if TYPE_CHECKING:
@@ -41,6 +42,36 @@ class AuthClient:
         )
         if resp is None:
             raise RuntimeError("Expected response body for login")
+        auth = AuthResponse.model_validate(resp.json())
+        self._client.set_tokens(auth.token, auth.refresh_token)
+        self._client._emit_auth_event("SIGNED_IN")
+        return auth
+
+    async def begin_webauthn_login(self, email: str) -> WebAuthnLoginBeginResponse:
+        resp = await self._client._request(
+            "/api/auth/webauthn/login/begin",
+            method="POST",
+            json={"email": email},
+        )
+        if resp is None:
+            raise RuntimeError("Expected response body for begin_webauthn_login")
+        return WebAuthnLoginBeginResponse.model_validate(resp.json())
+
+    async def finish_webauthn_login(
+        self,
+        challenge_id: str,
+        assertion_response: Dict[str, Any],
+    ) -> AuthResponse:
+        resp = await self._client._request(
+            "/api/auth/webauthn/login/finish",
+            method="POST",
+            json={
+                "challenge_id": challenge_id,
+                "assertion_response": assertion_response,
+            },
+        )
+        if resp is None:
+            raise RuntimeError("Expected response body for finish_webauthn_login")
         auth = AuthResponse.model_validate(resp.json())
         self._client.set_tokens(auth.token, auth.refresh_token)
         self._client._emit_auth_event("SIGNED_IN")

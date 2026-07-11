@@ -83,6 +83,7 @@ class OkHttpSseConnection(
 private fun HttpMethod.toOkHttpMethod(): String = when (this) {
     HttpMethod.GET -> "GET"
     HttpMethod.POST -> "POST"
+    HttpMethod.PUT -> "PUT"
     HttpMethod.PATCH -> "PATCH"
     HttpMethod.DELETE -> "DELETE"
 }

@@ -1,5 +1,45 @@
 # Implemented
 
+> This file is the curated public shipped-history ledger, synced to staging and prod via debbie. Raw per-lane archive notes live in `implemented/` and are not part of the public sync.
+
+### Next-waves batch — schema-isolation correctness, SDK parity, screen specs (jul10_pm, merged 2026-07-11)
+
+Twelve lanes across three sequential waves close the highest-value pooled-multitenant correctness gap, bring the non-JS SDKs to passkey + synonym parity, and formalize the core dashboard screens with target-behavior specs. (A thirteenth planned lane — a storage-quota 413 HTTP-boundary test — was dropped pre-dispatch after review confirmed the wire contract was already pinned by three existing real-server tests.)
+
+Schema-isolated table/function metadata resolution — `SchemaCache.TableByNameInSchema` and `FunctionByNameInSchema` resolve `<activeSchema>.<name>` → `public.<name>` → fail closed for pooled schema-isolated tenants (no more nondeterministic cross-schema map scan that could return an arbitrary tenant's columns/PK/RLS metadata), while self-host and shared modes keep the legacy non-public scan byte-identically. The active schema is owned by the `setTenantSearchPath` middleware via `tenant.ContextWithActiveSchema` for request-context call sites (CRUD, RPC, vector-index DDL, GraphQL) and pinned on `internal/ws.Conn` for the background realtime delivery goroutines that run on `context.Background()`; realtime `CanSeeRecord` now fails closed for schema-isolated tenants (preserving the `_ayb_notifications` visibility carve-out) so the fix cannot become a within-tenant RLS bypass. Schema-isolation mode gained its first cross-node coverage via `TestCrossNodeSchemaIsolatedRealtimeAndCRUDIsolation` in `make test-multinode`. Closes the latent gap recorded in `docs/cloud/workplan.md`.
+
+Non-JS SDK passkey + synonym parity — the Go, Python, Dart, Kotlin, and Swift SDKs now expose first-factor passkey (WebAuthn) login wire helpers (`beginWebAuthnLogin`/`finishWebAuthnLogin`, decoding the server's snake_case `challenge_id` envelope) and typed synonym-management methods against `GET/PUT /api/collections/{table}/synonyms`. Each is pinned by contract tests that decode a canonical, live-server-captured fixture set (`tests/contract/fixtures/sdk_contract/webauthn_login_begin_response.json`, `search_synonyms_response.json`, `search_synonyms_request.json`) plus a JS reference assertion, so all six SDKs share one wire-shape SSOT. Backend SDKs (Go/Python) expose the wire helpers only; the mobile SDKs (Dart/Kotlin/Swift) add a native-ceremony seam with fully fixture-tested serialization — the on-device biometric tap is the one device-only, headlessly-unvalidatable step.
+
+Leaked-path guard widened — the `internal/codehealth` worktree-path guard now scans `implemented/` and `docs/` (previously only debbie-synced files), the genuine committed leaks in those dirs were stripped to repo-relative paths, and a residual set of historical `chats/`/`_dev/` leaks was gap-spec'd rather than force-stripped in this bounded lane.
+
+Core dashboard screen specs — twelve target-behavior specs landed under `docs/reference/screen_specs/` for the screens a refugee touches first: `login`, `oauth_consent`, `dashboard_shell`, `table_data`, `schema_view`, `sql_editor`, `storage`, `users`, `api_keys`, `rls_policies`, `functions`, and `edge_functions`. Each passes `scripts/check_screen_spec.sh` and maps its acceptance criteria to unmocked browser-test assertions; the long-tail observability/messaging/auth-settings screens remain to be specced.
+
+### Pooled multi-tenant safety batch (jul09_1pm, merged 2026-07-10)
+
+Six lanes harden the AYB Cloud pooled multi-tenant runtime across realtime, storage, AI streaming, and multi-node coordination, verified end-to-end by a 2-node × 2-tenant proof via `make test-multinode`.
+
+Tenant-correct realtime and delete-visibility hardening — realtime fan-out through `internal/pgnotify` now enforces tenant isolation on re-broadcast; RLS-scoped delete events reach only the owning tenant's subscribers. Pooled tenant realtime isolation and delete visibility are verified by the multinode lane.
+
+Per-tenant storage usage and multi-node-safe resumable uploads — migration `178_ayb_storage_usage_tenant_id.sql` repoints `_ayb_storage_usage` to a `(tenant_id, user_id)` primary key so the same user ID holds independent balances per tenant; `storage.GetTenantUsage` is the rollup accessor. Resumable upload staging moved off node-local temp files onto the storage backend (reserved `ayb_resumable_staging` bucket) so an upload begun on one node finishes on another. HTTP 413 quota contract proven at `storage_quota_integration_test.go`.
+
+Real AI token streaming — `StreamingProvider.GenerateTextStream` is now implemented by all three backends: `internal/ai/ollama_stream.go` (NDJSON), `internal/ai/anthropic_stream.go` (SSE), and `internal/ai/openai_stream.go` (SSE, canned-byte tested; account billing-blocked). A shared decoder lives in `internal/ai/stream_reader.go`. The movies chat SSE surface streams real tokens instead of falling back to a single blob.
+
+One owner for LISTEN reconnect — `internal/pgnotify/listener.go` extracts the reconnect-with-backoff primitive; `Bus.Subscribe` and `Bus.ListenRaw` share it, and `internal/edgefunc/db_trigger_worker.go` now listens through `ListenRaw` with first-ever E2E coverage for LISTEN wakeup, idle-timeout drain, and reconnect paths. The schema watcher is intentionally excluded (its plain-string payload is incompatible with the bus envelope).
+
+Anonymous public storage serve fail-closed in pooled mode — when `require_resolved_tenant` is active, unauthenticated public-bucket reads that cannot resolve a tenant are rejected rather than served, closing the cross-tenant access vector. Self-host mode preserves the existing open default.
+
+Verified pooled multinode lane — `make test-multinode` covers `TestCrossNodePooledRealtimeTenantIsolation`, `TestCrossNodePooledDeleteVisibilityRespectsRLS`, `TestCrossNodePooledStorageQuotaPerTenant`, `TestCrossNodeResumableUploadSpansNodes`, `TestCrossNodeAnonymousPublicServeFailsClosed`, and `TestCrossNodeAnonymousPublicServeSelfHostDefault`.
+
+### AYB Cloud groundwork batch (jul08_10pm, merged 2026-07-09)
+
+Three P0–P2 lanes land the foundational multi-tenant and multi-node capabilities the pooled safety batch builds on.
+
+Multi-tenant storage isolation — migration `176_ayb_storage_tenant_id.sql` adds `tenant_id` to `_ayb_storage_objects`, `_buckets`, and `_uploads` with per-tenant UNIQUE constraints. Physical storage keys are namespaced as `t/<tenantID>/bucket/name` (unprefixed for self-host default `''`); signed URLs bind the tenant in the HMAC payload.
+
+Multi-node realtime fan-out and durable token denylist — `internal/pgnotify` ships a shared LISTEN/NOTIFY bus; `realtime.NewHubWithBus` re-broadcasts foreign events across nodes (nil bus = single-node, byte-identical behavior). Targeted OAuth SSE cross-node delivery is wired through the same bus. A durable token denylist landed via migration `177_ayb_revoked_sessions.sql` with `revoked_sessions_store`; revocations propagate via NOTIFY and survive restart/partition through startup and periodic reconcile.
+
+Hosted-mode proof (single machine) — `hosted_mode_lifecycle_integration_test.go` proves tenant create → suspend → resume → delete plus two-tenant storage byte-isolation, unattended against managed Postgres.
+
 ### v0.0.12-beta — L1-L7 search relevance release prep (jun10_pm)
 
 v0.0.12-beta packages the jun10_pm release-prep closeout for the current search-relevance wave. Existing owners remain the source of truth: leaked worktree path cleanup and guard coverage is recorded in the v0.0.11-beta closeout below; persisted custom ranking lives in `internal/searchsettings/settings.go`; facet-value search lives in `internal/api/facet_value_search.go`; typed JavaScript search settings and synonym management live in `sdk/src/search_settings.ts`; InstantSearch adapter depth, including searchable facet values, lives in `sdk/src/instantsearch.ts`; the dashboard Search Settings UI lives in `ui/src/components/SearchSettingsEditor.tsx`; and Algolia relevance-settings import is owned by `internal/algoliamigrate/*settings*`.

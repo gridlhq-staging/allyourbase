@@ -32,6 +32,7 @@ type Conn struct {
 	mu            sync.Mutex
 	authenticated bool
 	claims        *auth.Claims
+	activeSchema  string
 	subscriptions map[string]bool
 	channels      map[string]bool
 	presence      map[string]map[string]any // channel -> presence payload
@@ -111,6 +112,28 @@ func (c *Conn) Claims() *auth.Claims {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	return c.claims
+}
+
+// ActiveSchema returns the request-selected schema captured when the WebSocket
+// connection was established.
+func (c *Conn) ActiveSchema() string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.activeSchema == "" {
+		return "public"
+	}
+	return c.activeSchema
+}
+
+// SetActiveSchema stores the request-selected schema for durable delivery
+// goroutines.
+func (c *Conn) SetActiveSchema(activeSchema string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if activeSchema == "" {
+		activeSchema = "public"
+	}
+	c.activeSchema = activeSchema
 }
 
 // Subscribe adds tables to the subscription set.

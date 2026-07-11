@@ -11,7 +11,6 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
-	"net"
 	"net/url"
 	"os"
 	"os/exec"
@@ -20,6 +19,7 @@ import (
 	"syscall"
 
 	"github.com/allyourbase/ayb/internal/pgmanager"
+	"github.com/allyourbase/ayb/internal/testutil"
 )
 
 func main() {
@@ -34,7 +34,7 @@ func run() int {
 		return 1
 	}
 
-	port, err := freePort()
+	port, err := testutil.FreePort()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "testpg: finding free port: %v\n", err)
 		return 1
@@ -140,15 +140,6 @@ func handleChildSignal(cmd *exec.Cmd, waitCh <-chan error, sigCh chan os.Signal,
 	}()
 	<-waitCh
 	return 128 + int(sig.(syscall.Signal))
-}
-
-func freePort() (int, error) {
-	l, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		return 0, err
-	}
-	defer l.Close()
-	return l.Addr().(*net.TCPAddr).Port, nil
 }
 
 func createTempRoot() (string, error) {

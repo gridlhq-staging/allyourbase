@@ -350,3 +350,25 @@ func TestBuildCacheExcludesAYBTables(t *testing.T) {
 		testutil.False(t, key == "public._ayb_test", "should exclude _ayb_ tables")
 	}
 }
+
+func TestBuildCacheExcludesExtensionOwnedTables(t *testing.T) {
+	ctx := context.Background()
+	resetDB(t, ctx)
+	t.Cleanup(func() {
+		_, _ = sharedPG.Pool.Exec(ctx, `ALTER EXTENSION plpgsql DROP TABLE public.extension_owned`)
+		_, _ = sharedPG.Pool.Exec(ctx, `DROP TABLE IF EXISTS public.extension_owned`)
+	})
+
+	_, err := sharedPG.Pool.Exec(ctx, `
+		CREATE TABLE extension_owned (id SERIAL PRIMARY KEY);
+		ALTER EXTENSION plpgsql ADD TABLE extension_owned;
+		CREATE TABLE user_owned (id SERIAL PRIMARY KEY);
+	`)
+	testutil.NoError(t, err)
+
+	cache, err := schema.BuildCache(ctx, sharedPG.Pool)
+	testutil.NoError(t, err)
+
+	testutil.Nil(t, cache.Tables["public.extension_owned"])
+	testutil.NotNil(t, cache.Tables["public.user_owned"])
+}

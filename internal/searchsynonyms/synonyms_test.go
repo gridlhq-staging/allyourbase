@@ -30,9 +30,9 @@ func TestNormalizeGroups(t *testing.T) {
 			wantErr: "groups is required",
 		},
 		{
-			name:    "rejects_empty_groups",
-			groups:  Groups{},
-			wantErr: "groups is required",
+			name:   "allows_empty_groups_to_clear_synonyms",
+			groups: Groups{},
+			want:   Groups{},
 		},
 		{
 			name:    "rejects_group_with_only_blank_terms",

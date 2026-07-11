@@ -1,10 +1,17 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, Dict, List, Optional
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Union
 from urllib.parse import quote, urlencode
 
-from allyourbase.types import BatchOperation, BatchResult, ListResponse
+from allyourbase.types import (
+    BatchOperation,
+    BatchResult,
+    ListResponse,
+    SearchSynonymGroup,
+    SearchSynonymsRequest,
+    SearchSynonymsResponse,
+)
 
 if TYPE_CHECKING:
     from allyourbase.client import AYBClient
@@ -142,6 +149,41 @@ class RecordsClient:
             self._record_path(collection, id),
             method="DELETE",
         )
+
+    async def set_synonyms(
+        self,
+        collection: str,
+        synonyms: Union[
+            SearchSynonymsRequest,
+            SearchSynonymsResponse,
+            List[SearchSynonymGroup],
+            Dict[str, Any],
+            List[Dict[str, Any]],
+        ],
+    ) -> SearchSynonymsResponse:
+        if isinstance(synonyms, SearchSynonymsRequest):
+            request = synonyms
+        elif isinstance(synonyms, SearchSynonymsResponse):
+            request = SearchSynonymsRequest.model_validate(synonyms.model_dump())
+        elif isinstance(synonyms, list):
+            request = SearchSynonymsRequest.model_validate({"groups": synonyms})
+        else:
+            request = SearchSynonymsRequest.model_validate(synonyms)
+
+        resp = await self._client._request(
+            f"{self._collection_path(collection)}/synonyms/",
+            method="PUT",
+            json=request.model_dump(),
+        )
+        if resp is None:
+            raise RuntimeError("Expected response body for set_synonyms")
+        return SearchSynonymsResponse.model_validate(resp.json())
+
+    async def get_synonyms(self, collection: str) -> SearchSynonymsResponse:
+        resp = await self._client._request(f"{self._collection_path(collection)}/synonyms/")
+        if resp is None:
+            raise RuntimeError("Expected response body for get_synonyms")
+        return SearchSynonymsResponse.model_validate(resp.json())
 
     async def batch(
         self,

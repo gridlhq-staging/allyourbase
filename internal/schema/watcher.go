@@ -33,6 +33,14 @@ func ReloadNotifyChannel() string {
 // Watcher listens for schema change notifications and triggers schema cache
 // reloads. If event triggers cannot be installed, it still listens for explicit
 // reload notifications and also falls back to periodic polling.
+//
+// Watcher intentionally owns a standalone Postgres-native listener instead of
+// using pgnotify.Bus. Schema triggers publish plain 'reload' payloads that the
+// bus envelope decoder rejects, and bus self-echo suppression is wrong for
+// schema invalidation because local DDL must invalidate the local cache too.
+// Watcher also couples LISTEN-before-ready ordering with debounce, polling
+// fallback, and reload-on-reconnect semantics that are specific to schema cache
+// convergence.
 type Watcher struct {
 	cache      *CacheHolder
 	pool       *pgxpool.Pool

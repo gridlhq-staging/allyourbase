@@ -6,6 +6,7 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.encodeToJsonElement
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 import kotlinx.serialization.serializer
@@ -28,9 +29,7 @@ class AuthClient internal constructor(
             body = buildJsonObject {},
             decode = { payload -> decodePayload(payload) },
         )
-        client.setTokens(response.token, response.refreshToken)
-        client.emitAuthState(AuthStateEvent.SIGNED_IN)
-        return response
+        return applySignedInSession(response)
     }
 
     suspend fun requestMagicLink(email: String): MagicLinkRequestResponse =
@@ -40,6 +39,30 @@ class AuthClient internal constructor(
             body = buildJsonObject { put("email", email) },
             decode = { payload -> decodePayload(payload) },
         )
+
+    suspend fun beginWebAuthnLogin(email: String): WebAuthnLoginBeginResponse =
+        client.request(
+            path = "/api/auth/webauthn/login/begin",
+            method = HttpMethod.POST,
+            body = buildJsonObject { put("email", email) },
+            decode = { payload -> decodePayload(payload) },
+        )
+
+    suspend fun finishWebAuthnLogin(challengeId: String, assertionResponse: JsonObject): AuthResponse {
+        val response: AuthResponse = client.request(
+            path = "/api/auth/webauthn/login/finish",
+            method = HttpMethod.POST,
+            body = encodePayload(WebAuthnLoginFinishRequest(challengeId, assertionResponse)),
+            decode = { payload -> decodePayload(payload) },
+        )
+        return applySignedInSession(response)
+    }
+
+    suspend fun signInWithPasskey(email: String, authenticator: PasskeyAuthenticator): AuthResponse {
+        val begin = beginWebAuthnLogin(email)
+        val assertionResponse = authenticator.createAssertion(begin.options)
+        return finishWebAuthnLogin(begin.challengeId, assertionResponse)
+    }
 
     suspend fun confirmMagicLink(token: String): MagicLinkConfirmResponse {
         val response: MagicLinkConfirmResponse = client.request(
@@ -100,9 +123,7 @@ class AuthClient internal constructor(
             },
             decode = { payload -> decodePayload(payload) },
         )
-        client.setTokens(response.token, response.refreshToken)
-        client.emitAuthState(AuthStateEvent.SIGNED_IN)
-        return response
+        return applySignedInSession(response)
     }
 
     private fun requireRefreshToken(): String {
@@ -116,6 +137,15 @@ class AuthClient internal constructor(
         }
         return refreshToken
     }
+
+    private fun applySignedInSession(response: AuthResponse): AuthResponse {
+        client.setTokens(response.token, response.refreshToken)
+        client.emitAuthState(AuthStateEvent.SIGNED_IN)
+        return response
+    }
+
+    private inline fun <reified T> encodePayload(payload: T): JsonElement =
+        json.encodeToJsonElement(serializer<T>(), payload)
 
     private inline fun <reified T> decodePayload(payload: JsonElement?): T {
         if (payload == null) {

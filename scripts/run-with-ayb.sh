@@ -18,6 +18,7 @@ readonly AYB_CANONICAL_ADMIN_TOKEN_PATH="${HOME}/.ayb/admin-token"
 readonly AYB_ADMIN_TOKEN_PATH="${AYB_ADMIN_TOKEN_PATH:-$AYB_CANONICAL_ADMIN_TOKEN_PATH}"
 CANONICAL_ADMIN_TOKEN_BACKUP_PATH=""
 CANONICAL_ADMIN_TOKEN_HAD_ORIGINAL=0
+OWNED_EMBEDDED_DATA_DIR=""
 
 derive_ayb_base_url() {
   if [[ -n "${AYB_BASE_URL:-}" ]]; then
@@ -140,6 +141,21 @@ restore_canonical_admin_token_if_needed() {
   fi
 }
 
+prepare_owned_embedded_data_dir() {
+  if [[ -n "${AYB_DATABASE_URL:-}" || -n "${AYB_DATABASE_EMBEDDED_DATA_DIR:-}" ]]; then
+    return 0
+  fi
+
+  OWNED_EMBEDDED_DATA_DIR="$(mktemp -d "${TMPDIR:-/tmp}/ayb-runwith-embedded.XXXXXX")"
+  export AYB_DATABASE_EMBEDDED_DATA_DIR="$OWNED_EMBEDDED_DATA_DIR"
+}
+
+cleanup_owned_embedded_data_dir() {
+  if [[ -n "$OWNED_EMBEDDED_DATA_DIR" ]]; then
+    rm -rf "$OWNED_EMBEDDED_DATA_DIR"
+  fi
+}
+
 ensure_ayb_binary_if_needed() {
   case "$AYB_START_COMMAND" in
     "./ayb"|"./ayb "*) ;;
@@ -245,6 +261,7 @@ prepare_canonical_admin_token_file
 if [[ -z "${AYB_ADMIN_PASSWORD:-}" ]]; then
   remove_canonical_admin_token_file
 fi
+prepare_owned_embedded_data_dir
 bash -lc "$AYB_START_COMMAND" > "$AYB_START_LOG" 2>&1 &
 AYB_PID=$!
 
@@ -252,6 +269,7 @@ cleanup() {
   kill "$AYB_PID" 2>/dev/null || true
   wait "$AYB_PID" 2>/dev/null || true
   restore_canonical_admin_token_if_needed
+  cleanup_owned_embedded_data_dir
 }
 trap cleanup EXIT
 

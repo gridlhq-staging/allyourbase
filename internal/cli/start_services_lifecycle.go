@@ -39,6 +39,7 @@ type coreServices struct {
 // lifecycle management during graceful shutdown.
 type shutdownState struct {
 	srv                  *server.Server
+	authSvc              *auth.Service
 	certmagicConfig      *certmagic.Config
 	tlsRedirectSrv       *http.Server
 	jobSvc               *jobs.Service
@@ -63,6 +64,9 @@ type readyState struct {
 
 // shutdown stops schedulers, abandons active restore jobs, and closes the TLS redirect server.
 func (s *shutdownState) shutdown(ctx context.Context, logger *slog.Logger) {
+	if s.authSvc != nil {
+		s.authSvc.StopSessionRevocation()
+	}
 	if s.backupSched != nil {
 		s.backupSched.Stop()
 	}

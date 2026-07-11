@@ -32,6 +32,11 @@ class MagicLinkRequestResponse(BaseModel):
     message: str
 
 
+class WebAuthnLoginBeginResponse(BaseModel):
+    challenge_id: str
+    options: Dict[str, Any]
+
+
 class MagicLinkConfirmResponse(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
@@ -118,3 +123,15 @@ class BatchResult(BaseModel, Generic[T]):
     index: int
     status: int
     body: Optional[T] = None
+
+
+class SearchSynonymGroup(BaseModel):
+    terms: List[str]
+
+
+class SearchSynonymsRequest(BaseModel):
+    groups: List[SearchSynonymGroup]
+
+
+class SearchSynonymsResponse(BaseModel):
+    groups: List[SearchSynonymGroup]

@@ -1,6 +1,7 @@
 package auth
 
 import (
+	"context"
 	"errors"
 	"testing"
 	"time"
@@ -61,7 +62,7 @@ func TestDenyListFromSessionRowsAddsReturnedIDs(t *testing.T) {
 		ids: []string{"session-1", "session-2"},
 	}
 
-	err := svc.denyListFromSessionRows(rows)
+	err := svc.denyListFromSessionRows(context.Background(), rows)
 	testutil.NoError(t, err)
 	testutil.True(t, rows.closed, "rows should be closed")
 	testutil.True(t, svc.denyList.IsDenied("session-1"), "session-1 should be denied")
@@ -81,7 +82,7 @@ func TestDenyListFromSessionRowsReturnsScanError(t *testing.T) {
 		scanErr:   errors.New("scan failed"),
 	}
 
-	err := svc.denyListFromSessionRows(rows)
+	err := svc.denyListFromSessionRows(context.Background(), rows)
 	testutil.ErrorContains(t, err, "scanning revoked session id")
 	testutil.True(t, rows.closed, "rows should be closed")
 }
@@ -98,7 +99,30 @@ func TestDenyListFromSessionRowsReturnsIterationError(t *testing.T) {
 		iterErr: errors.New("rows failed"),
 	}
 
-	err := svc.denyListFromSessionRows(rows)
+	err := svc.denyListFromSessionRows(context.Background(), rows)
 	testutil.ErrorContains(t, err, "iterating revoked session ids")
 	testutil.True(t, rows.closed, "rows should be closed")
+}
+
+func TestDenyListFromSessionRowsUsesCallerContext(t *testing.T) {
+	t.Parallel()
+
+	store := &fakeRevokedSessionStore{}
+	svc := &Service{
+		tokenDur: time.Hour,
+		denyList: NewTokenDenyList(),
+	}
+	svc.denyList.configure(store, nil, nil)
+	rows := &fakeSessionIDRows{
+		ids: []string{"session-1"},
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	err := svc.denyListFromSessionRows(ctx, rows)
+
+	testutil.ErrorContains(t, err, "context canceled")
+	testutil.True(t, rows.closed, "rows should be closed")
+	testutil.Equal(t, 0, len(store.upserts))
+	testutil.False(t, svc.denyList.IsDenied("session-1"), "canceled context should stop durable denylist write")
 }

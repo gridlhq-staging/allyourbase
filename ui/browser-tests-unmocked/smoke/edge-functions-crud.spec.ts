@@ -106,6 +106,19 @@ test.describe("Smoke: Edge Functions CRUD", () => {
     await page.getByRole("button", { name: "Editor", exact: true }).click();
     await page.getByRole("button", { name: /Delete/i }).click();
     await expect(page.getByText("Are you sure")).toBeVisible();
+
+    // Cancel must leave the function intact: the confirmation dismisses, the
+    // editor stays open, and the function still resolves via the admin API.
+    await page.getByRole("button", { name: /^Cancel$/i }).click();
+    await expect(page.getByText("Are you sure")).toBeHidden();
+    await expect(page.getByRole("heading", { name: fnName })).toBeVisible();
+    await expect(
+      getEdgeFunctionIDByName(request, adminToken, fnName),
+    ).resolves.toBe(createdFunctionID);
+
+    // Re-open the confirmation and delete for real.
+    await page.getByRole("button", { name: /Delete/i }).click();
+    await expect(page.getByText("Are you sure")).toBeVisible();
     await page.getByRole("button", { name: /Confirm/i }).click();
 
     // Verify we're back on the list and the function is gone

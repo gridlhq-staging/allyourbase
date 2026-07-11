@@ -47,6 +47,44 @@ runBlocking {
 }
 ```
 
+Passkey login composes AYB WebAuthn begin/finish calls with an authenticator supplied by your app. Keep AndroidX Credentials in the Android app module:
+
+```kotlin
+import android.content.Context
+import androidx.credentials.CredentialManager
+import androidx.credentials.GetCredentialRequest
+import androidx.credentials.GetPublicKeyCredentialOption
+import androidx.credentials.PublicKeyCredential
+import dev.allyourbase.PasskeyAuthenticator
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.jsonObject
+
+class AndroidPasskeyAuthenticator(
+    private val credentialManager: CredentialManager,
+    private val context: Context,
+) : PasskeyAuthenticator {
+    private val json = Json { ignoreUnknownKeys = true }
+
+    override suspend fun createAssertion(options: JsonObject): JsonObject {
+        val request = GetCredentialRequest.Builder()
+            .addCredentialOption(GetPublicKeyCredentialOption(requestJson = options.toString()))
+            .build()
+        val credential = credentialManager.getCredential(context, request).credential as PublicKeyCredential
+        return json.parseToJsonElement(credential.authenticationResponseJson).jsonObject
+    }
+}
+
+runBlocking {
+    val auth = ayb.auth.signInWithPasskey(
+        "user@example.com",
+        AndroidPasskeyAuthenticator(CredentialManager.create(context), context),
+    )
+}
+```
+
+The `sdk_kotlin` module is pure JVM: it does not depend on `androidx.credentials`, perform on-device biometric validation, or ship a packaged Android credentials module.
+
 Listen for auth changes:
 
 ```kotlin

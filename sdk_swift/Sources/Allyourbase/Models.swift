@@ -279,6 +279,154 @@ public enum MagicLinkConfirmResponse {
     }
 }
 
+public struct WebAuthnLoginBeginResponse {
+    public let challengeId: String
+    public let options: WebAuthnLoginOptions
+
+    public init(challengeId: String, options: WebAuthnLoginOptions) {
+        self.challengeId = challengeId
+        self.options = options
+    }
+
+    public init(from json: [String: Any]) throws {
+        self.challengeId = try AYBJSON.requiredString(
+            json,
+            ["challenge_id", "challengeId"],
+            "WebAuthnLoginBeginResponse.challengeId"
+        )
+        self.options = try WebAuthnLoginOptions(from: try AYBJSON.requiredDictionary(json, "options"))
+    }
+
+    public static func decode(_ json: Any) throws -> WebAuthnLoginBeginResponse {
+        return try WebAuthnLoginBeginResponse(
+            from: try AYBJSON.expectDictionary(json, "WebAuthnLoginBeginResponse")
+        )
+    }
+}
+
+public struct WebAuthnLoginOptions {
+    public let rawValue: [String: Any]
+    public let challenge: String
+    public let timeout: Int
+    public let rpId: String
+    public let allowCredentials: [WebAuthnCredentialDescriptor]
+
+    public init(
+        rawValue: [String: Any],
+        challenge: String,
+        timeout: Int,
+        rpId: String,
+        allowCredentials: [WebAuthnCredentialDescriptor]
+    ) {
+        self.rawValue = rawValue
+        self.challenge = challenge
+        self.timeout = timeout
+        self.rpId = rpId
+        self.allowCredentials = allowCredentials
+    }
+
+    public init(from json: [String: Any]) throws {
+        self.rawValue = json
+        self.challenge = try AYBJSON.requiredString(json, ["challenge"], "WebAuthnLoginOptions.challenge")
+        self.timeout = try AYBJSON.requiredInt(json, ["timeout"])
+        self.rpId = try AYBJSON.requiredString(json, ["rpId", "rp_id"], "WebAuthnLoginOptions.rpId")
+        let credentials = try AYBJSON.expectArray(json["allowCredentials"], "WebAuthnLoginOptions.allowCredentials")
+        self.allowCredentials = try credentials.map { credential in
+            guard let dictionary = credential as? [String: Any] else {
+                throw AYBDecodingError.invalidType("WebAuthnLoginOptions.allowCredentials")
+            }
+            return try WebAuthnCredentialDescriptor(from: dictionary)
+        }
+    }
+}
+
+public struct WebAuthnCredentialDescriptor {
+    public let rawValue: [String: Any]
+    public let id: String
+    public let type: String
+
+    public init(rawValue: [String: Any], id: String, type: String) {
+        self.rawValue = rawValue
+        self.id = id
+        self.type = type
+    }
+
+    public init(from json: [String: Any]) throws {
+        self.rawValue = json
+        self.id = try AYBJSON.requiredString(json, ["id"], "WebAuthnCredentialDescriptor.id")
+        self.type = try AYBJSON.requiredString(json, ["type"], "WebAuthnCredentialDescriptor.type")
+    }
+}
+
+public struct SearchSynonymGroup {
+    public let terms: [String]
+
+    public init(terms: [String]) {
+        self.terms = terms
+    }
+
+    public init(from json: [String: Any]) throws {
+        let rawTerms = try AYBJSON.expectArray(json["terms"], "SearchSynonymGroup.terms")
+        self.terms = try rawTerms.map { term in
+            guard let string = term as? String else {
+                throw AYBDecodingError.invalidType("SearchSynonymGroup.terms")
+            }
+            return string
+        }
+    }
+
+    public func toDictionary() -> [String: Any] {
+        ["terms": terms]
+    }
+}
+
+public struct SearchSynonymsRequest {
+    public let groups: [SearchSynonymGroup]
+
+    public init(groups: [SearchSynonymGroup]) {
+        self.groups = groups
+    }
+
+    public init(from json: [String: Any]) throws {
+        self.groups = try decodeSearchSynonymGroups(json)
+    }
+
+    public static func decode(_ json: Any) throws -> SearchSynonymsRequest {
+        return try SearchSynonymsRequest(
+            from: try AYBJSON.expectDictionary(json, "SearchSynonymsRequest")
+        )
+    }
+
+    public func toDictionary() -> [String: Any] {
+        ["groups": groups.map { $0.toDictionary() }]
+    }
+}
+
+public struct SearchSynonymsResponse {
+    public let groups: [SearchSynonymGroup]
+
+    public init(groups: [SearchSynonymGroup]) {
+        self.groups = groups
+    }
+
+    public init(from json: [String: Any]) throws {
+        self.groups = try decodeSearchSynonymGroups(json)
+    }
+
+    public static func decode(_ json: Any) throws -> SearchSynonymsResponse {
+        return try SearchSynonymsResponse(
+            from: try AYBJSON.expectDictionary(json, "SearchSynonymsResponse")
+        )
+    }
+}
+
+private func decodeSearchSynonymGroups(_ json: [String: Any]) throws -> [SearchSynonymGroup] {
+    let rawGroups = try AYBJSON.expectArray(json["groups"], "SearchSynonyms.groups")
+    return try rawGroups.map { group in
+        try SearchSynonymGroup(from: try AYBJSON.expectDictionary(group, "SearchSynonyms.group"))
+    }
+}
+
 public struct User {
     public let id: String
     public let email: String

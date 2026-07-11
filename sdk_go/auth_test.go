@@ -158,6 +158,86 @@ func TestAuthRequestMagicLinkPostsEmailWithoutMutatingTokens(t *testing.T) {
 	}
 }
 
+func TestAuthBeginWebAuthnLoginPostsEmailWithoutMutatingTokens(t *testing.T) {
+	response := mustLoadSDKContractResponse(t, "webauthn_login_begin_response.json")
+	var requestBody map[string]any
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			t.Fatalf("expected POST, got %s", r.Method)
+		}
+		if r.URL.Path != "/api/auth/webauthn/login/begin" {
+			t.Fatalf("unexpected path %s", r.URL.Path)
+		}
+		if err := json.NewDecoder(r.Body).Decode(&requestBody); err != nil {
+			t.Fatalf("decode request: %v", err)
+		}
+		_ = json.NewEncoder(w).Encode(response)
+	}))
+	defer ts.Close()
+
+	c := NewClient(ts.URL)
+	c.SetTokens("existing_tok", "existing_ref")
+	res, err := c.Auth.BeginWebAuthnLogin(context.Background(), "fixture@example.com")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.ChallengeID != "webauthn_challenge_fixture" {
+		t.Fatalf("unexpected challenge id %q", res.ChallengeID)
+	}
+	if c.Token() != "existing_tok" || c.RefreshToken() != "existing_ref" {
+		t.Fatalf("tokens mutated: token=%q refresh=%q", c.Token(), c.RefreshToken())
+	}
+	if len(requestBody) != 1 {
+		t.Fatalf("unexpected request body %+v", requestBody)
+	}
+	if got := requestBody["email"]; got != "fixture@example.com" {
+		t.Fatalf("unexpected email %#v", got)
+	}
+}
+
+func TestAuthFinishWebAuthnLoginPostsRawAssertionAndStoresTokens(t *testing.T) {
+	response := mustLoadSDKContractResponse(t, "auth_response.json")
+	assertion := json.RawMessage(`{"id":"credential-a","response":{"clientDataJSON":"client","authenticatorData":"auth","signature":"sig"},"type":"public-key"}`)
+	var requestBody struct {
+		ChallengeID       string          `json:"challenge_id"`
+		AssertionResponse json.RawMessage `json:"assertion_response"`
+	}
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			t.Fatalf("expected POST, got %s", r.Method)
+		}
+		if r.URL.Path != "/api/auth/webauthn/login/finish" {
+			t.Fatalf("unexpected path %s", r.URL.Path)
+		}
+		if err := json.NewDecoder(r.Body).Decode(&requestBody); err != nil {
+			t.Fatalf("decode request: %v", err)
+		}
+		_ = json.NewEncoder(w).Encode(response)
+	}))
+	defer ts.Close()
+
+	c := NewClient(ts.URL)
+	res, err := c.Auth.FinishWebAuthnLogin(context.Background(), "webauthn_challenge_fixture", assertion)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res == nil {
+		t.Fatalf("expected AuthResponse")
+	}
+	if res.Token != "jwt_stage3" || res.RefreshToken != "refresh_stage3" {
+		t.Fatalf("unexpected auth response %+v", res)
+	}
+	if c.Token() != "jwt_stage3" || c.RefreshToken() != "refresh_stage3" {
+		t.Fatalf("tokens not stored: token=%q refresh=%q", c.Token(), c.RefreshToken())
+	}
+	if requestBody.ChallengeID != "webauthn_challenge_fixture" {
+		t.Fatalf("unexpected challenge_id %q", requestBody.ChallengeID)
+	}
+	if string(requestBody.AssertionResponse) != string(assertion) {
+		t.Fatalf("assertion_response changed: got %s want %s", requestBody.AssertionResponse, assertion)
+	}
+}
+
 func TestAuthConfirmMagicLinkStoresTokensForAuthenticatedResponse(t *testing.T) {
 	response := mustLoadSDKContractResponse(t, "magic_link_confirm_success_response.json")
 	var requestBody map[string]any

@@ -62,6 +62,9 @@ func (s *Server) handleSearchSynonymsPut(w http.ResponseWriter, r *http.Request)
 }
 
 func toSearchSynonymGroups(groups []searchSynonymGroup) searchsynonyms.Groups {
+	if groups == nil {
+		return nil
+	}
 	converted := make(searchsynonyms.Groups, 0, len(groups))
 	for _, group := range groups {
 		converted = append(converted, searchsynonyms.Group{Terms: group.Terms})

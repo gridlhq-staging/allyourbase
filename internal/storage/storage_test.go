@@ -1,9 +1,15 @@
 package storage
 
 import (
+	"context"
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/base64"
+	"net/url"
 	"testing"
 	"time"
 
+	"github.com/allyourbase/ayb/internal/tenant"
 	"github.com/allyourbase/ayb/internal/testutil"
 )
 
@@ -69,39 +75,53 @@ func TestSignAndValidateURL(t *testing.T) {
 	t.Parallel()
 	svc := &Service{signKey: []byte("test-secret-key-for-signing-urls")}
 
-	token := svc.SignURL("images", "photo.jpg", time.Hour)
+	token := svc.SignURL(context.Background(), "images", "photo.jpg", time.Hour)
 	testutil.True(t, token != "", "token should not be empty")
 
-	// Parse exp and sig from token.
-	var exp, sig string
-	for _, part := range splitParams(token) {
-		if k, v, ok := splitKV(part); ok {
-			switch k {
-			case "exp":
-				exp = v
-			case "sig":
-				sig = v
-			}
-		}
-	}
+	values := parseSignedURLQuery(t, token)
+	exp := values.Get("exp")
+	sig := values.Get("sig")
 
 	testutil.True(t, exp != "", "exp should be present")
 	testutil.True(t, sig != "", "sig should be present")
 
 	// Valid.
-	testutil.True(t, svc.ValidateSignedURL("images", "photo.jpg", exp, sig), "should be valid")
+	validation := svc.ValidateSignedURL("images", "photo.jpg", values)
+	testutil.True(t, validation.Valid, "should be valid")
+	testutil.Equal(t, "", validation.TenantID)
 
 	// Wrong bucket.
-	testutil.False(t, svc.ValidateSignedURL("wrong", "photo.jpg", exp, sig), "wrong bucket should fail")
+	testutil.False(t, svc.ValidateSignedURL("wrong", "photo.jpg", values).Valid, "wrong bucket should fail")
 
 	// Wrong name.
-	testutil.False(t, svc.ValidateSignedURL("images", "wrong.jpg", exp, sig), "wrong name should fail")
+	testutil.False(t, svc.ValidateSignedURL("images", "wrong.jpg", values).Valid, "wrong name should fail")
 
 	// Wrong sig.
-	testutil.False(t, svc.ValidateSignedURL("images", "photo.jpg", exp, "badsig"), "wrong sig should fail")
+	wrongSig := cloneSignedURLValues(values)
+	wrongSig.Set("sig", "badsig")
+	testutil.False(t, svc.ValidateSignedURL("images", "photo.jpg", wrongSig).Valid, "wrong sig should fail")
 
 	// Invalid exp.
-	testutil.False(t, svc.ValidateSignedURL("images", "photo.jpg", "notanumber", sig), "invalid exp should fail")
+	invalidExp := cloneSignedURLValues(values)
+	invalidExp.Set("exp", "notanumber")
+	testutil.False(t, svc.ValidateSignedURL("images", "photo.jpg", invalidExp).Valid, "invalid exp should fail")
+
+	tenantCtx := tenant.ContextWithTenantID(context.Background(), "tenant-a")
+	tenantToken := svc.SignURL(tenantCtx, "images", "photo.jpg", time.Hour)
+	tenantValues := parseSignedURLQuery(t, tenantToken)
+	testutil.Equal(t, "tenant-a", tenantValues.Get("tenant"))
+
+	tenantValidation := svc.ValidateSignedURL("images", "photo.jpg", tenantValues)
+	testutil.True(t, tenantValidation.Valid, "tenant token should be valid")
+	testutil.Equal(t, "tenant-a", tenantValidation.TenantID)
+
+	mismatchedTenant := cloneSignedURLValues(tenantValues)
+	mismatchedTenant.Set("tenant", "tenant-b")
+	testutil.False(t, svc.ValidateSignedURL("images", "photo.jpg", mismatchedTenant).Valid, "mismatched tenant should fail")
+
+	missingTenant := cloneSignedURLValues(tenantValues)
+	missingTenant.Del("tenant")
+	testutil.False(t, svc.ValidateSignedURL("images", "photo.jpg", missingTenant).Valid, "missing tenant field should fail")
 }
 
 func TestSignURLExpired(t *testing.T) {
@@ -109,40 +129,33 @@ func TestSignURLExpired(t *testing.T) {
 	svc := &Service{signKey: []byte("test-secret-key-for-signing-urls")}
 
 	// Generate a token that expires immediately.
-	token := svc.SignURL("b", "f", -time.Second)
-	var exp, sig string
-	for _, part := range splitParams(token) {
-		if k, v, ok := splitKV(part); ok {
-			switch k {
-			case "exp":
-				exp = v
-			case "sig":
-				sig = v
-			}
-		}
-	}
-	testutil.False(t, svc.ValidateSignedURL("b", "f", exp, sig), "expired token should fail")
+	token := svc.SignURL(context.Background(), "b", "f", -time.Second)
+	values := parseSignedURLQuery(t, token)
+	testutil.Equal(t, 2, len(values))
+	testutil.True(t, values.Get("exp") != "", "exp should be present")
+	testutil.True(t, values.Get("sig") != "", "sig should be present")
+	testutil.Equal(t, "", values.Get("tenant"))
+	testutil.Equal(t, legacySignedURLSignature([]byte("test-secret-key-for-signing-urls"), "b/f:"+values.Get("exp")), values.Get("sig"))
+	testutil.False(t, svc.ValidateSignedURL("b", "f", values).Valid, "expired token should fail")
 }
 
-// splitParams splits "k1=v1&k2=v2" into ["k1=v1", "k2=v2"].
-func splitParams(s string) []string {
-	var parts []string
-	start := 0
-	for i := 0; i <= len(s); i++ {
-		if i == len(s) || s[i] == '&' {
-			parts = append(parts, s[start:i])
-			start = i + 1
-		}
-	}
-	return parts
+func parseSignedURLQuery(t *testing.T, token string) url.Values {
+	t.Helper()
+	values, err := url.ParseQuery(token)
+	testutil.NoError(t, err)
+	return values
 }
 
-// splitKV splits "k=v" into (k, v, true).
-func splitKV(s string) (string, string, bool) {
-	for i := 0; i < len(s); i++ {
-		if s[i] == '=' {
-			return s[:i], s[i+1:], true
-		}
+func cloneSignedURLValues(values url.Values) url.Values {
+	cloned := make(url.Values, len(values))
+	for key, vals := range values {
+		cloned[key] = append([]string(nil), vals...)
 	}
-	return "", "", false
+	return cloned
+}
+
+func legacySignedURLSignature(signKey []byte, payload string) string {
+	mac := hmac.New(sha256.New, signKey)
+	mac.Write([]byte(payload))
+	return base64.RawURLEncoding.EncodeToString(mac.Sum(nil))
 }

@@ -79,6 +79,7 @@ test.describe("SQL View Lifecycle (Full E2E)", () => {
     await page.getByRole("button", { name: /^Execute$/i }).click();
 
     await expect(page.getByText(/2 row.*affected/i)).toBeVisible({ timeout: 5000 });
+    await expect(page.getByText(/2 rows affected in \d+ms/i)).toBeVisible();
 
     // UPDATE via SQL tab
     await sqlEditor.click();
@@ -103,18 +104,38 @@ test.describe("SQL View Lifecycle (Full E2E)", () => {
     await expect(page.getByText(/3 row/i)).toBeVisible();
     await expect(page.getByRole("cell", { name: "row-a" })).toBeVisible();
     await expect(page.getByRole("cell", { name: "999" })).toBeVisible();
+    await page.getByTitle("Copy as CSV").click();
+    await expect(page.getByText("CSV copied!")).toBeVisible();
 
-    // DELETE via SQL tab
+    // DELETE via a comment-prefixed statement to ensure destructive confirmation cannot be bypassed.
     await sqlEditor.click();
     await page.keyboard.press("ControlOrMeta+A");
     await page.keyboard.type(
-      `DELETE FROM ${tableName} WHERE label IN ('row-a', 'row-b');`,
+      `-- delete seeded lifecycle rows
+DELETE FROM ${tableName} WHERE label IN ('row-a', 'row-b');`,
     );
     await page.getByRole("button", { name: /^Execute$/i }).click();
+    let destructiveDialog = page.getByRole("dialog", {
+      name: "Confirm destructive SQL",
+    });
+    await expect(destructiveDialog).toBeVisible();
+    await destructiveDialog.getByRole("button", { name: /^Execute destructive SQL$/i }).click();
 
     await expect(page.getByText(/2 row.*affected/i)).toBeVisible({ timeout: 5000 });
+    await expect(page.getByText(/2 rows affected in \d+ms/i)).toBeVisible();
 
     // Final SELECT to verify only the seed row remains
+    await sqlEditor.click();
+    await page.keyboard.press("ControlOrMeta+A");
+    await page.keyboard.type(`DELETE FROM ${tableName} WHERE label = 'seed-row';`);
+    await page.getByRole("button", { name: /^Execute$/i }).click();
+    destructiveDialog = page.getByRole("dialog", {
+      name: "Confirm destructive SQL",
+    });
+    await expect(destructiveDialog).toBeVisible();
+    await destructiveDialog.getByRole("button", { name: /^Cancel$/i }).click();
+    await expect(destructiveDialog).toBeHidden();
+
     await sqlEditor.click();
     await page.keyboard.press("ControlOrMeta+A");
     await page.keyboard.type(
@@ -125,5 +146,7 @@ test.describe("SQL View Lifecycle (Full E2E)", () => {
     await expect(page.getByText(/1 row/i)).toBeVisible({ timeout: 5000 });
     await expect(page.getByRole("cell", { name: "seed-row" })).toBeVisible();
     await expect(page.getByRole("cell", { name: "999" })).toBeVisible();
+    await page.getByTitle("Copy as JSON").click();
+    await expect(page.getByText("JSON copied!")).toBeVisible();
   });
 });

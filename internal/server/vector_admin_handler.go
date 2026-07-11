@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/allyourbase/ayb/internal/httputil"
+	"github.com/allyourbase/ayb/internal/tenant"
 	"github.com/allyourbase/ayb/internal/vector"
 )
 
@@ -40,7 +41,8 @@ type vectorIndexInfo struct {
 // request gets a spurious "table not found" 400.
 func (s *Server) resolveVectorIndexTable(w http.ResponseWriter, r *http.Request, req *vectorIndexRequest) (schemaName string, ok bool) {
 	sc := s.schema.Get()
-	if (sc == nil || sc.TableByName(req.Table) == nil) && s.pool != nil {
+	activeSchema := tenant.ActiveSchemaFromContext(r.Context())
+	if (sc == nil || sc.TableByNameInSchema(activeSchema, req.Table) == nil) && s.pool != nil {
 		if err := s.schema.ReloadWait(r.Context()); err != nil {
 			s.logger.Warn("vector index create: synchronous schema reload failed", "error", err)
 		}
@@ -52,7 +54,7 @@ func (s *Server) resolveVectorIndexTable(w http.ResponseWriter, r *http.Request,
 		return req.Schema, true
 	}
 
-	tbl := sc.TableByName(req.Table)
+	tbl := sc.TableByNameInSchema(activeSchema, req.Table)
 	if tbl == nil {
 		httputil.WriteError(w, http.StatusBadRequest, fmt.Sprintf("table %q not found", req.Table))
 		return "", false

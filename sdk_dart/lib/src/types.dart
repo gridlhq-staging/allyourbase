@@ -102,6 +102,103 @@ class AuthResponse {
   }
 }
 
+class WebAuthnLoginBeginResponse {
+  const WebAuthnLoginBeginResponse({
+    required this.challengeId,
+    required this.options,
+  });
+
+  final String challengeId;
+  final JsonMap options;
+
+  factory WebAuthnLoginBeginResponse.fromJson(JsonMap json) {
+    return WebAuthnLoginBeginResponse(
+      challengeId: _requireString(json, 'challenge_id'),
+      options: _requireJsonMap(json, 'options'),
+    );
+  }
+}
+
+class WebAuthnLoginFinishRequest {
+  const WebAuthnLoginFinishRequest({
+    required this.challengeId,
+    required this.assertionResponse,
+  });
+
+  final String challengeId;
+  final JsonMap assertionResponse;
+
+  JsonMap toJson() {
+    return {
+      'challenge_id': challengeId,
+      'assertion_response': assertionResponse,
+    };
+  }
+}
+
+/// One synonym group for collection search expansion.
+class SearchSynonymGroup {
+  const SearchSynonymGroup({
+    required this.terms,
+  });
+
+  final List<String> terms;
+
+  factory SearchSynonymGroup.fromJson(JsonMap json) {
+    return SearchSynonymGroup(
+      terms: _requireStringList(json, 'terms'),
+    );
+  }
+
+  JsonMap toJson() {
+    return {
+      'terms': terms,
+    };
+  }
+}
+
+/// Request envelope for replacing collection synonym groups.
+class SearchSynonymsRequest {
+  const SearchSynonymsRequest({
+    required this.groups,
+  });
+
+  final List<SearchSynonymGroup> groups;
+
+  factory SearchSynonymsRequest.fromJson(JsonMap json) {
+    return SearchSynonymsRequest(
+      groups: _requireSynonymGroups(json),
+    );
+  }
+
+  JsonMap toJson() {
+    return {
+      'groups': groups.map((group) => group.toJson()).toList(growable: false),
+    };
+  }
+}
+
+/// Response envelope returned after reading or replacing collection synonyms.
+class SearchSynonymsResponse {
+  const SearchSynonymsResponse({
+    required this.groups,
+  });
+
+  final List<SearchSynonymGroup> groups;
+
+  factory SearchSynonymsResponse.fromJson(JsonMap json) {
+    return SearchSynonymsResponse(
+      groups: _requireSynonymGroups(json),
+    );
+  }
+
+  JsonMap toJson() {
+    return {
+      'groups': groups.map((group) => group.toJson()).toList(growable: false),
+    };
+  }
+}
+
 class MagicLinkRequestResponse {
   const MagicLinkRequestResponse({
     required this.message,
@@ -490,6 +587,21 @@ List<Object?> _requireList(JsonMap json, String key) {
     return value.cast<Object?>();
   }
   throw FormatException('Missing or invalid List for key "$key".');
+}
+
+List<String> _requireStringList(JsonMap json, String key) {
+  return _requireList(json, key).map((value) {
+    if (value is String) {
+      return value;
+    }
+    throw FormatException('Invalid String list item for key "$key".');
+  }).toList(growable: false);
+}
+
+List<SearchSynonymGroup> _requireSynonymGroups(JsonMap json) {
+  return _requireList(json, 'groups').map((value) {
+    return SearchSynonymGroup.fromJson(_asJsonMap(value, 'groups'));
+  }).toList(growable: false);
 }
 
 JsonMap _requireJsonMap(JsonMap json, String key) {

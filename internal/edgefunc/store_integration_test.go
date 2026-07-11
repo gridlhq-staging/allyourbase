@@ -14,12 +14,16 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-var testPool *pgxpool.Pool
+var (
+	testPool       *pgxpool.Pool
+	testConnString string
+)
 
 func TestMain(m *testing.M) {
 	ctx := context.Background()
 	pg, cleanup := testutil.StartPostgresForTestMain(ctx)
 	testPool = pg.Pool
+	testConnString = pg.ConnString
 
 	runner := migrations.NewRunner(testPool, testutil.DiscardLogger())
 	if err := runner.Bootstrap(ctx); err != nil {

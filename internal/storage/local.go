@@ -27,9 +27,14 @@ func NewLocalBackend(root string) (*LocalBackend, error) {
 	return &LocalBackend{root: abs}, nil
 }
 
-// Put writes data from r to the named object in the given bucket, creating parent directories as needed. It returns the number of bytes written. Any partial file is removed if the write fails.
-func (b *LocalBackend) Put(_ context.Context, bucket, name string, r io.Reader) (int64, error) {
-	path, err := b.objectPath(bucket, name)
+// Put writes data from r to the named object in the given bucket, creating parent
+// directories as needed. It returns the number of bytes written. The write is an
+// atomic replace: data is written to a temp file in the destination directory and
+// renamed over the target, so a failed or interrupted write leaves any existing
+// object intact (matching S3 PutObject semantics). This lets resumable staging
+// safely rewrite-on-append.
+func (b *LocalBackend) Put(_ context.Context, tenantID, bucket, name string, r io.Reader) (int64, error) {
+	path, err := b.objectPath(tenantID, bucket, name)
 	if err != nil {
 		return 0, err
 	}
@@ -38,23 +43,32 @@ func (b *LocalBackend) Put(_ context.Context, bucket, name string, r io.Reader) 
 		return 0, fmt.Errorf("creating directory: %w", err)
 	}
 
-	f, err := os.Create(path)
+	tmp, err := os.CreateTemp(dir, ".ayb-put-*")
 	if err != nil {
-		return 0, fmt.Errorf("creating file: %w", err)
+		return 0, fmt.Errorf("creating temp file: %w", err)
 	}
-	defer f.Close()
+	tmpPath := tmp.Name()
 
-	n, err := io.Copy(f, r)
+	n, err := io.Copy(tmp, r)
 	if err != nil {
-		os.Remove(path) // clean up partial file
+		tmp.Close()
+		os.Remove(tmpPath) // discard partial temp file; existing object untouched
 		return 0, fmt.Errorf("writing file: %w", err)
+	}
+	if err := tmp.Close(); err != nil {
+		os.Remove(tmpPath)
+		return 0, fmt.Errorf("closing file: %w", err)
+	}
+	if err := os.Rename(tmpPath, path); err != nil {
+		os.Remove(tmpPath)
+		return 0, fmt.Errorf("finalizing file: %w", err)
 	}
 
 	return n, nil
 }
 
-func (b *LocalBackend) Get(_ context.Context, bucket, name string) (io.ReadCloser, error) {
-	path, err := b.objectPath(bucket, name)
+func (b *LocalBackend) Get(_ context.Context, tenantID, bucket, name string) (io.ReadCloser, error) {
+	path, err := b.objectPath(tenantID, bucket, name)
 	if err != nil {
 		return nil, err
 	}
@@ -68,8 +82,8 @@ func (b *LocalBackend) Get(_ context.Context, bucket, name string) (io.ReadClose
 	return f, nil
 }
 
-func (b *LocalBackend) Delete(_ context.Context, bucket, name string) error {
-	path, err := b.objectPath(bucket, name)
+func (b *LocalBackend) Delete(_ context.Context, tenantID, bucket, name string) error {
+	path, err := b.objectPath(tenantID, bucket, name)
 	if err != nil {
 		return err
 	}
@@ -80,8 +94,8 @@ func (b *LocalBackend) Delete(_ context.Context, bucket, name string) error {
 	return nil
 }
 
-func (b *LocalBackend) Exists(_ context.Context, bucket, name string) (bool, error) {
-	path, err := b.objectPath(bucket, name)
+func (b *LocalBackend) Exists(_ context.Context, tenantID, bucket, name string) (bool, error) {
+	path, err := b.objectPath(tenantID, bucket, name)
 	if err != nil {
 		return false, err
 	}
@@ -95,15 +109,22 @@ func (b *LocalBackend) Exists(_ context.Context, bucket, name string) (bool, err
 	return true, nil
 }
 
-// objectPath returns the absolute filesystem path for the named object within the bucket, after validating the bucket and name and ensuring the path does not escape the storage root.
-func (b *LocalBackend) objectPath(bucket, name string) (string, error) {
+// objectPath returns the absolute filesystem path for the named object within
+// the tenant namespace. Empty tenantID is intentionally unprefixed so existing
+// self-hosted objects at root/bucket/name remain reachable without byte moves.
+func (b *LocalBackend) objectPath(tenantID, bucket, name string) (string, error) {
 	if err := validateBucket(bucket); err != nil {
 		return "", err
 	}
 	if err := validateName(name); err != nil {
 		return "", err
 	}
-	target := filepath.Join(b.root, bucket, name)
+	parts := []string{b.root}
+	if tenantID != "" {
+		parts = append(parts, "t", tenantID)
+	}
+	parts = append(parts, bucket, name)
+	target := filepath.Join(parts...)
 	rel, err := filepath.Rel(b.root, target)
 	if err != nil {
 		return "", fmt.Errorf("resolving object path: %w", err)

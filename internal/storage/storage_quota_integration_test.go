@@ -174,6 +174,36 @@ func TestStorageUploadQuotaExceeded(t *testing.T) {
 	testutil.StatusCode(t, http.StatusRequestEntityTooLarge, status)
 }
 
+func TestStorageUploadReturns413WhenPerUserQuotaExhausted(t *testing.T) {
+	ts, storageSvc, authSvc, tenantID1 := setupServerWithQuota(t, 100)
+	defer ts.Close()
+	clearQuotaData(t)
+
+	ctx := context.Background()
+	tenantSvc := tenant.NewService(sharedPG.Pool, testutil.DiscardLogger())
+	tenant2 := createQuotaTestTenant(t, ctx, tenantSvc, "quota-http-t2")
+
+	userID := "56565656-5656-5656-5656-565656565656"
+	token := userToken(t, authSvc, userID, "quota-http-user@example.com")
+	ensureStorageTestUser(t, userID, "quota-http-user@example.com")
+	addStorageTestMembership(t, tenantID1, userID)
+	addStorageTestMembership(t, tenant2.ID, userID)
+
+	bucket := fmt.Sprintf("quota-http-%d", time.Now().UnixNano())
+	_, err := storageSvc.CreateBucket(ctx, bucket, false)
+	testutil.NoError(t, err)
+
+	fullQuota := strings.Repeat("x", 100)
+	status := uploadStatus(t, ts.URL, bucket, "filled.txt", fullQuota, requestHeaders{token: token, tenantID: tenantID1})
+	testutil.StatusCode(t, http.StatusCreated, status)
+
+	status = uploadStatus(t, ts.URL, bucket, "next.txt", "y", requestHeaders{token: token, tenantID: tenantID1})
+	testutil.StatusCode(t, http.StatusRequestEntityTooLarge, status)
+
+	status = uploadStatus(t, ts.URL, bucket, "next.txt", "y", requestHeaders{token: token, tenantID: tenant2.ID})
+	testutil.StatusCode(t, http.StatusCreated, status)
+}
+
 func TestTenantStorageUploadQuotaExceeded(t *testing.T) {
 	hard := int64(10)
 	ts, _, tenantID := setupServerWithTenantStorageQuotas(t, &hard, nil)
@@ -218,7 +248,7 @@ func TestStorageUploadQuotaAllowed(t *testing.T) {
 	_, err := storageSvc.CreateBucket(context.Background(), bucket, false)
 	testutil.NoError(t, err)
 
-	infoBefore, err := storageSvc.GetUsage(context.Background(), userID)
+	infoBefore, err := storageSvc.GetUsage(tenant.ContextWithTenantID(context.Background(), tenantID), userID)
 	testutil.NoError(t, err)
 	testutil.Equal(t, int64(0), infoBefore.BytesUsed)
 
@@ -226,7 +256,7 @@ func TestStorageUploadQuotaAllowed(t *testing.T) {
 	status := uploadStatus(t, ts.URL, bucket, "small.txt", fileData, requestHeaders{token: token, tenantID: tenantID})
 	testutil.StatusCode(t, http.StatusCreated, status)
 
-	info, err := storageSvc.GetUsage(context.Background(), userID)
+	info, err := storageSvc.GetUsage(tenant.ContextWithTenantID(context.Background(), tenantID), userID)
 	testutil.NoError(t, err)
 	testutil.Equal(t, int64(len(fileData)), info.BytesUsed)
 }
@@ -279,7 +309,7 @@ func TestStorageResumableCreateReservesQuotaImmediately(t *testing.T) {
 	uploadLength := int64(256)
 	_, _ = createResumableSessionWithHeaders(t, ts.URL, bucket, "reserve-at-create.bin", uploadLength, requestHeaders{token: token, tenantID: tenantID})
 
-	info, err := storageSvc.GetUsage(context.Background(), userID)
+	info, err := storageSvc.GetUsage(tenant.ContextWithTenantID(context.Background(), tenantID), userID)
 	testutil.NoError(t, err)
 	testutil.Equal(t, uploadLength, info.BytesUsed)
 }
@@ -347,7 +377,7 @@ func TestStorageResumableCreateConcurrentRequestsDenyOversubscription(t *testing
 	testutil.Equal(t, 1, successes)
 	testutil.Equal(t, 1, quotaDenied)
 
-	info, err := storageSvc.GetUsage(context.Background(), userID)
+	info, err := storageSvc.GetUsage(tenant.ContextWithTenantID(context.Background(), tenantID), userID)
 	testutil.NoError(t, err)
 	testutil.Equal(t, uploadLength, info.BytesUsed)
 }
@@ -369,7 +399,7 @@ func TestStorageDeleteReclaimsQuota(t *testing.T) {
 	status := uploadStatus(t, ts.URL, bucket, "deleteme.txt", fileData, requestHeaders{token: token, tenantID: tenantID})
 	testutil.StatusCode(t, http.StatusCreated, status)
 
-	infoBefore, err := storageSvc.GetUsage(context.Background(), userID)
+	infoBefore, err := storageSvc.GetUsage(tenant.ContextWithTenantID(context.Background(), tenantID), userID)
 	testutil.NoError(t, err)
 	testutil.Equal(t, int64(len(fileData)), infoBefore.BytesUsed)
 
@@ -383,7 +413,7 @@ func TestStorageDeleteReclaimsQuota(t *testing.T) {
 	defer delResp.Body.Close()
 	testutil.StatusCode(t, http.StatusNoContent, delResp.StatusCode)
 
-	infoAfter, err := storageSvc.GetUsage(context.Background(), userID)
+	infoAfter, err := storageSvc.GetUsage(tenant.ContextWithTenantID(context.Background(), tenantID), userID)
 	testutil.NoError(t, err)
 	testutil.Equal(t, int64(0), infoAfter.BytesUsed)
 }
@@ -477,7 +507,7 @@ func TestStorageResumablePatchFinalizeIsQuotaNoOpAfterCreateReservation(t *testi
 	data := []byte(strings.Repeat("t", 100))
 	_, id := createResumableSessionWithHeaders(t, ts.URL, bucket, "tus-file.bin", int64(len(data)), requestHeaders{token: token, tenantID: tenantID})
 
-	infoAfterCreate, err := storageSvc.GetUsage(context.Background(), userID)
+	infoAfterCreate, err := storageSvc.GetUsage(tenant.ContextWithTenantID(context.Background(), tenantID), userID)
 	testutil.NoError(t, err)
 	testutil.Equal(t, int64(len(data)), infoAfterCreate.BytesUsed)
 
@@ -485,7 +515,7 @@ func TestStorageResumablePatchFinalizeIsQuotaNoOpAfterCreateReservation(t *testi
 	testutil.StatusCode(t, http.StatusNoContent, patchResp.StatusCode)
 	patchResp.Body.Close()
 
-	infoAfterFinalize, err := storageSvc.GetUsage(context.Background(), userID)
+	infoAfterFinalize, err := storageSvc.GetUsage(tenant.ContextWithTenantID(context.Background(), tenantID), userID)
 	testutil.NoError(t, err)
 	testutil.Equal(t, infoAfterCreate.BytesUsed, infoAfterFinalize.BytesUsed)
 }
@@ -506,7 +536,7 @@ func TestStorageResumableCreateFailureRollsBackReservation(t *testing.T) {
 	reservedBytes := int64(128)
 	_, _ = createResumableSessionWithHeaders(t, ts.URL, bucket, "good.bin", reservedBytes, requestHeaders{token: token, tenantID: tenantID})
 
-	infoBeforeFailure, err := storageSvc.GetUsage(context.Background(), userID)
+	infoBeforeFailure, err := storageSvc.GetUsage(tenant.ContextWithTenantID(context.Background(), tenantID), userID)
 	testutil.NoError(t, err)
 	testutil.Equal(t, reservedBytes, infoBeforeFailure.BytesUsed)
 
@@ -523,13 +553,13 @@ func TestStorageResumableCreateFailureRollsBackReservation(t *testing.T) {
 	defer resp.Body.Close()
 	testutil.StatusCode(t, http.StatusBadRequest, resp.StatusCode)
 
-	infoAfterFailure, err := storageSvc.GetUsage(context.Background(), userID)
+	infoAfterFailure, err := storageSvc.GetUsage(tenant.ContextWithTenantID(context.Background(), tenantID), userID)
 	testutil.NoError(t, err)
 	testutil.Equal(t, infoBeforeFailure.BytesUsed, infoAfterFailure.BytesUsed)
 }
 
 func TestStorageQuotaConcurrentReservations(t *testing.T) {
-	ts, storageSvc, _, _ := setupServerWithQuota(t, 500)
+	ts, storageSvc, _, tenantID := setupServerWithQuota(t, 500)
 	defer ts.Close()
 	clearQuotaData(t)
 
@@ -544,7 +574,7 @@ func TestStorageQuotaConcurrentReservations(t *testing.T) {
 
 	for i := 0; i < numReservations; i++ {
 		go func() {
-			results <- storageSvc.ReserveQuota(context.Background(), userID, reservationSize)
+			results <- storageSvc.ReserveQuota(tenant.ContextWithTenantID(context.Background(), tenantID), userID, reservationSize)
 		}()
 	}
 
@@ -568,11 +598,11 @@ func TestStorageQuotaConcurrentReservations(t *testing.T) {
 	testutil.True(t, quotaExceeded >= 1, fmt.Sprintf("expected concurrent quota rejections, got successes=%d quotaExceeded=%d", successes, quotaExceeded))
 	testutil.Equal(t, 0, other)
 
-	info, err := storageSvc.GetUsage(context.Background(), userID)
+	info, err := storageSvc.GetUsage(tenant.ContextWithTenantID(context.Background(), tenantID), userID)
 	testutil.NoError(t, err)
 	testutil.Equal(t, int64(successes)*reservationSize, info.BytesUsed)
 
-	followUpErr := storageSvc.ReserveQuota(context.Background(), userID, reservationSize)
+	followUpErr := storageSvc.ReserveQuota(tenant.ContextWithTenantID(context.Background(), tenantID), userID, reservationSize)
 	if info.BytesUsed+reservationSize > 500 {
 		testutil.True(t, errors.Is(followUpErr, storage.ErrQuotaExceeded), "expected follow-up reservation to exceed quota, got %v", followUpErr)
 	} else {

@@ -11,6 +11,7 @@ import (
 
 	"github.com/allyourbase/ayb/internal/edgefunc"
 	"github.com/allyourbase/ayb/internal/jobs"
+	"github.com/allyourbase/ayb/internal/pgnotify"
 	"github.com/allyourbase/ayb/internal/storage"
 	"github.com/allyourbase/ayb/internal/testutil"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -78,7 +79,7 @@ func TestWireEdgeTriggerRuntime_WiresServicesAndHandlers(t *testing.T) {
 
 	origFactory := newDBTriggerWorkerRunner
 	t.Cleanup(func() { newDBTriggerWorkerRunner = origFactory })
-	newDBTriggerWorkerRunner = func(edgefunc.DBTriggerEventStore, *edgefunc.DBTriggerDispatcher, string, *slog.Logger) dbTriggerWorkerRunner {
+	newDBTriggerWorkerRunner = func(edgefunc.DBTriggerEventStore, *edgefunc.DBTriggerDispatcher, *pgnotify.Bus, *slog.Logger) dbTriggerWorkerRunner {
 		return worker
 	}
 
@@ -115,7 +116,7 @@ func TestWireEdgeTriggerRuntime_WorkerCancellationIsNotLoggedAsError(t *testing.
 
 	origFactory := newDBTriggerWorkerRunner
 	t.Cleanup(func() { newDBTriggerWorkerRunner = origFactory })
-	newDBTriggerWorkerRunner = func(edgefunc.DBTriggerEventStore, *edgefunc.DBTriggerDispatcher, string, *slog.Logger) dbTriggerWorkerRunner {
+	newDBTriggerWorkerRunner = func(edgefunc.DBTriggerEventStore, *edgefunc.DBTriggerDispatcher, *pgnotify.Bus, *slog.Logger) dbTriggerWorkerRunner {
 		return worker
 	}
 
@@ -146,7 +147,9 @@ func TestWireEdgeTriggerRuntime_UsesFallbackCronSchedulerWhenJobsDisabled(t *tes
 		newCronFallbackScheduler = origFallback
 	})
 
-	newDBTriggerWorkerRunner = func(edgefunc.DBTriggerEventStore, *edgefunc.DBTriggerDispatcher, string, *slog.Logger) dbTriggerWorkerRunner {
+	var gotBus *pgnotify.Bus
+	newDBTriggerWorkerRunner = func(_ edgefunc.DBTriggerEventStore, _ *edgefunc.DBTriggerDispatcher, bus *pgnotify.Bus, _ *slog.Logger) dbTriggerWorkerRunner {
+		gotBus = bus
 		return worker
 	}
 
@@ -169,6 +172,7 @@ func TestWireEdgeTriggerRuntime_UsesFallbackCronSchedulerWhenJobsDisabled(t *tes
 
 	waitForWorkerStart(t, worker)
 	testutil.True(t, fallbackCalled, "expected fallback cron scheduler to be used when jobs service is nil")
+	testutil.NotNil(t, gotBus)
 	testutil.NotNil(t, gotCron)
 }
 
@@ -178,7 +182,7 @@ func TestWireEdgeTriggerRuntime_TypedNilStorageRegistrarDoesNotPanic(t *testing.
 
 	origFactory := newDBTriggerWorkerRunner
 	t.Cleanup(func() { newDBTriggerWorkerRunner = origFactory })
-	newDBTriggerWorkerRunner = func(edgefunc.DBTriggerEventStore, *edgefunc.DBTriggerDispatcher, string, *slog.Logger) dbTriggerWorkerRunner {
+	newDBTriggerWorkerRunner = func(edgefunc.DBTriggerEventStore, *edgefunc.DBTriggerDispatcher, *pgnotify.Bus, *slog.Logger) dbTriggerWorkerRunner {
 		return worker
 	}
 

@@ -76,6 +76,27 @@ type AuthResponse struct {
 	User         User   `json:"user"`
 }
 
+type WebAuthnLoginBeginResponse struct {
+	ChallengeID string               `json:"challenge_id"`
+	Options     WebAuthnLoginOptions `json:"options"`
+}
+
+type WebAuthnLoginOptions struct {
+	Challenge        string                         `json:"challenge"`
+	RPID             string                         `json:"rpId"`
+	AllowCredentials []WebAuthnCredentialDescriptor `json:"allowCredentials"`
+}
+
+type WebAuthnCredentialDescriptor struct {
+	ID   string `json:"id"`
+	Type string `json:"type"`
+}
+
+type WebAuthnLoginFinishRequest struct {
+	ChallengeID       string          `json:"challenge_id"`
+	AssertionResponse json.RawMessage `json:"assertion_response"`
+}
+
 type MagicLinkRequestResponse struct {
 	Message string `json:"message"`
 }
@@ -128,6 +149,18 @@ type ListResponse struct {
 	TotalPages int              `json:"totalPages"`
 	NextCursor *string          `json:"nextCursor,omitempty"`
 	Facets     FacetCounts      `json:"facets,omitempty"`
+}
+
+type SearchSynonymsGroup struct {
+	Terms []string `json:"terms"`
+}
+
+type SearchSynonymsRequest struct {
+	Groups []SearchSynonymsGroup `json:"groups"`
+}
+
+type SearchSynonymsResponse struct {
+	Groups []SearchSynonymsGroup `json:"groups"`
 }
 
 type FacetCounts map[string][]FacetValueCount

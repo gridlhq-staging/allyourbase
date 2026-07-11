@@ -1,4 +1,5 @@
 import { test, expect, execSQL, waitForDashboard } from "../fixtures";
+import type { Page } from "@playwright/test";
 
 /**
  * FULL E2E TEST: SQL Editor Lifecycle
@@ -9,6 +10,15 @@ import { test, expect, execSQL, waitForDashboard } from "../fixtures";
 
 test.describe("SQL Editor Lifecycle (Full E2E)", () => {
   const tablesToDrop: string[] = [];
+
+  async function getStoredSQLQuery(page: Page): Promise<string | null> {
+    const state = await page.context().storageState();
+    for (const origin of state.origins) {
+      const storedQuery = origin.localStorage.find((item) => item.name === "ayb_sql_query");
+      if (storedQuery) return storedQuery.value;
+    }
+    return null;
+  }
 
   test.afterEach(async ({ request, adminToken }) => {
     while (tablesToDrop.length > 0) {
@@ -38,6 +48,7 @@ test.describe("SQL Editor Lifecycle (Full E2E)", () => {
 
     // Verify DDL success feedback
     await expect(page.getByText(/Statement executed successfully/i)).toBeVisible({ timeout: 5000 });
+    await expect(page.locator("aside").getByText(tableName, { exact: true })).toBeVisible({ timeout: 10000 });
 
     // DML: INSERT rows
     await sqlInput.fill(`INSERT INTO ${tableName} (name, value) VALUES ('alpha', 10), ('beta', 20), ('gamma', 30);`);
@@ -59,12 +70,34 @@ test.describe("SQL Editor Lifecycle (Full E2E)", () => {
     await expect(page.getByRole("cell", { name: "beta" })).toBeVisible();
     await expect(page.getByRole("cell", { name: "gamma" })).toBeVisible();
     await expect(page.getByText(/3 row/i)).toBeVisible();
+    await page.getByTitle("Copy as CSV").click();
+    await expect(page.getByText("CSV copied!")).toBeVisible();
+    await page.getByTitle("Copy as JSON").click();
+    await expect(page.getByText("JSON copied!")).toBeVisible();
+
+    const storedSuccessfulQuery = await getStoredSQLQuery(page);
+    expect(storedSuccessfulQuery).toBe(
+      `SELECT name, value FROM ${tableName} ORDER BY value;`,
+    );
+
+    await sqlInput.fill("SELECT * FROM definitely_missing_admin_sql_table;");
+    await page.getByRole("button", { name: /Execute/i }).click();
+    await expect(page.getByText(/definitely_missing_admin_sql_table/i)).toBeVisible({
+      timeout: 5000,
+    });
+    expect(await getStoredSQLQuery(page)).toBe(storedSuccessfulQuery);
 
     // DDL: DROP TABLE
     await sqlInput.fill(`DROP TABLE ${tableName};`);
     await page.getByRole("button", { name: /Execute/i }).click();
+    const destructiveDialog = page.getByRole("dialog", {
+      name: "Confirm destructive SQL",
+    });
+    await expect(destructiveDialog).toBeVisible();
+    await destructiveDialog.getByRole("button", { name: /^Execute destructive SQL$/i }).click();
 
     await expect(page.getByText(/Statement executed successfully/i)).toBeVisible({ timeout: 5000 });
+    await expect(page.locator("aside").getByText(tableName, { exact: true })).not.toBeVisible({ timeout: 10000 });
 
     // Verify table is gone by querying it
     await sqlInput.fill(`SELECT * FROM ${tableName};`);

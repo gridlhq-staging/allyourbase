@@ -146,6 +146,30 @@ func (r *RecordsClient) Batch(ctx context.Context, collection string, operations
 	return out, nil
 }
 
+func (r *RecordsClient) GetSynonyms(ctx context.Context, collection string) (*SearchSynonymsResponse, error) {
+	body, err := r.client.doJSON(ctx, http.MethodGet, recordsCollectionPath(collection)+"/synonyms/", nil, nil)
+	if err != nil {
+		return nil, err
+	}
+	var out SearchSynonymsResponse
+	if err := json.Unmarshal(body, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+func (r *RecordsClient) SetSynonyms(ctx context.Context, collection string, req SearchSynonymsRequest) (*SearchSynonymsResponse, error) {
+	body, err := r.client.doJSON(ctx, http.MethodPut, recordsCollectionPath(collection)+"/synonyms/", nil, req)
+	if err != nil {
+		return nil, err
+	}
+	var out SearchSynonymsResponse
+	if err := json.Unmarshal(body, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
 func (r *RecordsClient) writeRecord(ctx context.Context, method, path string, data map[string]any) (map[string]any, error) {
 	body, err := r.client.doJSON(ctx, method, path, nil, data)
 	if err != nil {

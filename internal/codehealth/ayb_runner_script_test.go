@@ -69,6 +69,18 @@ func requireFileContainsTrimmed(t *testing.T, path, want string) {
 	}
 }
 
+func extractOutputValue(t *testing.T, output, prefix string) string {
+	t.Helper()
+
+	for _, line := range strings.Split(output, "\n") {
+		if strings.HasPrefix(line, prefix) {
+			return strings.TrimSpace(strings.TrimPrefix(line, prefix))
+		}
+	}
+	t.Fatalf("expected output line with prefix %q, got: %s", prefix, output)
+	return ""
+}
+
 func freshTokenWriterStartCommand(port int, writeDelay time.Duration) string {
 	writeFreshToken := `fs.mkdirSync(path.join(home,'.ayb'), { recursive: true }); fs.writeFileSync(path.join(home,'.ayb','admin-token'), 'fresh-token\n');`
 	if writeDelay > 0 {
@@ -173,6 +185,36 @@ func TestRunWithAYBScriptRunsCommandAfterHealthReady(t *testing.T) {
 		t.Fatalf("expected success, got error: %v output=%s", err, output)
 	}
 	requireOutputContains(t, output, "command-finished")
+}
+
+func TestRunWithAYBScriptIsolatesEmbeddedDataDirForOwnedServer(t *testing.T) {
+	t.Parallel()
+
+	homeDir := t.TempDir()
+	logPath := filepath.Join(t.TempDir(), "ayb-isolated-data-dir.log")
+	healthPort := reserveLocalhostPort(t)
+	healthURL := fmt.Sprintf("http://127.0.0.1:%d/health", healthPort)
+	defaultDataDir := filepath.Join(homeDir, ".ayb", "data")
+
+	output, err := runAYBScript(t, `test -d "$AYB_DATABASE_EMBEDDED_DATA_DIR" && echo "data-dir=$AYB_DATABASE_EMBEDDED_DATA_DIR"`,
+		"HOME="+homeDir,
+		freshTokenWriterStartCommand(healthPort, 0),
+		"AYB_HEALTH_URL="+healthURL,
+		"AYB_HEALTH_TIMEOUT_SECONDS=10",
+		"AYB_HEALTH_POLL_INTERVAL_SECONDS=0.1",
+		"AYB_START_LOG="+logPath,
+	)
+	if err != nil {
+		t.Fatalf("expected success, got error: %v output=%s", err, output)
+	}
+
+	dataDir := extractOutputValue(t, output, "data-dir=")
+	if dataDir == defaultDataDir {
+		t.Fatalf("wrapper-owned startup should not use default embedded data dir %s", defaultDataDir)
+	}
+	if _, err := os.Stat(dataDir); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("expected wrapper-owned embedded data dir to be removed after exit, stat err=%v", err)
+	}
 }
 
 func TestRunWithAYBScriptReusesExistingHealthyServer(t *testing.T) {

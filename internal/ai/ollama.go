@@ -30,22 +30,7 @@ func NewOllamaProvider(baseURL string) *OllamaProvider {
 }
 
 func (p *OllamaProvider) GenerateText(ctx context.Context, req GenerateTextRequest) (GenerateTextResponse, error) {
-	messages := buildOllamaMessages(req)
-
-	body := ollamaRequest{
-		Model:    req.Model,
-		Messages: messages,
-		Stream:   false,
-	}
-	if req.MaxTokens > 0 || req.Temperature != nil {
-		body.Options = &ollamaOptions{}
-		if req.MaxTokens > 0 {
-			body.Options.NumPredict = &req.MaxTokens
-		}
-		if req.Temperature != nil {
-			body.Options.Temperature = req.Temperature
-		}
-	}
+	body := buildOllamaChatRequest(req, false)
 
 	payload, err := json.Marshal(body)
 	if err != nil {
@@ -114,6 +99,24 @@ func buildOllamaMessages(req GenerateTextRequest) []ollamaMessage {
 		msgs = append(msgs, ollamaMessage{Role: m.Role, Content: text})
 	}
 	return msgs
+}
+
+func buildOllamaChatRequest(req GenerateTextRequest, stream bool) ollamaRequest {
+	body := ollamaRequest{
+		Model:    req.Model,
+		Messages: buildOllamaMessages(req),
+		Stream:   stream,
+	}
+	if req.MaxTokens > 0 || req.Temperature != nil {
+		body.Options = &ollamaOptions{}
+		if req.MaxTokens > 0 {
+			body.Options.NumPredict = &req.MaxTokens
+		}
+		if req.Temperature != nil {
+			body.Options.Temperature = req.Temperature
+		}
+	}
+	return body
 }
 
 // --- Ollama wire types ---

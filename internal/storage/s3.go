@@ -23,7 +23,8 @@ type S3Config struct {
 
 // S3Backend stores files in any S3-compatible object store.
 // AYB's bucket concept maps to a key prefix within a single S3 bucket.
-// Object key format: {ayb_bucket}/{ayb_name}
+// Object key format: {ayb_bucket}/{ayb_name} for empty tenant, otherwise
+// t/{tenant_id}/{ayb_bucket}/{ayb_name}.
 type S3Backend struct {
 	client *minio.Client
 	bucket string
@@ -52,12 +53,15 @@ func NewS3Backend(ctx context.Context, cfg S3Config) (*S3Backend, error) {
 	return &S3Backend{client: client, bucket: cfg.Bucket}, nil
 }
 
-func (b *S3Backend) key(aybBucket, name string) string {
+func (b *S3Backend) key(tenantID, aybBucket, name string) string {
+	if tenantID != "" {
+		return "t/" + tenantID + "/" + aybBucket + "/" + name
+	}
 	return aybBucket + "/" + name
 }
 
-func (b *S3Backend) Put(ctx context.Context, bucket, name string, r io.Reader) (int64, error) {
-	key := b.key(bucket, name)
+func (b *S3Backend) Put(ctx context.Context, tenantID, bucket, name string, r io.Reader) (int64, error) {
+	key := b.key(tenantID, bucket, name)
 	info, err := b.client.PutObject(ctx, b.bucket, key, r, -1, minio.PutObjectOptions{})
 	if err != nil {
 		return 0, fmt.Errorf("uploading to S3: %w", err)
@@ -66,8 +70,8 @@ func (b *S3Backend) Put(ctx context.Context, bucket, name string, r io.Reader) (
 }
 
 // Get retrieves an object from the S3-compatible store and returns its contents as an io.ReadCloser. It returns ErrNotFound if the object does not exist.
-func (b *S3Backend) Get(ctx context.Context, bucket, name string) (io.ReadCloser, error) {
-	key := b.key(bucket, name)
+func (b *S3Backend) Get(ctx context.Context, tenantID, bucket, name string) (io.ReadCloser, error) {
+	key := b.key(tenantID, bucket, name)
 	obj, err := b.client.GetObject(ctx, b.bucket, key, minio.GetObjectOptions{})
 	if err != nil {
 		return nil, fmt.Errorf("getting from S3: %w", err)
@@ -86,8 +90,8 @@ func (b *S3Backend) Get(ctx context.Context, bucket, name string) (io.ReadCloser
 	return obj, nil
 }
 
-func (b *S3Backend) Delete(ctx context.Context, bucket, name string) error {
-	key := b.key(bucket, name)
+func (b *S3Backend) Delete(ctx context.Context, tenantID, bucket, name string) error {
+	key := b.key(tenantID, bucket, name)
 	err := b.client.RemoveObject(ctx, b.bucket, key, minio.RemoveObjectOptions{})
 	if err != nil {
 		return fmt.Errorf("deleting from S3: %w", err)
@@ -95,8 +99,8 @@ func (b *S3Backend) Delete(ctx context.Context, bucket, name string) error {
 	return nil
 }
 
-func (b *S3Backend) Exists(ctx context.Context, bucket, name string) (bool, error) {
-	key := b.key(bucket, name)
+func (b *S3Backend) Exists(ctx context.Context, tenantID, bucket, name string) (bool, error) {
+	key := b.key(tenantID, bucket, name)
 	_, err := b.client.StatObject(ctx, b.bucket, key, minio.StatObjectOptions{})
 	if err != nil {
 		resp := minio.ToErrorResponse(err)
