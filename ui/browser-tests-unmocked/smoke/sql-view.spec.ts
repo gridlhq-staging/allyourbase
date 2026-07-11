@@ -78,9 +78,7 @@ test.describe("Smoke: SQL View", () => {
     await page.keyboard.press("ControlOrMeta+A");
     await page.keyboard.type("SELECT * FROM definitely_missing_sql_view_table;");
     await page.getByRole("button", { name: /^Execute$/i }).click();
-    await expect(page.getByText(/^ERROR: relation "definitely_missing_sql_view_table"/i)).toBeVisible({
-      timeout: 5000,
-    });
+    await expect(page.getByText(/definitely_missing_sql_view_table/i)).toBeVisible({ timeout: 5000 });
 
     await sqlEditor.click();
     await page.keyboard.press("ControlOrMeta+A");

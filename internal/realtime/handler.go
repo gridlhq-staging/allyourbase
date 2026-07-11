@@ -175,7 +175,7 @@ func (h *Handler) parseRealtimeFilters(w http.ResponseWriter, filterParam string
 func (h *Handler) setupRealtimeSSEClient(w http.ResponseWriter, r *http.Request, claims *auth.Claims, tables map[string]bool, filters Filters) (*Client, context.Context, func(), bool) {
 	// Attach the request tenant at subscribe time so the client starts tenant-
 	// scoped before any event can be delivered — no unregister/re-register churn.
-	client := h.hub.SubscribeWithFilter(tables, filters, h.realtimeTenantScope(r, claims))
+	client := h.hub.SubscribeWithFilter(tables, filters, tenant.TenantFromContext(r.Context()))
 	ctx, cancel := context.WithCancel(r.Context())
 
 	cleanup := func() {
@@ -211,13 +211,6 @@ func (h *Handler) setupRealtimeSSEClient(w http.ResponseWriter, r *http.Request,
 		cleanup()
 	}
 	return client, ctx, withDeregister, true
-}
-
-func (h *Handler) realtimeTenantScope(r *http.Request, claims *auth.Claims) string {
-	if claims != nil && h.pool != nil && h.schemaCache != nil {
-		return RLSFilteredTenantScope
-	}
-	return tenant.TenantFromContext(r.Context())
 }
 
 func (h *Handler) applySSEHeaders(w http.ResponseWriter) {

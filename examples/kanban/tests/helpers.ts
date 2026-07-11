@@ -1,8 +1,4 @@
 import { type Page, expect } from "@playwright/test";
-import {
-  installRealtimeReadinessProbe,
-  waitForRealtimeTables,
-} from "../../../tests/e2e/realtime_readiness";
 
 let userCounter = 0;
 let nameCounter = 0;
@@ -40,7 +36,6 @@ export const DEMO_ACCOUNTS = [
 export async function ensureAuthFormVisible(page: Page): Promise<void> {
   // Tests that explicitly exercise login/register should opt out of anonymous
   // bootstrap before navigation to avoid consuming anonymous rate-limit quota.
-  await installRealtimeReadinessProbe(page);
   await page.addInitScript((optOutKey) => {
     localStorage.setItem(optOutKey, "1");
   }, ANONYMOUS_BOOTSTRAP_OPTOUT_KEY);
@@ -179,7 +174,6 @@ export async function openBoard(page: Page, title: string): Promise<void> {
   await expect(
     page.getByRole("heading", { name: title }),
   ).toBeVisible({ timeout: 5000 });
-  await waitForRealtimeTables(page, ["cards", "columns"]);
 }
 
 /** Add a column to the current board. */

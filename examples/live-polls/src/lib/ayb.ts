@@ -1,6 +1,6 @@
 import { AYBClient } from "@allyourbase/js";
 
-const url = import.meta.env.VITE_AYB_URL ?? window.location.origin;
+const url = import.meta.env.VITE_AYB_URL ?? "http://localhost:8090";
 const TOKEN_KEY = "ayb_token";
 const REFRESH_TOKEN_KEY = "ayb_refresh_token";
 const ANONYMOUS_BOOTSTRAP_OPTOUT_KEY = "ayb_anonymous_bootstrap_optout";

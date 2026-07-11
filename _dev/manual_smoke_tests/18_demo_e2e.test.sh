@@ -100,28 +100,15 @@ cleanup_demo_e2e_resources() {
     local log="${3:-}"
     local fake_ollama_log="${4:-}"
     local data_dir="${5:-}"
-    local demo_child_pids=""
 
     if [ -n "$demo_pid" ]; then
-        demo_child_pids="$(ps -o pid= --ppid "$demo_pid" 2>/dev/null || true)"
         kill -INT "$demo_pid" 2>/dev/null || true
-        for child_pid in $demo_child_pids; do
-            kill -INT "$child_pid" 2>/dev/null || true
-        done
         local wait_count=0
         while kill -0 "$demo_pid" 2>/dev/null && [ $wait_count -lt 20 ]; do
             sleep 0.5
             wait_count=$((wait_count + 1))
         done
         kill -9 "$demo_pid" 2>/dev/null || true
-        for child_pid in $demo_child_pids; do
-            if kill -0 "$child_pid" 2>/dev/null; then
-                kill -9 "$child_pid" 2>/dev/null || true
-            fi
-        done
-    fi
-    if [ -n "$data_dir" ]; then
-        AYB_DATABASE_EMBEDDED_DATA_DIR="$data_dir" "$AYB_BIN" stop > /dev/null 2>&1 || true
     fi
     if [ -n "$fake_ollama_pid" ]; then
         kill -9 "$fake_ollama_pid" 2>/dev/null || true

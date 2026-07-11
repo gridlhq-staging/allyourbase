@@ -1,3 +1,4 @@
+import { EventSource as NodeEventSource } from "eventsource";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { AYBClient } from "./client";
 import { AYBError } from "./errors";
@@ -15,11 +16,15 @@ import {
   makeUniqueAuthEmail,
   primeIntegrationSuite,
   sqlStringLiteral,
+  sleep,
   toCount,
   trackAuthUser,
   waitForCollectionSchemaCache,
   waitForCondition,
 } from "./integration-helpers";
+
+(globalThis as typeof globalThis & { EventSource?: typeof NodeEventSource }).EventSource ??=
+  NodeEventSource as unknown as typeof globalThis.EventSource;
 
 type RPCNotifyInsertedRow = {
   id: number;
@@ -40,9 +45,11 @@ describe("SDK RPC notify integration suite", () => {
     unsubscribe: () => void;
   }> {
     const receivedEvents: RealtimeEvent[] = [];
-    const unsubscribe = await client.realtime.subscribeWS([tableName], (event) => {
+    const unsubscribe = client.realtime.subscribe([tableName], (event) => {
       receivedEvents.push(event);
     });
+    // Keep the same SSE warm-up pattern used in integration.realtime.test.ts.
+    await sleep(500);
     return { receivedEvents, unsubscribe };
   }
 

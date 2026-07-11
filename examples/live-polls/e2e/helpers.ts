@@ -2,10 +2,6 @@
  * @module examples/live-polls/e2e/helpers.ts
  */
 import { type Page, type Locator, type CDPSession, type Request, expect } from "@playwright/test";
-import {
-  installRealtimeReadinessProbe,
-  waitForRealtimeTables,
-} from "../../../tests/e2e/realtime_readiness";
 
 let userCounter = 0;
 export const runId = Math.random().toString(36).slice(2, 8);
@@ -69,7 +65,6 @@ async function ensureDemoAccountExists(
  * anonymous shell by default.
  */
 export async function openExplicitAuth(page: Page): Promise<void> {
-  await installRealtimeReadinessProbe(page);
   await page.addInitScript((optOutKey) => {
     localStorage.setItem(optOutKey, "1");
   }, ANONYMOUS_BOOTSTRAP_OPTOUT_KEY);
@@ -324,7 +319,6 @@ export async function loginWithDemoAccount(
     timeout: 10000,
   });
   await expect(page.getByRole("button", { name: "Sign out" })).toBeVisible();
-  await waitForRealtimeTables(page, ["polls", "poll_options", "votes"]);
 }
 
 /** Login with existing credentials. */
