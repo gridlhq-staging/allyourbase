@@ -30,10 +30,9 @@ describe("SDK realtime integration suite", () => {
     unsubscribe: () => void;
   }> {
     const receivedEvents: RealtimeEvent[] = [];
-    const unsubscribe = client.realtime.subscribe([tableName], (event) => {
+    const unsubscribe = await client.realtime.subscribeWS([tableName], (event) => {
       receivedEvents.push(event);
     });
-    await sleep(500);
     return { receivedEvents, unsubscribe };
   }
 

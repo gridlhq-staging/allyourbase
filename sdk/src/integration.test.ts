@@ -923,18 +923,34 @@ describe("SDK integration smoke + auth suite", () => {
     });
 
     it("downloads text file content via downloadURL", async () => {
-      // downloadURL is synchronous — returns a URL string.
-      const url = client.storage.downloadURL(bucketName, "test.txt");
-      expect(url).toContain(`/api/storage/${bucketName}/test.txt`);
+      await client.storage.upload(
+        bucketName,
+        new Blob(["hello world"], { type: "text/plain" }),
+        "download-text.txt",
+      );
 
-      const response = await fetch(url);
+      const seededURL = client.storage.downloadURL(bucketName, "download-text.txt");
+      expect(seededURL).toContain(`/api/storage/${bucketName}/download-text.txt`);
+
+      const response = await fetch(seededURL, {
+        headers: { Authorization: `Bearer ${client.token}` },
+      });
       expect(response.ok).toBe(true);
       expect(await response.text()).toBe("hello world");
     });
 
     it("downloads binary file content and verifies bytes", async () => {
-      const url = client.storage.downloadURL(bucketName, "binary.png");
-      const response = await fetch(url);
+      const bytes = new Uint8Array([0x89, 0x50, 0x4e, 0x47]);
+      await client.storage.upload(
+        bucketName,
+        new Blob([bytes], { type: "image/png" }),
+        "download-binary.png",
+      );
+
+      const url = client.storage.downloadURL(bucketName, "download-binary.png");
+      const response = await fetch(url, {
+        headers: { Authorization: `Bearer ${client.token}` },
+      });
       expect(response.ok).toBe(true);
 
       const buffer = await response.arrayBuffer();
@@ -967,8 +983,13 @@ describe("SDK integration smoke + auth suite", () => {
     });
 
     it("generates a signed URL that serves content without auth", async () => {
-      // test.txt was uploaded earlier in this describe block.
-      const signed = await client.storage.getSignedURL(bucketName, "test.txt", 3600);
+      await client.storage.upload(
+        bucketName,
+        new Blob(["hello world"], { type: "text/plain" }),
+        "signed-text.txt",
+      );
+
+      const signed = await client.storage.getSignedURL(bucketName, "signed-text.txt", 3600);
       expect(signed.url).toContain("/api/storage/");
 
       // Signed URL is relative — prepend BASE_URL; fetch without auth headers.
@@ -978,12 +999,17 @@ describe("SDK integration smoke + auth suite", () => {
     });
 
     it("deletes a file and confirms 404 on subsequent download", async () => {
-      // Must run after signed URL test since both reference test.txt.
-      const deleteResult = await client.storage.delete(bucketName, "test.txt");
+      await client.storage.upload(
+        bucketName,
+        new Blob(["delete me"], { type: "text/plain" }),
+        "delete-text.txt",
+      );
+
+      const deleteResult = await client.storage.delete(bucketName, "delete-text.txt");
       expect(deleteResult).toBeUndefined();
 
       const response = await fetch(
-        client.storage.downloadURL(bucketName, "test.txt"),
+        client.storage.downloadURL(bucketName, "delete-text.txt"),
       );
       expect(response.status).toBe(404);
     });
