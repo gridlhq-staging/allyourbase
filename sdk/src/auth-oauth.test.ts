@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { buildOAuthStartURL } from "./auth";
 import { AYBClient } from "./client";
 import { AYBError } from "./errors";
 
@@ -149,7 +150,7 @@ describe("signInWithOAuth", () => {
     // urlCallback should be called with the OAuth URL.
     await vi.waitFor(() => {
       expect(urlCallback).toHaveBeenCalledWith(
-        "http://localhost:8090/api/auth/oauth/google?state=c2",
+        buildOAuthStartURL("http://localhost:8090", "google", "c2"),
       );
     });
 
@@ -338,7 +339,9 @@ describe("signInWithOAuth", () => {
     await vi.waitFor(() => {
       const popup = (window.open as ReturnType<typeof vi.fn>).mock
         .results[0].value;
-      expect(popup.location.href).toContain("/api/auth/oauth/github?state=c1");
+      expect(popup.location.href).toBe(
+        buildOAuthStartURL("http://localhost:8090", "github", "c1"),
+      );
     });
 
     es.emit("oauth", {
@@ -384,11 +387,10 @@ describe("signInWithOAuth", () => {
     await vi.waitFor(() => {
       const popup = (window.open as ReturnType<typeof vi.fn>).mock
         .results[0].value;
-      expect(popup.location.href).toContain("state=c-redir");
-      // Asserts both the param key AND the percent-encoded value, so a bug
-      // that drops encoding (or appends the raw string) still fails.
-      expect(popup.location.href).toContain(
-        "redirect_to=https%3A%2F%2Fapp.example.com%2Fpost-oauth%3Fnext%3D%2Fhome",
+      expect(popup.location.href).toBe(
+        buildOAuthStartURL("http://localhost:8090", "google", "c-redir", {
+          redirectTo: "https://app.example.com/post-oauth?next=/home",
+        }),
       );
     });
 
@@ -421,6 +423,9 @@ describe("signInWithOAuth", () => {
         .results[0].value;
       // Negative assertion guards against accidentally appending a default
       // value (e.g. empty string or location.href) when caller did not opt in.
+      expect(popup.location.href).toBe(
+        buildOAuthStartURL("http://localhost:8090", "google", "c-no-redir"),
+      );
       expect(popup.location.href).not.toContain("redirect_to");
     });
 
@@ -456,10 +461,11 @@ describe("signInWithOAuth", () => {
     await vi.waitFor(() => {
       const popup = (window.open as ReturnType<typeof vi.fn>).mock
         .results[0].value;
-      expect(popup.location.href).toContain("state=c-both");
-      expect(popup.location.href).toContain("scopes=user%3Aemail");
-      expect(popup.location.href).toContain(
-        "redirect_to=https%3A%2F%2Fapp.example.com%2Fwelcome",
+      expect(popup.location.href).toBe(
+        buildOAuthStartURL("http://localhost:8090", "github", "c-both", {
+          scopes: ["user:email"],
+          redirectTo: "https://app.example.com/welcome",
+        }),
       );
     });
 
@@ -807,9 +813,11 @@ describe("signInWithOAuth scopes", () => {
 
     await vi.waitFor(() => {
       const popup = openSpy.mock.results[0].value;
-      expect(popup.location.href).toContain("scopes=");
-      expect(popup.location.href).toContain("calendar.read");
-      expect(popup.location.href).toContain("drive.read");
+      expect(popup.location.href).toBe(
+        buildOAuthStartURL("http://localhost:8090", "google", "c1", {
+          scopes: ["calendar.read", "drive.read"],
+        }),
+      );
     });
 
     es.emit("oauth", {
@@ -839,6 +847,9 @@ describe("signInWithOAuth scopes", () => {
 
     await vi.waitFor(() => {
       const popup = openSpy.mock.results[0].value;
+      expect(popup.location.href).toBe(
+        buildOAuthStartURL("http://localhost:8090", "google", "c1"),
+      );
       expect(popup.location.href).not.toContain("scopes=");
     });
 

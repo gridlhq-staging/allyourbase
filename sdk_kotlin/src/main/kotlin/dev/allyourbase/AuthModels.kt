@@ -52,6 +52,45 @@ data class WebAuthnLoginFinishRequest(
     val assertionResponse: JsonObject,
 )
 
+@Serializable
+data class WebAuthnEnrollBeginResponse(
+    val attestation: String,
+    val authenticatorSelection: JsonObject,
+    val challenge: String,
+    val pubKeyCredParams: List<JsonObject>,
+    val rp: JsonObject,
+    val timeout: Int,
+    val user: JsonObject,
+)
+
+@Serializable
+data class WebAuthnEnrollConfirmRequest(
+    @SerialName("display_name")
+    val displayName: String,
+    @SerialName("attestation_response")
+    val attestationResponse: JsonObject,
+)
+
+@Serializable
+data class WebAuthnEnrollConfirmResponse(
+    val message: String,
+)
+
+@Serializable
+data class WebAuthnMfaChallengeResponse(
+    @SerialName("challenge_id")
+    val challengeId: String,
+    val options: JsonObject,
+)
+
+@Serializable
+data class WebAuthnMfaVerifyRequest(
+    @SerialName("challenge_id")
+    val challengeId: String,
+    @SerialName("assertion_response")
+    val assertionResponse: JsonObject,
+)
+
 fun interface PasskeyAuthenticator {
     suspend fun createAssertion(options: JsonObject): JsonObject
 }

@@ -67,6 +67,18 @@ func TestLeakedPathsGuardCatchesPlantedLeak(t *testing.T) {
 		"| browse.go | Stub summary for /Users/alice/parallel_development/allyourbase_dev/jun10_release/allyourbase_dev/internal/algoliamigrate/browse.go. |",
 		"",
 	}, "\n"))
+	writeTextFile(t, filepath.Join(tempRoot, "chats", "icg", "leaky_chat.md"), strings.Join([]string{
+		"# Chat",
+		"",
+		"Historical note links to `/Users/alice/parallel_development/allyourbase_dev/jun10_release/allyourbase_dev/chats/icg/leaky_chat.md`.",
+		"",
+	}, "\n"))
+	writeTextFile(t, filepath.Join(tempRoot, "_dev", "manual_smoke_tests", "leaky_dev.md"), strings.Join([]string{
+		"# Dev Note",
+		"",
+		"Local smoke note links to `/Users/alice/parallel_development/allyourbase_dev/jun10_release/allyourbase_dev/_dev/manual_smoke_tests/leaky_dev.md`.",
+		"",
+	}, "\n"))
 	writeTextFile(t, filepath.Join(tempRoot, "docs", "parallel_development_example.md"), strings.Join([]string{
 		"# Command Example",
 		"",
@@ -86,6 +98,8 @@ func TestLeakedPathsGuardCatchesPlantedLeak(t *testing.T) {
 	assertFindingPresent(t, findings, "ui/src/header.ts", "Module summary for /Users/alice/parallel_development/allyourbase_dev/jun10/allyourbase_dev/ui/src/header.ts.")
 	assertFindingPresent(t, findings, "implemented/2026-07-09_example.md", "| **Tenant-scoped storage usage** — Applied from roadmap refresh proposal. | `/Users/alice/parallel_development/allyourbase_dev/jul09_storage/allyourbase_dev/chats/icg/jul09_storage.md` | `roadmap-refresh:example` |")
 	assertFindingPresent(t, findings, "docs/security_review_example.md", "| browse.go | Stub summary for /Users/alice/parallel_development/allyourbase_dev/jun10_release/allyourbase_dev/internal/algoliamigrate/browse.go. |")
+	assertFindingPresent(t, findings, "chats/icg/leaky_chat.md", "Historical note links to `/Users/alice/parallel_development/allyourbase_dev/jun10_release/allyourbase_dev/chats/icg/leaky_chat.md`.")
+	assertFindingPresent(t, findings, "_dev/manual_smoke_tests/leaky_dev.md", "Local smoke note links to `/Users/alice/parallel_development/allyourbase_dev/jun10_release/allyourbase_dev/_dev/manual_smoke_tests/leaky_dev.md`.")
 	assertFindingAbsent(t, findings, "ui/src/body_only.ts")
 	assertFindingAbsent(t, findings, "docs/parallel_development_example.md")
 }
@@ -336,7 +350,6 @@ func shouldScanLeakedPathFile(syncScope debbieSyncScope, relativePath string) bo
 	if syncScope.includes(relativePath) {
 		return true
 	}
-	// Stage 1 intentionally defers chats/ and _dev/ private-doc surfaces.
 	return isSupportedPrivateDocSurface(relativePath)
 }
 
@@ -357,6 +370,9 @@ func isSupportedPrivateDocSurface(relativePath string) bool {
 	if strings.HasPrefix(relativePath, "docs/") {
 		return filepath.Dir(relativePath) == "docs" && strings.HasSuffix(relativePath, ".md")
 	}
+	if strings.HasPrefix(relativePath, "chats/") || strings.HasPrefix(relativePath, "_dev/") {
+		return strings.HasSuffix(relativePath, ".md")
+	}
 	return false
 }
 
@@ -365,7 +381,7 @@ func leakedPathSurfaceLines(relativePath, content string) []surfaceLine {
 	case filepath.Base(relativePath) == "DIRMAP.md":
 		return markdownTableRows(content)
 	case isSupportedPrivateDocSurface(relativePath):
-		return markdownTableRows(content)
+		return markdownLines(content)
 	case strings.HasSuffix(relativePath, ".go"):
 		return leadingGoPackageCommentLines(content)
 	case strings.HasSuffix(relativePath, ".ts") || strings.HasSuffix(relativePath, ".tsx"):
@@ -373,6 +389,15 @@ func leakedPathSurfaceLines(relativePath, content string) []surfaceLine {
 	default:
 		return nil
 	}
+}
+
+func markdownLines(content string) []surfaceLine {
+	lines := strings.Split(content, "\n")
+	surfaceLines := make([]surfaceLine, 0, len(lines))
+	for index, line := range lines {
+		surfaceLines = append(surfaceLines, surfaceLine{Number: index + 1, Text: line})
+	}
+	return surfaceLines
 }
 
 func markdownTableRows(content string) []surfaceLine {

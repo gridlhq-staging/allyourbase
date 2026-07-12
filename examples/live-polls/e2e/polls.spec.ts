@@ -29,13 +29,6 @@ test.describe("Polls", () => {
     await registerUser(page);
   });
 
-  // Shared database: other tests' polls are visible (RLS allows public read).
-  // eslint-disable-next-line playwright/no-skipped-test -- cannot test empty state with shared DB
-  test.skip("shows empty state when no polls exist", async ({ page }) => {
-    await expect(page.getByText("No polls yet")).toBeVisible();
-    await expect(page.getByText("Create the first one!")).toBeVisible();
-  });
-
   test("can open and close create poll form", async ({ page }) => {
     // Open.
     await page.getByRole("button", { name: "+ New Poll" }).click();

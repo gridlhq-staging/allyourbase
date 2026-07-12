@@ -21,7 +21,33 @@ import type {
   WebAuthnEnrollBeginResponse,
   WebAuthnLoginBeginResponse,
   WebAuthnLoginFinishRequest,
+  WebAuthnMFAVerifyRequest,
 } from "./types";
+
+export function serializeWebAuthnMFAVerifyRequest(
+  payload: WebAuthnMFAVerifyRequest,
+): string {
+  return JSON.stringify({
+    challenge_id: payload.challengeId,
+    assertion_response: payload.assertionResponse,
+  });
+}
+
+export function buildOAuthStartURL(
+  baseURL: string,
+  provider: OAuthProvider,
+  state: string,
+  options?: Pick<OAuthOptions, "scopes" | "redirectTo">,
+): string {
+  let oauthURL = `${baseURL.replace(/\/+$/, "")}/api/auth/oauth/${provider}?state=${state}`;
+  if (options?.scopes?.length) {
+    oauthURL += `&scopes=${encodeURIComponent(options.scopes.join(","))}`;
+  }
+  if (options?.redirectTo) {
+    oauthURL += `&redirect_to=${encodeURIComponent(options.redirectTo)}`;
+  }
+  return oauthURL;
+}
 
 interface AuthClientRuntime {
   request<T>(path: string, init?: RequestInit & { skipAuth?: boolean }): Promise<T>;
@@ -167,9 +193,9 @@ export class AuthClient {
         method: "POST",
         skipAuth: true,
         headers: { ...mfaAuthHeader, "Content-Type": "application/json" },
-        body: JSON.stringify({
-          challenge_id: challenge.challengeId,
-          assertion_response: assertionResponse,
+        body: serializeWebAuthnMFAVerifyRequest({
+          challengeId: challenge.challengeId,
+          assertionResponse,
         }),
       },
     );
@@ -287,17 +313,16 @@ export class AuthClient {
 
     try {
       const { clientId, waitForAuth, close } = await this.connectOAuthSSE();
-      let oauthURL = `${this.client.getBaseURL()}/api/auth/oauth/${provider}?state=${clientId}`;
-      if (options?.scopes?.length) {
-        oauthURL += `&scopes=${encodeURIComponent(options.scopes.join(","))}`;
-      }
       // Per-request OAuth redirect target. Server-side validation lives in
       // internal/auth/handler_oauth.go (host-allowlist + scheme/userinfo
       // checks at both start and callback dispatch); the SDK is the
       // transport, not a validator. See OAuthOptions.redirectTo doc.
-      if (options?.redirectTo) {
-        oauthURL += `&redirect_to=${encodeURIComponent(options.redirectTo)}`;
-      }
+      const oauthURL = buildOAuthStartURL(
+        this.client.getBaseURL(),
+        provider,
+        clientId,
+        options,
+      );
 
       if (options?.urlCallback) {
         await options.urlCallback(oauthURL);

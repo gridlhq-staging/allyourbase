@@ -147,6 +147,76 @@ func TestCanSeeRecordNonPublicMissingPrimaryKeyFailsClosed(t *testing.T) {
 	}), "non-public missing record PK should fail closed")
 }
 
+func TestCanSeeRecordForeignTenantWithoutSelectPolicyFailsClosed(t *testing.T) {
+	// The tenant-isolation floor drops a candidate tagged for another tenant when
+	// the table has no enforceable RLS SELECT policy, without ever running the
+	// per-record SELECT (so an empty pool is never dereferenced).
+	t.Parallel()
+
+	event := &Event{
+		Action:   "create",
+		Table:    "users",
+		TenantID: "tenant-b",
+		Record:   map[string]any{"id": 1},
+	}
+	tbl := &schema.Table{Schema: "public", Name: "users", PrimaryKey: []string{"id"}}
+
+	testutil.False(t, canSeeRecordForTenant(event, "public", "tenant-a", tbl),
+		"authenticated tenant-a subscriber must drop a foreign tenant-b candidate on a table without a SELECT policy")
+}
+
+func TestCanSeeRecordForeignTenantMissingMetadataFailsClosed(t *testing.T) {
+	// A foreign-tenant candidate on a public table with no cached metadata must
+	// fail closed rather than fall through the public missing-metadata bypass.
+	t.Parallel()
+
+	event := &Event{
+		Action:   "create",
+		Table:    "missing",
+		TenantID: "tenant-b",
+		Record:   map[string]any{"id": 1},
+	}
+
+	testutil.False(t, canSeeRecordForTenant(event, "public", "tenant-a"),
+		"foreign-tenant candidate on an unmapped public table must fail closed")
+}
+
+func TestCanSeeRecordForeignTenantWithSelectPolicyButMissingPrimaryKeyFailsClosed(t *testing.T) {
+	// A SELECT policy is not enough on its own; without PK metadata, the
+	// per-record visibility query cannot be built and the foreign-tenant
+	// candidate must fail closed instead of falling through the public-table
+	// bypass.
+	t.Parallel()
+
+	event := &Event{
+		Action:   "create",
+		Table:    "users",
+		TenantID: "tenant-b",
+		Record:   map[string]any{"id": 1},
+	}
+	tbl := &schema.Table{
+		Schema:     "public",
+		Name:       "users",
+		RLSEnabled: true,
+		RLSPolicies: []*schema.RLSPolicy{
+			{Name: "users_select", Command: "SELECT", UsingExpr: "tenant_id = current_setting('ayb.tenant_id', true)"},
+		},
+	}
+
+	testutil.False(t, canSeeRecordForTenant(event, "public", "tenant-a", tbl),
+		"foreign-tenant candidate without PK metadata must fail closed even when the table has a SELECT policy")
+}
+
+func TestCanSeeRecordSameTenantEmptyTenantStillReachRLS(t *testing.T) {
+	// The floor only fires for a tenant mismatch; an empty event tenant is the
+	// _ayb_notifications / wildcard case and must not be dropped by the floor.
+	t.Parallel()
+
+	event := &Event{Action: "create", Table: "missing", Record: map[string]any{"id": 1}}
+	testutil.True(t, canSeeRecordForTenant(event, "public", "tenant-a"),
+		"empty-tenant candidate must retain the public wildcard bypass regardless of subscriber tenant")
+}
+
 func TestBuildVisibilityCheckQuotesIdentifiers(t *testing.T) {
 	// Verify schema, table, and column names are properly double-quoted.
 	t.Parallel()
@@ -207,6 +277,18 @@ func TestDeletedRecordPlaceholderRejectsUnsafeTypeName(t *testing.T) {
 }
 
 func canSeeRecordWithCache(event *Event, activeSchema string, tables ...*schema.Table) bool {
+	return canSeeRecordForTenantWithClaimTenant(event, activeSchema, "", tables...)
+}
+
+// canSeeRecordForTenant evaluates CanSeeRecord for a subscriber whose claims are
+// scoped to claimTenant. It exercises the tenant-isolation floor without a live
+// pool: the floor returns before any per-record SELECT, so the empty pool is
+// never dereferenced.
+func canSeeRecordForTenant(event *Event, activeSchema, claimTenant string, tables ...*schema.Table) bool {
+	return canSeeRecordForTenantWithClaimTenant(event, activeSchema, claimTenant, tables...)
+}
+
+func canSeeRecordForTenantWithClaimTenant(event *Event, activeSchema, claimTenant string, tables ...*schema.Table) bool {
 	cache := schema.NewCacheHolder(nil, testutil.DiscardLogger())
 	tableMap := map[string]*schema.Table{}
 	for _, tbl := range tables {
@@ -217,6 +299,7 @@ func canSeeRecordWithCache(event *Event, activeSchema string, tables ...*schema.
 	})
 	claims := &auth.Claims{Email: "user@example.com"}
 	claims.Subject = "user-1"
+	claims.TenantID = claimTenant
 	return CanSeeRecord(context.Background(), &pgxpool.Pool{}, cache, testutil.DiscardLogger(), claims, activeSchema, event)
 }
 

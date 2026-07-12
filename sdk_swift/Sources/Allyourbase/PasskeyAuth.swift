@@ -101,6 +101,36 @@ public protocol PasskeyAuthenticating {
     func createAssertionResponse(options: PasskeyAssertionRequestOptions) async throws -> PasskeyAssertionResult
 }
 
+public struct PasskeyAttestationCreationOptions: Sendable {
+    public let challenge: String
+    public let rpId: String?
+    public let rpName: String
+    public let userId: String
+    public let userName: String
+    public let userDisplayName: String
+    public let pubKeyCredParams: [WebAuthnPubKeyCredParam]
+    public let timeout: Int
+    public let attestation: String?
+
+    init(_ options: WebAuthnEnrollBeginResponse) {
+        self.challenge = options.challenge
+        self.rpId = options.rp.id
+        self.rpName = options.rp.name
+        self.userId = options.user.id
+        self.userName = options.user.name
+        self.userDisplayName = options.user.displayName
+        self.pubKeyCredParams = options.pubKeyCredParams
+        self.timeout = options.timeout
+        self.attestation = options.attestation
+    }
+}
+
+public typealias PasskeyAttestationResult = WebAuthnAttestationResponse
+
+public protocol PasskeyAttestationAuthenticating {
+    func createAttestationResponse(options: PasskeyAttestationCreationOptions) async throws -> PasskeyAttestationResult
+}
+
 public extension AuthClient {
     func signInWithPasskey(
         email: String,
@@ -111,6 +141,37 @@ public extension AuthClient {
         let assertionResponse = try await authenticator.createAssertionResponse(options: options)
         return try await finishWebAuthnLogin(
             challengeId: begin.challengeId,
+            assertionResponse: assertionResponse.toDictionary()
+        )
+    }
+
+    func enrollPasskey(
+        displayName: String = "",
+        authenticator: any PasskeyAttestationAuthenticating
+    ) async throws -> WebAuthnEnrollConfirmResponse {
+        let begin = try await enrollWebAuthn()
+        let attestationResponse = try await authenticator.createAttestationResponse(
+            options: PasskeyAttestationCreationOptions(begin)
+        )
+        return try await confirmWebAuthnEnrollment(
+            WebAuthnEnrollConfirmRequest(
+                displayName: displayName,
+                attestationResponse: attestationResponse
+            )
+        )
+    }
+
+    func verifyPasskey(
+        mfaToken: String,
+        authenticator: any PasskeyAuthenticating
+    ) async throws -> AuthResponse {
+        let challenge = try await webauthnChallenge(mfaToken: mfaToken)
+        let assertionResponse = try await authenticator.createAssertionResponse(
+            options: PasskeyAssertionRequestOptions(challenge.options)
+        )
+        return try await webauthnVerify(
+            mfaToken: mfaToken,
+            challengeId: challenge.challengeId,
             assertionResponse: assertionResponse.toDictionary()
         )
     }

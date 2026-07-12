@@ -18,6 +18,15 @@ enum ContractFixtures {
         return json
     }
 
+    private static func loadArrayFixture(at relativePath: String) -> [[String: Any]] {
+        let url = fixtureRoot.appendingPathComponent(relativePath)
+        guard let data = try? Data(contentsOf: url),
+              let json = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]] else {
+            fatalError("Failed to load fixture array: \(relativePath)")
+        }
+        return json
+    }
+
     private static func loadParityResponse(_ name: String) -> [String: Any] {
         let fixture = loadFixture(at: "sdk_parity/\(name)")
         guard let response = fixture["response"] as? [String: Any] else {
@@ -43,6 +52,13 @@ enum ContractFixtures {
     nonisolated(unsafe) static let magicLinkConfirmResponse: [String: Any] = loadFixture(at: "sdk_contract/magic_link_confirm_success_response.json")
     nonisolated(unsafe) static let magicLinkConfirmPendingMFAResponse: [String: Any] = loadFixture(at: "sdk_contract/magic_link_confirm_pending_mfa_response.json")
     nonisolated(unsafe) static let webAuthnLoginBeginResponse: [String: Any] = loadFixture(at: "sdk_contract/webauthn_login_begin_response.json")
+    nonisolated(unsafe) static let oauthStartURLCases: [[String: Any]] = loadArrayFixture(at: "sdk_contract/oauth_start_url_cases.json")
+    nonisolated(unsafe) static let webAuthnEnrollBeginResponse: [String: Any] = loadFixture(at: "sdk_contract/webauthn_enroll_begin_response.json")
+    nonisolated(unsafe) static let webAuthnEnrollConfirmRequest: [String: Any] = loadFixture(at: "sdk_contract/webauthn_enroll_confirm_request.json")
+    nonisolated(unsafe) static let webAuthnEnrollConfirmResponse: [String: Any] = loadFixture(at: "sdk_contract/webauthn_enroll_confirm_response.json")
+    nonisolated(unsafe) static let webAuthnMFAChallengeResponse: [String: Any] = loadFixture(at: "sdk_contract/webauthn_mfa_challenge_response.json")
+    nonisolated(unsafe) static let webAuthnMFAVerifyRequest: [String: Any] = loadFixture(at: "sdk_contract/webauthn_mfa_verify_request.json")
+    nonisolated(unsafe) static let webAuthnMFAVerifyResponse: [String: Any] = loadFixture(at: "sdk_contract/webauthn_mfa_verify_response.json")
     nonisolated(unsafe) static let searchSynonymsResponse: [String: Any] = loadFixture(at: "sdk_contract/search_synonyms_response.json")
     nonisolated(unsafe) static let searchSynonymsRequest: [String: Any] = loadFixture(at: "sdk_contract/search_synonyms_request.json")
     nonisolated(unsafe) static let linkEmailResponse: [String: Any] = loadParityResponse("link_email.json")

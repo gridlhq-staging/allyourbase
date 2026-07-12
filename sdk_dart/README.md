@@ -90,16 +90,23 @@ await client.auth.verifyEmail('verification-token');
 await client.auth.logout();
 ```
 
-### Passkey sign-in
+### Passkeys and WebAuthn MFA
 
-`signInWithPasskey` composes the WebAuthn begin and finish API calls while a
-user-supplied `PasskeyAuthenticator` performs the device ceremony.
+`signInWithPasskey` composes the WebAuthn login begin and finish API calls while
+a user-supplied `PasskeyAuthenticator` performs the assertion ceremony. The same
+seam is used for WebAuthn MFA enrollment attestation through
+`enrollWebAuthnWithPasskey`.
 
 ```dart
 class PlatformPasskeyAuthenticator extends PasskeyAuthenticator {
   @override
   Future<JsonMap> authenticate(JsonMap options) async {
     return startPlatformPasskeyCeremony(options);
+  }
+
+  @override
+  Future<JsonMap> create(JsonMap options) async {
+    return startPlatformPasskeyEnrollment(options);
   }
 }
 
@@ -109,7 +116,16 @@ final auth = await client.auth.signInWithPasskey(
 );
 
 print(auth.token);
+
+await client.auth.enrollWebAuthnWithPasskey(
+  'Primary security key',
+  PlatformPasskeyAuthenticator(),
+);
 ```
+
+The direct MFA WebAuthn methods are also available for custom ceremony handling:
+`enrollWebAuthn`, `confirmWebAuthnEnrollment`, `webauthnChallenge`,
+`webauthnVerify`, and `deleteWebAuthn`.
 
 The Dart SDK stays pure Dart and does not include Flutter, platform channels, or
 native passkey plugins. A real native `PasskeyAuthenticator` belongs in a

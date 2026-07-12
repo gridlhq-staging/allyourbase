@@ -293,6 +293,79 @@ class AuthClient {
     return response;
   }
 
+  Future<WebAuthnEnrollBeginResponse> enrollWebAuthn() {
+    return client.request<WebAuthnEnrollBeginResponse>(
+      '/api/auth/mfa/webauthn/enroll',
+      method: 'POST',
+      decode: (value) => WebAuthnEnrollBeginResponse.fromJson(value as JsonMap),
+    );
+  }
+
+  Future<WebAuthnEnrollConfirmResponse> confirmWebAuthnEnrollment(
+    String displayName,
+    JsonMap attestationResponse,
+  ) {
+    return client.request<WebAuthnEnrollConfirmResponse>(
+      '/api/auth/mfa/webauthn/enroll/confirm',
+      method: 'POST',
+      body: WebAuthnEnrollConfirmRequest(
+        displayName: displayName,
+        attestationResponse: attestationResponse,
+      ).toJson(),
+      decode: (value) =>
+          WebAuthnEnrollConfirmResponse.fromJson(value as JsonMap),
+    );
+  }
+
+  Future<WebAuthnEnrollConfirmResponse> enrollWebAuthnWithPasskey(
+    String displayName,
+    PasskeyAuthenticator authenticator,
+  ) async {
+    final beginResponse = await enrollWebAuthn();
+    final attestationResponse = await authenticator.create(
+      beginResponse.options,
+    );
+    return confirmWebAuthnEnrollment(displayName, attestationResponse);
+  }
+
+  Future<WebAuthnLoginBeginResponse> webauthnChallenge(String mfaToken) {
+    return client.request<WebAuthnLoginBeginResponse>(
+      '/api/auth/mfa/webauthn/challenge',
+      method: 'POST',
+      headers: {'Authorization': 'Bearer $mfaToken'},
+      skipAuth: true,
+      decode: (value) => WebAuthnLoginBeginResponse.fromJson(value as JsonMap),
+    );
+  }
+
+  Future<AuthResponse> webauthnVerify(
+    String mfaToken,
+    String challengeId,
+    JsonMap assertionResponse,
+  ) async {
+    final response = await client.request<AuthResponse>(
+      '/api/auth/mfa/webauthn/verify',
+      method: 'POST',
+      headers: {'Authorization': 'Bearer $mfaToken'},
+      skipAuth: true,
+      body: WebAuthnLoginFinishRequest(
+        challengeId: challengeId,
+        assertionResponse: assertionResponse,
+      ).toJson(),
+      decode: (value) => AuthResponse.fromJson(value as JsonMap),
+    );
+    client.setTokensInternal(response.token, response.refreshToken);
+    client.emitAuthEvent(AuthStateEvent.signedIn);
+    return response;
+  }
+
+  Future<void> deleteWebAuthn() {
+    return client.request<void>(
+      '/api/auth/mfa/webauthn/',
+      method: 'DELETE',
+    );
+  }
+
   /// Create an anonymous session.
   Future<AuthResponse> signInAnonymously() async {
     final response = await client.request<AuthResponse>(

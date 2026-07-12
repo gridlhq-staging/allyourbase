@@ -1,4 +1,3 @@
-// Package auth.
 package auth
 
 import (
@@ -167,6 +166,9 @@ func (h *Handler) mountMFARoutes(r chi.Router) {
 		mfa.With(RequireAuth(h.auth)).Post("/enroll", h.handleWebAuthnEnroll)
 		mfa.With(RequireAuth(h.auth)).Post("/enroll/confirm", h.handleWebAuthnEnrollConfirm)
 		mfa.With(RequireAuth(h.auth)).Delete("/", h.handleWebAuthnDelete)
+		mfa.With(RequireAuth(h.auth)).Get("/credentials", h.handleWebAuthnCredentialsList)
+		mfa.With(RequireAuth(h.auth)).Patch("/credentials/{credential_id}", h.handleWebAuthnCredentialRename)
+		mfa.With(RequireAuth(h.auth)).Delete("/credentials/{credential_id}", h.handleWebAuthnCredentialDelete)
 		mfa.With(RequireMFAPending(h.auth)).Post("/challenge", h.handleWebAuthnChallenge)
 		mfa.With(RequireMFAPending(h.auth)).Post("/verify", h.handleWebAuthnVerify)
 	})
@@ -174,6 +176,8 @@ func (h *Handler) mountMFARoutes(r chi.Router) {
 		login.Use(h.requireWebAuthnEnabled)
 		login.With(h.loginRateLimitMiddleware).Post("/begin", h.handleWebAuthnFirstFactorBegin)
 		login.With(h.loginRateLimitMiddleware).Post("/finish", h.handleWebAuthnFirstFactorFinish)
+		login.With(h.loginRateLimitMiddleware).Post("/discover/begin", h.handleWebAuthnDiscoverableBegin)
+		login.With(h.loginRateLimitMiddleware).Post("/discover/finish", h.handleWebAuthnDiscoverableFinish)
 	})
 	r.Route("/mfa/backup", func(mfa chi.Router) {
 		mfa.With(RequireAuth(h.auth), RequireAAL2).Post("/generate", h.handleBackupCodeGenerate)

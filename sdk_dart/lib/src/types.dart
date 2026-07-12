@@ -119,6 +119,49 @@ class WebAuthnLoginBeginResponse {
   }
 }
 
+class WebAuthnEnrollBeginResponse {
+  const WebAuthnEnrollBeginResponse({
+    required this.options,
+  });
+
+  final JsonMap options;
+
+  factory WebAuthnEnrollBeginResponse.fromJson(JsonMap json) {
+    return WebAuthnEnrollBeginResponse(options: json);
+  }
+}
+
+class WebAuthnEnrollConfirmRequest {
+  const WebAuthnEnrollConfirmRequest({
+    required this.displayName,
+    required this.attestationResponse,
+  });
+
+  final String displayName;
+  final JsonMap attestationResponse;
+
+  JsonMap toJson() {
+    return {
+      'display_name': displayName,
+      'attestation_response': attestationResponse,
+    };
+  }
+}
+
+class WebAuthnEnrollConfirmResponse {
+  const WebAuthnEnrollConfirmResponse({
+    required this.message,
+  });
+
+  final String message;
+
+  factory WebAuthnEnrollConfirmResponse.fromJson(JsonMap json) {
+    return WebAuthnEnrollConfirmResponse(
+      message: _requireString(json, 'message'),
+    );
+  }
+}
+
 class WebAuthnLoginFinishRequest {
   const WebAuthnLoginFinishRequest({
     required this.challengeId,

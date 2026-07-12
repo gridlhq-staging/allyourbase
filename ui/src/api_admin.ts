@@ -247,9 +247,7 @@ export interface OAuthConsentResult {
 export async function checkOAuthAuthorize(
   params: URLSearchParams,
 ): Promise<OAuthConsentPrompt> {
-  return request(`/api/auth/authorize?${params.toString()}`, {
-    headers: { Accept: "application/json" },
-  });
+  return request(`/api/auth/authorize?${params.toString()}`);
 }
 
 /**
@@ -268,7 +266,7 @@ export async function submitOAuthConsent(data: {
 }): Promise<OAuthConsentResult> {
   return request("/api/auth/authorize/consent", {
     method: "POST",
-    headers: { Accept: "application/json", "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json" },
     body: JSON.stringify(data),
   });
 }

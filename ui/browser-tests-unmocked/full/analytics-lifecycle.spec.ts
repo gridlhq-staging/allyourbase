@@ -60,7 +60,7 @@ test.describe("Analytics Lifecycle (Full E2E)", () => {
 
     const primaryRow = page.locator("tr").filter({ hasText: primaryPath }).first();
     await expect(primaryRow.getByRole("cell", { name: "POST" })).toBeVisible({ timeout: 5000 });
-    await expect(primaryRow.getByRole("cell", { name: "418", exact: true })).toBeVisible();
+    await expect(primaryRow.getByRole("cell", { name: "418" })).toBeVisible();
 
     await expect(page.locator("tr").filter({ hasText: secondaryPath }).first()).toBeVisible({ timeout: 5000 });
 

@@ -125,9 +125,7 @@ export async function startSSECapture(
       signal: abortController.signal,
     });
     if (!response.ok) {
-      const detail = await response.text().catch(() => "");
-      const suffix = detail ? `: ${detail}` : "";
-      throw new Error(`Realtime SSE request failed with status ${response.status}${suffix}`);
+      throw new Error(`Realtime SSE request failed with status ${response.status}`);
     }
     if (!response.body) {
       throw new Error("Realtime SSE response body was empty");
@@ -161,7 +159,6 @@ export async function startSSECapture(
     clearTimeout(timeoutHandle);
     if (!connected && !abortController.signal.aborted) {
       rejectConnected?.(error instanceof Error ? error : new Error(String(error)));
-      return;
     }
     if (abortController.signal.aborted) {
       return;

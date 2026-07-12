@@ -3,11 +3,11 @@
 package jobs_test
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"io/fs"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -45,17 +45,6 @@ type resumableCleanupFixture struct {
 	activeBytes  int64
 }
 
-const resumableStagingBucket = "ayb_resumable_staging"
-
-func newResumableCleanupStorageService(t *testing.T) (*storage.Service, storage.Backend) {
-	t.Helper()
-
-	backend, err := storage.NewLocalBackend(t.TempDir())
-	testutil.NoError(t, err)
-
-	return storage.NewService(sharedPG.Pool, backend, "test-sign-key-at-least-32-chars!!", testutil.DiscardLogger(), 0), backend
-}
-
 func seedResumableCleanupFixture(t *testing.T, ctx context.Context, backend storage.Backend, userEmail, expiredName, activeName string, expiredBytes, activeBytes int64) resumableCleanupFixture {
 	t.Helper()
 
@@ -69,11 +58,18 @@ func seedResumableCleanupFixture(t *testing.T, ctx context.Context, backend stor
 
 	err := sharedPG.Pool.QueryRow(ctx,
 		`INSERT INTO _ayb_users (email, password_hash) VALUES ($1, 'hash')
-			 RETURNING id`, userEmail).Scan(&fixture.userID)
+		 RETURNING id`, userEmail).Scan(&fixture.userID)
 	testutil.NoError(t, err)
 
+	// Staging objects live in the backend under the resumable staging bucket,
+	// keyed by the uploads row's path column (tenant_id defaults to '').
 	fixture.expiredPath = expiredName + ".tmp"
 	fixture.activePath = activeName + ".tmp"
+
+	_, err = backend.Put(ctx, "", "ayb_resumable_staging", fixture.expiredPath, strings.NewReader("payload"))
+	testutil.NoError(t, err)
+	_, err = backend.Put(ctx, "", "ayb_resumable_staging", fixture.activePath, strings.NewReader("payload"))
+	testutil.NoError(t, err)
 
 	_, err = sharedPG.Pool.Exec(ctx,
 		`INSERT INTO _ayb_storage_usage (user_id, bytes_used, updated_at) VALUES ($1, $2, NOW())`,
@@ -90,11 +86,6 @@ func seedResumableCleanupFixture(t *testing.T, ctx context.Context, backend stor
 		`INSERT INTO _ayb_storage_uploads (bucket, name, path, user_id, total_size, uploaded_size, status, expires_at)
 		 VALUES ('test-bucket', $1, $2, $3, $4, $4, 'active', NOW() + interval '1 day')`,
 		fixture.activeName, fixture.activePath, fixture.userID, fixture.activeBytes)
-	testutil.NoError(t, err)
-
-	_, err = backend.Put(ctx, "", resumableStagingBucket, fixture.expiredPath, bytes.NewReader([]byte("expired payload")))
-	testutil.NoError(t, err)
-	_, err = backend.Put(ctx, "", resumableStagingBucket, fixture.activePath, bytes.NewReader([]byte("active payload")))
 	testutil.NoError(t, err)
 
 	return fixture
@@ -124,10 +115,10 @@ func assertResumableCleanupFixture(t *testing.T, ctx context.Context, fixture re
 	testutil.NoError(t, err)
 	testutil.Equal(t, fixture.activeBytes, bytesUsed)
 
-	expiredExists, err := fixture.backend.Exists(ctx, "", resumableStagingBucket, fixture.expiredPath)
+	expiredExists, err := fixture.backend.Exists(ctx, "", "ayb_resumable_staging", fixture.expiredPath)
 	testutil.NoError(t, err)
-	testutil.False(t, expiredExists)
-	activeExists, err := fixture.backend.Exists(ctx, "", resumableStagingBucket, fixture.activePath)
+	testutil.True(t, !expiredExists)
+	activeExists, err := fixture.backend.Exists(ctx, "", "ayb_resumable_staging", fixture.activePath)
 	testutil.NoError(t, err)
 	testutil.True(t, activeExists)
 }
@@ -795,7 +786,9 @@ func TestHandlersRunThroughService(t *testing.T) {
 	cfg.WorkerConcurrency = 2
 	cfg.SchedulerTick = 200 * time.Millisecond
 
-	storageSvc, backend := newResumableCleanupStorageService(t)
+	backend, err := storage.NewLocalBackend(t.TempDir())
+	testutil.NoError(t, err)
+	storageSvc := storage.NewService(sharedPG.Pool, backend, "", testutil.DiscardLogger(), 0)
 	svc := jobs.NewService(store, testutil.DiscardLogger(), cfg)
 	jobs.RegisterBuiltinHandlers(svc, sharedPG.Pool, storageSvc, testutil.DiscardLogger())
 
@@ -811,7 +804,7 @@ func TestHandlersRunThroughService(t *testing.T) {
 	)
 
 	// Insert expired session.
-	_, err := sharedPG.Pool.Exec(ctx,
+	_, err = sharedPG.Pool.Exec(ctx,
 		`INSERT INTO _ayb_sessions (user_id, token_hash, expires_at)
 			 VALUES ($1, 'exp_sess', NOW() - interval '1 hour')`, fixture.userID)
 	testutil.NoError(t, err)
@@ -868,7 +861,9 @@ func TestResumableUploadCleanupHandler(t *testing.T) {
 	setupHandlerDB(t)
 	ctx := context.Background()
 	pool := sharedPG.Pool
-	storageSvc, backend := newResumableCleanupStorageService(t)
+	backend, err := storage.NewLocalBackend(t.TempDir())
+	testutil.NoError(t, err)
+	storageSvc := storage.NewService(pool, backend, "", testutil.DiscardLogger(), 0)
 
 	fixture := seedResumableCleanupFixture(
 		t,
@@ -882,7 +877,7 @@ func TestResumableUploadCleanupHandler(t *testing.T) {
 	)
 
 	handler := jobs.ResumableUploadCleanupHandler(storageSvc, testutil.DiscardLogger())
-	err := handler(ctx, nil)
+	err = handler(ctx, nil)
 	testutil.NoError(t, err)
 
 	var uploadCount int

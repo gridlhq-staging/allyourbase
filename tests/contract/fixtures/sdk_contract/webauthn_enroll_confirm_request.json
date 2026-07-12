@@ -1,0 +1,16 @@
+{
+  "attestation_response": {
+    "clientExtensionResults": {},
+    "id": "webauthn_enroll_credential",
+    "rawId": "webauthn_enroll_credential",
+    "response": {
+      "attestationObject": "webauthn_enroll_attestation_object",
+      "clientDataJSON": "eyJ0eXBlIjoid2ViYXV0aG4uY3JlYXRlIiwiY2hhbGxlbmdlIjoid2ViYXV0aG5fZW5yb2xsX2JlZ2luX2NoYWxsZW5nZSIsIm9yaWdpbiI6Imh0dHA6Ly8xMjcuMC4wLjE6ODA5MCJ9",
+      "transports": [
+        "internal"
+      ]
+    },
+    "type": "public-key"
+  },
+  "display_name": "Primary security key"
+}

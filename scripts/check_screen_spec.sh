@@ -23,6 +23,15 @@ if [[ ! -f "$SPEC_PATH" ]]; then
   exit 1
 fi
 
+readonly SPEC_BASENAME="${SPEC_PATH##*/}"
+
+case "$SPEC_BASENAME" in
+  DIRMAP.md | _template.md)
+    echo "SKIP (not a spec): $SPEC_PATH"
+    exit 0
+    ;;
+esac
+
 # Single awk pass holds the entire format contract in one place: the six
 # required top-level sections (in canonical order) and the two State contract
 # subsections. "## Current implementation gaps" is intentionally not required —

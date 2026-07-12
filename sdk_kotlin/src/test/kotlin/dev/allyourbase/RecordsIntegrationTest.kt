@@ -71,6 +71,24 @@ class RecordsIntegrationTest {
     }
 
     @Test
+    fun `webauthn mfa enroll begin decodes live nested fields`() = runTest {
+        val client = RecordsIntegrationEnv.newClient()
+        assumeTrue(client != null)
+        val configuredClient = client ?: return@runTest
+
+        configuredClient.auth.register(
+            "sdk-kotlin-live-webauthn-mfa-${UUID.randomUUID()}@example.test",
+            "Passw0rd!12345",
+        )
+        val response = configuredClient.auth.enrollWebAuthn()
+
+        assertTrue(response.challenge.isNotBlank())
+        assertTrue(response.rp["name"]?.jsonPrimitive?.content?.isNotBlank() == true)
+        assertTrue(response.user["id"]?.jsonPrimitive?.content?.isNotBlank() == true)
+        assertTrue(response.pubKeyCredParams.isNotEmpty())
+    }
+
+    @Test
     fun `search synonyms round trip normalizes groups on configured server`() = runTest {
         val client = RecordsIntegrationEnv.newClient()
         assumeTrue(client?.token?.isNotBlank() == true)

@@ -217,6 +217,10 @@ public final class AYBClient {
             try AYBJSON.expectDictionary(value, "requestJSON")
         })
     }
+
+    func makeURL(path: String, queryItems: [URLQueryItem] = []) throws -> URL {
+        try requestBuilder.makeURL(path: path, queryItems: queryItems)
+    }
 }
 
 public final class AuthClient {
@@ -255,6 +259,26 @@ public final class AuthClient {
         )
     }
 
+    public func oauthStartURL(
+        provider: String,
+        state: String,
+        scopes: [String]? = nil,
+        redirectTo: String? = nil
+    ) throws -> URL {
+        let baseURL = try client.makeURL(path: "/api/auth/oauth/\(provider)")
+        var queryItems = ["state=\(percentEncodeOAuthQueryValue(state))"]
+        if let scopes, scopes.isEmpty == false {
+            queryItems.append("scopes=\(percentEncodeOAuthQueryValue(scopes.joined(separator: ",")))")
+        }
+        if let redirectTo, redirectTo.isEmpty == false {
+            queryItems.append("redirect_to=\(percentEncodeOAuthQueryValue(redirectTo))")
+        }
+        guard let url = URL(string: "\(baseURL.absoluteString)?\(queryItems.joined(separator: "&"))") else {
+            throw RequestBuilderError.unableToBuildURL
+        }
+        return url
+    }
+
     public func beginWebAuthnLogin(email: String) async throws -> WebAuthnLoginBeginResponse {
         return try await client.request(
             "/api/auth/webauthn/login/begin",
@@ -280,6 +304,76 @@ public final class AuthClient {
         client.setTokens(response.token, refreshToken: response.refreshToken)
         client.emitAuthState(.signedIn)
         return response
+    }
+
+    public func enrollWebAuthn() async throws -> WebAuthnEnrollBeginResponse {
+        try await client.request(
+            "/api/auth/mfa/webauthn/enroll",
+            method: .post,
+            decode: WebAuthnEnrollBeginResponse.decode
+        )
+    }
+
+    public func confirmWebAuthnEnrollment(
+        displayName: String,
+        attestationResponse: [String: Any]
+    ) async throws -> WebAuthnEnrollConfirmResponse {
+        try await confirmWebAuthnEnrollment(
+            WebAuthnEnrollConfirmRequest(
+                displayName: displayName,
+                attestationResponse: WebAuthnAttestationResponse(fromDictionary: attestationResponse)
+            )
+        )
+    }
+
+    public func confirmWebAuthnEnrollment(
+        _ request: WebAuthnEnrollConfirmRequest
+    ) async throws -> WebAuthnEnrollConfirmResponse {
+        try await client.request(
+            "/api/auth/mfa/webauthn/enroll/confirm",
+            method: .post,
+            body: request.toDictionary(),
+            decode: WebAuthnEnrollConfirmResponse.decode
+        )
+    }
+
+    public func webauthnChallenge(mfaToken: String) async throws -> WebAuthnMFAChallengeResponse {
+        try await client.request(
+            "/api/auth/mfa/webauthn/challenge",
+            method: .post,
+            headers: mfaAuthorizationHeader(mfaToken),
+            skipAuth: true,
+            decode: WebAuthnMFAChallengeResponse.decode
+        )
+    }
+
+    public func webauthnVerify(
+        mfaToken: String,
+        challengeId: String,
+        assertionResponse: [String: Any]
+    ) async throws -> AuthResponse {
+        let response: AuthResponse = try await client.request(
+            "/api/auth/mfa/webauthn/verify",
+            method: .post,
+            headers: mfaAuthorizationHeader(mfaToken),
+            body: WebAuthnMFAVerifyRequest(
+                challengeId: challengeId,
+                assertionResponse: WebAuthnAssertionResponse(fromDictionary: assertionResponse)
+            ).toDictionary(),
+            skipAuth: true,
+            decode: AuthResponse.decode
+        )
+        client.setTokens(response.token, refreshToken: response.refreshToken)
+        client.emitAuthState(.signedIn)
+        return response
+    }
+
+    public func deleteWebAuthn() async throws {
+        _ = try await client.request(
+            "/api/auth/mfa/webauthn/",
+            method: .delete,
+            decode: { _ in () }
+        )
     }
 
     public func confirmMagicLink(token: String) async throws -> MagicLinkConfirmResponse {
@@ -368,6 +462,15 @@ public final class AuthClient {
             )
         }
         return refreshToken
+    }
+
+    private func mfaAuthorizationHeader(_ mfaToken: String) -> [String: String] {
+        ["Authorization": "Bearer \(mfaToken)"]
+    }
+
+    private func percentEncodeOAuthQueryValue(_ value: String) -> String {
+        let allowed = CharacterSet(charactersIn: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_.~")
+        return value.addingPercentEncoding(withAllowedCharacters: allowed) ?? value
     }
 }
 

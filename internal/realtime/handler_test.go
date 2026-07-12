@@ -13,10 +13,8 @@ import (
 	"github.com/allyourbase/ayb/internal/auth"
 	"github.com/allyourbase/ayb/internal/realtime"
 	"github.com/allyourbase/ayb/internal/schema"
-	"github.com/allyourbase/ayb/internal/tenant"
 	"github.com/allyourbase/ayb/internal/testutil"
 	"github.com/golang-jwt/jwt/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 // parseSSEData extracts and parses the JSON from an SSE data line ("data: {...}").
@@ -36,23 +34,14 @@ func parseSSEData(t *testing.T, line string) map[string]any {
 const testJWTSecret = "test-secret-that-is-at-least-32-characters!!"
 
 func testSchemaCache(tables ...string) *schema.CacheHolder {
-	return testSchemaCacheWithRLS(false, tables...)
-}
-
-func testRLSSchemaCache(tables ...string) *schema.CacheHolder {
-	return testSchemaCacheWithRLS(true, tables...)
-}
-
-func testSchemaCacheWithRLS(rlsEnabled bool, tables ...string) *schema.CacheHolder {
 	sc := &schema.SchemaCache{
 		Tables: make(map[string]*schema.Table),
 	}
 	for _, name := range tables {
 		sc.Tables["public."+name] = &schema.Table{
-			Schema:     "public",
-			Name:       name,
-			Kind:       "table",
-			RLSEnabled: rlsEnabled,
+			Schema: "public",
+			Name:   name,
+			Kind:   "table",
 		}
 	}
 	ch := schema.NewCacheHolder(nil, testutil.DiscardLogger())
@@ -65,19 +54,12 @@ func testAuthService() *auth.Service {
 }
 
 func validToken() string {
-	return validTokenForTenant("")
-}
-
-func validTokenForTenant(tenantID string) string {
 	now := time.Now()
 	claims := jwt.MapClaims{
 		"sub":   "user-123",
 		"email": "test@example.com",
 		"iat":   jwt.NewNumericDate(now),
 		"exp":   jwt.NewNumericDate(now.Add(time.Hour)),
-	}
-	if tenantID != "" {
-		claims["tenantId"] = tenantID
 	}
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
 	signed, _ := token.SignedString([]byte(testJWTSecret))
@@ -376,116 +358,6 @@ func TestSSEReceivesPublishedEvents(t *testing.T) {
 	record, ok := evData["record"].(map[string]any)
 	testutil.True(t, ok, "event should contain a record object")
 	testutil.Equal(t, "Hello", record["title"])
-}
-
-func TestSSERLSFilteredTransportReceivesCrossTenantCandidateEvents(t *testing.T) {
-	t.Parallel()
-	hub := realtime.NewHub(testutil.DiscardLogger())
-	h := realtime.NewHandler(hub, &pgxpool.Pool{}, testAuthService(), testRLSSchemaCache("posts"), testutil.DiscardLogger())
-
-	srv := httptest.NewServer(h)
-	defer srv.Close()
-
-	req, err := http.NewRequest(http.MethodGet, srv.URL+"?tables=posts", nil)
-	testutil.NoError(t, err)
-	req.Header.Set("Authorization", "Bearer "+validToken())
-	resp, err := http.DefaultClient.Do(req)
-	testutil.NoError(t, err)
-	defer resp.Body.Close()
-
-	testutil.Equal(t, http.StatusOK, resp.StatusCode)
-	if resp.StatusCode != http.StatusOK {
-		return
-	}
-
-	scanner := bufio.NewScanner(resp.Body)
-	for scanner.Scan() {
-		if scanner.Text() == "" {
-			break
-		}
-	}
-
-	hub.Publish(&realtime.Event{
-		Action:   "create",
-		Table:    "posts",
-		TenantID: "tenant-a",
-		Record:   map[string]any{"id": 1, "title": "public by RLS"},
-	})
-
-	eventLines := readSSEEventLines(t, scanner, time.Second)
-
-	testutil.True(t, len(eventLines) >= 1, "RLS-filtered SSE transport should receive candidate events before visibility filtering")
-	if len(eventLines) == 0 {
-		return
-	}
-	evData := parseSSEData(t, eventLines[0])
-	testutil.Equal(t, "posts", evData["table"])
-	record, ok := evData["record"].(map[string]any)
-	testutil.True(t, ok, "event should contain a record object")
-	testutil.Equal(t, "public by RLS", record["title"])
-}
-
-func TestSSETenantClaimKeepsTenantGateWithRLSFiltering(t *testing.T) {
-	t.Parallel()
-	hub := realtime.NewHub(testutil.DiscardLogger())
-	h := realtime.NewHandler(hub, &pgxpool.Pool{}, testAuthService(), testSchemaCache("posts"), testutil.DiscardLogger())
-
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		ctx := tenant.ContextWithTenantID(r.Context(), "tenant-b")
-		h.ServeHTTP(w, r.WithContext(ctx))
-	}))
-	defer srv.Close()
-
-	req, err := http.NewRequest(http.MethodGet, srv.URL+"?tables=posts", nil)
-	testutil.NoError(t, err)
-	req.Header.Set("Authorization", "Bearer "+validTokenForTenant("tenant-b"))
-	resp, err := http.DefaultClient.Do(req)
-	testutil.NoError(t, err)
-	defer resp.Body.Close()
-
-	testutil.Equal(t, http.StatusOK, resp.StatusCode)
-	if resp.StatusCode != http.StatusOK {
-		return
-	}
-
-	scanner := bufio.NewScanner(resp.Body)
-	for scanner.Scan() {
-		if scanner.Text() == "" {
-			break
-		}
-	}
-
-	hub.Publish(&realtime.Event{
-		Action:   "create",
-		Table:    "posts",
-		TenantID: "tenant-a",
-		Record:   map[string]any{"id": 1, "title": "tenant-a only"},
-	})
-
-	eventLines := readSSEEventLines(t, scanner, 100*time.Millisecond)
-	testutil.Equal(t, 0, len(eventLines))
-}
-
-func readSSEEventLines(t *testing.T, scanner *bufio.Scanner, timeout time.Duration) []string {
-	t.Helper()
-	linesCh := make(chan []string, 1)
-	go func() {
-		var lines []string
-		for scanner.Scan() {
-			line := scanner.Text()
-			lines = append(lines, line)
-			if line == "" && len(lines) > 1 {
-				break
-			}
-		}
-		linesCh <- lines
-	}()
-	select {
-	case lines := <-linesCh:
-		return lines
-	case <-time.After(timeout):
-		return nil
-	}
 }
 
 // TestSSEFilterUsesOldRecordButDoesNotExposeIt verifies that OldRecord remains

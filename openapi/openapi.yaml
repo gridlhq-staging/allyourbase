@@ -1088,6 +1088,119 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
 
+  /api/auth/mfa/webauthn/credentials:
+    get:
+      tags: [Auth]
+      summary: List WebAuthn credentials
+      description: |
+        List safe metadata for the authenticated user's enrolled passkeys. The
+        credential_id is the unpadded base64url encoding of the raw WebAuthn
+        credential ID. Internal row IDs, public keys, and sign counts are never
+        returned.
+      operationId: authListWebAuthnCredentials
+      security:
+        - BearerAuth: []
+      responses:
+        "200":
+          description: WebAuthn credential metadata
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WebAuthnCredentialListResponse"
+        "401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
+          description: WebAuthn MFA is not enabled
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /api/auth/mfa/webauthn/credentials/{credential_id}:
+    patch:
+      tags: [Auth]
+      summary: Rename a WebAuthn credential
+      description: Rename one passkey owned by the authenticated user.
+      operationId: authRenameWebAuthnCredential
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/WebAuthnCredentialId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/WebAuthnCredentialRenameRequest"
+      responses:
+        "200":
+          description: Updated WebAuthn credential metadata
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WebAuthnCredential"
+        "400":
+          description: Invalid credential ID or display name
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
+          description: Credential not found, not owned by user, or WebAuthn MFA is not enabled
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+    delete:
+      tags: [Auth]
+      summary: Delete a WebAuthn credential
+      description: |
+        Delete one passkey owned by the authenticated user. Deleting the final
+        passkey through this route is rejected; use the legacy
+        DELETE /api/auth/mfa/webauthn/ route to remove the whole WebAuthn factor.
+      operationId: authDeleteWebAuthnCredential
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/WebAuthnCredentialId"
+      responses:
+        "204":
+          description: WebAuthn credential deleted
+        "400":
+          description: Invalid credential ID
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "403":
+          description: Final WebAuthn credential cannot be deleted through this route
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
+          description: Credential not found, not owned by user, or WebAuthn MFA is not enabled
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
   /api/schema:
     get:
       tags: [Schema]
@@ -1873,6 +1986,14 @@ components:
       schema:
         type: string
         format: uuid
+    WebAuthnCredentialId:
+      name: credential_id
+      in: path
+      required: true
+      description: Unpadded base64url encoding of the raw WebAuthn credential ID
+      schema:
+        type: string
+        pattern: "^[A-Za-z0-9_-]+$"
     Filter:
       name: filter
       in: query
@@ -2169,6 +2290,48 @@ components:
       properties:
         token:
           type: string
+
+    WebAuthnCredentialListResponse:
+      type: object
+      required: [credentials]
+      properties:
+        credentials:
+          type: array
+          items:
+            $ref: "#/components/schemas/WebAuthnCredential"
+
+    WebAuthnCredential:
+      type: object
+      required: [credential_id, display_name, transports, created_at]
+      properties:
+        credential_id:
+          type: string
+          description: Unpadded base64url encoding of the raw WebAuthn credential ID
+          pattern: "^[A-Za-z0-9_-]+$"
+        display_name:
+          type: string
+          description: User-visible passkey label
+        transports:
+          type: array
+          items:
+            type: string
+          description: WebAuthn authenticator transports reported at enrollment
+        created_at:
+          type: string
+          format: date-time
+        last_used_at:
+          type: string
+          format: date-time
+          description: Last successful assertion time, omitted until first use
+
+    WebAuthnCredentialRenameRequest:
+      type: object
+      required: [display_name]
+      properties:
+        display_name:
+          type: string
+          minLength: 1
+          description: New display name after trimming surrounding whitespace
 
     BatchRequest:
       type: object

@@ -1,4 +1,3 @@
-// Package auth.
 package auth
 
 import (
@@ -14,6 +13,7 @@ import (
 	"github.com/go-webauthn/webauthn/webauthn"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 )
 
 func (s *Service) CreateWebAuthnFirstFactorChallenge(ctx context.Context, email, ipAddress, publicBaseURL string) (string, *protocol.CredentialAssertion, error) {
@@ -54,23 +54,12 @@ func (s *Service) createWebAuthnChallengeForScope(ctx context.Context, userID, i
 		return "", nil, errors.New("database pool is not configured")
 	}
 
-	var (
-		factorID     string
-		credentialID []byte
-		publicKey    []byte
-		signCount    int64
-	)
-	err := s.pool.QueryRow(ctx,
-		`SELECT id, webauthn_credential_id, webauthn_public_key, webauthn_sign_count
-		 FROM _ayb_user_mfa
-		 WHERE user_id = $1 AND method = 'webauthn' AND enabled = true`,
-		userID,
-	).Scan(&factorID, &credentialID, &publicKey, &signCount)
+	factorID, credentialRows, err := s.loadEnabledWebAuthnCredentialRows(ctx, userID)
 	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
+		if errors.Is(err, ErrWebAuthnNotEnrolled) {
 			return "", nil, ErrWebAuthnNotEnrolled
 		}
-		return "", nil, fmt.Errorf("looking up WebAuthn factor: %w", err)
+		return "", nil, err
 	}
 
 	wa, err := newWebAuthnVerifier(publicBaseURL)
@@ -79,17 +68,9 @@ func (s *Service) createWebAuthnChallengeForScope(ctx context.Context, userID, i
 	}
 
 	wUser := &webauthnUser{
-		id:   []byte(userID),
-		name: "",
-		credentials: []webauthn.Credential{
-			{
-				ID:        credentialID,
-				PublicKey: publicKey,
-				Authenticator: webauthn.Authenticator{
-					SignCount: uint32(signCount),
-				},
-			},
-		},
+		id:          []byte(userID),
+		name:        "",
+		credentials: webAuthnCredentialsFromRows(credentialRows),
 	}
 
 	assertion, session, err := wa.BeginLogin(wUser)
@@ -132,7 +113,7 @@ func (s *Service) VerifyWebAuthnChallenge(ctx context.Context, userID, challenge
 		return nil, "", "", err
 	}
 
-	if err := s.commitWebAuthnVerification(ctx, factorID, challengeID, int64(credential.Authenticator.SignCount)); err != nil {
+	if err := s.commitWebAuthnVerification(ctx, factorID, challengeID, credential.ID, int64(credential.Authenticator.SignCount)); err != nil {
 		return nil, "", "", err
 	}
 
@@ -165,7 +146,7 @@ func (s *Service) VerifyWebAuthnFirstFactorChallenge(ctx context.Context, challe
 		return nil, "", "", err
 	}
 
-	if err := s.commitWebAuthnVerification(ctx, factorID, challengeID, int64(credential.Authenticator.SignCount)); err != nil {
+	if err := s.commitWebAuthnVerification(ctx, factorID, challengeID, credential.ID, int64(credential.Authenticator.SignCount)); err != nil {
 		return nil, "", "", err
 	}
 
@@ -223,22 +204,12 @@ func (s *Service) loadWebAuthnChallenge(ctx context.Context, userID, challengeID
 // runs the go-webauthn protocol check, returning ErrWebAuthnInvalidAssertion
 // or ErrWebAuthnClonedKey without mutating any stored counters.
 func (s *Service) validateWebAuthnAssertion(ctx context.Context, userID, factorID, publicBaseURL string, session webauthn.SessionData, parsedAssertion *protocol.ParsedCredentialAssertionData) (*webauthn.Credential, error) {
-	var (
-		credentialID []byte
-		publicKey    []byte
-		signCount    int64
-	)
-	err := s.pool.QueryRow(ctx,
-		`SELECT webauthn_credential_id, webauthn_public_key, webauthn_sign_count
-		 FROM _ayb_user_mfa
-		 WHERE id = $1 AND method = 'webauthn' AND enabled = true`,
-		factorID,
-	).Scan(&credentialID, &publicKey, &signCount)
+	credentialRows, err := s.loadWebAuthnCredentialRowsForFactor(ctx, factorID)
 	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
+		if errors.Is(err, ErrWebAuthnNotEnrolled) {
 			return nil, ErrWebAuthnChallengeNotFound
 		}
-		return nil, fmt.Errorf("loading WebAuthn credential: %w", err)
+		return nil, err
 	}
 
 	wa, err := newWebAuthnVerifier(publicBaseURL)
@@ -247,17 +218,9 @@ func (s *Service) validateWebAuthnAssertion(ctx context.Context, userID, factorI
 	}
 
 	wUser := &webauthnUser{
-		id:   []byte(userID),
-		name: "",
-		credentials: []webauthn.Credential{
-			{
-				ID:        credentialID,
-				PublicKey: publicKey,
-				Authenticator: webauthn.Authenticator{
-					SignCount: uint32(signCount),
-				},
-			},
-		},
+		id:          []byte(userID),
+		name:        "",
+		credentials: webAuthnCredentialsFromRows(credentialRows),
 	}
 
 	credential, err := wa.ValidateLogin(wUser, session, parsedAssertion)
@@ -272,7 +235,7 @@ func (s *Service) validateWebAuthnAssertion(ctx context.Context, userID, factorI
 
 // commitWebAuthnVerification persists the new sign count and marks the
 // challenge consumed atomically so retries can't re-use the same proof.
-func (s *Service) commitWebAuthnVerification(ctx context.Context, factorID, challengeID string, newSignCount int64) error {
+func (s *Service) commitWebAuthnVerification(ctx context.Context, factorID, challengeID string, credentialID []byte, newSignCount int64) error {
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
 		return fmt.Errorf("beginning transaction: %w", err)
@@ -292,21 +255,38 @@ func (s *Service) commitWebAuthnVerification(ctx context.Context, factorID, chal
 		return ErrWebAuthnChallengeUsed
 	}
 
-	factorResult, err := tx.Exec(ctx,
-		`UPDATE _ayb_user_mfa
-		 SET webauthn_sign_count = GREATEST(webauthn_sign_count, $2)
-		 WHERE id = $1 AND method = 'webauthn' AND enabled = true`,
-		factorID, newSignCount,
-	)
-	if err != nil {
-		return fmt.Errorf("updating sign count: %w", err)
-	}
-	if factorResult.RowsAffected() != 1 {
-		return ErrWebAuthnChallengeNotFound
+	if err := updateWebAuthnCredentialUsage(ctx, tx, factorID, credentialID, newSignCount); err != nil {
+		return err
 	}
 
 	if err := tx.Commit(ctx); err != nil {
 		return fmt.Errorf("committing verification: %w", err)
+	}
+	return nil
+}
+
+type webAuthnCredentialUsageTx interface {
+	Exec(context.Context, string, ...any) (pgconn.CommandTag, error)
+}
+
+func updateWebAuthnCredentialUsage(ctx context.Context, tx webAuthnCredentialUsageTx, factorID string, credentialID []byte, newSignCount int64) error {
+	credentialResult, err := tx.Exec(ctx,
+		`UPDATE _ayb_webauthn_credentials c
+		    SET sign_count = GREATEST(c.sign_count, $3),
+		        last_used_at = NOW()
+		   FROM _ayb_user_mfa f
+		  WHERE c.factor_id = f.id
+		    AND c.factor_id = $1
+		    AND c.credential_id = $2
+		    AND f.method = 'webauthn'
+		    AND f.enabled = true`,
+		factorID, credentialID, newSignCount,
+	)
+	if err != nil {
+		return fmt.Errorf("updating sign count: %w", err)
+	}
+	if credentialResult.RowsAffected() != 1 {
+		return ErrWebAuthnChallengeNotFound
 	}
 	return nil
 }

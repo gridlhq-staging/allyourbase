@@ -42,6 +42,24 @@ _MAGIC_LINK_CONFIRM_PENDING_MFA_FIXTURE = json.loads(
 _WEBAUTHN_LOGIN_BEGIN_RESPONSE_FIXTURE = json.loads(
     (_CONTRACT_FIXTURE_DIR / "webauthn_login_begin_response.json").read_text()
 )
+_WEBAUTHN_ENROLL_BEGIN_RESPONSE_FIXTURE = json.loads(
+    (_CONTRACT_FIXTURE_DIR / "webauthn_enroll_begin_response.json").read_text()
+)
+_WEBAUTHN_ENROLL_CONFIRM_REQUEST_FIXTURE = json.loads(
+    (_CONTRACT_FIXTURE_DIR / "webauthn_enroll_confirm_request.json").read_text()
+)
+_WEBAUTHN_ENROLL_CONFIRM_RESPONSE_FIXTURE = json.loads(
+    (_CONTRACT_FIXTURE_DIR / "webauthn_enroll_confirm_response.json").read_text()
+)
+_WEBAUTHN_MFA_CHALLENGE_RESPONSE_FIXTURE = json.loads(
+    (_CONTRACT_FIXTURE_DIR / "webauthn_mfa_challenge_response.json").read_text()
+)
+_WEBAUTHN_MFA_VERIFY_REQUEST_FIXTURE = json.loads(
+    (_CONTRACT_FIXTURE_DIR / "webauthn_mfa_verify_request.json").read_text()
+)
+_WEBAUTHN_MFA_VERIFY_RESPONSE_FIXTURE = json.loads(
+    (_CONTRACT_FIXTURE_DIR / "webauthn_mfa_verify_response.json").read_text()
+)
 _SEARCH_SYNONYMS_REQUEST_FIXTURE = json.loads(
     (_CONTRACT_FIXTURE_DIR / "search_synonyms_request.json").read_text()
 )
@@ -112,6 +130,118 @@ def test_webauthn_login_begin_response_matches_canonical_shape() -> None:
         "id": "webauthn_login_begin_credential_a",
         "type": "public-key",
     }
+
+
+def test_webauthn_mfa_enroll_begin_response_matches_canonical_shape() -> None:
+    from allyourbase import types as allyourbase_types
+
+    response_type = getattr(allyourbase_types, "WebAuthnEnrollBeginResponse")
+    response = response_type.model_validate(_WEBAUTHN_ENROLL_BEGIN_RESPONSE_FIXTURE)
+
+    assert response.challenge == "webauthn_enroll_begin_challenge"
+    assert response.rp == {"id": "127.0.0.1", "name": "Allyourbase"}
+    assert response.user == {
+        "id": "webauthn_enroll_user_id",
+        "name": "webauthn-e2e@example.com",
+        "displayName": "webauthn-e2e@example.com",
+    }
+    assert response.pub_key_cred_params == [
+        {"type": "public-key", "alg": -7},
+        {"type": "public-key", "alg": -35},
+        {"type": "public-key", "alg": -36},
+        {"type": "public-key", "alg": -257},
+        {"type": "public-key", "alg": -258},
+        {"type": "public-key", "alg": -259},
+        {"type": "public-key", "alg": -37},
+        {"type": "public-key", "alg": -38},
+        {"type": "public-key", "alg": -39},
+        {"type": "public-key", "alg": -8},
+    ]
+    assert response.timeout == 300000
+    assert response.attestation == "none"
+    assert response.exclude_credentials == []
+
+
+def test_webauthn_mfa_challenge_response_matches_canonical_shape() -> None:
+    from allyourbase import types as allyourbase_types
+
+    response_type = getattr(allyourbase_types, "WebAuthnMFAChallengeResponse")
+    response = response_type.model_validate(_WEBAUTHN_MFA_CHALLENGE_RESPONSE_FIXTURE)
+
+    assert response.challenge_id == "webauthn_mfa_challenge_fixture"
+    assert response.options == {
+        "allowCredentials": [
+            {
+                "id": "webauthn_mfa_credential_a",
+                "type": "public-key",
+            }
+        ],
+        "challenge": "webauthn_mfa_challenge",
+        "rpId": "127.0.0.1",
+        "timeout": 300000,
+    }
+    assert response.options["allowCredentials"] == [
+        {"id": "webauthn_mfa_credential_a", "type": "public-key"}
+    ]
+
+
+def test_webauthn_mfa_enroll_confirm_fixtures_match_canonical_envelopes() -> None:
+    from allyourbase import types as allyourbase_types
+
+    request_type = getattr(allyourbase_types, "WebAuthnEnrollConfirmRequest")
+    response_type = getattr(allyourbase_types, "WebAuthnEnrollConfirmResponse")
+    request = request_type.model_validate(_WEBAUTHN_ENROLL_CONFIRM_REQUEST_FIXTURE)
+    response = response_type.model_validate(_WEBAUTHN_ENROLL_CONFIRM_RESPONSE_FIXTURE)
+
+    assert request.display_name == "Primary security key"
+    assert request.attestation_response == {
+        "clientExtensionResults": {},
+        "id": "webauthn_enroll_credential",
+        "rawId": "webauthn_enroll_credential",
+        "response": {
+            "attestationObject": "webauthn_enroll_attestation_object",
+            "clientDataJSON": (
+                "eyJ0eXBlIjoid2ViYXV0aG4uY3JlYXRlIiwiY2hhbGxlbmdlIjoid2ViYXV0"
+                "aG5fZW5yb2xsX2JlZ2luX2NoYWxsZW5nZSIsIm9yaWdpbiI6Imh0dHA6Ly8x"
+                "MjcuMC4wLjE6ODA5MCJ9"
+            ),
+            "transports": ["internal"],
+        },
+        "type": "public-key",
+    }
+    assert response.message == "WebAuthn MFA enrollment confirmed"
+
+
+def test_webauthn_mfa_verify_fixtures_match_canonical_envelopes() -> None:
+    from allyourbase import types as allyourbase_types
+
+    request_type = getattr(allyourbase_types, "WebAuthnMFAVerifyRequest")
+    request = request_type.model_validate(_WEBAUTHN_MFA_VERIFY_REQUEST_FIXTURE)
+    response = AuthResponse.model_validate(_WEBAUTHN_MFA_VERIFY_RESPONSE_FIXTURE)
+
+    assert request.challenge_id == "webauthn_mfa_challenge_fixture"
+    assert request.assertion_response == {
+        "clientExtensionResults": {},
+        "id": "webauthn_mfa_credential",
+        "rawId": "webauthn_mfa_credential",
+        "response": {
+            "authenticatorData": "EsoXtJryKJQ28wPgFmAwoh5SXSZuIJJnQzgBqP1AcaAFAAAAAQ",
+            "clientDataJSON": (
+                "eyJ0eXBlIjoid2ViYXV0aG4uZ2V0IiwiY2hhbGxlbmdlIjoid2ViYXV0"
+                "aG5fbWZhX2NoYWxsZW5nZSIsIm9yaWdpbiI6Imh0dHA6Ly8xMjcuMC4wLjE6"
+                "ODA5MCJ9"
+            ),
+            "signature": "webauthn_mfa_signature",
+            "userHandle": "webauthn_mfa_user_handle",
+        },
+        "type": "public-key",
+    }
+    assert response.token == "jwt_webauthn_mfa"
+    assert response.refresh_token == "refresh_webauthn_mfa"
+    assert response.user.id == "usr_webauthn_mfa"
+    assert response.user.email == "webauthn-e2e@example.com"
+    assert response.user.created_at == "2026-07-11T00:00:00Z"
+    assert response.user.updated_at == "2026-07-11T00:00:00Z"
 
 
 def test_user_model_accepts_snake_case_and_camelcase_auth_fields() -> None:

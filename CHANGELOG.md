@@ -12,6 +12,34 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+## [0.0.16-beta] - 2026-07-12
+
+### Added
+
+- Usernameless (discoverable) passkey login: new `POST
+  /api/auth/webauthn/login/discover/begin` and `/discover/finish` endpoints let
+  a user sign in with a resident-key passkey without first entering a username.
+  The server resolves the account from the passkey's WebAuthn user handle and
+  issues a first-factor session, backed by a new discoverable-challenge store.
+  API-level backend only; dashboard and SDK helpers ship in a later release.
+- Multiple passkeys per user: enrolled WebAuthn credentials now live in a
+  dedicated per-credential table, and a new management API at
+  `/api/auth/mfa/webauthn/credentials` lists (`GET`), renames (`PATCH`), and
+  deletes (`DELETE`) individual credentials, with deletion of a user's final
+  passkey rejected so the factor cannot be silently removed. API-level backend
+  only; dashboard and SDK helpers ship in a later release.
+- Go SDK realtime client: `sdk_go` now exposes WebSocket subscriptions with
+  reconnect handling and live integration coverage for create-event delivery.
+- Python, Dart, Kotlin, and Swift SDKs now expose OAuth start URL helpers and
+  WebAuthn MFA second-factor helpers, extending non-JS SDK auth parity for
+  those backend workflows.
+
+### Fixed
+
+- Realtime WebSocket subscriptions no longer receive cross-tenant row events
+  when row-level security cannot prove per-record visibility. Affects pooled
+  multi-tenant deployments only; single-tenant self-host is unaffected.
+
 ## [0.0.15-beta] - 2026-07-11
 
 ### Added

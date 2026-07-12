@@ -230,7 +230,14 @@ func (s *Service) GetUserMFAFactors(ctx context.Context, userID string) ([]MFAFa
 		return nil, errors.New("database pool is not configured")
 	}
 	rows, err := s.pool.Query(ctx,
-		`SELECT f.id, f.method, COALESCE(f.phone, ''), COALESCE(u.email, ''), COALESCE(f.webauthn_display_name, '')
+		`SELECT f.id, f.method, COALESCE(f.phone, ''), COALESCE(u.email, ''),
+		        COALESCE((
+		            SELECT c.display_name
+		              FROM _ayb_webauthn_credentials c
+		             WHERE c.factor_id = f.id
+		             ORDER BY c.created_at, c.id
+		             LIMIT 1
+		        ), f.webauthn_display_name, '')
 		 FROM _ayb_user_mfa f
 		 JOIN _ayb_users u ON u.id = f.user_id
 		 WHERE f.user_id = $1 AND f.enabled = true

@@ -77,7 +77,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	client, ctx, cleanup, ok := h.setupRealtimeSSEClient(w, r, claims, activeSchema, tables, filters)
+	client, ctx, cleanup, ok := h.setupRealtimeSSEClient(w, r, claims, tables, filters)
 	if !ok {
 		return
 	}
@@ -172,10 +172,10 @@ func (h *Handler) parseRealtimeFilters(w http.ResponseWriter, filterParam string
 }
 
 // setupRealtimeSSEClient subscribes a new client to the realtime hub with the requested table filters, registers it with the connection manager if configured, and returns the client with a cleanup function.
-func (h *Handler) setupRealtimeSSEClient(w http.ResponseWriter, r *http.Request, claims *auth.Claims, activeSchema string, tables map[string]bool, filters Filters) (*Client, context.Context, func(), bool) {
+func (h *Handler) setupRealtimeSSEClient(w http.ResponseWriter, r *http.Request, claims *auth.Claims, tables map[string]bool, filters Filters) (*Client, context.Context, func(), bool) {
 	// Attach the request tenant at subscribe time so the client starts tenant-
 	// scoped before any event can be delivered — no unregister/re-register churn.
-	client := h.hub.SubscribeWithFilter(tables, filters, h.realtimeTenantScope(r, claims, activeSchema, tables))
+	client := h.hub.SubscribeWithFilter(tables, filters, h.realtimeTenantScope(r, claims))
 	ctx, cancel := context.WithCancel(r.Context())
 
 	cleanup := func() {
@@ -213,9 +213,11 @@ func (h *Handler) setupRealtimeSSEClient(w http.ResponseWriter, r *http.Request,
 	return client, ctx, withDeregister, true
 }
 
-func (h *Handler) realtimeTenantScope(r *http.Request, claims *auth.Claims, activeSchema string, tables map[string]bool) string {
-	requestTenant := tenant.TenantFromContext(r.Context())
-	return realtimeHubTenantScope(claims, h.schemaCache, activeSchema, requestTenant, tables, h.pool != nil)
+func (h *Handler) realtimeTenantScope(r *http.Request, claims *auth.Claims) string {
+	if claims != nil && h.pool != nil && h.schemaCache != nil {
+		return RLSFilteredTenantScope
+	}
+	return tenant.TenantFromContext(r.Context())
 }
 
 func (h *Handler) applySSEHeaders(w http.ResponseWriter) {
@@ -297,10 +299,19 @@ func (h *Handler) canSeeRecord(ctx context.Context, claims *auth.Claims, activeS
 // via an RLS-scoped SELECT. This per-event SELECT is evaluated by Postgres
 // under the ayb_authenticated role, so full RLS policy logic applies, including
 // join/EXISTS-based policies on related tables.
+//
+// Because RLS-filtered subscribers bypass the Hub tenant gate (see
+// RLSFilteredTenantScope / tenantMatches), this function is the single source of
+// truth for per-record visibility, including tenant isolation. A candidate
+// tagged for a different tenant is dropped unless the table has the metadata and
+// RLS SELECT policy needed to prove the row visible — a table without that
+// proof path would otherwise fail open and leak it across tenants.
+//
 // Returns true when:
 //   - no pool is available (RLS filtering disabled)
 //   - no claims (unauthenticated client, no RLS applies)
-//   - schema metadata or primary-key values are missing
+//   - schema metadata or primary-key values are missing AND the candidate is not
+//     tagged for a foreign tenant
 //   - delete events lack OldRecord or SELECT-applicable RLS policies
 //   - the RLS-scoped SELECT finds the row
 func CanSeeRecord(ctx context.Context, pool *pgxpool.Pool, schemaCache *schema.CacheHolder, logger *slog.Logger, claims *auth.Claims, activeSchema string, event *Event) bool {
@@ -314,6 +325,17 @@ func CanSeeRecord(ctx context.Context, pool *pgxpool.Pool, schemaCache *schema.C
 	}
 	tbl := sc.TableByNameInSchema(activeSchema, event.Table)
 	if tbl != nil && activeSchema != "" && activeSchema != "public" && tbl.Schema != activeSchema && event.Table != internalNotificationsTable {
+		return false
+	}
+
+	// Tenant-isolation floor. The per-record RLS SELECT below can only NARROW
+	// visibility within the subscriber's own tenant; it cannot be trusted to
+	// authorize a row tagged for a different tenant unless the table can build
+	// a per-record visibility query from PK metadata and SELECT-applicable RLS
+	// policies. Drop the foreign-tenant candidate instead of failing open. Empty
+	// event.TenantID is the _ayb_notifications / wildcard case and is handled by
+	// the checks below.
+	if event.TenantID != "" && event.TenantID != claims.TenantID && !canProveRecordVisibility(tbl) {
 		return false
 	}
 	if tbl == nil || len(tbl.PrimaryKey) == 0 {
@@ -386,6 +408,34 @@ func runVisibilityCheck(ctx context.Context, pool *pgxpool.Pool, logger *slog.Lo
 	return err == nil
 }
 
+// canProveRecordVisibility reports whether the table has the metadata needed to
+// build a per-record visibility query that RLS can narrow safely for
+// cross-tenant candidates: a primary key plus at least one SELECT- or
+// ALL-applicable policy on an RLS-enabled table.
+func canProveRecordVisibility(tbl *schema.Table) bool {
+	return tbl != nil && len(tbl.PrimaryKey) > 0 && hasSelectApplicablePolicy(tbl)
+}
+
+func hasSelectApplicablePolicy(tbl *schema.Table) bool {
+	if tbl == nil || !tbl.RLSEnabled {
+		return false
+	}
+	for _, policy := range tbl.RLSPolicies {
+		if isSelectApplicablePolicy(policy) {
+			return true
+		}
+	}
+	return false
+}
+
+func isSelectApplicablePolicy(policy *schema.RLSPolicy) bool {
+	if policy == nil {
+		return false
+	}
+	command := strings.ToUpper(strings.TrimSpace(policy.Command))
+	return command == "ALL" || command == "SELECT"
+}
+
 func deleteVisibilityPredicate(tbl *schema.Table) (string, bool) {
 	if !tbl.RLSEnabled {
 		return "", false
@@ -393,11 +443,7 @@ func deleteVisibilityPredicate(tbl *schema.Table) (string, bool) {
 	var permissive []string
 	var restrictive []string
 	for _, policy := range tbl.RLSPolicies {
-		if policy == nil {
-			continue
-		}
-		command := strings.ToUpper(strings.TrimSpace(policy.Command))
-		if command != "ALL" && command != "SELECT" {
+		if !isSelectApplicablePolicy(policy) {
 			continue
 		}
 		expr := strings.TrimSpace(policy.UsingExpr)

@@ -10,6 +10,49 @@ struct RecordsLiveIntegrationTests {
             "Set AYB_TEST_URL and AYB_TEST_ADMIN_TOKEN/AYB_ADMIN_TOKEN, or provide ~/.ayb/admin-token before running live Swift SDK tests."
         )
     )
+    func webAuthnMFABeginEndpointsReturnConcreteOptions() async throws {
+        let adminClient = try RecordsLiveIntegrationSupport.newClient()
+        let user = try await RecordsLiveIntegrationSupport.registerLiveUserClient(
+            using: adminClient,
+            emailPrefix: "swift-live-webauthn-mfa"
+        )
+        do {
+            let enroll = try await user.client.auth.enrollWebAuthn()
+            #expect(enroll.challenge.isEmpty == false)
+            #expect(enroll.rp.name.isEmpty == false)
+            #expect(enroll.rp.id?.isEmpty == false)
+            #expect(enroll.user.id.isEmpty == false)
+            #expect(enroll.user.name == user.email)
+            #expect(enroll.timeout > 0)
+            #expect(enroll.pubKeyCredParams.isEmpty == false)
+            #expect(enroll.pubKeyCredParams.allSatisfy { $0.alg != 0 })
+
+            try await RecordsLiveIntegrationSupport.seedWebAuthnMFAFactor(
+                using: adminClient,
+                email: user.email
+            )
+            let mfaToken = try await RecordsLiveIntegrationSupport.loginForMFAPendingToken(
+                email: user.email,
+                password: user.password
+            )
+            let challenge = try await user.client.auth.webauthnChallenge(mfaToken: mfaToken)
+            #expect(challenge.challengeId.isEmpty == false)
+            #expect(challenge.options.challenge.isEmpty == false)
+            #expect(challenge.options.rpId.isEmpty == false)
+            #expect(challenge.options.allowCredentials.isEmpty == false)
+            try await RecordsLiveIntegrationSupport.deleteLiveUser(using: adminClient, email: user.email)
+        } catch {
+            try? await RecordsLiveIntegrationSupport.deleteLiveUser(using: adminClient, email: user.email)
+            throw error
+        }
+    }
+
+    @Test(
+        .enabled(
+            if: RecordsLiveIntegrationSupport.hasRequiredConfiguration(),
+            "Set AYB_TEST_URL and AYB_TEST_ADMIN_TOKEN/AYB_ADMIN_TOKEN, or provide ~/.ayb/admin-token before running live Swift SDK tests."
+        )
+    )
     func beginWebAuthnLoginReturnsConcreteChallengeOptions() async throws {
         let client = try RecordsLiveIntegrationSupport.newClient()
 

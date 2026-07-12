@@ -206,7 +206,12 @@ func (r *UserRunner) trackingTableExpr() string {
 }
 
 func (r *UserRunner) searchPathSQL() string {
-	return fmt.Sprintf(`SET search_path TO %s, public`, pgx.Identifier{r.schemaName}.Sanitize())
+	// SET LOCAL scopes the search_path to applyMigration's transaction only.
+	// A plain session-level SET would persist on the pooled connection after
+	// COMMIT and leak this tenant's search_path onto whichever code reuses the
+	// connection next (a real multi-tenant correctness hazard, and the cause of
+	// cross-test schema bleed in the shared migrations pool).
+	return fmt.Sprintf(`SET LOCAL search_path TO %s, public`, pgx.Identifier{r.schemaName}.Sanitize())
 }
 
 // applyMigration executes a migration SQL script in a transaction, optionally setting search_path for schema-scoped execution, and records the migration in the tracking table.

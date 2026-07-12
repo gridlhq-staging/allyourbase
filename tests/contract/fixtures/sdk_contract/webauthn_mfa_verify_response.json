@@ -1,0 +1,10 @@
+{
+  "refreshToken": "refresh_webauthn_mfa",
+  "token": "jwt_webauthn_mfa",
+  "user": {
+    "createdAt": "2026-07-11T00:00:00Z",
+    "email": "webauthn-e2e@example.com",
+    "id": "usr_webauthn_mfa",
+    "updatedAt": "2026-07-11T00:00:00Z"
+  }
+}

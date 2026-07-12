@@ -31,6 +31,36 @@ final _webauthnLoginBeginFixture = (jsonDecode(
       .readAsStringSync(),
 ) as Map<Object?, Object?>)
     .cast<String, Object?>();
+final _webauthnEnrollBeginFixture = (jsonDecode(
+  File('../tests/contract/fixtures/sdk_contract/webauthn_enroll_begin_response.json')
+      .readAsStringSync(),
+) as Map<Object?, Object?>)
+    .cast<String, Object?>();
+final _webauthnEnrollConfirmRequestFixture = (jsonDecode(
+  File('../tests/contract/fixtures/sdk_contract/webauthn_enroll_confirm_request.json')
+      .readAsStringSync(),
+) as Map<Object?, Object?>)
+    .cast<String, Object?>();
+final _webauthnEnrollConfirmResponseFixture = (jsonDecode(
+  File('../tests/contract/fixtures/sdk_contract/webauthn_enroll_confirm_response.json')
+      .readAsStringSync(),
+) as Map<Object?, Object?>)
+    .cast<String, Object?>();
+final _webauthnMfaChallengeFixture = (jsonDecode(
+  File('../tests/contract/fixtures/sdk_contract/webauthn_mfa_challenge_response.json')
+      .readAsStringSync(),
+) as Map<Object?, Object?>)
+    .cast<String, Object?>();
+final _webauthnMfaVerifyRequestFixture = (jsonDecode(
+  File('../tests/contract/fixtures/sdk_contract/webauthn_mfa_verify_request.json')
+      .readAsStringSync(),
+) as Map<Object?, Object?>)
+    .cast<String, Object?>();
+final _webauthnMfaVerifyResponseFixture = (jsonDecode(
+  File('../tests/contract/fixtures/sdk_contract/webauthn_mfa_verify_response.json')
+      .readAsStringSync(),
+) as Map<Object?, Object?>)
+    .cast<String, Object?>();
 final _searchSynonymsRequestFixture = (jsonDecode(
   File('../tests/contract/fixtures/sdk_contract/search_synonyms_request.json')
       .readAsStringSync(),
@@ -166,6 +196,92 @@ void main() {
         'challenge_id': 'webauthn_challenge_fixture',
         'assertion_response': assertionResponse,
       });
+    });
+
+    test('WebAuthnEnrollBeginResponse parses canonical MFA enroll payload', () {
+      final response =
+          WebAuthnEnrollBeginResponse.fromJson(_webauthnEnrollBeginFixture);
+      final rp = response.options['rp'] as Map<String, Object?>;
+      final user = response.options['user'] as Map<String, Object?>;
+      final pubKeyCredParams = response.options['pubKeyCredParams'] as List;
+
+      expect(response.options['challenge'], 'webauthn_enroll_begin_challenge');
+      expect(response.options['attestation'], 'none');
+      expect(response.options['timeout'], 300000);
+      expect(rp, {'id': '127.0.0.1', 'name': 'Allyourbase'});
+      expect(user, {
+        'displayName': 'webauthn-e2e@example.com',
+        'id': 'webauthn_enroll_user_id',
+        'name': 'webauthn-e2e@example.com',
+      });
+      expect(pubKeyCredParams.first, {'alg': -7, 'type': 'public-key'});
+      expect(pubKeyCredParams.last, {'alg': -8, 'type': 'public-key'});
+    });
+
+    test('WebAuthnEnrollConfirmRequest emits canonical MFA enroll payload',
+        () {
+      final attestationResponse =
+          _webauthnEnrollConfirmRequestFixture['attestation_response']
+              as Map<String, Object?>;
+      final request = WebAuthnEnrollConfirmRequest(
+        displayName: 'Primary security key',
+        attestationResponse: attestationResponse,
+      );
+
+      expect(request.toJson().keys, [
+        'display_name',
+        'attestation_response',
+      ]);
+      expect(request.toJson(), _webauthnEnrollConfirmRequestFixture);
+    });
+
+    test('WebAuthnEnrollConfirmResponse parses canonical MFA enroll result',
+        () {
+      final response = WebAuthnEnrollConfirmResponse.fromJson(
+        _webauthnEnrollConfirmResponseFixture,
+      );
+
+      expect(response.message, 'WebAuthn MFA enrollment confirmed');
+    });
+
+    test('WebAuthnLoginBeginResponse parses canonical MFA challenge payload',
+        () {
+      final response =
+          WebAuthnLoginBeginResponse.fromJson(_webauthnMfaChallengeFixture);
+      final allowCredentials = response.options['allowCredentials'] as List;
+      final firstCredential = allowCredentials.first as Map<String, Object?>;
+
+      expect(response.challengeId, 'webauthn_mfa_challenge_fixture');
+      expect(response.options['challenge'], 'webauthn_mfa_challenge');
+      expect(response.options['rpId'], '127.0.0.1');
+      expect(response.options['timeout'], 300000);
+      expect(firstCredential, {
+        'id': 'webauthn_mfa_credential_a',
+        'type': 'public-key',
+      });
+    });
+
+    test('WebAuthnLoginFinishRequest emits canonical MFA verify payload', () {
+      final assertionResponse =
+          _webauthnMfaVerifyRequestFixture['assertion_response']
+              as Map<String, Object?>;
+      final request = WebAuthnLoginFinishRequest(
+        challengeId: 'webauthn_mfa_challenge_fixture',
+        assertionResponse: assertionResponse,
+      );
+
+      expect(request.toJson(), _webauthnMfaVerifyRequestFixture);
+    });
+
+    test('AuthResponse parses canonical MFA verify auth payload', () {
+      final response = AuthResponse.fromJson(_webauthnMfaVerifyResponseFixture);
+
+      expect(response.token, 'jwt_webauthn_mfa');
+      expect(response.refreshToken, 'refresh_webauthn_mfa');
+      expect(response.user.id, 'usr_webauthn_mfa');
+      expect(response.user.email, 'webauthn-e2e@example.com');
+      expect(response.user.createdAt, '2026-07-11T00:00:00Z');
+      expect(response.user.updatedAt, '2026-07-11T00:00:00Z');
     });
   });
 

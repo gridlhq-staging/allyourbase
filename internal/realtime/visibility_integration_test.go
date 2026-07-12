@@ -166,6 +166,46 @@ func TestCanSeeRecordJoinPolicyMembershipTransitions(t *testing.T) {
 	testutil.False(t, h.canSeeRecord(ctx, claims, "public", event), "after membership revoke the event should be filtered again")
 }
 
+func TestCanSeeRecordAuthenticatedPublicTableWithoutSelectPolicyDoesNotFailOpenForForeignTenantCandidate(t *testing.T) {
+	pg, ctx := setupVisibilityIntegrationDB(t)
+
+	_, err := pg.Pool.Exec(ctx, `
+		CREATE TABLE users (
+			id SERIAL PRIMARY KEY,
+			name TEXT NOT NULL
+		);
+		INSERT INTO users (name) VALUES ('Tenant B User');
+	`)
+	testutil.NoError(t, err)
+
+	ch := schema.NewCacheHolder(nil, testutil.DiscardLogger())
+	ch.SetForTesting(&schema.SchemaCache{
+		Tables: map[string]*schema.Table{
+			"public.users": {
+				Schema:     "public",
+				Name:       "users",
+				PrimaryKey: []string{"id"},
+			},
+		},
+	})
+	h := &Handler{
+		pool:        pg.Pool,
+		schemaCache: ch,
+		logger:      testutil.DiscardLogger(),
+	}
+	claims := testClaims("tenant-a-user")
+	claims.TenantID = "tenant-a"
+	event := &Event{
+		Action:   "create",
+		Table:    "users",
+		TenantID: "tenant-b",
+		Record:   map[string]any{"id": int32(1)},
+	}
+
+	testutil.False(t, h.canSeeRecord(ctx, claims, "public", event),
+		"authenticated tenant-a subscriber should drop a tenant-b candidate when public users has no usable SELECT policy")
+}
+
 func TestCanSeeRecordDeleteRespectsMembership(t *testing.T) {
 	pg, ctx := setupVisibilityIntegrationDB(t)
 	setupJoinPolicyFixture(t, ctx, pg.Pool)

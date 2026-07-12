@@ -175,6 +175,82 @@ struct PasskeyAuthTests {
         let clientExtensionResults = try #require(dictionary["clientExtensionResults"] as? [String: Any])
         #expect(clientExtensionResults.isEmpty)
     }
+
+    @Test func enrollPasskeyRunsBeginAttestationAndConfirmFlow() async throws {
+        let transport = MockTransport()
+        transport.enqueue(StubResponse(status: 200, json: ContractFixtures.webAuthnEnrollBeginResponse))
+        transport.enqueue(StubResponse(status: 200, json: ContractFixtures.webAuthnEnrollConfirmResponse))
+        let client = AYBClient(
+            Stage3TestBootstrap.baseURL,
+            transport: transport,
+            tokenStore: InMemoryTokenStore(accessToken: "jwt_current", refreshToken: "refresh_current")
+        )
+        let authenticator = FakePasskeyAttestationAuthenticator(attestationResponse: .init(
+            id: "attestation-id",
+            rawId: "attestation-raw-id",
+            response: .init(
+                attestationObject: "attestation-object",
+                clientDataJSON: "client-json",
+                transports: ["internal"]
+            )
+        ))
+
+        let response = try await client.auth.enrollPasskey(
+            displayName: "Primary security key",
+            authenticator: authenticator
+        )
+
+        #expect(response.message == "WebAuthn MFA enrollment confirmed")
+        #expect(authenticator.capturedOptions.map { $0.challenge } == ["webauthn_enroll_begin_challenge"])
+        #expect(transport.requests.count == 2)
+        let confirmRequest = transport.requests[1]
+        #expect(confirmRequest.url.absoluteString == "https://api.example.com/api/auth/mfa/webauthn/enroll/confirm")
+        let confirmBody = try #require(confirmRequest.body)
+        let payload = try #require(JSONSerialization.jsonObject(with: confirmBody) as? [String: Any])
+        #expect(payload["display_name"] as? String == "Primary security key")
+        let attestation = try #require(payload["attestation_response"] as? [String: Any])
+        #expect(attestation["id"] as? String == "attestation-id")
+        #expect(payload["attestationResponse"] == nil)
+    }
+
+    @Test func verifyPasskeyUsesExplicitMFATokenForChallengeAndVerify() async throws {
+        let transport = MockTransport()
+        transport.enqueue(StubResponse(status: 200, json: ContractFixtures.webAuthnMFAChallengeResponse))
+        transport.enqueue(StubResponse(status: 200, json: ContractFixtures.webAuthnMFAVerifyResponse))
+        let client = AYBClient(
+            Stage3TestBootstrap.baseURL,
+            transport: transport,
+            tokenStore: InMemoryTokenStore(accessToken: "jwt_current", refreshToken: "refresh_current")
+        )
+        let authenticator = FakePasskeyAuthenticator(assertionResponse: .init(
+            id: "assertion-id",
+            rawId: "assertion-raw-id",
+            response: .init(
+                clientDataJSON: "client-json",
+                authenticatorData: "auth-data",
+                signature: "signature",
+                userHandle: "user-handle"
+            )
+        ))
+
+        let response = try await client.auth.verifyPasskey(
+            mfaToken: "mfa_pending_token",
+            authenticator: authenticator
+        )
+
+        #expect(response.token == "jwt_webauthn_mfa")
+        #expect(client.token == "jwt_webauthn_mfa")
+        #expect(authenticator.capturedOptions.map(\.challenge) == ["webauthn_mfa_challenge"])
+        #expect(transport.requests.count == 2)
+        #expect(lowercasedLookup(transport.requests[0].headers, "Authorization") == "Bearer mfa_pending_token")
+        #expect(lowercasedLookup(transport.requests[1].headers, "Authorization") == "Bearer mfa_pending_token")
+        let verifyBody = try #require(transport.requests[1].body)
+        let payload = try #require(JSONSerialization.jsonObject(with: verifyBody) as? [String: Any])
+        #expect(payload["challenge_id"] as? String == "webauthn_mfa_challenge_fixture")
+        #expect(payload["challengeId"] == nil)
+        #expect(payload["assertion_response"] != nil)
+        #expect(payload["assertionResponse"] == nil)
+    }
 }
 
 private final class FakePasskeyAuthenticator: PasskeyAuthenticating {
@@ -188,6 +264,22 @@ private final class FakePasskeyAuthenticator: PasskeyAuthenticating {
     func createAssertionResponse(options: PasskeyAssertionRequestOptions) async throws -> PasskeyAssertionResult {
         capturedOptions.append(options)
         return assertionResponse
+    }
+}
+
+private final class FakePasskeyAttestationAuthenticator: PasskeyAttestationAuthenticating {
+    let attestationResponse: PasskeyAttestationResult
+    private(set) var capturedOptions: [PasskeyAttestationCreationOptions] = []
+
+    init(attestationResponse: PasskeyAttestationResult) {
+        self.attestationResponse = attestationResponse
+    }
+
+    func createAttestationResponse(
+        options: PasskeyAttestationCreationOptions
+    ) async throws -> PasskeyAttestationResult {
+        capturedOptions.append(options)
+        return attestationResponse
     }
 }
 

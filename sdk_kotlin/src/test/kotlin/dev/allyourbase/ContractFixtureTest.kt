@@ -3,7 +3,9 @@ package dev.allyourbase
 import kotlinx.serialization.json.Json
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.decodeFromJsonElement
 import kotlinx.serialization.json.encodeToJsonElement
+import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
@@ -79,6 +81,74 @@ class ContractFixtureTest {
         assertEquals("jwt_stage3", finish.token)
         assertEquals("refresh_stage3", finish.refreshToken)
         assertEquals("dev@allyourbase.io", finish.user.email)
+    }
+
+    @Test
+    fun `webauthn mfa response fixtures decode exact contract values`() {
+        val enrollBegin = json.decodeFromJsonElement<WebAuthnEnrollBeginResponse>(
+            ContractFixtures.webAuthnEnrollBeginResponse,
+        )
+        assertEquals("webauthn_enroll_begin_challenge", enrollBegin.challenge)
+        assertEquals("127.0.0.1", enrollBegin.rp["id"]!!.jsonPrimitive.content)
+        assertEquals("Allyourbase", enrollBegin.rp["name"]!!.jsonPrimitive.content)
+        assertEquals("webauthn_enroll_user_id", enrollBegin.user["id"]!!.jsonPrimitive.content)
+        assertEquals("webauthn-e2e@example.com", enrollBegin.user["name"]!!.jsonPrimitive.content)
+        assertEquals("webauthn-e2e@example.com", enrollBegin.user["displayName"]!!.jsonPrimitive.content)
+        assertEquals(10, enrollBegin.pubKeyCredParams.size)
+        assertEquals(-7, enrollBegin.pubKeyCredParams[0].jsonObject["alg"]!!.jsonPrimitive.content.toInt())
+        assertEquals("public-key", enrollBegin.pubKeyCredParams[0].jsonObject["type"]!!.jsonPrimitive.content)
+        assertEquals(300000, enrollBegin.timeout)
+        assertEquals("none", enrollBegin.attestation)
+
+        val enrollConfirm = json.decodeFromJsonElement<WebAuthnEnrollConfirmResponse>(
+            ContractFixtures.webAuthnEnrollConfirmResponse,
+        )
+        assertEquals("WebAuthn MFA enrollment confirmed", enrollConfirm.message)
+
+        val challenge = json.decodeFromJsonElement<WebAuthnMfaChallengeResponse>(
+            ContractFixtures.webAuthnMfaChallengeResponse,
+        )
+        assertEquals("webauthn_mfa_challenge_fixture", challenge.challengeId)
+        assertEquals("webauthn_mfa_challenge", challenge.options["challenge"]!!.jsonPrimitive.content)
+        assertEquals("127.0.0.1", challenge.options["rpId"]!!.jsonPrimitive.content)
+        assertEquals(300000, challenge.options["timeout"]!!.jsonPrimitive.content.toInt())
+        val allowCredential = challenge.options["allowCredentials"]!!.jsonArray[0].jsonObject
+        assertEquals("webauthn_mfa_credential_a", allowCredential["id"]!!.jsonPrimitive.content)
+        assertEquals("public-key", allowCredential["type"]!!.jsonPrimitive.content)
+
+        val verify = json.decodeFromJsonElement(
+            AuthResponse.serializer(),
+            ContractFixtures.webAuthnMfaVerifyResponse,
+        )
+        assertEquals("jwt_webauthn_mfa", verify.token)
+        assertEquals("refresh_webauthn_mfa", verify.refreshToken)
+        assertEquals("usr_webauthn_mfa", verify.user.id)
+        assertEquals("webauthn-e2e@example.com", verify.user.email)
+        assertEquals("2026-07-11T00:00:00Z", verify.user.createdAt)
+        assertEquals("2026-07-11T00:00:00Z", verify.user.updatedAt)
+    }
+
+    @Test
+    fun `webauthn mfa request fixtures round trip as snake case payloads`() {
+        val enrollConfirm = json.decodeFromJsonElement<WebAuthnEnrollConfirmRequest>(
+            ContractFixtures.webAuthnEnrollConfirmRequest,
+        )
+        val enrollPayload = json.encodeToJsonElement(enrollConfirm).jsonObject
+        assertEquals(ContractFixtures.webAuthnEnrollConfirmRequest, enrollPayload)
+        assertEquals("Primary security key", enrollPayload["display_name"]!!.jsonPrimitive.content)
+        assertEquals("webauthn_enroll_credential", enrollPayload["attestation_response"]!!.jsonObject["id"]!!.jsonPrimitive.content)
+        assertNull(enrollPayload["displayName"])
+        assertNull(enrollPayload["attestationResponse"])
+
+        val verify = json.decodeFromJsonElement<WebAuthnMfaVerifyRequest>(
+            ContractFixtures.webAuthnMfaVerifyRequest,
+        )
+        val verifyPayload = json.encodeToJsonElement(verify).jsonObject
+        assertEquals(ContractFixtures.webAuthnMfaVerifyRequest, verifyPayload)
+        assertEquals("webauthn_mfa_challenge_fixture", verifyPayload["challenge_id"]!!.jsonPrimitive.content)
+        assertEquals("webauthn_mfa_credential", verifyPayload["assertion_response"]!!.jsonObject["id"]!!.jsonPrimitive.content)
+        assertNull(verifyPayload["challengeId"])
+        assertNull(verifyPayload["assertionResponse"])
     }
 
     @Test

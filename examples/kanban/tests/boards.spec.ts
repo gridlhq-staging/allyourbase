@@ -6,14 +6,6 @@ test.describe("Boards", () => {
     await registerUser(page);
   });
 
-  // Skipped: collaborative model (boards_select USING (true)) means a new user
-  // sees ALL boards, not just their own. Empty state only appears when the entire
-  // database is empty, which can't be guaranteed with parallel test workers.
-  test.skip("shows empty state when no boards exist", async ({ page }) => {
-    await expect(page.getByText("No boards yet")).toBeVisible();
-    await expect(page.getByText("Create your first board above")).toBeVisible();
-  });
-
   test("can create boards and empty state disappears", async ({ page }) => {
     await createBoard(page, "Board 1");
     await expect(page.getByText("Board 1")).toBeVisible();

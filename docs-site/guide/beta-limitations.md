@@ -16,7 +16,7 @@ First-factor passkey login is shipped through the JavaScript SDK and React SDK, 
 
 ## Other-language SDK passkey helpers
 
-Search helper parity is shipped across the JavaScript, Go, Python, Dart, Kotlin, and Swift SDK list surfaces. Go and Python expose first-factor WebAuthn begin/finish wire helpers. Dart, Kotlin, and Swift expose passkey sign-in helpers through caller-supplied or platform authenticator seams, but AYB does not ship a packaged Android credentials module or validate native device ceremonies in autonomous tests.
+Search helper parity is shipped across the JavaScript, Go, Python, Dart, Kotlin, and Swift SDK list surfaces, and first-factor passkey wire helpers plus typed synonym methods shipped for Go, Python, Dart, Kotlin, and Swift on 2026-07-10 (contract-tested against the canonical `sdk_contract` fixtures). The remaining seam is device-only: the mobile SDKs' (Dart/Kotlin/Swift) native platform credential ceremony is exercised only on real devices, and no packaged Android credentials module ships yet.
 
 ## Local Supabase Export Caveat
 

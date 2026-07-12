@@ -7,7 +7,6 @@ import {
   execSQL,
   replaceCollectionSearchSynonyms,
   seedRecord,
-  waitForCollectionAvailable,
   waitForDashboard,
 } from "../fixtures";
 
@@ -41,7 +40,6 @@ async function recreateSearchableCollection(
       );
     `,
   );
-  await waitForCollectionAvailable(request, adminToken, safeTableName);
 }
 
 async function openCollectionSynonyms(page: DashboardPage, tableName: string): Promise<void> {
@@ -67,7 +65,7 @@ async function openCollectionSynonyms(page: DashboardPage, tableName: string): P
 }
 
 function firstSynonymGroup(page: DashboardPage) {
-  return page.getByRole("main").getByRole("group", { name: "Synonym group 1" });
+  return page.getByRole("group", { name: "Synonym group 1" });
 }
 
 async function expectGroupTerms(
@@ -89,9 +87,8 @@ async function addAndSaveFirstGroup(
   const group = firstSynonymGroup(page);
   await group.getByRole("textbox").nth(0).fill(firstTerm);
   await group.getByRole("textbox").nth(1).fill(secondTerm);
-  const main = page.getByRole("main");
-  await main.getByRole("button", { name: "Save", exact: true }).click();
-  await expect(main.getByRole("status")).toHaveText("Saved search synonyms.");
+  await page.getByRole("button", { name: "Save" }).click();
+  await expect(page.getByRole("status")).toHaveText("Saved search synonyms.");
   await expectGroupTerms(group, [firstTerm, secondTerm]);
 }
 
@@ -170,11 +167,9 @@ test.describe("Collection Synonyms Editor (Full E2E)", () => {
     const group = firstSynonymGroup(page);
     await group.getByRole("textbox").nth(0).fill("single term");
     await group.getByRole("textbox").nth(1).fill("");
-    await page.getByRole("main").getByRole("button", { name: "Save", exact: true }).click();
+    await page.getByRole("button", { name: "Save" }).click();
 
-    await expect(
-      page.getByRole("main").getByText("Each synonym group needs at least two terms."),
-    ).toBeVisible();
+    await expect(page.getByText("Each synonym group needs at least two terms.")).toBeVisible();
     await expect(group.getByRole("textbox").nth(0)).toHaveValue("single term");
   });
 

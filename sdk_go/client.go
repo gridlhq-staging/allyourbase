@@ -42,6 +42,7 @@ type Client struct {
 	token        string
 	refreshToken string
 	userAgent    string
+	realtime     *RealtimeClient
 
 	Auth    *AuthClient
 	Records *RecordsClient
@@ -61,6 +62,7 @@ func NewClient(baseURL string, opts ...Option) *Client {
 	c.Records = &RecordsClient{client: c}
 	c.Storage = &StorageClient{client: c}
 	c.Edge = &EdgeClient{client: c}
+	c.realtime = &RealtimeClient{client: c}
 	return c
 }
 
@@ -80,6 +82,10 @@ func (c *Client) Token() string {
 
 func (c *Client) RefreshToken() string {
 	return c.refreshToken
+}
+
+func (c *Client) Realtime() *RealtimeClient {
+	return c.realtime
 }
 
 // doJSON sends an HTTP request with a JSON-encoded body and returns the raw response body, automatically applying authentication.

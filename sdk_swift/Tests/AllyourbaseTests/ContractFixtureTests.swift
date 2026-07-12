@@ -41,6 +41,68 @@ struct ContractFixtureTests {
         }
     }
 
+    @Test func webAuthnEnrollBeginFixtureDecodesThroughModelOwner() throws {
+        let response = try WebAuthnEnrollBeginResponse.decode(ContractFixtures.webAuthnEnrollBeginResponse)
+
+        #expect(response.challenge == "webauthn_enroll_begin_challenge")
+        #expect(response.rp.id == "127.0.0.1")
+        #expect(response.rp.name == "Allyourbase")
+        #expect(response.user.id == "webauthn_enroll_user_id")
+        #expect(response.user.name == "webauthn-e2e@example.com")
+        #expect(response.user.displayName == "webauthn-e2e@example.com")
+        #expect(response.timeout == 300000)
+        #expect(response.attestation == "none")
+        let algorithms = response.pubKeyCredParams.map { parameter in parameter.alg }
+        let credentialTypes = response.pubKeyCredParams.map { parameter in parameter.type }
+        #expect(algorithms == [-7, -35, -36, -257, -258, -259, -37, -38, -39, -8])
+        #expect(credentialTypes.allSatisfy { $0 == "public-key" })
+    }
+
+    @Test func webAuthnEnrollConfirmFixturesDecodeThroughModelOwners() throws {
+        let request = try WebAuthnEnrollConfirmRequest(from: ContractFixtures.webAuthnEnrollConfirmRequest)
+
+        #expect(request.displayName == "Primary security key")
+        #expect(request.attestationResponse.id == "webauthn_enroll_credential")
+        #expect(request.attestationResponse.rawId == "webauthn_enroll_credential")
+        #expect(request.attestationResponse.type == "public-key")
+        #expect(request.attestationResponse.response.attestationObject == "webauthn_enroll_attestation_object")
+        #expect(request.attestationResponse.response.clientDataJSON == "eyJ0eXBlIjoid2ViYXV0aG4uY3JlYXRlIiwiY2hhbGxlbmdlIjoid2ViYXV0aG5fZW5yb2xsX2JlZ2luX2NoYWxsZW5nZSIsIm9yaWdpbiI6Imh0dHA6Ly8xMjcuMC4wLjE6ODA5MCJ9")
+        #expect(request.attestationResponse.response.transports == ["internal"])
+
+        let response = try WebAuthnEnrollConfirmResponse.decode(ContractFixtures.webAuthnEnrollConfirmResponse)
+        #expect(response.message == "WebAuthn MFA enrollment confirmed")
+    }
+
+    @Test func webAuthnMFAVerifyRequestFixtureRoundTripsCanonicalWireJSON() throws {
+        let request = try WebAuthnMFAVerifyRequest(from: ContractFixtures.webAuthnMFAVerifyRequest)
+
+        #expect(request.challengeId == "webauthn_mfa_challenge_fixture")
+        #expect(request.assertionResponse.id == "webauthn_mfa_credential")
+        #expect(request.assertionResponse.response.authenticatorData == "EsoXtJryKJQ28wPgFmAwoh5SXSZuIJJnQzgBqP1AcaAFAAAAAQ")
+        #expect(request.assertionResponse.response.signature == "webauthn_mfa_signature")
+        #expect(request.assertionResponse.response.userHandle == "webauthn_mfa_user_handle")
+
+        let data = try JSONSerialization.data(withJSONObject: request.toDictionary(), options: [.sortedKeys])
+        let serialized = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        try assertJSONDictionariesEqual(serialized, ContractFixtures.webAuthnMFAVerifyRequest)
+
+        #expect(serialized["challenge_id"] as? String == "webauthn_mfa_challenge_fixture")
+        #expect(serialized["challengeId"] == nil)
+        #expect(serialized["assertion_response"] != nil)
+        #expect(serialized["assertionResponse"] == nil)
+    }
+
+    @Test func webAuthnMFAVerifyResponseFixtureDecodesThroughAuthResponseOwner() throws {
+        let response = try AuthResponse.decode(ContractFixtures.webAuthnMFAVerifyResponse)
+
+        #expect(response.token == "jwt_webauthn_mfa")
+        #expect(response.refreshToken == "refresh_webauthn_mfa")
+        #expect(response.user.id == "usr_webauthn_mfa")
+        #expect(response.user.email == "webauthn-e2e@example.com")
+        #expect(response.user.createdAt == "2026-07-11T00:00:00Z")
+        #expect(response.user.updatedAt == "2026-07-11T00:00:00Z")
+    }
+
     @Test func linkEmailFixtureNormalizesUserAliasFields() throws {
         let response = try AuthResponse.decode(ContractFixtures.linkEmailResponse)
         #expect(response.user.linkedAt != nil)
@@ -150,5 +212,14 @@ struct ContractFixtureTests {
             body: body
         )
         return AYBError.from(response: response)
+    }
+
+    private func assertJSONDictionariesEqual(
+        _ actual: [String: Any],
+        _ expected: [String: Any]
+    ) throws {
+        let actualData = try JSONSerialization.data(withJSONObject: actual, options: [.sortedKeys])
+        let expectedData = try JSONSerialization.data(withJSONObject: expected, options: [.sortedKeys])
+        #expect(String(data: actualData, encoding: .utf8) == String(data: expectedData, encoding: .utf8))
     }
 }

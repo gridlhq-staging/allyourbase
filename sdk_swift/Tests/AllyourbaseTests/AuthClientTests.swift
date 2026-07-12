@@ -3,6 +3,27 @@ import Testing
 @testable import Allyourbase
 
 struct AuthClientTests {
+    @Test func oauthStartURLMatchesCanonicalContractCases() throws {
+        for fixture in ContractFixtures.oauthStartURLCases {
+            let baseURL = try #require(fixture["base_url"] as? String)
+            let provider = try #require(fixture["provider"] as? String)
+            let state = try #require(fixture["state"] as? String)
+            let scopes = fixture["scopes"] as? [String]
+            let redirectTo = fixture["redirect_to"] as? String
+            let expectedPathQuery = try #require(fixture["expected_path_query"] as? String)
+            let client = AYBClient(baseURL)
+
+            let url = try client.auth.oauthStartURL(
+                provider: provider,
+                state: state,
+                scopes: scopes,
+                redirectTo: redirectTo
+            )
+
+            #expect(url.path + (url.query.map { "?\($0)" } ?? "") == expectedPathQuery)
+        }
+    }
+
     @Test func registerGeneratesExpectedRequest() async throws {
         let transport = MockTransport()
         transport.enqueue(StubResponse(status: 200, json: ContractFixtures.authResponse))

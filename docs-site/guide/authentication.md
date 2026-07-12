@@ -389,12 +389,12 @@ curl -X POST http://localhost:8090/api/auth/mfa/totp/verify \
 
 These settings are compatible with all major authenticator apps.
 
-## WebAuthn MFA (Passkeys / Security Keys)
+## WebAuthn passkeys and MFA
 
-WebAuthn provides phishing-resistant multi-factor authentication using passkeys
-(platform authenticators such as Touch ID / Windows Hello) or roaming FIDO2
-security keys (YubiKey, Titan Key, etc.). It is a step-up MFA method only —
-first-factor passkey login is not yet supported.
+WebAuthn provides phishing-resistant authentication using passkeys (platform
+authenticators such as Touch ID / Windows Hello) or roaming FIDO2 security keys
+(YubiKey, Titan Key, etc.). AYB supports passkeys both as a first factor for
+sign-in and as a step-up MFA method.
 
 WebAuthn is **OFF by default**. The relying-party (RP) origin and RP ID are
 derived from `server.public_base_url`, so set that to the canonical HTTPS
@@ -430,7 +430,11 @@ curl -X PATCH http://localhost:8090/api/admin/auth-settings \
 `PATCH /api/admin/auth-settings` uses full-struct semantics — include every
 current toggle key in the body. Omitted booleans are treated as `false`.
 
-### Enrollment
+### Enroll passkeys for MFA and passkey login
+
+Enrollment requires a signed-in, non-anonymous user. Each successful enrollment
+adds another passkey to the user's WebAuthn factor; it does not replace an
+existing passkey.
 
 **Step 1 — Start enrollment:**
 
@@ -439,8 +443,8 @@ curl -X POST http://localhost:8090/api/auth/mfa/webauthn/enroll \
   -H "Authorization: Bearer <token>"
 ```
 
-**Response** (200 OK): a `PublicKeyCredentialCreationOptions` object plus a
-`challenge_id`. Pass the options to the browser's `navigator.credentials.create()`.
+**Response** (200 OK): a `PublicKeyCredentialCreationOptions` object. Pass the
+options to the browser's `navigator.credentials.create()`.
 
 **Step 2 — Confirm enrollment:**
 
@@ -448,13 +452,90 @@ curl -X POST http://localhost:8090/api/auth/mfa/webauthn/enroll \
 curl -X POST http://localhost:8090/api/auth/mfa/webauthn/enroll/confirm \
   -H "Authorization: Bearer <token>" \
   -H "Content-Type: application/json" \
-  -d '{"challenge_id": "uuid", "attestation": { ...credential... }}'
+  -d '{
+        "display_name": "Work laptop",
+        "attestation_response": { ...credential... }
+      }'
 ```
 
-The server verifies the attestation, persists the credential ID, COSE public
-key, and initial sign count on `_ayb_user_mfa`, and marks WebAuthn enrolled.
+The server verifies the attestation and stores the new passkey under the user's
+canonical WebAuthn MFA factor.
 
-### MFA login flow
+### First-factor passkey login
+
+AYB supports two first-factor passkey login ceremonies.
+
+Use the email-first ceremony when your UI asks for an email address before
+starting WebAuthn. `POST /api/auth/webauthn/login/begin` requires `email` and
+returns a challenge envelope:
+
+```bash
+curl -X POST http://localhost:8090/api/auth/webauthn/login/begin \
+  -H "Content-Type: application/json" \
+  -d '{"email": "user@example.com"}'
+```
+
+**Response** (200 OK):
+
+```json
+{
+  "challenge_id": "uuid",
+  "options": { "...": "PublicKeyCredentialRequestOptions" }
+}
+```
+
+Pass `options` to the browser's `navigator.credentials.get()`, then finish the
+login with the serialized assertion response:
+
+```bash
+curl -X POST http://localhost:8090/api/auth/webauthn/login/finish \
+  -H "Content-Type: application/json" \
+  -d '{
+        "challenge_id": "uuid",
+        "assertion_response": { ...credential... }
+      }'
+```
+
+**Response** (200 OK): the normal authenticated response with `token`,
+`refreshToken`, and `user`.
+
+The JavaScript SDK exposes `beginWebAuthnLogin`, `finishWebAuthnLogin`, and
+`signInWithPasskey` for this email-first ceremony. The Go, Python, Dart, and
+Kotlin SDK auth clients expose matching email-first `begin` / `finish` methods.
+
+Use the discoverable ceremony when the browser should let the authenticator
+select the account without an email prompt. The
+`POST /api/auth/webauthn/login/discover/begin` endpoint takes no email input:
+
+```bash
+curl -X POST http://localhost:8090/api/auth/webauthn/login/discover/begin
+```
+
+**Response** (200 OK):
+
+```json
+{
+  "challenge_id": "uuid",
+  "options": { "...": "PublicKeyCredentialRequestOptions" }
+}
+```
+
+The discoverable begin response intentionally has no `allowCredentials`
+allowlist. Pass `options` to `navigator.credentials.get()`, then finish with:
+
+```bash
+curl -X POST http://localhost:8090/api/auth/webauthn/login/discover/finish \
+  -H "Content-Type: application/json" \
+  -d '{
+        "challenge_id": "uuid",
+        "assertion_response": { ...credential... }
+      }'
+```
+
+**Response** (200 OK): the normal authenticated response with `token`,
+`refreshToken`, and `user`.
+
+### Step-up MFA login flow
 
 When a user with WebAuthn enrolled logs in, the login response returns the
 standard MFA-pending shape:
@@ -482,7 +563,10 @@ Pass `options` to the browser's `navigator.credentials.get()`.
 curl -X POST http://localhost:8090/api/auth/mfa/webauthn/verify \
   -H "Authorization: Bearer <mfa_token>" \
   -H "Content-Type: application/json" \
-  -d '{"challenge_id": "uuid", "assertion": { ...credential... }}'
+  -d '{
+        "challenge_id": "uuid",
+        "assertion_response": { ...credential... }
+      }'
 ```
 
 **Response** (200 OK): full access + refresh tokens with `aal: "aal2"` and
@@ -490,6 +574,59 @@ AMR `[<first-factor>, "webauthn"]`. The new authenticator sign count is
 persisted atomically with the challenge consumption. If the authenticator
 reports a clone warning (sign count regression), the server responds 4xx
 **without** mutating the stored counter.
+
+### Manage enrolled passkeys
+
+List safe metadata for the current user's passkeys:
+
+```bash
+curl http://localhost:8090/api/auth/mfa/webauthn/credentials \
+  -H "Authorization: Bearer <token>"
+```
+
+**Response** (200 OK):
+
+```json
+{
+  "credentials": [
+    {
+      "credential_id": "base64urlCredentialId",
+      "display_name": "Work laptop",
+      "transports": ["internal"],
+      "created_at": "2026-02-07T12:00:00Z",
+      "last_used_at": "2026-02-08T12:00:00Z"
+    }
+  ]
+}
+```
+
+The response includes safe metadata only: `credential_id`, `display_name`,
+`transports`, `created_at`, and `last_used_at` when the passkey has been used.
+
+Rename one passkey:
+
+```bash
+curl -X PATCH http://localhost:8090/api/auth/mfa/webauthn/credentials/<credential_id> \
+  -H "Authorization: Bearer <token>" \
+  -H "Content-Type: application/json" \
+  -d '{"display_name": "Personal phone"}'
+```
+
+Delete one passkey:
+
+```bash
+curl -X DELETE http://localhost:8090/api/auth/mfa/webauthn/credentials/<credential_id> \
+  -H "Authorization: Bearer <token>"
+```
+
+Deleting the final passkey through the credential-specific route is rejected.
+Use the legacy no-argument route when you want to remove the entire WebAuthn
+factor:
+
+```bash
+curl -X DELETE http://localhost:8090/api/auth/mfa/webauthn/ \
+  -H "Authorization: Bearer <token>"
+```
 
 ### Security posture
 

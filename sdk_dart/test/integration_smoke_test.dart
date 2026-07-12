@@ -58,6 +58,54 @@ void main() {
       );
 
       test(
+        'begins WebAuthn MFA enrollment with live creation options',
+        () async {
+          final baseUrl = _env.baseUrl;
+          expect(baseUrl, isNotNull);
+
+          final client = AYBClient(baseUrl!);
+          addTearDown(client.close);
+
+          final credentials = _env.newCredentials('webauthn mfa enroll begin');
+          var accountDeleted = false;
+
+          try {
+            await client.auth.register(
+              credentials.email,
+              credentials.password,
+            );
+
+            final response = await client.auth.enrollWebAuthn();
+            final rp = response.options['rp'] as JsonMap;
+            final user = response.options['user'] as JsonMap;
+
+            expect(
+                response.options['challenge'],
+                isA<String>().having(
+                  (value) => value,
+                  'challenge',
+                  isNotEmpty,
+                ));
+            expect(rp['id'], isNotEmpty);
+            expect(rp['name'], isNotEmpty);
+            expect(user['id'], isNotEmpty);
+
+            await client.auth.deleteAccount();
+            accountDeleted = true;
+          } finally {
+            if (!accountDeleted) {
+              try {
+                await client.auth.deleteAccount();
+              } catch (_) {
+                // Best-effort cleanup to avoid orphaned test users.
+              }
+            }
+          }
+        },
+        timeout: Timeout(_env.timeout),
+      );
+
+      test(
         'registers, refreshes, logs out, logs in, and deletes account',
         () async {
           final baseUrl = _env.baseUrl;

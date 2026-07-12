@@ -10,6 +10,7 @@ import kotlinx.serialization.json.encodeToJsonElement
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 import kotlinx.serialization.serializer
+import java.nio.charset.StandardCharsets
 
 class AuthClient internal constructor(
     private val client: AYBClient,
@@ -62,6 +63,78 @@ class AuthClient internal constructor(
         val begin = beginWebAuthnLogin(email)
         val assertionResponse = authenticator.createAssertion(begin.options)
         return finishWebAuthnLogin(begin.challengeId, assertionResponse)
+    }
+
+    /**
+     * Build the OAuth provider start URL. The Kotlin SDK only returns the URL; callers
+     * are responsible for opening it and handling the redirect or popup flow.
+     */
+    fun oauthStartUrl(
+        provider: String,
+        state: String,
+        scopes: List<String>? = null,
+        redirectTo: String? = null,
+    ): String {
+        val baseUrl = client.configuration.baseURL.trimEnd('/')
+        val queryItems = mutableListOf("state=$state")
+        if (!scopes.isNullOrEmpty()) {
+            queryItems += "scopes=${scopes.joinToString(",").oauthQueryEncode()}"
+        }
+        if (!redirectTo.isNullOrEmpty()) {
+            queryItems += "redirect_to=${redirectTo.oauthQueryEncode()}"
+        }
+        return "$baseUrl/api/auth/oauth/$provider?${queryItems.joinToString("&")}"
+    }
+
+    suspend fun enrollWebAuthn(): WebAuthnEnrollBeginResponse =
+        client.request(
+            path = "/api/auth/mfa/webauthn/enroll",
+            method = HttpMethod.POST,
+            decode = { payload -> decodePayload(payload) },
+        )
+
+    suspend fun confirmWebAuthnEnrollment(
+        displayName: String,
+        attestationResponse: JsonObject,
+    ): WebAuthnEnrollConfirmResponse =
+        client.request(
+            path = "/api/auth/mfa/webauthn/enroll/confirm",
+            method = HttpMethod.POST,
+            body = encodePayload(WebAuthnEnrollConfirmRequest(displayName, attestationResponse)),
+            decode = { payload -> decodePayload(payload) },
+        )
+
+    suspend fun webauthnChallenge(mfaToken: String): WebAuthnMfaChallengeResponse =
+        client.request(
+            path = "/api/auth/mfa/webauthn/challenge",
+            method = HttpMethod.POST,
+            headers = mfaAuthorizationHeader(mfaToken),
+            skipAuth = true,
+            decode = { payload -> decodePayload(payload) },
+        )
+
+    suspend fun webauthnVerify(
+        mfaToken: String,
+        challengeId: String,
+        assertionResponse: JsonObject,
+    ): AuthResponse {
+        val response: AuthResponse = client.request(
+            path = "/api/auth/mfa/webauthn/verify",
+            method = HttpMethod.POST,
+            headers = mfaAuthorizationHeader(mfaToken),
+            body = encodePayload(WebAuthnMfaVerifyRequest(challengeId, assertionResponse)),
+            skipAuth = true,
+            decode = { payload -> decodePayload(payload) },
+        )
+        return applySignedInSession(response)
+    }
+
+    suspend fun deleteWebAuthn() {
+        client.request(
+            path = "/api/auth/mfa/webauthn",
+            method = HttpMethod.DELETE,
+            decode = { Unit },
+        )
     }
 
     suspend fun confirmMagicLink(token: String): MagicLinkConfirmResponse {
@@ -144,6 +217,9 @@ class AuthClient internal constructor(
         return response
     }
 
+    private fun mfaAuthorizationHeader(mfaToken: String): Map<String, String> =
+        mapOf("Authorization" to "Bearer $mfaToken")
+
     private inline fun <reified T> encodePayload(payload: T): JsonElement =
         json.encodeToJsonElement(serializer<T>(), payload)
 
@@ -169,3 +245,30 @@ class AuthClient internal constructor(
         return MagicLinkConfirmResponse.Authenticated(json.decodeFromJsonElement(serializer<AuthResponse>(), objectPayload))
     }
 }
+
+private fun String.oauthQueryEncode(): String =
+    buildString {
+        for (byte in this@oauthQueryEncode.toByteArray(StandardCharsets.UTF_8)) {
+            val value = byte.toInt() and 0xff
+            if (value.isOAuthQuerySafeAscii()) {
+                append(value.toChar())
+            } else {
+                append('%')
+                append(value.toString(16).uppercase().padStart(2, '0'))
+            }
+        }
+    }
+
+private fun Int.isOAuthQuerySafeAscii(): Boolean =
+    this in 'A'.code..'Z'.code ||
+        this in 'a'.code..'z'.code ||
+        this in '0'.code..'9'.code ||
+        this == '-'.code ||
+        this == '_'.code ||
+        this == '.'.code ||
+        this == '!'.code ||
+        this == '~'.code ||
+        this == '*'.code ||
+        this == '\''.code ||
+        this == '('.code ||
+        this == ')'.code

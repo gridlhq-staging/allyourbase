@@ -11,6 +11,10 @@ import type { Page } from "@playwright/test";
 test.describe("SQL Editor Lifecycle (Full E2E)", () => {
   const tablesToDrop: string[] = [];
 
+  function escapeRegExp(text: string): string {
+    return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  }
+
   async function getStoredSQLQuery(page: Page): Promise<string | null> {
     const state = await page.context().storageState();
     for (const origin of state.origins) {
@@ -18,6 +22,13 @@ test.describe("SQL Editor Lifecycle (Full E2E)", () => {
       if (storedQuery) return storedQuery.value;
     }
     return null;
+  }
+
+  async function expectMissingRelationError(page: Page, tableName: string): Promise<void> {
+    const escapedTableName = escapeRegExp(tableName);
+    await expect(
+      page.getByText(new RegExp(`^ERROR: relation "${escapedTableName}".*does not exist`, "i")),
+    ).toBeVisible({ timeout: 5000 });
   }
 
   test.afterEach(async ({ request, adminToken }) => {
@@ -82,9 +93,7 @@ test.describe("SQL Editor Lifecycle (Full E2E)", () => {
 
     await sqlInput.fill("SELECT * FROM definitely_missing_admin_sql_table;");
     await page.getByRole("button", { name: /Execute/i }).click();
-    await expect(
-      page.getByRole("main").getByText(/ERROR:.*definitely_missing_admin_sql_table/i),
-    ).toBeVisible({ timeout: 5000 });
+    await expectMissingRelationError(page, "definitely_missing_admin_sql_table");
     expect(await getStoredSQLQuery(page)).toBe(storedSuccessfulQuery);
 
     // DDL: DROP TABLE
@@ -104,11 +113,7 @@ test.describe("SQL Editor Lifecycle (Full E2E)", () => {
     await page.getByRole("button", { name: /Execute/i }).click();
 
     // Expect an error since the table was dropped
-    await expect(
-      page
-        .getByRole("main")
-        .getByText(new RegExp(`ERROR:.*relation.*${tableName}.*does not exist|not found`, "i")),
-    ).toBeVisible({ timeout: 5000 });
+    await expectMissingRelationError(page, tableName);
 
     // Table already dropped — remove from cleanup list
     const idx = tablesToDrop.indexOf(tableName);

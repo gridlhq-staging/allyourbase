@@ -1,0 +1,61 @@
+{
+  "attestation": "none",
+  "authenticatorSelection": {
+    "requireResidentKey": false,
+    "residentKey": "preferred",
+    "userVerification": "preferred"
+  },
+  "challenge": "webauthn_enroll_begin_challenge",
+  "pubKeyCredParams": [
+    {
+      "alg": -7,
+      "type": "public-key"
+    },
+    {
+      "alg": -35,
+      "type": "public-key"
+    },
+    {
+      "alg": -36,
+      "type": "public-key"
+    },
+    {
+      "alg": -257,
+      "type": "public-key"
+    },
+    {
+      "alg": -258,
+      "type": "public-key"
+    },
+    {
+      "alg": -259,
+      "type": "public-key"
+    },
+    {
+      "alg": -37,
+      "type": "public-key"
+    },
+    {
+      "alg": -38,
+      "type": "public-key"
+    },
+    {
+      "alg": -39,
+      "type": "public-key"
+    },
+    {
+      "alg": -8,
+      "type": "public-key"
+    }
+  ],
+  "rp": {
+    "id": "127.0.0.1",
+    "name": "Allyourbase"
+  },
+  "timeout": 300000,
+  "user": {
+    "displayName": "webauthn-e2e@example.com",
+    "id": "webauthn_enroll_user_id",
+    "name": "webauthn-e2e@example.com"
+  }
+}

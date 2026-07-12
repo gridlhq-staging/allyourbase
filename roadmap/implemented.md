@@ -2,6 +2,28 @@
 
 > This file is the curated public shipped-history ledger, synced to staging and prod via debbie. Raw per-lane archive notes live in `implemented/` and are not part of the public sync.
 
+### Ship-it batch — v0.0.15-beta release, live demo surface, SDK auth/realtime parity (jul11_pm waves 1–2 + jul12_am_1, merged 2026-07-12)
+
+Ten lanes across the batch's first two waves ship the accumulated multi-tenant/multi-node backend work to users and close the highest-value SDK parity gaps; a same-day remediation lane fixed a realtime regression the release surfaced.
+
+v0.0.15-beta released — published on `AllyourbaseHQ/allyourbase` with GitHub release and GHCR image; `install.sh` resolves it as the latest app release. The release carries the three prior batches: multi-tenant storage isolation, multi-node realtime/denylist enablers, pooled-tenant safety, real AI token streaming, and non-JS SDK passkey/synonym parity.
+
+Hosted demo surface repaired — the Cloudflare Pages deploy pipeline for Live Polls, InstantSearch, and the docs site is green again from prod workflows, and the cross-demo live gate passes against the deployed surfaces. (The kanban and movies demos still lack deploy workflows; gap spec recorded.)
+
+Canonical auth contract fixtures — WebAuthn-MFA second-factor (enroll/confirm/challenge/verify) and OAuth start-URL fixtures are captured from the real server into `tests/contract/fixtures/sdk_contract/`, giving all SDKs one wire-shape SSOT for those flows.
+
+SDK auth parity (OAuth + MFA second factor) — the Python, Dart, Kotlin, and Swift SDKs now expose WebAuthn MFA second-factor wire helpers, and Python/Kotlin/Swift gained OAuth start-URL helpers (JS/React/Dart already had OAuth), each pinned by fixture-driven contract tests.
+
+Go SDK realtime client — `sdk_go/realtime.go` ships the first Go realtime WebSocket client: subscribe/unsubscribe with typed events, authenticated connects, and reconnect-with-backoff, with deterministic reconnect coverage.
+
+Hygiene debt burndown — committed worktree-absolute path leaks stripped and the codehealth guard widened; stale merged branches archived (fulfilling the promised `pgmanager-600s-archive-2026-05-21` tag) and garbage-collected; the screen-spec gate glob fixed; two permanently-skipped demo specs dispositioned.
+
+Feature-matrix re-audit — the internal per-SDK feature inventory was fully re-audited with code citations for every cell flip (first full SDK-column audit since June).
+
+Realtime tenant-isolation regression fix — the v0.0.15-beta release merge had reintroduced a fail-open path in realtime record-visibility checks for tables without usable RLS SELECT/PK metadata, letting one tenant's WebSocket subscription receive another tenant's row events in pooled mode. The fail-closed floor is restored with a regression test; the fix follows the v0.0.15-beta cut and ships in the next release.
+
+Still in flight at this writing: the multi-credential + resident-key passkey backend lane (complete on its branch, in final review) and the batch's third wave (passkeys dashboard UI, Go SDK auth parity, ~30 more screen specs).
+
 ### Next-waves batch — schema-isolation correctness, SDK parity, screen specs (jul10_pm, merged 2026-07-11)
 
 Twelve lanes across three sequential waves close the highest-value pooled-multitenant correctness gap, bring the non-JS SDKs to passkey + synonym parity, and formalize the core dashboard screens with target-behavior specs. (A thirteenth planned lane — a storage-quota 413 HTTP-boundary test — was dropped pre-dispatch after review confirmed the wire contract was already pinned by three existing real-server tests.)

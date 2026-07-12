@@ -224,7 +224,7 @@ test-e2e: build ## Run all Playwright tests — smoke + full (builds + starts se
 
 test-sdk-integration: build ## Run the SDK integration suite against a live AYB — auth + storage (builds + starts server)
 	cd sdk && npm ci
-	@bash -lc '$(BROWSER_EXPORT_AUTH_ENV); export AYB_STORAGE_ENABLED=true; bash scripts/run-with-ayb.sh "cd sdk && npm run test:integration"'
+	@bash -lc '$(BROWSER_EXPORT_AUTH_ENV); export AYB_STORAGE_ENABLED=true; export AYB_AUTH_ANONYMOUS_AUTH_ENABLED=true; bash scripts/run-with-ayb.sh '"'"'bash scripts/sdk_live_proof_seed.sh && cd sdk && npm run test:integration && cd ../sdk_go && export AYB_TEST_URL="$${AYB_BASE_URL}" AYB_TEST_COLLECTION="$${AYB_SDK_LIVE_PROOF_COLLECTION:-sdk_kotlin_search_posts}" AYB_TEST_ADMIN_TOKEN="$$(cat "$${AYB_ADMIN_TOKEN_PATH:-$${HOME}/.ayb/admin-token}")" && go test -count=1 -run TestE2E ./... -v'"'"''
 
 load-admin-status: ## Run direct k6 baseline scenario against AYB_BASE_URL (default http://127.0.0.1:8090)
 	@bash -lc '$(LOAD_BOOTSTRAP_FUNCTIONS); load_export_env; load_resolve_admin_token; $(LOAD_ADMIN_STATUS_K6_COMMAND)'

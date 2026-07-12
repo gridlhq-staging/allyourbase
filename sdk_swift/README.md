@@ -64,6 +64,52 @@ The SDK unit-tests the WebAuthn request/response serialization and HTTP flow.
 The native biometric sheet itself is outside autonomous unit validation and
 requires device or simulator runtime validation by the app.
 
+OAuth sign-in starts by asking the SDK for the provider URL; the app presents it
+with its own browser or `ASWebAuthenticationSession`:
+
+```swift
+let url = try ayb.auth.oauthStartURL(
+    provider: "github",
+    state: state,
+    scopes: ["user:email"],
+    redirectTo: "myapp://auth/callback"
+)
+```
+
+For WebAuthn MFA enrollment, use the authenticated wire calls directly or inject
+an attestation authenticator for the native ceremony:
+
+```swift
+let begin = try await ayb.auth.enrollWebAuthn()
+let confirmed = try await ayb.auth.confirmWebAuthnEnrollment(
+    displayName: "Primary security key",
+    attestationResponse: attestationResponse
+)
+
+let enrolled = try await ayb.auth.enrollPasskey(
+    displayName: "Primary security key",
+    authenticator: authenticator
+)
+```
+
+When a login returns an MFA-pending token, pass that short-lived token explicitly.
+The SDK sends it only on the MFA challenge and verify requests and does not store
+it as the session token:
+
+```swift
+let challenge = try await ayb.auth.webauthnChallenge(mfaToken: mfaToken)
+let session = try await ayb.auth.webauthnVerify(
+    mfaToken: mfaToken,
+    challengeId: challenge.challengeId,
+    assertionResponse: assertionResponse
+)
+
+let sessionFromPasskey = try await ayb.auth.verifyPasskey(
+    mfaToken: mfaToken,
+    authenticator: authenticator
+)
+```
+
 ## Search Synonyms
 
 Typed synonym management lives on `ayb.records` and requires admin auth:

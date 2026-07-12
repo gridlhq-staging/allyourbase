@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"testing"
 
@@ -251,6 +252,46 @@ func TestHandleOpenAPIJSON_includesStage2Endpoints(t *testing.T) {
 		}
 		if !hasMethod {
 			t.Errorf("Stage 2 path %s has no HTTP operation", p)
+		}
+	}
+}
+
+func TestStaticOpenAPIIncludesWebAuthnCredentialManagement(t *testing.T) {
+	t.Parallel()
+
+	spec, err := os.ReadFile("../../openapi/openapi.yaml")
+	if err != nil {
+		t.Fatalf("read canonical OpenAPI spec: %v", err)
+	}
+	body := string(spec)
+
+	for _, want := range []string{
+		"/api/auth/mfa/webauthn/credentials:",
+		"/api/auth/mfa/webauthn/credentials/{credential_id}:",
+		"WebAuthnCredentialId:",
+		"WebAuthnCredentialListResponse:",
+		"WebAuthnCredential:",
+		"WebAuthnCredentialRenameRequest:",
+		"credential_id:",
+		"display_name:",
+		"transports:",
+		"created_at:",
+		"last_used_at:",
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("canonical OpenAPI spec missing %q", want)
+		}
+	}
+
+	start := strings.Index(body, "    WebAuthnCredential:")
+	end := strings.Index(body, "    WebAuthnCredentialRenameRequest:")
+	if start < 0 || end < 0 || end <= start {
+		t.Fatal("canonical OpenAPI spec must define WebAuthnCredential before WebAuthnCredentialRenameRequest")
+	}
+	credentialSchema := body[start:end]
+	for _, forbidden := range []string{"public_key:", "sign_count:", "factor_id:"} {
+		if strings.Contains(credentialSchema, forbidden) {
+			t.Errorf("WebAuthnCredential schema exposes forbidden field %s", forbidden)
 		}
 	}
 }

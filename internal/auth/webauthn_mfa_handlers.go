@@ -259,6 +259,73 @@ func (h *Handler) handleWebAuthnFirstFactorFinish(w http.ResponseWriter, r *http
 	})
 }
 
+// handleWebAuthnDiscoverableBegin starts a username-less passkey login.
+func (h *Handler) handleWebAuthnDiscoverableBegin(w http.ResponseWriter, r *http.Request) {
+	challengeID, assertion, err := h.auth.CreateWebAuthnDiscoverableChallenge(
+		r.Context(), mfaChallengeIP(r), h.webauthnPublicBaseURL,
+	)
+	if err != nil {
+		h.logger.Error("WebAuthn discoverable challenge error", "error", err)
+		httputil.WriteError(w, http.StatusInternalServerError, "internal error")
+		return
+	}
+
+	httputil.WriteJSON(w, http.StatusOK, map[string]any{
+		"challenge_id": challengeID,
+		"options":      assertion.Response,
+	})
+}
+
+// handleWebAuthnDiscoverableFinish completes a username-less passkey login.
+func (h *Handler) handleWebAuthnDiscoverableFinish(w http.ResponseWriter, r *http.Request) {
+	var req webauthnVerifyRequest
+	if !decodeBody(w, r, &req) {
+		return
+	}
+	if req.ChallengeID == "" {
+		httputil.WriteError(w, http.StatusBadRequest, "challenge_id is required")
+		return
+	}
+	if len(req.AssertionResponse) == 0 {
+		httputil.WriteError(w, http.StatusBadRequest, "assertion_response is required")
+		return
+	}
+
+	parsed, err := protocol.ParseCredentialRequestResponseBytes(req.AssertionResponse)
+	if err != nil {
+		httputil.WriteError(w, http.StatusBadRequest, "invalid assertion response")
+		return
+	}
+
+	user, accessToken, refreshToken, err := h.auth.VerifyWebAuthnDiscoverableChallenge(
+		r.Context(), req.ChallengeID, h.webauthnPublicBaseURL, parsed,
+	)
+	if err != nil {
+		switch {
+		case errors.Is(err, ErrWebAuthnChallengeNotFound):
+			httputil.WriteErrorWithDocURL(w, http.StatusUnauthorized,
+				"invalid passkey",
+				"https://allyourbase.io/guide/authentication")
+		case errors.Is(err, ErrWebAuthnChallengeUsed):
+			httputil.WriteError(w, http.StatusConflict, "challenge already verified")
+		case errors.Is(err, ErrWebAuthnClonedKey):
+			httputil.WriteError(w, http.StatusUnauthorized, "cloned authenticator detected")
+		case errors.Is(err, ErrWebAuthnInvalidAssertion):
+			httputil.WriteError(w, http.StatusUnauthorized, "WebAuthn assertion failed")
+		default:
+			h.logger.Error("WebAuthn discoverable verify error", "error", err)
+			httputil.WriteError(w, http.StatusInternalServerError, "internal error")
+		}
+		return
+	}
+
+	httputil.WriteJSON(w, http.StatusOK, authResponse{
+		Token:        accessToken,
+		RefreshToken: refreshToken,
+		User:         user,
+	})
+}
+
 func (h *Handler) handleWebAuthnVerify(w http.ResponseWriter, r *http.Request) {
 	claims := mfaPendingClaimsFromContext(r.Context())
 	if claims == nil {

@@ -37,6 +37,44 @@ class WebAuthnLoginBeginResponse(BaseModel):
     options: Dict[str, Any]
 
 
+class WebAuthnEnrollBeginResponse(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    challenge: str
+    rp: Dict[str, Any]
+    user: Dict[str, Any]
+    pub_key_cred_params: List[Dict[str, Any]] = Field(alias="pubKeyCredParams")
+    timeout: int
+    attestation: str
+    authenticator_selection: Dict[str, Any] = Field(
+        default_factory=dict,
+        alias="authenticatorSelection",
+    )
+    exclude_credentials: List[Dict[str, Any]] = Field(
+        default_factory=list,
+        alias="excludeCredentials",
+    )
+
+
+class WebAuthnEnrollConfirmRequest(BaseModel):
+    display_name: str
+    attestation_response: Dict[str, Any]
+
+
+class WebAuthnEnrollConfirmResponse(BaseModel):
+    message: str
+
+
+class WebAuthnMFAChallengeResponse(BaseModel):
+    challenge_id: str
+    options: Dict[str, Any]
+
+
+class WebAuthnMFAVerifyRequest(BaseModel):
+    challenge_id: str
+    assertion_response: Dict[str, Any]
+
+
 class MagicLinkConfirmResponse(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 

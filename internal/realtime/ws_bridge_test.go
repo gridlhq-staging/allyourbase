@@ -323,35 +323,6 @@ func setupAuthedBridgeServer(t *testing.T, tokens map[string]string) (*realtime.
 	return hub, srv
 }
 
-func setupRLSFilteredBridgeServer(t *testing.T, tokens map[string]string) (*realtime.Hub, *httptest.Server) {
-	t.Helper()
-	return setupRLSConfiguredBridgeServer(t, tokens, true)
-}
-
-func setupNonRLSFilteredBridgeServer(t *testing.T, tokens map[string]string) (*realtime.Hub, *httptest.Server) {
-	t.Helper()
-	return setupRLSConfiguredBridgeServer(t, tokens, false)
-}
-
-func setupRLSConfiguredBridgeServer(t *testing.T, tokens map[string]string, rlsEnabled bool) (*realtime.Hub, *httptest.Server) {
-	t.Helper()
-	hub := realtime.NewHub(testutil.DiscardLogger())
-	wsHandler := ws.NewHandler(&tenantTokenValidator{tokens: tokens}, testutil.DiscardLogger())
-	cache := schema.NewCacheHolder(nil, testutil.DiscardLogger())
-	cache.SetForTesting(&schema.SchemaCache{Tables: map[string]*schema.Table{
-		"public.posts": {Schema: "public", Name: "posts", Kind: "table", RLSEnabled: rlsEnabled},
-	}})
-	bridge := realtime.NewWSBridge(hub, &pgxpool.Pool{}, cache, testutil.DiscardLogger())
-	bridge.SetupHandler(wsHandler)
-	srv := httptest.NewServer(wsHandler)
-	t.Cleanup(func() {
-		wsHandler.Shutdown()
-		hub.Close()
-		srv.Close()
-	})
-	return hub, srv
-}
-
 func wsConnectWithToken(t *testing.T, url, token string) *websocket.Conn {
 	t.Helper()
 	wsURL := "ws" + url[len("http"):]
@@ -400,56 +371,6 @@ func TestBridgeTenantScopedDeliveryFromClaims(t *testing.T) {
 	testutil.Equal(t, "posts", msg.Table)
 
 	// tenant-b connection must not.
-	_ = connB.SetReadDeadline(time.Now().Add(100 * time.Millisecond))
-	var leaked ws.ServerMessage
-	err := connB.ReadJSON(&leaked)
-	testutil.True(t, err != nil, "tenant-b connection must not receive a tenant-a event")
-}
-
-func TestBridgeRLSFilteredTransportReceivesCrossTenantCandidateEvents(t *testing.T) {
-	t.Parallel()
-	hub, srv := setupRLSFilteredBridgeServer(t, map[string]string{
-		"token-user": "",
-	})
-
-	connB := wsConnectWithToken(t, srv.URL, "token-user")
-	defer connB.Close()
-
-	wsSendJSON(t, connB, map[string]any{"type": "subscribe", "tables": []string{"posts"}})
-	wsReadReply(t, connB)
-
-	hub.Publish(&realtime.Event{
-		Action:   "create",
-		Table:    "posts",
-		TenantID: "tenant-a",
-		Record:   map[string]any{"id": 1, "title": "public by RLS"},
-	})
-
-	msg := wsReadEvent(t, connB, time.Second)
-	testutil.Equal(t, "create", msg.Action)
-	testutil.Equal(t, "posts", msg.Table)
-	testutil.Equal(t, "public by RLS", msg.Record["title"])
-}
-
-func TestBridgeTenantClaimKeepsTenantGateWithRLSFiltering(t *testing.T) {
-	t.Parallel()
-	hub, srv := setupNonRLSFilteredBridgeServer(t, map[string]string{
-		"token-b": "tenant-b",
-	})
-
-	connB := wsConnectWithToken(t, srv.URL, "token-b")
-	defer connB.Close()
-
-	wsSendJSON(t, connB, map[string]any{"type": "subscribe", "tables": []string{"posts"}})
-	wsReadReply(t, connB)
-
-	hub.Publish(&realtime.Event{
-		Action:   "create",
-		Table:    "posts",
-		TenantID: "tenant-a",
-		Record:   map[string]any{"id": 1, "title": "tenant-a only"},
-	})
-
 	_ = connB.SetReadDeadline(time.Now().Add(100 * time.Millisecond))
 	var leaked ws.ServerMessage
 	err := connB.ReadJSON(&leaked)

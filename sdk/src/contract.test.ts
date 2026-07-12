@@ -1,8 +1,13 @@
 import { describe, it, expect } from "vitest";
 import { readFileSync, readdirSync } from "node:fs";
-import { resolve } from "node:path";
+import { basename, resolve } from "node:path";
 import { AYBClient } from "./client";
 import { AYBError } from "./errors";
+import { buildOAuthStartURL, serializeWebAuthnMFAVerifyRequest } from "./auth";
+import {
+  normalizeAuthResponse,
+  normalizeWebAuthnMFAChallengeResponse,
+} from "./helpers";
 import { AYBClient as PublicAYBClient } from "./index";
 import { createInstantSearchClient } from "./instantsearch";
 import type {
@@ -16,7 +21,11 @@ import type {
   SearchHit as PublicSearchHit,
   StorageObject as PublicStorageObject,
   User as PublicUser,
+  WebAuthnEnrollBeginResponse as PublicWebAuthnEnrollBeginResponse,
+  WebAuthnEnrollConfirmRequest as PublicWebAuthnEnrollConfirmRequest,
   WebAuthnLoginBeginResponse as PublicWebAuthnLoginBeginResponse,
+  WebAuthnMFAChallengeResponse as PublicWebAuthnMFAChallengeResponse,
+  WebAuthnMFAVerifyRequest as PublicWebAuthnMFAVerifyRequest,
 } from "./index";
 import { mockFetchSequence } from "./test_utils/mockFetchSequence";
 import type {
@@ -30,7 +39,11 @@ import type {
   SearchHit,
   StorageObject,
   User,
+  WebAuthnEnrollBeginResponse,
+  WebAuthnEnrollConfirmRequest,
   WebAuthnLoginBeginResponse,
+  WebAuthnMFAChallengeResponse,
+  WebAuthnMFAVerifyRequest,
 } from "./types";
 import type {
   InstantSearchClient,
@@ -42,11 +55,32 @@ import type {
 } from "./instantsearch";
 
 function loadContractFixture(name: string): unknown {
+  if (name === "" || name === "." || name === ".." || basename(name) !== name || /[\\/]/.test(name)) {
+    throw new Error(`sdk contract fixture name must be a single filename: ${name}`);
+  }
   const fixturePath = resolve(__dirname, "../../tests/contract/fixtures/sdk_contract", name);
   return JSON.parse(readFileSync(fixturePath, "utf8")) as unknown;
 }
 
+interface OAuthStartURLFixtureCase {
+  base_url: string;
+  provider: "google" | "github";
+  state: string;
+  scopes?: string[];
+  redirect_to?: string;
+  expected_path_query: string;
+}
+
 describe("SDK contract fixtures", () => {
+  it("rejects fixture paths outside the canonical sdk_contract directory", () => {
+    expect(() => loadContractFixture("../auth_response.json")).toThrow(
+      "sdk contract fixture name must be a single filename",
+    );
+    expect(() => loadContractFixture("..\\auth_response.json")).toThrow(
+      "sdk contract fixture name must be a single filename",
+    );
+  });
+
   it("keeps magic-link fixtures canonical to sdk_contract tree", () => {
     const sdkParityFixtureDir = resolve(__dirname, "../../tests/contract/fixtures/sdk_parity");
     const duplicateMagicLinkFixtures = readdirSync(sdkParityFixtureDir).filter((fileName) =>
@@ -66,6 +100,10 @@ describe("SDK contract fixtures", () => {
     const assertStorageType = (_value: StorageObject): void => {};
     const assertUserType = (_value: User): void => {};
     const assertWebAuthnBeginType = (_value: WebAuthnLoginBeginResponse): void => {};
+    const assertWebAuthnEnrollBeginType = (_value: WebAuthnEnrollBeginResponse): void => {};
+    const assertWebAuthnEnrollConfirmType = (_value: WebAuthnEnrollConfirmRequest): void => {};
+    const assertWebAuthnMFAChallengeType = (_value: WebAuthnMFAChallengeResponse): void => {};
+    const assertWebAuthnMFAVerifyType = (_value: WebAuthnMFAVerifyRequest): void => {};
     const assertSearchSynonymsRequestType = (_value: SearchSynonymsRequest): void => {};
     const assertSearchSynonymsResponseType = (_value: SearchSynonymsResponse): void => {};
     const assertFacetHitType = (_value: FacetValueSearchHit): void => {};
@@ -78,11 +116,67 @@ describe("SDK contract fixtures", () => {
     assertStorageType({} as PublicStorageObject);
     assertUserType({} as PublicUser);
     assertWebAuthnBeginType({} as PublicWebAuthnLoginBeginResponse);
+    assertWebAuthnEnrollBeginType({} as PublicWebAuthnEnrollBeginResponse);
+    assertWebAuthnEnrollConfirmType({} as PublicWebAuthnEnrollConfirmRequest);
+    assertWebAuthnMFAChallengeType({} as PublicWebAuthnMFAChallengeResponse);
+    assertWebAuthnMFAVerifyType({} as PublicWebAuthnMFAVerifyRequest);
     assertSearchSynonymsRequestType({} as PublicSearchSynonymsRequest);
     assertSearchSynonymsResponseType({} as PublicSearchSynonymsResponse);
     assertFacetHitType({} as PublicFacetValueSearchHit);
     assertFacetParamsType({} as PublicFacetValueSearchParams);
     assertFacetResponseType({} as PublicFacetValueSearchResponse);
+  });
+
+  it("OAuth start URL fixture cases preserve exact path and query bytes", () => {
+    const cases = loadContractFixture(
+      "oauth_start_url_cases.json",
+    ) as OAuthStartURLFixtureCase[];
+
+    expect(cases).toHaveLength(5);
+
+    for (const fixtureCase of cases) {
+      const actualURL = new URL(
+        buildOAuthStartURL(
+          fixtureCase.base_url,
+          fixtureCase.provider,
+          fixtureCase.state,
+          {
+            scopes: fixtureCase.scopes,
+            redirectTo: fixtureCase.redirect_to,
+          },
+        ),
+      );
+      const expectedURL = new URL(
+        `${fixtureCase.base_url}${fixtureCase.expected_path_query}`,
+      );
+
+      expect(`${actualURL.pathname}${actualURL.search}`).toBe(
+        fixtureCase.expected_path_query,
+      );
+      expect(actualURL.pathname).toBe(expectedURL.pathname);
+      expect([...actualURL.searchParams.keys()]).toEqual([
+        ...expectedURL.searchParams.keys(),
+      ]);
+      expect(actualURL.searchParams.get("state")).toBe(fixtureCase.state);
+
+      if (fixtureCase.scopes) {
+        expect(actualURL.search).toContain("scopes=");
+        expect(actualURL.searchParams.get("scopes")).toBe(
+          fixtureCase.scopes.join(","),
+        );
+      } else {
+        expect(actualURL.searchParams.has("scopes")).toBe(false);
+      }
+
+      if (fixtureCase.redirect_to) {
+        expect(actualURL.search).toContain("redirect_to=");
+        expect(actualURL.searchParams.get("redirect_to")).toBe(
+          fixtureCase.redirect_to,
+        );
+      } else {
+        expect(actualURL.searchParams.has("redirect_to")).toBe(false);
+      }
+    }
   });
 
   it("InstantSearch subpath owner exposes the adapter factory and local types", () => {
@@ -382,6 +476,124 @@ describe("SDK contract fixtures", () => {
     expect(response.options.allowCredentials).toEqual([
       { id: "webauthn_login_begin_credential_a", type: "public-key" },
     ]);
+  });
+
+  it("webauthn mfa enroll begin fixture pins creation options", () => {
+    const fixture = loadContractFixture(
+      "webauthn_enroll_begin_response.json",
+    ) as WebAuthnEnrollBeginResponse;
+
+    expect(fixture.challenge).toBe("webauthn_enroll_begin_challenge");
+    expect(fixture.rp).toEqual({ id: "127.0.0.1", name: "Allyourbase" });
+    expect(fixture.user).toEqual({
+      id: "webauthn_enroll_user_id",
+      name: "webauthn-e2e@example.com",
+      displayName: "webauthn-e2e@example.com",
+    });
+    expect(fixture.pubKeyCredParams).toEqual([
+      { type: "public-key", alg: -7 },
+      { type: "public-key", alg: -35 },
+      { type: "public-key", alg: -36 },
+      { type: "public-key", alg: -257 },
+      { type: "public-key", alg: -258 },
+      { type: "public-key", alg: -259 },
+      { type: "public-key", alg: -37 },
+      { type: "public-key", alg: -38 },
+      { type: "public-key", alg: -39 },
+      { type: "public-key", alg: -8 },
+    ]);
+    expect(fixture.timeout).toBe(300000);
+    expect(fixture.attestation).toBe("none");
+    expect(fixture.excludeCredentials ?? []).toEqual([]);
+  });
+
+  it("webauthn mfa enroll confirm fixtures pin request and response envelopes", () => {
+    const request = loadContractFixture(
+      "webauthn_enroll_confirm_request.json",
+    ) as {
+      display_name: string;
+      attestation_response: Record<string, unknown>;
+    };
+    const response = loadContractFixture("webauthn_enroll_confirm_response.json");
+
+    expect(request.display_name).toBe("Primary security key");
+    expect(request.attestation_response).toEqual({
+      clientExtensionResults: {},
+      id: "webauthn_enroll_credential",
+      rawId: "webauthn_enroll_credential",
+      response: {
+        attestationObject: "webauthn_enroll_attestation_object",
+        clientDataJSON:
+          "eyJ0eXBlIjoid2ViYXV0aG4uY3JlYXRlIiwiY2hhbGxlbmdlIjoid2ViYXV0aG5fZW5yb2xsX2JlZ2luX2NoYWxsZW5nZSIsIm9yaWdpbiI6Imh0dHA6Ly8xMjcuMC4wLjE6ODA5MCJ9",
+        transports: ["internal"],
+      },
+      type: "public-key",
+    });
+    expect(response).toEqual({ message: "WebAuthn MFA enrollment confirmed" });
+  });
+
+  it("webauthn mfa challenge fixture normalizes challenge_id", () => {
+    const fixture = loadContractFixture("webauthn_mfa_challenge_response.json");
+    const response = normalizeWebAuthnMFAChallengeResponse(fixture);
+
+    expect(response).toEqual({
+      challengeId: "webauthn_mfa_challenge_fixture",
+      options: {
+        allowCredentials: [
+          {
+            id: "webauthn_mfa_credential_a",
+            type: "public-key",
+          },
+        ],
+        challenge: "webauthn_mfa_challenge",
+        rpId: "127.0.0.1",
+        timeout: 300000,
+      },
+    });
+  });
+
+  it("webauthn mfa verify fixtures pin request and auth response normalization", () => {
+    const wireRequest = loadContractFixture("webauthn_mfa_verify_request.json") as {
+      challenge_id: string;
+      assertion_response: Record<string, unknown>;
+    };
+    const verifyRequest: WebAuthnMFAVerifyRequest = {
+      challengeId: wireRequest.challenge_id,
+      assertionResponse: wireRequest.assertion_response,
+    };
+
+    expect(JSON.parse(serializeWebAuthnMFAVerifyRequest(verifyRequest))).toEqual(wireRequest);
+    expect(wireRequest).toEqual({
+      challenge_id: "webauthn_mfa_challenge_fixture",
+      assertion_response: {
+        clientExtensionResults: {},
+        id: "webauthn_mfa_credential",
+        rawId: "webauthn_mfa_credential",
+        response: {
+          authenticatorData: "EsoXtJryKJQ28wPgFmAwoh5SXSZuIJJnQzgBqP1AcaAFAAAAAQ",
+          clientDataJSON:
+            "eyJ0eXBlIjoid2ViYXV0aG4uZ2V0IiwiY2hhbGxlbmdlIjoid2ViYXV0aG5fbWZhX2NoYWxsZW5nZSIsIm9yaWdpbiI6Imh0dHA6Ly8xMjcuMC4wLjE6ODA5MCJ9",
+          signature: "webauthn_mfa_signature",
+          userHandle: "webauthn_mfa_user_handle",
+        },
+        type: "public-key",
+      },
+    });
+
+    const response = normalizeAuthResponse(
+      loadContractFixture("webauthn_mfa_verify_response.json") as AuthResponse,
+    );
+    expect(response).toEqual({
+      token: "jwt_webauthn_mfa",
+      refreshToken: "refresh_webauthn_mfa",
+      user: {
+        id: "usr_webauthn_mfa",
+        email: "webauthn-e2e@example.com",
+        emailVerified: undefined,
+        createdAt: "2026-07-11T00:00:00Z",
+        updatedAt: "2026-07-11T00:00:00Z",
+      },
+    });
   });
 
   it("search synonym fixtures pin PUT request and normalized response envelopes", async () => {

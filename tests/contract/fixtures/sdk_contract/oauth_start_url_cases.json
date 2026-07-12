@@ -1,0 +1,36 @@
+[
+  {
+    "base_url": "https://api.example.com",
+    "provider": "google",
+    "state": "state_google_minimal",
+    "expected_path_query": "/api/auth/oauth/google?state=state_google_minimal"
+  },
+  {
+    "base_url": "https://api.example.com",
+    "provider": "github",
+    "state": "state_github_minimal",
+    "expected_path_query": "/api/auth/oauth/github?state=state_github_minimal"
+  },
+  {
+    "base_url": "https://api.example.com",
+    "provider": "google",
+    "state": "state_scopes_only",
+    "scopes": ["calendar.read", "drive.read"],
+    "expected_path_query": "/api/auth/oauth/google?state=state_scopes_only&scopes=calendar.read%2Cdrive.read"
+  },
+  {
+    "base_url": "https://api.example.com",
+    "provider": "google",
+    "state": "state_redirect_only",
+    "redirect_to": "https://app.example.com/post-oauth?next=/home&tab=a b#done",
+    "expected_path_query": "/api/auth/oauth/google?state=state_redirect_only&redirect_to=https%3A%2F%2Fapp.example.com%2Fpost-oauth%3Fnext%3D%2Fhome%26tab%3Da%20b%23done"
+  },
+  {
+    "base_url": "https://api.example.com",
+    "provider": "github",
+    "state": "state_scopes_redirect",
+    "scopes": ["user:email", "read:org"],
+    "redirect_to": "https://app.example.com/welcome?from=github",
+    "expected_path_query": "/api/auth/oauth/github?state=state_scopes_redirect&scopes=user%3Aemail%2Cread%3Aorg&redirect_to=https%3A%2F%2Fapp.example.com%2Fwelcome%3Ffrom%3Dgithub"
+  }
+]

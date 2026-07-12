@@ -64,23 +64,35 @@ async function authenticateLiveAccount(
   // useAuth fires two concurrent loadMe() calls after register/login (one
   // from the method, one from onAuthStateChange SIGNED_IN). If the second
   // hits a rate limit, user resets to null and the auth form flickers back.
-  // Deduplicate concurrent /api/auth/me responses at the network layer so
-  // both loadMe() calls resolve with the same successful response.
+  // Deduplicate the burst by fetching /api/auth/me once and serving that same
+  // response to every concurrent call. Every route MUST resolve exactly once:
+  // a fetch failure falls back to a live continue(), and fulfill() is guarded
+  // so a teardown race (unroute) can never leave a request hung — a hung
+  // interception holds an HTTP/1.1 connection and can starve the later
+  // poll-create POST of a socket, which manifests as a never-sent request.
   type CachedResp = { body: string; status: number; headers: Record<string, string> };
-  let meInflight: Promise<CachedResp> | null = null;
+  let mePromise: Promise<CachedResp | null> | null = null;
   await page.route("**/api/auth/me", async (route) => {
-    if (meInflight) {
-      const c = await meInflight;
-      await route.fulfill({ body: c.body, status: c.status, headers: c.headers });
-      return;
+    if (!mePromise) {
+      mePromise = route
+        .fetch()
+        .then(async (resp) => ({
+          body: await resp.text(),
+          status: resp.status(),
+          headers: resp.headers(),
+        }))
+        .catch(() => null);
     }
-    meInflight = route.fetch().then(async (resp) => {
-      const r = { body: await resp.text(), status: resp.status(), headers: resp.headers() };
-      setTimeout(() => { meInflight = null; }, 2_000);
-      return r;
-    });
-    const r = await meInflight;
-    await route.fulfill({ body: r.body, status: r.status, headers: r.headers });
+    const cached = await mePromise;
+    try {
+      if (cached) {
+        await route.fulfill({ body: cached.body, status: cached.status, headers: cached.headers });
+      } else {
+        await route.continue();
+      }
+    } catch {
+      // Route was already resolved (e.g. concurrent unroute teardown); ignore.
+    }
   });
 
   const registerToggle = page.getByRole("button", { name: /sign up|register/i });

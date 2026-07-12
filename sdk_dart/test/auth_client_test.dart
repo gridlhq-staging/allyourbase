@@ -52,6 +52,36 @@ final _webauthnLoginBeginFixture = (jsonDecode(
       .readAsStringSync(),
 ) as Map<Object?, Object?>)
     .cast<String, Object?>();
+final _webauthnEnrollBeginFixture = (jsonDecode(
+  File('../tests/contract/fixtures/sdk_contract/webauthn_enroll_begin_response.json')
+      .readAsStringSync(),
+) as Map<Object?, Object?>)
+    .cast<String, Object?>();
+final _webauthnEnrollConfirmRequestFixture = (jsonDecode(
+  File('../tests/contract/fixtures/sdk_contract/webauthn_enroll_confirm_request.json')
+      .readAsStringSync(),
+) as Map<Object?, Object?>)
+    .cast<String, Object?>();
+final _webauthnEnrollConfirmResponseFixture = (jsonDecode(
+  File('../tests/contract/fixtures/sdk_contract/webauthn_enroll_confirm_response.json')
+      .readAsStringSync(),
+) as Map<Object?, Object?>)
+    .cast<String, Object?>();
+final _webauthnMfaChallengeFixture = (jsonDecode(
+  File('../tests/contract/fixtures/sdk_contract/webauthn_mfa_challenge_response.json')
+      .readAsStringSync(),
+) as Map<Object?, Object?>)
+    .cast<String, Object?>();
+final _webauthnMfaVerifyRequestFixture = (jsonDecode(
+  File('../tests/contract/fixtures/sdk_contract/webauthn_mfa_verify_request.json')
+      .readAsStringSync(),
+) as Map<Object?, Object?>)
+    .cast<String, Object?>();
+final _webauthnMfaVerifyResponseFixture = (jsonDecode(
+  File('../tests/contract/fixtures/sdk_contract/webauthn_mfa_verify_response.json')
+      .readAsStringSync(),
+) as Map<Object?, Object?>)
+    .cast<String, Object?>();
 final _linkEmailFixture = (jsonDecode(
   File('../tests/contract/fixtures/sdk_parity/link_email.json')
       .readAsStringSync(),
@@ -301,6 +331,181 @@ void main() {
         expect(client.token, 'jwt_new');
         expect(client.refreshToken, 'refresh_new');
         expect(events, ['SIGNED_IN']);
+      });
+
+      test('enrollWebAuthn starts MFA enrollment without mutating auth state',
+          () async {
+        final http = DeterministicHttpClient([
+          StubResponse.json(200, _webauthnEnrollBeginFixture),
+        ]);
+        final client = AYBClient('https://api.example.com', httpClient: http);
+        client.setTokens('session_token', 'session_refresh');
+        final events = <String>[];
+        client.onAuthStateChange((event, _) => events.add(event));
+
+        final result = await client.auth.enrollWebAuthn();
+
+        final req = http.requests.single;
+        expect(req.method, 'POST');
+        expect(req.url.toString(),
+            'https://api.example.com/api/auth/mfa/webauthn/enroll');
+        expect(_header(req.headers, 'Authorization'), 'Bearer session_token');
+        expect(req.decodeJsonBody(), isNull);
+        expect(result.options['challenge'], 'webauthn_enroll_begin_challenge');
+        expect(client.token, 'session_token');
+        expect(client.refreshToken, 'session_refresh');
+        expect(events, isEmpty);
+      });
+
+      test(
+          'confirmWebAuthnEnrollment sends canonical request without mutating auth state',
+          () async {
+        final attestationResponse =
+            _webauthnEnrollConfirmRequestFixture['attestation_response']
+                as Map<String, Object?>;
+        final http = DeterministicHttpClient([
+          StubResponse.json(200, _webauthnEnrollConfirmResponseFixture),
+        ]);
+        final client = AYBClient('https://api.example.com', httpClient: http);
+        client.setTokens('session_token', 'session_refresh');
+        final events = <String>[];
+        client.onAuthStateChange((event, _) => events.add(event));
+
+        final result = await client.auth.confirmWebAuthnEnrollment(
+          'Primary security key',
+          attestationResponse,
+        );
+
+        final req = http.requests.single;
+        expect(req.method, 'POST');
+        expect(req.url.toString(),
+            'https://api.example.com/api/auth/mfa/webauthn/enroll/confirm');
+        expect(_header(req.headers, 'Authorization'), 'Bearer session_token');
+        expect(req.decodeJsonBody(), _webauthnEnrollConfirmRequestFixture);
+        expect(result.message, 'WebAuthn MFA enrollment confirmed');
+        expect(client.token, 'session_token');
+        expect(client.refreshToken, 'session_refresh');
+        expect(events, isEmpty);
+      });
+
+      test('webauthnChallenge uses MFA bearer without mutating auth state',
+          () async {
+        final http = DeterministicHttpClient([
+          StubResponse.json(200, _webauthnMfaChallengeFixture),
+        ]);
+        final client = AYBClient('https://api.example.com', httpClient: http);
+        client.setTokens('stale_session_token', 'stale_session_refresh');
+        final events = <String>[];
+        client.onAuthStateChange((event, _) => events.add(event));
+
+        final result = await client.auth.webauthnChallenge('pending_mfa_token');
+
+        final req = http.requests.single;
+        expect(req.method, 'POST');
+        expect(req.url.toString(),
+            'https://api.example.com/api/auth/mfa/webauthn/challenge');
+        expect(
+            _header(req.headers, 'Authorization'), 'Bearer pending_mfa_token');
+        expect(req.decodeJsonBody(), isNull);
+        expect(result.challengeId, 'webauthn_mfa_challenge_fixture');
+        expect(result.options['challenge'], 'webauthn_mfa_challenge');
+        expect(client.token, 'stale_session_token');
+        expect(client.refreshToken, 'stale_session_refresh');
+        expect(events, isEmpty);
+      });
+
+      test('webauthnVerify uses MFA bearer, stores tokens, and emits SIGNED_IN',
+          () async {
+        final assertionResponse =
+            _webauthnMfaVerifyRequestFixture['assertion_response']
+                as Map<String, Object?>;
+        final http = DeterministicHttpClient([
+          StubResponse.json(200, _webauthnMfaVerifyResponseFixture),
+        ]);
+        final client = AYBClient('https://api.example.com', httpClient: http);
+        client.setTokens('stale_session_token', 'stale_session_refresh');
+        final events = <String>[];
+        client.onAuthStateChange((event, _) => events.add(event));
+
+        final result = await client.auth.webauthnVerify(
+          'pending_mfa_token',
+          'webauthn_mfa_challenge_fixture',
+          assertionResponse,
+        );
+
+        final req = http.requests.single;
+        expect(req.method, 'POST');
+        expect(req.url.toString(),
+            'https://api.example.com/api/auth/mfa/webauthn/verify');
+        expect(
+            _header(req.headers, 'Authorization'), 'Bearer pending_mfa_token');
+        expect(req.decodeJsonBody(), _webauthnMfaVerifyRequestFixture);
+        expect(result.token, 'jwt_webauthn_mfa');
+        expect(result.refreshToken, 'refresh_webauthn_mfa');
+        expect(client.token, 'jwt_webauthn_mfa');
+        expect(client.refreshToken, 'refresh_webauthn_mfa');
+        expect(events, ['SIGNED_IN']);
+      });
+
+      test('deleteWebAuthn sends DELETE without mutating auth state', () async {
+        final http = DeterministicHttpClient([
+          StubResponse.empty(204),
+        ]);
+        final client = AYBClient('https://api.example.com', httpClient: http);
+        client.setTokens('session_token', 'session_refresh');
+        final events = <String>[];
+        client.onAuthStateChange((event, _) => events.add(event));
+
+        await client.auth.deleteWebAuthn();
+
+        final req = http.requests.single;
+        expect(req.method, 'DELETE');
+        expect(req.url.toString(),
+            'https://api.example.com/api/auth/mfa/webauthn/');
+        expect(_header(req.headers, 'Authorization'), 'Bearer session_token');
+        expect(req.decodeJsonBody(), isNull);
+        expect(client.token, 'session_token');
+        expect(client.refreshToken, 'session_refresh');
+        expect(events, isEmpty);
+      });
+
+      test('enrollWebAuthnWithPasskey creates and confirms enrollment',
+          () async {
+        final attestationResponse =
+            _webauthnEnrollConfirmRequestFixture['attestation_response']
+                as Map<String, Object?>;
+        final beginResponse =
+            WebAuthnEnrollBeginResponse.fromJson(_webauthnEnrollBeginFixture);
+        final authenticator = _FakePasskeyAuthenticator(
+          const <String, Object?>{},
+          attestationResponse: attestationResponse,
+        );
+        final http = DeterministicHttpClient([
+          StubResponse.json(200, _webauthnEnrollBeginFixture),
+          StubResponse.json(200, _webauthnEnrollConfirmResponseFixture),
+        ]);
+        final client = AYBClient('https://api.example.com', httpClient: http);
+        client.setTokens('session_token', 'session_refresh');
+        final events = <String>[];
+        client.onAuthStateChange((event, _) => events.add(event));
+
+        final result = await client.auth.enrollWebAuthnWithPasskey(
+          'Primary security key',
+          authenticator,
+        );
+
+        expect(authenticator.receivedCreationOptions, [beginResponse.options]);
+        expect(http.requests, hasLength(2));
+        final confirmRequest = http.requests[1];
+        expect(confirmRequest.method, 'POST');
+        expect(confirmRequest.url.toString(),
+            'https://api.example.com/api/auth/mfa/webauthn/enroll/confirm');
+        expect(confirmRequest.decodeJsonBody(),
+            _webauthnEnrollConfirmRequestFixture);
+        expect(result.message, 'WebAuthn MFA enrollment confirmed');
+        expect(client.token, 'session_token');
+        expect(client.refreshToken, 'session_refresh');
+        expect(events, isEmpty);
       });
     });
 
@@ -887,14 +1092,25 @@ String? _header(Map<String, String> headers, String key) {
 }
 
 class _FakePasskeyAuthenticator implements PasskeyAuthenticator {
-  _FakePasskeyAuthenticator(this.assertionResponse);
+  _FakePasskeyAuthenticator(
+    this.assertionResponse, {
+    JsonMap? attestationResponse,
+  }) : attestationResponse = attestationResponse ?? const <String, Object?>{};
 
   final JsonMap assertionResponse;
+  final JsonMap attestationResponse;
   final List<JsonMap> receivedOptions = <JsonMap>[];
+  final List<JsonMap> receivedCreationOptions = <JsonMap>[];
 
   @override
   Future<JsonMap> authenticate(JsonMap options) async {
     receivedOptions.add(options);
     return assertionResponse;
+  }
+
+  @override
+  Future<JsonMap> create(JsonMap options) async {
+    receivedCreationOptions.add(options);
+    return attestationResponse;
   }
 }

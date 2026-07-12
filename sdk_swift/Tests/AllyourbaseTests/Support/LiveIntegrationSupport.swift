@@ -5,6 +5,7 @@ enum LiveIntegrationSupportError: Error, CustomStringConvertible {
     case missingConfiguration(String)
     case timeout(String)
     case invalidCollectionIdentifier(String)
+    case invalidLiveResponse(String)
 
     var description: String {
         switch self {
@@ -13,6 +14,8 @@ enum LiveIntegrationSupportError: Error, CustomStringConvertible {
         case let .timeout(message):
             return message
         case let .invalidCollectionIdentifier(message):
+            return message
+        case let .invalidLiveResponse(message):
             return message
         }
     }
@@ -128,8 +131,92 @@ enum RecordsLiveIntegrationSupport {
         try await adminSQL(client, "DROP TABLE IF EXISTS \(safeCollection) CASCADE")
     }
 
-    private static func adminSQL(_ client: AYBClient, _ query: String) async throws {
-        _ = try await client.request(
+    static func registerLiveUserClient(
+        using adminClient: AYBClient,
+        emailPrefix: String
+    ) async throws -> (client: AYBClient, email: String, password: String) {
+        guard let baseURL = resolvedBaseURL() else {
+            throw LiveIntegrationSupportError.missingConfiguration(
+                "Set AYB_TEST_URL before running live Swift SDK tests."
+            )
+        }
+        let email = uniqueEmail(prefix: emailPrefix)
+        let password = "SwiftLivePasskey123!"
+        let client = AYBClient(baseURL)
+        do {
+            _ = try await client.auth.register(email: email, password: password)
+            return (client, email, password)
+        } catch {
+            try? await deleteLiveUser(using: adminClient, email: email)
+            throw error
+        }
+    }
+
+    static func seedWebAuthnMFAFactor(using adminClient: AYBClient, email: String) async throws {
+        try await adminSQL(
+            adminClient,
+            """
+            INSERT INTO _ayb_user_mfa (
+                user_id, method, phone, enabled, enrolled_at,
+                webauthn_credential_id, webauthn_public_key,
+                webauthn_sign_count, webauthn_display_name
+            )
+            SELECT id, 'webauthn', NULL, true, NOW(),
+                   decode('c3dpZnQtbGl2ZS13ZWJhdXRobi1jcmVkZW50aWFs', 'base64'),
+                   decode('c3dpZnQtbGl2ZS13ZWJhdXRobi1wdWJsaWMta2V5', 'base64'),
+                   0, 'Swift live seeded passkey'
+            FROM _ayb_users
+            WHERE LOWER(email) = LOWER(\(sqlStringLiteral(email)))
+            ON CONFLICT (user_id, method) DO UPDATE
+            SET enabled = true,
+                enrolled_at = NOW(),
+                webauthn_credential_id = EXCLUDED.webauthn_credential_id,
+                webauthn_public_key = EXCLUDED.webauthn_public_key,
+                webauthn_sign_count = 0,
+                webauthn_display_name = EXCLUDED.webauthn_display_name,
+                webauthn_session_data = NULL
+            """
+        )
+    }
+
+    static func loginForMFAPendingToken(
+        email: String,
+        password: String,
+        environment: [String: String] = ProcessInfo.processInfo.environment
+    ) async throws -> String {
+        guard let baseURL = resolvedBaseURL(environment: environment) else {
+            throw LiveIntegrationSupportError.missingConfiguration(
+                "Set AYB_TEST_URL before running live Swift SDK tests."
+            )
+        }
+        let client = AYBClient(baseURL)
+        let response: [String: Any] = try await client.request(
+            "/api/auth/login",
+            method: .post,
+            body: ["email": email, "password": password],
+            skipAuth: true,
+            decode: { value in try AYBJSON.expectDictionary(value, "liveMFA.login") }
+        )
+        guard response["mfa_pending"] as? Bool == true,
+              let token = response["mfa_token"] as? String,
+              token.isEmpty == false else {
+            throw LiveIntegrationSupportError.invalidLiveResponse(
+                "Expected login to return a non-empty MFA-pending token."
+            )
+        }
+        return token
+    }
+
+    static func deleteLiveUser(using adminClient: AYBClient, email: String) async throws {
+        try await adminSQL(
+            adminClient,
+            "DELETE FROM _ayb_users WHERE LOWER(email) = LOWER(\(sqlStringLiteral(email)))"
+        )
+    }
+
+    @discardableResult
+    static func adminSQL(_ client: AYBClient, _ query: String) async throws -> [String: Any] {
+        try await client.request(
             "/api/admin/sql",
             method: .post,
             body: ["query": query],
@@ -169,5 +256,14 @@ enum RecordsLiveIntegrationSupport {
             )
         }
         return normalized
+    }
+
+    private static func uniqueEmail(prefix: String) -> String {
+        let suffix = UUID().uuidString.lowercased().replacingOccurrences(of: "-", with: "")
+        return "\(prefix)-\(suffix)@example.com"
+    }
+
+    private static func sqlStringLiteral(_ value: String) -> String {
+        "'\(value.replacingOccurrences(of: "'", with: "''"))'"
     }
 }

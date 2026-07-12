@@ -87,6 +87,59 @@ func TestE2EContract(t *testing.T) {
 	assertFacetCounts(t, faceted.Facets[contract.FacetColumn], contract.ExpectedFacetCounts)
 }
 
+func TestE2ERealtimeCreateEventLive(t *testing.T) {
+	baseURL := os.Getenv("AYB_TEST_URL")
+	if baseURL == "" {
+		t.Skip("AYB_TEST_URL not set")
+	}
+	collection := os.Getenv("AYB_TEST_COLLECTION")
+	if collection == "" {
+		t.Skip("AYB_TEST_COLLECTION not set")
+	}
+
+	c := NewClient(baseURL)
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	if _, err := c.Auth.SignInAnonymously(ctx); err != nil {
+		t.Fatalf("sign in anonymously: %v", err)
+	}
+
+	events, unsubscribe, err := c.Realtime().Subscribe(ctx, collection, SubscribeOptions{})
+	if err != nil {
+		t.Fatalf("subscribe to realtime collection %q: %v", collection, err)
+	}
+	defer func() {
+		if err := unsubscribe(); err != nil {
+			t.Errorf("unsubscribe from realtime collection %q: %v", collection, err)
+		}
+	}()
+
+	contract := mustLoadSharedListSearchSeedContract(t)
+	row := map[string]any{
+		"id":       fmt.Sprintf("go_realtime_%d", time.Now().UnixNano()),
+		"title":    "Go SDK realtime live create",
+		"category": realtimeWritableCategory(contract),
+	}
+
+	created, err := c.Records.Create(ctx, collection, row)
+	if err != nil {
+		t.Fatalf("create realtime fixture row %q in %q: %v", row["id"], collection, err)
+	}
+	createdID, _ := row["id"].(string)
+	t.Cleanup(func() {
+		cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cleanupCancel()
+		_ = c.Records.Delete(cleanupCtx, collection, createdID)
+	})
+	assertRecordContainsFixtureFields(t, created, row)
+
+	event := receiveRealtimeCreateEvent(t, ctx, events, collection, createdID)
+	if event.OldRecord != nil {
+		t.Fatalf("expected create websocket event without OldRecord, got %#v", event.OldRecord)
+	}
+	assertRecordContainsFixtureFields(t, event.Record, row)
+}
+
 func listHasHighlightedTitle(res *ListResponse, title string) bool {
 	for _, item := range res.Items {
 		if itemString(item, "title") == title && itemString(item, "_highlight") != "" {
@@ -94,6 +147,53 @@ func listHasHighlightedTitle(res *ListResponse, title string) bool {
 		}
 	}
 	return false
+}
+
+func realtimeWritableCategory(contract sharedListSearchSeedContract) string {
+	if _, ok := contract.ExpectedFacetCounts["docs"]; ok {
+		return "docs"
+	}
+	categories := make([]string, 0, len(contract.ExpectedFacetCounts))
+	for category := range contract.ExpectedFacetCounts {
+		categories = append(categories, category)
+	}
+	sort.Strings(categories)
+	if len(categories) == 0 {
+		return "live"
+	}
+	return categories[0]
+}
+
+func receiveRealtimeCreateEvent(t *testing.T, ctx context.Context, events <-chan Event, collection, createdID string) Event {
+	t.Helper()
+
+	var lastObserved *Event
+	for {
+		select {
+		case event, ok := <-events:
+			if !ok {
+				t.Fatalf("realtime event channel closed before create event for row %q; last observed: %+v", createdID, lastObserved)
+			}
+			lastObserved = &event
+			if event.Table == collection && itemString(event.Record, "id") == createdID {
+				if event.Action != "create" {
+					t.Fatalf("event action for row %q = %q, want create; event: %+v", createdID, event.Action, event)
+				}
+				return event
+			}
+		case <-ctx.Done():
+			t.Fatalf("timed out waiting for create event for row %q; last observed: %+v", createdID, lastObserved)
+		}
+	}
+}
+
+func assertRecordContainsFixtureFields(t *testing.T, got, want map[string]any) {
+	t.Helper()
+	for _, key := range []string{"id", "title", "category"} {
+		if got[key] != want[key] {
+			t.Fatalf("record field %q = %#v, want %#v in record %#v", key, got[key], want[key], got)
+		}
+	}
 }
 
 func listHasTitle(res *ListResponse, title string) bool {

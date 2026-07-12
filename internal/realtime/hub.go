@@ -19,9 +19,10 @@ import (
 // eventBufferSize is the per-client channel buffer. Events are dropped when full.
 const eventBufferSize = 256
 
-// RLSFilteredTenantScope marks legacy tests that exercise transport-level RLS
-// filtering directly. Production clients keep their tenant scope in the hub and
-// then apply CanSeeRecord as an additional per-record visibility gate.
+// RLSFilteredTenantScope marks clients whose transport applies per-event RLS
+// visibility checks after hub delivery. These clients receive candidate events
+// from every tenant on subscribed tables; CanSeeRecord remains the security
+// boundary before any event reaches the network.
 const RLSFilteredTenantScope = "__ayb_rls_filtered__"
 
 const (

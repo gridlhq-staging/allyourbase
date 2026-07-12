@@ -146,6 +146,29 @@ async def test_e2e_webauthn_begin_live_server() -> None:
 
 
 @pytest.mark.skipif(
+    _BASE_LIVE_ENV_MISSING,
+    reason="AYB_TEST_URL or AYB_TEST_COLLECTION is not set",
+)
+@pytest.mark.asyncio
+async def test_e2e_webauthn_mfa_enroll_begin_live_server() -> None:
+    email = f"sdkpy-passkey-mfa-{uuid.uuid4().hex[:12]}@example.com"
+    client = AYBClient(_live_base_url())
+    try:
+        await client.auth.register(email, "P@ssw0rd!123")
+        result = await client.auth.enroll_webauthn()
+
+        assert result.challenge
+        assert result.rp["name"]
+        assert result.user["id"]
+        assert result.user["name"] == email
+        assert result.pub_key_cred_params
+        assert result.timeout
+        assert result.attestation
+    finally:
+        await client.close()
+
+
+@pytest.mark.skipif(
     _ADMIN_LIVE_ENV_MISSING,
     reason=(
         "AYB_TEST_URL, AYB_TEST_COLLECTION, and either AYB_ADMIN_TOKEN or "

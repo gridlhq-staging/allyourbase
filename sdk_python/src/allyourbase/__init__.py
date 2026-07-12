@@ -17,7 +17,12 @@ from allyourbase.types import (
     StorageListResponse,
     StorageObject,
     User,
+    WebAuthnEnrollBeginResponse,
+    WebAuthnEnrollConfirmRequest,
+    WebAuthnEnrollConfirmResponse,
     WebAuthnLoginBeginResponse,
+    WebAuthnMFAChallengeResponse,
+    WebAuthnMFAVerifyRequest,
 )
 
 __all__ = [
@@ -36,7 +41,12 @@ __all__ = [
     "StorageListResponse",
     "StorageObject",
     "User",
+    "WebAuthnEnrollBeginResponse",
+    "WebAuthnEnrollConfirmRequest",
+    "WebAuthnEnrollConfirmResponse",
     "WebAuthnLoginBeginResponse",
+    "WebAuthnMFAChallengeResponse",
+    "WebAuthnMFAVerifyRequest",
 ]
 
 
