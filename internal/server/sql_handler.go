@@ -64,9 +64,11 @@ func handleAdminSQL(pool *pgxpool.Pool, sc *schema.CacheHolder) http.HandlerFunc
 			return
 		}
 
-		querier := adminSQLQuerier(pool)
+		var querier adminSQLQuerier
 		if requestConn := tenant.RequestConnFromContext(r.Context()); requestConn != nil {
 			querier = requestConn
+		} else if pool != nil {
+			querier = pool
 		}
 		if querier == nil {
 			httputil.WriteError(w, http.StatusServiceUnavailable, "database not available")
