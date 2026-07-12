@@ -68,6 +68,10 @@ function firstSynonymGroup(page: DashboardPage) {
   return page.getByRole("group", { name: "Synonym group 1" });
 }
 
+function mainRegion(page: DashboardPage) {
+  return page.getByRole("main");
+}
+
 async function expectGroupTerms(
   group: ReturnType<typeof firstSynonymGroup>,
   expectedTerms: string[],
@@ -87,8 +91,9 @@ async function addAndSaveFirstGroup(
   const group = firstSynonymGroup(page);
   await group.getByRole("textbox").nth(0).fill(firstTerm);
   await group.getByRole("textbox").nth(1).fill(secondTerm);
-  await page.getByRole("button", { name: "Save" }).click();
-  await expect(page.getByRole("status")).toHaveText("Saved search synonyms.");
+  const main = mainRegion(page);
+  await main.getByRole("button", { name: "Save", exact: true }).click();
+  await expect(main.getByRole("status")).toHaveText("Saved search synonyms.");
   await expectGroupTerms(group, [firstTerm, secondTerm]);
 }
 
@@ -167,7 +172,7 @@ test.describe("Collection Synonyms Editor (Full E2E)", () => {
     const group = firstSynonymGroup(page);
     await group.getByRole("textbox").nth(0).fill("single term");
     await group.getByRole("textbox").nth(1).fill("");
-    await page.getByRole("button", { name: "Save" }).click();
+    await mainRegion(page).getByRole("button", { name: "Save", exact: true }).click();
 
     await expect(page.getByText("Each synonym group needs at least two terms.")).toBeVisible();
     await expect(group.getByRole("textbox").nth(0)).toHaveValue("single term");
