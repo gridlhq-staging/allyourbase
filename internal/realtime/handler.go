@@ -214,8 +214,8 @@ func (h *Handler) setupRealtimeSSEClient(w http.ResponseWriter, r *http.Request,
 }
 
 func (h *Handler) realtimeTenantScope(r *http.Request, claims *auth.Claims) string {
-	if claims != nil && h.pool != nil && h.schemaCache != nil {
-		return RLSFilteredTenantScope
+	if claims != nil {
+		return claims.TenantID
 	}
 	return tenant.TenantFromContext(r.Context())
 }

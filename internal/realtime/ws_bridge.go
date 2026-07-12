@@ -102,19 +102,15 @@ func (b *WSBridge) onSubscribe(c *ws.Conn, _ []string, filter string) error {
 	return nil
 }
 
-// tenantFromConn derives the tenant scope from the authenticated connection's
+// tenantScopeForConn derives the tenant scope from the authenticated connection's
 // claims. Returns "" for unauthenticated connections, which then receive only
-// wildcard (empty-tenant) events per tenantMatches. For an authenticated
-// session this claims-derived tenant equals the context tenant a publisher tags
-// (tenantIDFromRequest resolves claims.TenantID first), so subscribe and
-// publish sides agree.
+// wildcard (empty-tenant) events per tenantMatches. RLS filtering still runs in
+// forwardEvents; this tenant gate prevents same-table shared-tenant rows from
+// reaching transports whose RLS metadata cannot distinguish tenants by record.
 func (b *WSBridge) tenantScopeForConn(c *ws.Conn) string {
 	claims := c.Claims()
 	if claims == nil {
 		return ""
-	}
-	if b.pool != nil && b.schemaCache != nil {
-		return RLSFilteredTenantScope
 	}
 	return claims.TenantID
 }

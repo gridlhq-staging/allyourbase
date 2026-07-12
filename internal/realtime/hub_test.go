@@ -617,7 +617,7 @@ func TestEmptyTenantClientReceivesOnlyWildcardEvents(t *testing.T) {
 	testutil.Equal(t, "", got.TenantID)
 }
 
-func TestRLSFilteredClientReceivesCandidateEventsFromEveryTenant(t *testing.T) {
+func TestRLSFilteredClientReceivesCandidateEventsForLegacyTransportScope(t *testing.T) {
 	t.Parallel()
 	hub := realtime.NewHub(testutil.DiscardLogger())
 	defer hub.Close()
