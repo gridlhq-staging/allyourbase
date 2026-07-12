@@ -77,7 +77,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	client, ctx, cleanup, ok := h.setupRealtimeSSEClient(w, r, claims, tables, filters)
+	client, ctx, cleanup, ok := h.setupRealtimeSSEClient(w, r, claims, activeSchema, tables, filters)
 	if !ok {
 		return
 	}
@@ -172,10 +172,10 @@ func (h *Handler) parseRealtimeFilters(w http.ResponseWriter, filterParam string
 }
 
 // setupRealtimeSSEClient subscribes a new client to the realtime hub with the requested table filters, registers it with the connection manager if configured, and returns the client with a cleanup function.
-func (h *Handler) setupRealtimeSSEClient(w http.ResponseWriter, r *http.Request, claims *auth.Claims, tables map[string]bool, filters Filters) (*Client, context.Context, func(), bool) {
+func (h *Handler) setupRealtimeSSEClient(w http.ResponseWriter, r *http.Request, claims *auth.Claims, activeSchema string, tables map[string]bool, filters Filters) (*Client, context.Context, func(), bool) {
 	// Attach the request tenant at subscribe time so the client starts tenant-
 	// scoped before any event can be delivered — no unregister/re-register churn.
-	client := h.hub.SubscribeWithFilter(tables, filters, h.realtimeTenantScope(r, claims))
+	client := h.hub.SubscribeWithFilter(tables, filters, h.realtimeTenantScope(r, claims, activeSchema, tables))
 	ctx, cancel := context.WithCancel(r.Context())
 
 	cleanup := func() {
@@ -213,11 +213,36 @@ func (h *Handler) setupRealtimeSSEClient(w http.ResponseWriter, r *http.Request,
 	return client, ctx, withDeregister, true
 }
 
-func (h *Handler) realtimeTenantScope(r *http.Request, claims *auth.Claims) string {
-	if claims != nil && h.pool != nil && h.schemaCache != nil {
+func (h *Handler) realtimeTenantScope(r *http.Request, claims *auth.Claims, activeSchema string, tables map[string]bool) string {
+	requestTenant := tenant.TenantFromContext(r.Context())
+	return realtimeHubTenantScope(claims, h.schemaCache, activeSchema, requestTenant, tables, h.pool != nil)
+}
+
+func realtimeHubTenantScope(claims *auth.Claims, schemaCache *schema.CacheHolder, activeSchema, tenantID string, tables map[string]bool, rlsFilteringAvailable bool) string {
+	if subscriptionUsesRLSCandidateFanout(claims, schemaCache, activeSchema, tables, rlsFilteringAvailable) {
 		return RLSFilteredTenantScope
 	}
-	return tenant.TenantFromContext(r.Context())
+	return tenantID
+}
+
+func subscriptionUsesRLSCandidateFanout(claims *auth.Claims, schemaCache *schema.CacheHolder, activeSchema string, tables map[string]bool, rlsFilteringAvailable bool) bool {
+	if claims == nil || !rlsFilteringAvailable || schemaCache == nil || len(tables) == 0 {
+		return false
+	}
+	sc := schemaCache.Get()
+	if sc == nil {
+		return false
+	}
+	for table := range tables {
+		if table == internalNotificationsTable {
+			return false
+		}
+		tbl := sc.TableByNameInSchema(activeSchema, table)
+		if tbl == nil || !tbl.RLSEnabled {
+			return false
+		}
+	}
+	return true
 }
 
 func (h *Handler) applySSEHeaders(w http.ResponseWriter) {

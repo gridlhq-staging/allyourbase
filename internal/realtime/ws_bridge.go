@@ -104,18 +104,15 @@ func (b *WSBridge) onSubscribe(c *ws.Conn, _ []string, filter string) error {
 
 // tenantScopeForConn derives the tenant scope from the authenticated connection's
 // claims. Returns "" for unauthenticated connections, which then receive only
-// wildcard (empty-tenant) events per tenantMatches. When RLS filtering is
-// configured, the hub delivers same-table candidate events from every tenant
-// and forwardEvents applies CanSeeRecord before anything reaches the network.
+// wildcard (empty-tenant) events per tenantMatches. Subscriptions whose tables
+// are all RLS-enabled use candidate fanout; non-RLS tables keep the hub tenant
+// gate because the publish side tags tenant-service events from request context.
 func (b *WSBridge) tenantScopeForConn(c *ws.Conn) string {
 	claims := c.Claims()
 	if claims == nil {
 		return ""
 	}
-	if b.pool != nil && b.schemaCache != nil {
-		return RLSFilteredTenantScope
-	}
-	return claims.TenantID
+	return realtimeHubTenantScope(claims, b.schemaCache, c.ActiveSchema(), claims.TenantID, c.Subscriptions(), b.pool != nil)
 }
 
 func (b *WSBridge) onUnsubscribe(c *ws.Conn, _ []string) {
