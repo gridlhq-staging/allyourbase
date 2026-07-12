@@ -82,9 +82,9 @@ test.describe("SQL Editor Lifecycle (Full E2E)", () => {
 
     await sqlInput.fill("SELECT * FROM definitely_missing_admin_sql_table;");
     await page.getByRole("button", { name: /Execute/i }).click();
-    await expect(page.getByText(/definitely_missing_admin_sql_table/i)).toBeVisible({
-      timeout: 5000,
-    });
+    await expect(
+      page.getByRole("main").getByText(/ERROR:.*definitely_missing_admin_sql_table/i),
+    ).toBeVisible({ timeout: 5000 });
     expect(await getStoredSQLQuery(page)).toBe(storedSuccessfulQuery);
 
     // DDL: DROP TABLE
@@ -104,7 +104,11 @@ test.describe("SQL Editor Lifecycle (Full E2E)", () => {
     await page.getByRole("button", { name: /Execute/i }).click();
 
     // Expect an error since the table was dropped
-    await expect(page.getByText(new RegExp(`relation.*${tableName}.*does not exist|not found`, "i"))).toBeVisible({ timeout: 5000 });
+    await expect(
+      page
+        .getByRole("main")
+        .getByText(new RegExp(`ERROR:.*relation.*${tableName}.*does not exist|not found`, "i")),
+    ).toBeVisible({ timeout: 5000 });
 
     // Table already dropped — remove from cleanup list
     const idx = tablesToDrop.indexOf(tableName);
