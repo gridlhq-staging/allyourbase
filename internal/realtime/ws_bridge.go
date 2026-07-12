@@ -104,13 +104,16 @@ func (b *WSBridge) onSubscribe(c *ws.Conn, _ []string, filter string) error {
 
 // tenantScopeForConn derives the tenant scope from the authenticated connection's
 // claims. Returns "" for unauthenticated connections, which then receive only
-// wildcard (empty-tenant) events per tenantMatches. RLS filtering still runs in
-// forwardEvents; this tenant gate prevents same-table shared-tenant rows from
-// reaching transports whose RLS metadata cannot distinguish tenants by record.
+// wildcard (empty-tenant) events per tenantMatches. When RLS filtering is
+// configured, the hub delivers same-table candidate events from every tenant
+// and forwardEvents applies CanSeeRecord before anything reaches the network.
 func (b *WSBridge) tenantScopeForConn(c *ws.Conn) string {
 	claims := c.Claims()
 	if claims == nil {
 		return ""
+	}
+	if b.pool != nil && b.schemaCache != nil {
+		return RLSFilteredTenantScope
 	}
 	return claims.TenantID
 }
