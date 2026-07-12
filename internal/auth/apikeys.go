@@ -312,6 +312,11 @@ func (s *Service) ValidateAPIKey(ctx context.Context, plaintext string) (*Claims
 		`UPDATE _ayb_api_keys SET last_used_at = NOW() WHERE id = $1`, keyID,
 	)
 
+	tenantID, err := s.lookupDefaultTenantID(ctx, userID)
+	if err != nil {
+		return nil, err
+	}
+
 	claims := &Claims{
 		RegisteredClaims: jwt.RegisteredClaims{
 			Subject: userID,
@@ -320,6 +325,7 @@ func (s *Service) ValidateAPIKey(ctx context.Context, plaintext string) (*Claims
 		APIKeyID:      keyID,
 		APIKeyScope:   scope,
 		AllowedTables: allowedTables,
+		TenantID:      tenantID,
 	}
 	applyAppRateLimitClaims(claims, appID, appRateLimitRPS, appRateLimitWindow)
 	if orgID != nil {

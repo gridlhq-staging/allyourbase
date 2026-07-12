@@ -385,6 +385,43 @@ export async function resolveAuthUserIdByEmail(
   return userId;
 }
 
+export async function resolveDefaultTenantIdByUserId(
+  request: APIRequestContext,
+  token: string,
+  userId: string,
+): Promise<string> {
+  const safeUserId = sqlLiteral(userId);
+  const result = await execSQL(
+    request,
+    token,
+    `SELECT m.tenant_id::text
+       FROM _ayb_tenant_memberships m
+       JOIN _ayb_tenants t ON t.id = m.tenant_id
+      WHERE m.user_id = '${safeUserId}'
+        AND t.state <> 'deleted'
+      ORDER BY CASE m.role
+          WHEN 'owner' THEN 0
+          WHEN 'admin' THEN 1
+          WHEN 'member' THEN 2
+          ELSE 3
+        END,
+        m.created_at ASC
+      LIMIT 1`,
+  );
+  if (result.rows.length !== 1) {
+    throw new Error(`Expected exactly one default tenant row for user ${userId}`);
+  }
+  const row = result.rows[0];
+  if (!Array.isArray(row)) {
+    throw new Error(`Expected SQL row array while resolving default tenant for ${userId}`);
+  }
+  const tenantId = row[0];
+  if (typeof tenantId !== "string" || tenantId.length === 0) {
+    throw new Error(`Expected string tenant id while resolving default tenant for ${userId}`);
+  }
+  return tenantId;
+}
+
 export async function ensureAuthSettings(
   request: APIRequestContext,
   token: string,

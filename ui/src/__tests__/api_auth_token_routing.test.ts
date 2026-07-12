@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { createAnonymousSession, linkEmail } from "../api";
+import { createAnonymousSession, linkEmail, submitOAuthConsent } from "../api";
 
 describe("auth API token routing", () => {
   const fetchMock = vi.fn<typeof fetch>();
@@ -78,6 +78,48 @@ describe("auth API token routing", () => {
     expect(fetchMock.mock.calls[1][1]?.headers).toEqual({
       "Content-Type": "application/json",
       Authorization: "Bearer anon-token",
+    });
+  });
+
+  it("requests JSON when submitting OAuth consent from the dashboard", async () => {
+    localStorage.setItem("ayb_admin_token", "user-session-token");
+    fetchMock.mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          redirect_to: "https://client.example.test/callback?code=code-1&state=state-1",
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      ),
+    );
+
+    await submitOAuthConsent({
+      decision: "approve",
+      response_type: "code",
+      client_id: "ayb_cid_abc123",
+      redirect_uri: "https://client.example.test/callback",
+      scope: "readonly",
+      state: "state-1",
+      code_challenge: "challenge-1",
+      code_challenge_method: "S256",
+    });
+
+    expect(fetchMock).toHaveBeenCalledWith("/api/auth/authorize/consent", {
+      method: "POST",
+      headers: {
+        Accept: "application/json",
+        "Content-Type": "application/json",
+        Authorization: "Bearer user-session-token",
+      },
+      body: JSON.stringify({
+        decision: "approve",
+        response_type: "code",
+        client_id: "ayb_cid_abc123",
+        redirect_uri: "https://client.example.test/callback",
+        scope: "readonly",
+        state: "state-1",
+        code_challenge: "challenge-1",
+        code_challenge_method: "S256",
+      }),
     });
   });
 });

@@ -266,7 +266,10 @@ export async function submitOAuthConsent(data: {
 }): Promise<OAuthConsentResult> {
   return request("/api/auth/authorize/consent", {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: {
+      Accept: "application/json",
+      "Content-Type": "application/json",
+    },
     body: JSON.stringify(data),
   });
 }

@@ -11,6 +11,7 @@ import (
 
 	"github.com/allyourbase/ayb/internal/httputil"
 	"github.com/allyourbase/ayb/internal/schema"
+	"github.com/allyourbase/ayb/internal/tenant"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -26,6 +27,10 @@ type sqlResponse struct {
 	Rows       [][]any  `json:"rows"`
 	RowCount   int      `json:"rowCount"`
 	DurationMs int64    `json:"durationMs"`
+}
+
+type adminSQLQuerier interface {
+	Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error)
 }
 
 // QueryTimeout is the maximum execution time for a SQL editor query.
@@ -59,7 +64,11 @@ func handleAdminSQL(pool *pgxpool.Pool, sc *schema.CacheHolder) http.HandlerFunc
 			return
 		}
 
-		if pool == nil {
+		querier := adminSQLQuerier(pool)
+		if requestConn := tenant.RequestConnFromContext(r.Context()); requestConn != nil {
+			querier = requestConn
+		}
+		if querier == nil {
 			httputil.WriteError(w, http.StatusServiceUnavailable, "database not available")
 			return
 		}
@@ -69,7 +78,7 @@ func handleAdminSQL(pool *pgxpool.Pool, sc *schema.CacheHolder) http.HandlerFunc
 
 		start := time.Now()
 
-		rows, err := pool.Query(ctx, req.Query, pgx.QueryExecModeSimpleProtocol)
+		rows, err := querier.Query(ctx, req.Query, pgx.QueryExecModeSimpleProtocol)
 		if err != nil {
 			httputil.WriteError(w, http.StatusBadRequest, err.Error())
 			return

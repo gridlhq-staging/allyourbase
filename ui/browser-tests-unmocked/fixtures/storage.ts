@@ -2,7 +2,7 @@
  * @module ui/browser-tests-unmocked/fixtures/storage.ts
  */
 import type { APIRequestContext } from "@playwright/test";
-import { validateResponse } from "./core";
+import { execSQL, sqlLiteral, validateResponse } from "./core";
 
 export async function seedWebhook(
   request: APIRequestContext,
@@ -55,6 +55,22 @@ export async function seedFile(
     throw new Error("File upload succeeded but no name in response");
   }
   return { name: body.name };
+}
+
+export async function ensureStorageBucket(
+  request: APIRequestContext,
+  token: string,
+  bucket: string,
+  publicBucket = true,
+): Promise<void> {
+  const safeBucket = sqlLiteral(bucket);
+  await execSQL(
+    request,
+    token,
+    `INSERT INTO _ayb_storage_buckets (tenant_id, name, public)
+     VALUES ('', '${safeBucket}', ${publicBucket ? "true" : "false"})
+     ON CONFLICT (tenant_id, name) DO UPDATE SET public = EXCLUDED.public`,
+  );
 }
 
 export async function deleteFile(

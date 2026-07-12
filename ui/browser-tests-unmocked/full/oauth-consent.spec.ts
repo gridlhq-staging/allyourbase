@@ -75,6 +75,17 @@ function buildAuthorizeRequest(
   };
 }
 
+async function waitForOAuthCallbackURL(
+  page: Page,
+  callbackPath: string,
+  predicate: (url: URL) => boolean,
+): Promise<void> {
+  await page.waitForURL(
+    (url) => url.pathname === callbackPath && predicate(url),
+    { waitUntil: "commit" },
+  );
+}
+
 async function installOAuthPageToken(page: Page, token: string): Promise<void> {
   await page.addInitScript((authToken: string) => {
     window.localStorage.setItem("ayb_admin_token", authToken);
@@ -225,8 +236,15 @@ test.describe("OAuth Consent Page (Full E2E)", () => {
     const authorizeRequest = buildAuthorizeRequest(context);
     await page.goto(authorizeRequest.path);
 
-    await page.getByRole("button", { name: "Deny" }).click();
-    await page.waitForURL(new RegExp(`${new URL(context.redirectURI).pathname}.*error=access_denied`));
+    const callbackPath = new URL(context.redirectURI).pathname;
+    await Promise.all([
+      waitForOAuthCallbackURL(
+        page,
+        callbackPath,
+        (url) => url.searchParams.get("error") === "access_denied",
+      ),
+      page.getByRole("button", { name: "Deny" }).click(),
+    ]);
 
     const redirect = parseOAuthRedirectURL(page.url());
     expect(redirect.error).toBe("access_denied");
@@ -243,8 +261,15 @@ test.describe("OAuth Consent Page (Full E2E)", () => {
     const authorizeRequest = buildAuthorizeRequest(context);
     await page.goto(authorizeRequest.path);
 
-    await page.getByRole("button", { name: "Approve" }).click();
-    await page.waitForURL(new RegExp(`${new URL(context.redirectURI).pathname}.*code=`));
+    const callbackPath = new URL(context.redirectURI).pathname;
+    await Promise.all([
+      waitForOAuthCallbackURL(
+        page,
+        callbackPath,
+        (url) => Boolean(url.searchParams.get("code")),
+      ),
+      page.getByRole("button", { name: "Approve" }).click(),
+    ]);
 
     const redirect = parseOAuthRedirectURL(page.url());
     expect(redirect.error).toBeUndefined();

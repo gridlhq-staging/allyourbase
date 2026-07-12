@@ -60,9 +60,7 @@ export async function createTableViaSQLEditor(page: Page, tableName: string): Pr
   await waitForDashboard(page);
 
   const sidebar = page.getByRole("complementary");
-  const sqlEditorButton = sidebar.getByRole("button", {
-    name: /^SQL Editor$|^Open SQL Editor$/i,
-  });
+  const sqlEditorButton = sidebar.getByRole("button", { name: "SQL Editor", exact: true });
   await expect(sqlEditorButton).toBeVisible();
   await sqlEditorButton.click();
 

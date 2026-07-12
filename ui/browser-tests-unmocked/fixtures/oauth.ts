@@ -292,6 +292,78 @@ export async function exchangeOAuthAuthorizationCode(
   return submitOAuthTokenForm(request, form, options.clientAuth);
 }
 
+export interface OAuthAuthCodeTokenOptions {
+  clientID: string;
+  clientSecret: string;
+  redirectURI: string;
+  userToken: string;
+  scope: string;
+  state: string;
+  codeVerifier: string;
+  allowedTables?: string[];
+}
+
+export async function mintOAuthAuthCodeToken(
+  request: APIRequestContext,
+  options: OAuthAuthCodeTokenOptions,
+): Promise<string> {
+  const pkce = generateOAuthPKCEPair(options.codeVerifier);
+
+  const authorizeResult = await authorizeOAuthRequest(request, options.userToken, {
+    responseType: "code",
+    clientId: options.clientID,
+    redirectURI: options.redirectURI,
+    scope: options.scope,
+    state: options.state,
+    codeChallenge: pkce.codeChallenge,
+    codeChallengeMethod: pkce.codeChallengeMethod,
+    allowedTables: options.allowedTables,
+  });
+
+  const redirectTo =
+    authorizeResult.kind === "requires_consent"
+      ? (
+          await submitOAuthConsent(request, options.userToken, {
+            decision: "approve",
+            responseType: "code",
+            clientId: options.clientID,
+            redirectURI: options.redirectURI,
+            scope: options.scope,
+            state: options.state,
+            codeChallenge: pkce.codeChallenge,
+            codeChallengeMethod: pkce.codeChallengeMethod,
+            allowedTables: options.allowedTables,
+          })
+        ).redirectTo
+      : authorizeResult.redirectTo;
+
+  const redirect = parseOAuthRedirectURL(redirectTo);
+  if (redirect.error) {
+    throw new Error(`OAuth authorization failed: ${redirect.error}`);
+  }
+  if (!redirect.code) {
+    throw new Error("OAuth authorization did not return a code");
+  }
+  if (redirect.state !== options.state) {
+    throw new Error("OAuth authorization returned unexpected state");
+  }
+
+  const tokenResponse = await exchangeOAuthAuthorizationCode(request, {
+    code: redirect.code,
+    redirectURI: options.redirectURI,
+    codeVerifier: pkce.codeVerifier,
+    clientAuth: {
+      method: "body",
+      clientId: options.clientID,
+      clientSecret: options.clientSecret,
+    },
+  });
+  if (tokenResponse.access_token.length === 0) {
+    throw new Error("OAuth authorization code exchange returned an empty access token");
+  }
+  return tokenResponse.access_token;
+}
+
 export interface OAuthClientCredentialsTokenOptions extends TokenRequestCommonOptions {
   scope: string;
   allowedTables?: string[];

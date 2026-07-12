@@ -1475,6 +1475,33 @@ func TestAPIKeyCreateSuccess(t *testing.T) {
 	testutil.Equal(t, 36, len(resp.APIKey.ID))
 }
 
+func TestAPIKeyValidationIncludesDefaultTenantID(t *testing.T) {
+	ctx := context.Background()
+	srv := setupAuthServer(t, ctx)
+	token := registerAndGetToken(t, srv, "apikey-tenant@example.com")
+	svc := newAuthService()
+
+	jwtClaims, err := svc.ValidateToken(token)
+	testutil.NoError(t, err)
+	testutil.True(t, jwtClaims.TenantID != "", "registered user token should include tenant id")
+
+	w := doJSON(t, srv, "POST", "/api/auth/api-keys/", map[string]string{
+		"name": "tenant-key",
+	}, token)
+	testutil.StatusCode(t, http.StatusCreated, w.Code)
+
+	var resp struct {
+		Key string `json:"key"`
+	}
+	testutil.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
+	testutil.True(t, resp.Key != "", "api key response should include plaintext key")
+
+	apiKeyClaims, err := svc.ValidateAPIKey(ctx, resp.Key)
+	testutil.NoError(t, err)
+	testutil.Equal(t, jwtClaims.Subject, apiKeyClaims.Subject)
+	testutil.Equal(t, jwtClaims.TenantID, apiKeyClaims.TenantID)
+}
+
 func TestAPIKeyCreateWithScope(t *testing.T) {
 	ctx := context.Background()
 	srv := setupAuthServer(t, ctx)

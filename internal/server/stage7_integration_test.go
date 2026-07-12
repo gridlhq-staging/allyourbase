@@ -213,6 +213,26 @@ func TestSchemaIsolation_SearchPathResetAfterRequest(t *testing.T) {
 	testutil.ErrorContains(t, err, `relation "reset_test" does not exist`)
 }
 
+func TestSchemaIsolation_AdminSQLUsesTenantRequestConnection(t *testing.T) {
+	srv, ctx := stage7SetupServer(t)
+	adminToken := stage5AdminLogin(t, srv)
+	schemaTenant := stage7CreateTenant(t, srv, adminToken, fmt.Sprintf("admin-sql-%d", time.Now().UnixNano()), "schema")
+
+	body := `{"query":"CREATE TABLE admin_sql_tenant_items (id SERIAL PRIMARY KEY)"}`
+	w := stage5TenantAdminRequest(t, srv, http.MethodPost, "/api/admin/sql/", adminToken, schemaTenant.ID, body)
+	testutil.Equal(t, http.StatusOK, w.Code)
+
+	var publicExists bool
+	err := srv.pool.QueryRow(ctx, `SELECT to_regclass('public.admin_sql_tenant_items') IS NOT NULL`).Scan(&publicExists)
+	testutil.NoError(t, err)
+	testutil.False(t, publicExists, "admin SQL with tenant context must not create table in public schema")
+
+	var tenantExists bool
+	err = srv.pool.QueryRow(ctx, `SELECT to_regclass($1) IS NOT NULL`, schemaTenant.Slug+".admin_sql_tenant_items").Scan(&tenantExists)
+	testutil.NoError(t, err)
+	testutil.True(t, tenantExists, "admin SQL with tenant context should create table in tenant schema")
+}
+
 // newSingleConnPool creates a pool with MaxConns=1 from the same database as
 // the source pool. This forces deterministic connection reuse for session-pinned
 // assertions.

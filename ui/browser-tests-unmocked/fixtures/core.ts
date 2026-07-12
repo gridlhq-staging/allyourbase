@@ -45,6 +45,7 @@ export async function execSQL(
   request: APIRequestContext,
   token: string,
   query: string,
+  options: { tenantID?: string } = {},
 ): Promise<{ columns: string[]; rows: unknown[][]; rowCount: number }> {
   const statements = query
     .split(";")
@@ -58,8 +59,12 @@ export async function execSQL(
   };
 
   for (const statement of statements) {
+    const headers: Record<string, string> = { Authorization: `Bearer ${token}` };
+    if (options.tenantID) {
+      headers["X-Tenant-ID"] = options.tenantID;
+    }
     const res = await request.post("/api/admin/sql", {
-      headers: { Authorization: `Bearer ${token}` },
+      headers,
       data: { query: statement },
     });
     await validateResponse(res, `Execute SQL: ${statement.substring(0, 50)}...`);

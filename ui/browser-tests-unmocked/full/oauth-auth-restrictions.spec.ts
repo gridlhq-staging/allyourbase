@@ -8,21 +8,18 @@ import {
   cleanupOAuthClientByName,
   createLinkedEmailAuthSessionToken,
   dropTableIfExists,
-  exchangeOAuthAuthorizationCode,
   ensureAuthSettings,
   execSQL,
   expect,
   fetchAuthSettings,
   getAuthSettingsUnavailableSkipReason,
-  generateOAuthPKCEPair,
   listRecords,
-  parseOAuthRedirectURL,
+  mintOAuthAuthCodeToken,
   probeEndpoint,
   resolveAuthUserIdByEmail,
   seedAdminApp,
   seedOAuthClient,
   seedRecord,
-  submitOAuthConsent,
   test,
 } from "../fixtures";
 
@@ -36,17 +33,6 @@ interface CleanupState {
   scopedAllowedTable?: string;
   scopedDeniedTable?: string;
   ownerTable?: string;
-}
-
-interface OAuthAuthCodeTokenOptions {
-  clientID: string;
-  clientSecret: string;
-  redirectURI: string;
-  userToken: string;
-  scope: string;
-  state: string;
-  codeVerifier: string;
-  allowedTables?: string[];
 }
 
 interface OAuthRestrictionIdentifiers {
@@ -109,61 +95,6 @@ function buildOAuthRestrictionIdentifiers(testInfo: TestInfo): OAuthRestrictionI
     clientName: `oauth-auth-client-${runID}`,
     redirectURI: `https://oauth.example.test/callback/${runID}`,
   });
-}
-
-// Always mints a real auth-code token through authorize + consent + token exchange.
-async function mintOAuthAuthCodeToken(
-  request: APIRequestContext,
-  options: OAuthAuthCodeTokenOptions,
-): Promise<string> {
-  const pkce = generateOAuthPKCEPair(options.codeVerifier);
-
-  const authorizeResult = await authorizeOAuthRequest(request, options.userToken, {
-    responseType: "code",
-    clientId: options.clientID,
-    redirectURI: options.redirectURI,
-    scope: options.scope,
-    state: options.state,
-    codeChallenge: pkce.codeChallenge,
-    codeChallengeMethod: pkce.codeChallengeMethod,
-    allowedTables: options.allowedTables,
-  });
-
-  const redirectTo =
-    authorizeResult.kind === "requires_consent"
-      ? (
-          await submitOAuthConsent(request, options.userToken, {
-            decision: "approve",
-            responseType: "code",
-            clientId: options.clientID,
-            redirectURI: options.redirectURI,
-            scope: options.scope,
-            state: options.state,
-            codeChallenge: pkce.codeChallenge,
-            codeChallengeMethod: pkce.codeChallengeMethod,
-            allowedTables: options.allowedTables,
-          })
-        ).redirectTo
-      : authorizeResult.redirectTo;
-
-  const redirect = parseOAuthRedirectURL(redirectTo);
-  expect(redirect.error).toBeUndefined();
-  expect(redirect.code).toBeTruthy();
-  expect(redirect.state).toBe(options.state);
-
-  const tokenResponse = await exchangeOAuthAuthorizationCode(request, {
-    code: redirect.code as string,
-    redirectURI: options.redirectURI,
-    codeVerifier: pkce.codeVerifier,
-    clientAuth: {
-      method: "body",
-      clientId: options.clientID,
-      clientSecret: options.clientSecret,
-    },
-  });
-
-  expect(tokenResponse.access_token.length).toBeGreaterThan(0);
-  return tokenResponse.access_token;
 }
 
 async function setupOAuthRestrictionContext(
