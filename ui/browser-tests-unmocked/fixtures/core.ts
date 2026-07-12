@@ -69,6 +69,32 @@ export async function execSQL(
   return lastResult;
 }
 
+export async function waitForCollectionAvailable(
+  request: APIRequestContext,
+  token: string,
+  tableName: string,
+  timeoutMs = 10_000,
+): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  let lastStatus = 0;
+  let lastBody = "";
+
+  while (Date.now() <= deadline) {
+    const res = await request.get(`/api/collections/${encodeURIComponent(tableName)}?perPage=1`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (res.ok()) {
+      return;
+    }
+    lastStatus = res.status();
+    lastBody = await res.text().catch(() => "");
+    await new Promise((resolve) => setTimeout(resolve, 200));
+  }
+
+  const suffix = lastBody.length > 0 ? `: ${lastBody}` : "";
+  throw new Error(`Timed out waiting for collection ${tableName} (last status ${lastStatus}${suffix})`);
+}
+
 export async function probeEndpoint(
   request: APIRequestContext,
   token: string,

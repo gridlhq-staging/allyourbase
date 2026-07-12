@@ -9,6 +9,14 @@ import {
   waitForDashboard,
 } from "../fixtures";
 
+function storageBucketCleanupSQL(bucket: string): string {
+  return `DELETE FROM _ayb_storage_buckets WHERE tenant_id = '' AND name = '${sqlLiteral(bucket)}'`;
+}
+
+function storageBucketSeedSQL(bucket: string): string {
+  return `INSERT INTO _ayb_storage_buckets (tenant_id, name, public) VALUES ('', '${sqlLiteral(bucket)}', true) ON CONFLICT (tenant_id, name) DO NOTHING`;
+}
+
 /**
  * FULL E2E TEST: Storage Lifecycle
  *
@@ -36,7 +44,7 @@ test.describe("Storage Lifecycle (Full E2E)", () => {
       await execSQL(
         request,
         adminToken,
-        `DELETE FROM _ayb_storage_buckets WHERE name = '${sqlLiteral(bucket)}'`,
+        storageBucketCleanupSQL(bucket),
       ).catch(() => {});
     }
     pendingBucketCleanup.length = 0;
@@ -61,7 +69,7 @@ test.describe("Storage Lifecycle (Full E2E)", () => {
     await execSQL(
       request,
       adminToken,
-      `INSERT INTO _ayb_storage_buckets (name, public) VALUES ('${sqlLiteral(bucketName)}', true) ON CONFLICT (name) DO NOTHING`,
+      storageBucketSeedSQL(bucketName),
     );
 
     // Arrange: seed a file via API
@@ -105,7 +113,7 @@ test.describe("Storage Lifecycle (Full E2E)", () => {
     await execSQL(
       request,
       adminToken,
-      `INSERT INTO _ayb_storage_buckets (name, public) VALUES ('${sqlLiteral(bucketName)}', true) ON CONFLICT (name) DO NOTHING`,
+      storageBucketSeedSQL(bucketName),
     );
 
     // ============================================================

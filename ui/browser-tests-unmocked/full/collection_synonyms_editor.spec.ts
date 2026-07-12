@@ -7,6 +7,7 @@ import {
   execSQL,
   replaceCollectionSearchSynonyms,
   seedRecord,
+  waitForCollectionAvailable,
   waitForDashboard,
 } from "../fixtures";
 
@@ -40,6 +41,7 @@ async function recreateSearchableCollection(
       );
     `,
   );
+  await waitForCollectionAvailable(request, adminToken, safeTableName);
 }
 
 async function openCollectionSynonyms(page: DashboardPage, tableName: string): Promise<void> {

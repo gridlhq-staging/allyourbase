@@ -78,4 +78,25 @@ describe("browser-unmocked realtime fixture helpers", () => {
       vi.unstubAllGlobals();
     }
   });
+
+  it("startSSECapture includes non-OK response details in connection errors", async () => {
+    const fetchMock = vi.fn(async () => ({
+      ok: false,
+      status: 400,
+      text: async () => '{"message":"unknown table: notes"}',
+    }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    try {
+      const page = {} as Page;
+
+      await expect(
+        startSSECapture(page, "http://localhost:8090", "jwt-token", ["notes"]),
+      ).rejects.toThrow(
+        'Realtime SSE request failed with status 400: {"message":"unknown table: notes"}',
+      );
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
 });

@@ -1,10 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   callRpc,
+  checkOAuthAuthorize,
   executeApiExplorer,
   getCollectionSearchSettings,
   getCollectionSearchSynonyms,
   getRealtimeInspectorSnapshot,
+  submitOAuthConsent,
   updateCollectionSearchSettings,
   updateCollectionSearchSynonyms,
 } from "../api";
@@ -276,6 +278,71 @@ describe("admin API request helpers", () => {
     expect(fetchMock).toHaveBeenCalledWith("/api/collections/posts/search-settings", {
       method: "PUT",
       headers: {
+        "Content-Type": "application/json",
+        Authorization: "Bearer admin-token",
+      },
+      body: JSON.stringify(payload),
+    });
+  });
+
+  it("requests the OAuth authorize JSON contract instead of following redirects", async () => {
+    const prompt = {
+      requires_consent: true,
+      client_id: "client-1",
+      client_name: "Client One",
+      redirect_uri: "http://localhost:8090/oauth-callback",
+      scope: "read",
+      state: "state-1",
+      code_challenge: "challenge",
+      code_challenge_method: "S256",
+    };
+    fetchMock.mockResolvedValueOnce(
+      new Response(JSON.stringify(prompt), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      }),
+    );
+
+    const params = new URLSearchParams({
+      response_type: "code",
+      client_id: "client-1",
+    });
+    await expect(checkOAuthAuthorize(params)).resolves.toEqual(prompt);
+
+    expect(fetchMock).toHaveBeenCalledWith("/api/auth/authorize?response_type=code&client_id=client-1", {
+      headers: {
+        Accept: "application/json",
+        Authorization: "Bearer admin-token",
+      },
+    });
+  });
+
+  it("submits OAuth consent with the JSON redirect contract", async () => {
+    const result = { redirect_to: "http://localhost:8090/oauth-callback?code=abc" };
+    const payload = {
+      decision: "approve" as const,
+      response_type: "code",
+      client_id: "client-1",
+      redirect_uri: "http://localhost:8090/oauth-callback",
+      scope: "read",
+      state: "state-1",
+      code_challenge: "challenge",
+      code_challenge_method: "S256",
+      allowed_tables: ["posts"],
+    };
+    fetchMock.mockResolvedValueOnce(
+      new Response(JSON.stringify(result), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      }),
+    );
+
+    await expect(submitOAuthConsent(payload)).resolves.toEqual(result);
+
+    expect(fetchMock).toHaveBeenCalledWith("/api/auth/authorize/consent", {
+      method: "POST",
+      headers: {
+        Accept: "application/json",
         "Content-Type": "application/json",
         Authorization: "Bearer admin-token",
       },

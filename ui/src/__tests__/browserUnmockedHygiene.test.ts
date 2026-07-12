@@ -280,4 +280,30 @@ describe("browser-unmocked test hygiene", () => {
     expect(lifecycle).toContain('expect(testDeliveryRequest.headers["x-ayb-signature"]).toBe(expectedTestSignature)');
     expect(lifecycle).not.toContain("test (passed|failed)|test request failed");
   });
+
+  it("storage lifecycle seeds browser buckets with tenant-aware uniqueness", () => {
+    const storageLifecycle = readProjectFile("browser-tests-unmocked/full/storage-lifecycle.spec.ts");
+
+    expect(storageLifecycle).toContain("ON CONFLICT (tenant_id, name) DO NOTHING");
+    expect(storageLifecycle).toContain("WHERE tenant_id = '' AND name");
+    expect(storageLifecycle).not.toContain("ON CONFLICT (name) DO NOTHING");
+  });
+
+  it("shared table creation fixture targets the sidebar SQL Editor nav exactly", () => {
+    const browserFixtures = readProjectFile("browser-tests-unmocked/fixtures/index.ts");
+
+    expect(browserFixtures).toContain("createTableViaSQLEditor");
+    expect(browserFixtures).toContain("name: /^SQL Editor$/i");
+    expect(browserFixtures).not.toContain("name: /^SQL Editor$|^Open SQL Editor$/i");
+  });
+
+  it("dashboard realtime browser journey uses public-schema auth for SQL-editor tables", () => {
+    const realtimeJourney = readProjectFile(
+      "browser-tests-unmocked/full/dashboard-client-realtime-journey.spec.ts",
+    );
+
+    expect(realtimeJourney).toContain("createTableViaSQLEditor");
+    expect(realtimeJourney).toContain("createAnonymousAuthSessionToken");
+    expect(realtimeJourney).not.toContain("createLinkedEmailAuthSessionToken");
+  });
 });

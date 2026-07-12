@@ -72,6 +72,7 @@ describe("stage 2 unmocked fixture module split contracts", () => {
     expect(coreModule).toContain("export async function checkAuthEnabled(");
     expect(coreModule).toContain("export async function execSQL(");
     expect(coreModule).toContain("export async function probeEndpoint(");
+    expect(coreModule).toContain("export async function waitForCollectionAvailable(");
     expect(coreModule).toContain("export function sqlLiteral(");
   });
 });

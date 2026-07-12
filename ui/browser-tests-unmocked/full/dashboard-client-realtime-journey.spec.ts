@@ -1,8 +1,7 @@
 import type { TestInfo } from "@playwright/test";
 import {
-  cleanupAuthUser,
   createTableViaSQLEditor,
-  createLinkedEmailAuthSessionToken,
+  createAnonymousAuthSessionToken,
   ensureAuthSettings,
   execSQL,
   expect,
@@ -15,7 +14,6 @@ import type { SSECaptureHandle } from "../fixtures";
 
 interface CleanupState {
   capture?: SSECaptureHandle;
-  email?: string;
   tableName?: string;
   anonymousAuthEnabled?: boolean;
 }
@@ -54,9 +52,6 @@ test.describe("Dashboard Client Realtime Journey (Full E2E)", () => {
     if (cleanup.capture) {
       await cleanup.capture.close().catch(() => {});
     }
-    if (cleanup.email) {
-      await cleanupAuthUser(request, adminToken, cleanup.email).catch(() => {});
-    }
     if (cleanup.tableName) {
       await execSQL(request, adminToken, `DROP TABLE IF EXISTS ${cleanup.tableName}`).catch(
         () => {},
@@ -76,12 +71,9 @@ test.describe("Dashboard Client Realtime Journey (Full E2E)", () => {
   ) => {
     const runID = `${Date.now()}_${testInfo.parallelIndex}_${testInfo.repeatEachIndex}_${testInfo.retry}`;
     const tableName = `dashboard_rt_${runID}`;
-    const email = `dashboard-rt-${runID}@example.com`;
-    const password = `TestPass!${runID}`;
 
     const originalAuthSettings = await fetchAuthSettings(request, adminToken);
     cleanupByTestID.set(testInfo.testId, {
-      email,
       tableName,
       anonymousAuthEnabled: originalAuthSettings.anonymous_auth_enabled,
     });
@@ -93,7 +85,7 @@ test.describe("Dashboard Client Realtime Journey (Full E2E)", () => {
 
     await createTableViaSQLEditor(page, tableName);
 
-    const clientToken = await createLinkedEmailAuthSessionToken(request, email, password);
+    const clientToken = await createAnonymousAuthSessionToken(request);
     const baseURL = new URL(page.url()).origin;
     const capture = await startSSECapture(page, baseURL, clientToken, [tableName]);
     const existingCleanup = cleanupByTestID.get(testInfo.testId);
