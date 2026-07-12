@@ -18,6 +18,7 @@ export * from "./oauth";
 export * from "./sms";
 export * from "./push";
 export * from "./admin";
+export * from "./search_admin";
 export * from "./jobs";
 export * from "./infra";
 export * from "./sites";
