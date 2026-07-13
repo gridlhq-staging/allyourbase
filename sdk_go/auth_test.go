@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"reflect"
 	"testing"
 )
 
@@ -238,6 +239,178 @@ func TestAuthFinishWebAuthnLoginPostsRawAssertionAndStoresTokens(t *testing.T) {
 	}
 }
 
+func TestAuthWebAuthnEnrollmentUsesSessionBearerWithoutMutatingTokens(t *testing.T) {
+	enrollResponse := mustLoadSDKContractResponse(t, "webauthn_enroll_begin_response.json")
+	confirmResponse := mustLoadSDKContractResponse(t, "webauthn_enroll_confirm_response.json")
+	confirmRequestData := mustLoadContractFixture(t, "webauthn_enroll_confirm_request.json")
+	var confirmRequest WebAuthnEnrollConfirmRequest
+	if err := json.Unmarshal(confirmRequestData, &confirmRequest); err != nil {
+		t.Fatalf("decode confirm request fixture: %v", err)
+	}
+
+	var confirmBody map[string]any
+	paths := make([]string, 0, 3)
+	methods := make([]string, 0, 3)
+	authHeaders := make([]string, 0, 3)
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		paths = append(paths, r.URL.Path)
+		methods = append(methods, r.Method)
+		authHeaders = append(authHeaders, r.Header.Get("Authorization"))
+		switch r.URL.Path {
+		case "/api/auth/mfa/webauthn/enroll":
+			if r.Method != http.MethodPost {
+				t.Fatalf("expected enroll POST, got %s", r.Method)
+			}
+			_ = json.NewEncoder(w).Encode(enrollResponse)
+		case "/api/auth/mfa/webauthn/enroll/confirm":
+			if r.Method != http.MethodPost {
+				t.Fatalf("expected confirm POST, got %s", r.Method)
+			}
+			if err := json.NewDecoder(r.Body).Decode(&confirmBody); err != nil {
+				t.Fatalf("decode confirm body: %v", err)
+			}
+			_ = json.NewEncoder(w).Encode(confirmResponse)
+		case "/api/auth/mfa/webauthn":
+			if r.Method != http.MethodDelete {
+				t.Fatalf("expected delete DELETE, got %s", r.Method)
+			}
+			w.WriteHeader(http.StatusNoContent)
+		default:
+			t.Fatalf("unexpected path %s", r.URL.Path)
+		}
+	}))
+	defer ts.Close()
+
+	c := NewClient(ts.URL)
+	c.SetTokens("session_token", "session_refresh")
+	begin, err := c.Auth.EnrollWebAuthn(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	confirm, err := c.Auth.ConfirmWebAuthnEnrollment(
+		context.Background(),
+		confirmRequest.DisplayName,
+		confirmRequest.AttestationResponse,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := c.Auth.DeleteWebAuthn(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+
+	if begin.Challenge != "webauthn_enroll_begin_challenge" {
+		t.Fatalf("unexpected enroll challenge %q", begin.Challenge)
+	}
+	if confirm.Message != "WebAuthn MFA enrollment confirmed" {
+		t.Fatalf("unexpected confirm message %q", confirm.Message)
+	}
+	if c.Token() != "session_token" || c.RefreshToken() != "session_refresh" {
+		t.Fatalf("tokens mutated: token=%q refresh=%q", c.Token(), c.RefreshToken())
+	}
+	expectedPaths := []string{"/api/auth/mfa/webauthn/enroll", "/api/auth/mfa/webauthn/enroll/confirm", "/api/auth/mfa/webauthn"}
+	if !reflect.DeepEqual(paths, expectedPaths) {
+		t.Fatalf("paths mismatch: got %#v want %#v", paths, expectedPaths)
+	}
+	expectedMethods := []string{http.MethodPost, http.MethodPost, http.MethodDelete}
+	if !reflect.DeepEqual(methods, expectedMethods) {
+		t.Fatalf("methods mismatch: got %#v want %#v", methods, expectedMethods)
+	}
+	for _, got := range authHeaders {
+		if got != "Bearer session_token" {
+			t.Fatalf("unexpected authorization headers %#v", authHeaders)
+		}
+	}
+	var expectedConfirmBody map[string]any
+	if err := json.Unmarshal(confirmRequestData, &expectedConfirmBody); err != nil {
+		t.Fatalf("decode expected confirm body: %v", err)
+	}
+	if !reflect.DeepEqual(confirmBody, expectedConfirmBody) {
+		t.Fatalf("confirm body mismatch\n got: %#v\nwant: %#v", confirmBody, expectedConfirmBody)
+	}
+}
+
+func TestAuthWebAuthnChallengeAndVerifyUseMFABearerAndVerifyStoresTokens(t *testing.T) {
+	challengeResponse := mustLoadSDKContractResponse(t, "webauthn_mfa_challenge_response.json")
+	verifyResponse := mustLoadSDKContractResponse(t, "webauthn_mfa_verify_response.json")
+	verifyRequestData := mustLoadContractFixture(t, "webauthn_mfa_verify_request.json")
+	var verifyRequest WebAuthnMFAVerifyRequest
+	if err := json.Unmarshal(verifyRequestData, &verifyRequest); err != nil {
+		t.Fatalf("decode verify request fixture: %v", err)
+	}
+
+	var verifyBody map[string]any
+	paths := make([]string, 0, 2)
+	authHeaders := make([]string, 0, 2)
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		paths = append(paths, r.URL.Path)
+		authHeaders = append(authHeaders, r.Header.Get("Authorization"))
+		switch r.URL.Path {
+		case "/api/auth/mfa/webauthn/challenge":
+			if r.Method != http.MethodPost {
+				t.Fatalf("expected challenge POST, got %s", r.Method)
+			}
+			_ = json.NewEncoder(w).Encode(challengeResponse)
+		case "/api/auth/mfa/webauthn/verify":
+			if r.Method != http.MethodPost {
+				t.Fatalf("expected verify POST, got %s", r.Method)
+			}
+			if err := json.NewDecoder(r.Body).Decode(&verifyBody); err != nil {
+				t.Fatalf("decode verify body: %v", err)
+			}
+			_ = json.NewEncoder(w).Encode(verifyResponse)
+		default:
+			t.Fatalf("unexpected path %s", r.URL.Path)
+		}
+	}))
+	defer ts.Close()
+
+	c := NewClient(ts.URL)
+	c.SetTokens("session_token", "session_refresh")
+	challenge, err := c.Auth.WebAuthnChallenge(context.Background(), "mfa_pending_token")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.Token() != "session_token" || c.RefreshToken() != "session_refresh" {
+		t.Fatalf("challenge mutated tokens: token=%q refresh=%q", c.Token(), c.RefreshToken())
+	}
+	auth, err := c.Auth.WebAuthnVerify(
+		context.Background(),
+		"mfa_pending_token",
+		verifyRequest.ChallengeID,
+		verifyRequest.AssertionResponse,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if challenge.ChallengeID != "webauthn_mfa_challenge_fixture" {
+		t.Fatalf("unexpected challenge id %q", challenge.ChallengeID)
+	}
+	if auth.Token != "jwt_webauthn_mfa" || auth.RefreshToken != "refresh_webauthn_mfa" {
+		t.Fatalf("unexpected auth response %+v", auth)
+	}
+	if c.Token() != "jwt_webauthn_mfa" || c.RefreshToken() != "refresh_webauthn_mfa" {
+		t.Fatalf("verify did not store tokens: token=%q refresh=%q", c.Token(), c.RefreshToken())
+	}
+	expectedPaths := []string{"/api/auth/mfa/webauthn/challenge", "/api/auth/mfa/webauthn/verify"}
+	if !reflect.DeepEqual(paths, expectedPaths) {
+		t.Fatalf("paths mismatch: got %#v want %#v", paths, expectedPaths)
+	}
+	for _, got := range authHeaders {
+		if got != "Bearer mfa_pending_token" {
+			t.Fatalf("unexpected authorization headers %#v", authHeaders)
+		}
+	}
+	var expectedVerifyBody map[string]any
+	if err := json.Unmarshal(verifyRequestData, &expectedVerifyBody); err != nil {
+		t.Fatalf("decode expected verify body: %v", err)
+	}
+	if !reflect.DeepEqual(verifyBody, expectedVerifyBody) {
+		t.Fatalf("verify body mismatch\n got: %#v\nwant: %#v", verifyBody, expectedVerifyBody)
+	}
+}
+
 func TestAuthConfirmMagicLinkStoresTokensForAuthenticatedResponse(t *testing.T) {
 	response := mustLoadSDKContractResponse(t, "magic_link_confirm_success_response.json")
 	var requestBody map[string]any
@@ -400,6 +573,39 @@ func TestAuthConfirmMagicLinkPropagatesNon2xxError(t *testing.T) {
 	}
 	if c.Token() != "pre_tok" || c.RefreshToken() != "pre_ref" {
 		t.Fatalf("tokens mutated on error: token=%q refresh=%q", c.Token(), c.RefreshToken())
+	}
+}
+
+// TestAuthOAuthStartURLTableFromFixture pins the OAuth start-URL builder against
+// the canonical cross-SDK encoding matrix in oauth_start_url_cases.json. The
+// encoding contract mirrors sdk_python's get_oauth_start_url: state, comma-joined
+// scopes, and redirect_to are each encodeURIComponent-escaped (comma -> %2C,
+// space -> %20, etc.), and the provider segment is path-escaped.
+func TestAuthOAuthStartURLTableFromFixture(t *testing.T) {
+	data := mustLoadContractFixture(t, "oauth_start_url_cases.json")
+	var cases []struct {
+		BaseURL           string   `json:"base_url"`
+		Provider          string   `json:"provider"`
+		State             string   `json:"state"`
+		Scopes            []string `json:"scopes"`
+		RedirectTo        *string  `json:"redirect_to"`
+		ExpectedPathQuery string   `json:"expected_path_query"`
+	}
+	if err := json.Unmarshal(data, &cases); err != nil {
+		t.Fatalf("decode oauth_start_url_cases: %v", err)
+	}
+	if len(cases) != 6 {
+		t.Fatalf("expected 6 oauth start-url cases, got %d", len(cases))
+	}
+	for _, tc := range cases {
+		t.Run(tc.State, func(t *testing.T) {
+			c := NewClient(tc.BaseURL)
+			got := c.Auth.OAuthStartURL(tc.Provider, tc.State, tc.Scopes, tc.RedirectTo)
+			want := tc.BaseURL + tc.ExpectedPathQuery
+			if got != want {
+				t.Fatalf("OAuthStartURL mismatch\n got: %q\nwant: %q", got, want)
+			}
+		})
 	}
 }
 

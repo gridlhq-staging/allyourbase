@@ -8,9 +8,23 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- Passkey credential management in the dashboard: list, rename, and delete
+  WebAuthn credentials, plus usernameless (discoverable) passkey login backed
+  by the JS SDK's new discoverable-login and credential-management helpers.
+- Go SDK auth parity: OAuth start-URL helper and WebAuthn MFA second-factor
+  wire helpers (enroll/confirm/challenge/verify), contract-tested against the
+  canonical fixtures.
+
 ### Changed
 
 ### Fixed
+
+- OAuth start-URL helpers in the Swift, Kotlin, and JS SDKs percent-encode
+  provider names and state values, matching the canonical contract fixtures
+  byte-for-byte. (Moved from the 0.0.16-beta section, which mis-credited it:
+  fix commit `cefb30e8a` merged at the jul11_pm batch close and is not in the
+  v0.0.16-beta release lineage `aa3cb8f82` — its `buildOAuthStartURL` still
+  interpolates provider/state raw.)
 
 ## [0.0.16-beta] - 2026-07-12
 

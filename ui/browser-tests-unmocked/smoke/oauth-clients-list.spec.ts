@@ -77,10 +77,22 @@ test.describe("Smoke: OAuth Clients List", () => {
     await page.locator("aside").getByRole("button", { name: /OAuth Clients/i }).click();
     await expect(page.getByRole("heading", { name: /OAuth Clients/i })).toBeVisible({ timeout: 15_000 });
 
+    await expect(page.getByRole("columnheader", { name: "Name" })).toBeVisible();
+    await expect(page.getByRole("columnheader", { name: "Client ID" })).toBeVisible();
+    await expect(page.getByRole("columnheader", { name: "Type" })).toBeVisible();
+    await expect(page.getByRole("columnheader", { name: "App" })).toBeVisible();
+    await expect(page.getByRole("columnheader", { name: "Scopes" })).toBeVisible();
+    await expect(page.getByRole("columnheader", { name: "Redirect URIs" })).toBeVisible();
+    await expect(page.getByRole("columnheader", { name: "Token Stats" })).toBeVisible();
+    await expect(page.getByRole("columnheader", { name: "Status" })).toBeVisible();
+
     const row = page.getByRole("row", { name: new RegExp(clientName) }).first();
     await expect(row).toBeVisible({ timeout: 5000 });
     await expect(row.getByText(appName)).toBeVisible();
     await expect(row.getByText("confidential")).toBeVisible();
+    await expect(row.getByText("readonly")).toBeVisible();
+    await expect(row.getByText(new RegExp(`/oauth/${runId}/callback`))).toBeVisible();
+    await expect(row.getByText(/Access 0 \/ Refresh 0 \/ Grants 0/)).toBeVisible();
     await expect(row.getByText("Active")).toBeVisible();
     await expect(row.getByRole("button", { name: /Rotate secret/i })).toBeVisible();
     await expect(row.getByRole("button", { name: /Revoke client/i })).toBeVisible();

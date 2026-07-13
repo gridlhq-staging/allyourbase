@@ -32,5 +32,11 @@
     "scopes": ["user:email", "read:org"],
     "redirect_to": "https://app.example.com/welcome?from=github",
     "expected_path_query": "/api/auth/oauth/github?state=state_scopes_redirect&scopes=user%3Aemail%2Cread%3Aorg&redirect_to=https%3A%2F%2Fapp.example.com%2Fwelcome%3Ffrom%3Dgithub"
+  },
+  {
+    "base_url": "https://api.example.com",
+    "provider": "enterprise/google workspace",
+    "state": "state with/slash?x=1&y=2#frag",
+    "expected_path_query": "/api/auth/oauth/enterprise%2Fgoogle%20workspace?state=state%20with%2Fslash%3Fx%3D1%26y%3D2%23frag"
   }
 ]

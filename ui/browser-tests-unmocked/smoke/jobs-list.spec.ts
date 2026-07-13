@@ -53,12 +53,17 @@ test.describe("Smoke: Jobs List", () => {
 
     await expect(page.getByRole("columnheader", { name: "State" })).toBeVisible();
     await expect(page.getByRole("columnheader", { name: "Type" })).toBeVisible();
+    await expect(page.getByRole("columnheader", { name: "Created" })).toBeVisible();
+    await expect(page.getByRole("columnheader", { name: "Attempts" })).toBeVisible();
     await expect(page.getByRole("columnheader", { name: "Last Error" })).toBeVisible();
+    await expect(page.getByRole("columnheader", { name: "Actions" })).toBeVisible();
 
     const row = page.getByRole("row", { name: new RegExp(jobType) }).first();
     await expect(row).toBeVisible({ timeout: 5000 });
     await expect(row).toContainText("failed");
+    await expect(row).toContainText("1 / 3");
     await expect(row).toContainText(lastError);
+    await expect(row.getByRole("button", { name: /View runs for job/i })).toBeVisible();
     await expect(row.getByRole("button", { name: /Retry job/i })).toBeVisible();
   });
 });

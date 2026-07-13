@@ -2,9 +2,9 @@
 
 > This file is the curated public shipped-history ledger, synced to staging and prod via debbie. Raw per-lane archive notes live in `implemented/` and are not part of the public sync.
 
-### Ship-it batch — v0.0.15-beta release, live demo surface, SDK auth/realtime parity (jul11_pm waves 1–2 + jul12_am_1, merged 2026-07-12)
+### Ship-it batch — v0.0.15-beta release, live demo surface, SDK auth/realtime parity, passkeys UI (jul11_pm waves 1–3 + jul12_am_1, merged and closed 2026-07-12)
 
-Ten lanes across the batch's first two waves ship the accumulated multi-tenant/multi-node backend work to users and close the highest-value SDK parity gaps; a same-day remediation lane fixed a realtime regression the release surfaced.
+Sixteen lanes across three waves ship the accumulated multi-tenant/multi-node backend work to users and close the highest-value SDK parity gaps; a same-day remediation lane fixed a realtime regression the release surfaced.
 
 v0.0.15-beta released — published on `AllyourbaseHQ/allyourbase` with GitHub release and GHCR image; `install.sh` resolves it as the latest app release. The release carries the three prior batches: multi-tenant storage isolation, multi-node realtime/denylist enablers, pooled-tenant safety, real AI token streaming, and non-JS SDK passkey/synonym parity.
 
@@ -17,6 +17,8 @@ SDK auth parity (OAuth + MFA second factor) — the Python, Dart, Kotlin, and Sw
 Go SDK realtime client — `sdk_go/realtime.go` ships the first Go realtime WebSocket client: subscribe/unsubscribe with typed events, authenticated connects, and reconnect-with-backoff, with deterministic reconnect coverage.
 
 Hygiene debt burndown — committed worktree-absolute path leaks stripped and the codehealth guard widened; stale merged branches archived (fulfilling the promised `pgmanager-600s-archive-2026-05-21` tag) and garbage-collected; the screen-spec gate glob fixed; two permanently-skipped demo specs dispositioned.
+
+Wave 3 (merged 2026-07-12) — Multi-credential + resident-key passkey backend (migrations `179`/`180`, discoverable-login route); passkeys dashboard UI with credential management and usernameless login plus the JS SDK helpers; Go SDK auth parity (OAuth start-URL + WebAuthn-MFA second factor); and target-behavior screen specs for the ops/observability, database-services/admin, and messaging/auth-settings/AI screen families. The batch-close union gate caught a cross-SDK OAuth start-URL escaping defect introduced with the sixth canonical fixture case; the Swift, Kotlin, and JS clients were fixed to percent-encode provider and state before close.
 
 Feature-matrix re-audit — the internal per-SDK feature inventory was fully re-audited with code citations for every cell flip (first full SDK-column audit since June).
 

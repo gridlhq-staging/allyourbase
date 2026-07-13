@@ -26,12 +26,12 @@ test.describe("Smoke: Materialized Views", () => {
     ).toBeVisible();
 
     // Depending on server state, this view can render either a table or an empty-state card.
-    const tableNameHeader = page.getByRole("columnheader", { name: /Name/i });
+    const tableNameHeader = page.getByRole("columnheader", { name: /View Name/i });
     const emptyState = page.getByText("No materialized views registered");
     await expect(tableNameHeader.or(emptyState)).toBeVisible({ timeout: 5000 });
 
     if (await tableNameHeader.isVisible().catch(() => false)) {
-      await expect(page.getByRole("columnheader", { name: /Refresh/i })).toBeVisible();
+      await expect(page.getByRole("columnheader", { name: /Actions/i })).toBeVisible();
     }
   });
 });

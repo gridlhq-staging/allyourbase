@@ -6,6 +6,7 @@ import type {
 import {
   createPasskeyAssertion,
   createPasskeyAttestation,
+  serializePasskeyAssertion,
   serializePasskeyAttestation,
 } from "./webauthn";
 
@@ -55,6 +56,95 @@ describe("createPasskeyAssertion", () => {
       "This browser does not support WebAuthn credentials",
     );
     expect(credentialsGet).not.toHaveBeenCalled();
+  });
+
+  it("serializes discoverable-login assertions without allowCredentials", async () => {
+    class MockAssertion {
+      clientDataJSON: ArrayBuffer;
+      authenticatorData: ArrayBuffer;
+      signature: ArrayBuffer;
+      userHandle: ArrayBuffer | null;
+      constructor(
+        clientDataJSON: ArrayBuffer,
+        authenticatorData: ArrayBuffer,
+        signature: ArrayBuffer,
+        userHandle: ArrayBuffer | null,
+      ) {
+        this.clientDataJSON = clientDataJSON;
+        this.authenticatorData = authenticatorData;
+        this.signature = signature;
+        this.userHandle = userHandle;
+      }
+    }
+
+    class MockPublicKeyCredential {
+      id: string;
+      rawId: ArrayBuffer;
+      type: string;
+      response: MockAssertion;
+      constructor(id: string, rawId: ArrayBuffer, type: string, response: MockAssertion) {
+        this.id = id;
+        this.rawId = rawId;
+        this.type = type;
+        this.response = response;
+      }
+      getClientExtensionResults() {
+        return { appid: false };
+      }
+    }
+
+    const assertionResponse = new MockAssertion(
+      utf8Bytes('{"type":"webauthn.get"}'),
+      utf8Bytes("authenticator-data"),
+      utf8Bytes("signature-bytes"),
+      utf8Bytes("user-handle"),
+    );
+    const credential = new MockPublicKeyCredential(
+      "discoverable-credential",
+      utf8Bytes("raw-discoverable-id"),
+      "public-key",
+      assertionResponse,
+    );
+    const credentialsGet = vi.fn().mockResolvedValue(credential);
+    vi.stubGlobal("navigator", { credentials: { get: credentialsGet } });
+    vi.stubGlobal("PublicKeyCredential", MockPublicKeyCredential);
+    vi.stubGlobal("AuthenticatorAssertionResponse", MockAssertion);
+    vi.stubGlobal("AuthenticatorAttestationResponse", class MockAuthenticatorAttestationResponse {});
+
+    const discoverableOptions: PublicKeyCredentialRequestOptionsJSON = {
+      challenge: "ZGlzY292ZXJhYmxlLWNoYWxsZW5nZQ",
+      rpId: "localhost",
+      userVerification: "preferred",
+    };
+
+    const serialized = await createPasskeyAssertion(discoverableOptions);
+
+    expect(credentialsGet).toHaveBeenCalledWith({
+      publicKey: {
+        challenge: utf8Bytes("discoverable-challenge"),
+        rpId: "localhost",
+        userVerification: "preferred",
+        allowCredentials: undefined,
+      },
+    });
+    expect(serialized).toEqual(
+      serializePasskeyAssertion(
+        credential as unknown as PublicKeyCredential,
+        MockAssertion as unknown as typeof AuthenticatorAssertionResponse,
+      ),
+    );
+    expect(serialized).toEqual({
+      id: "discoverable-credential",
+      rawId: "cmF3LWRpc2NvdmVyYWJsZS1pZA",
+      type: "public-key",
+      response: {
+        clientDataJSON: "eyJ0eXBlIjoid2ViYXV0aG4uZ2V0In0",
+        authenticatorData: "YXV0aGVudGljYXRvci1kYXRh",
+        signature: "c2lnbmF0dXJlLWJ5dGVz",
+        userHandle: "dXNlci1oYW5kbGU",
+      },
+      clientExtensionResults: { appid: false },
+    });
   });
 });
 

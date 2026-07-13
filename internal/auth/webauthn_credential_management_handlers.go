@@ -1,3 +1,4 @@
+// Package auth exposes HTTP handlers for authentication and MFA workflows.
 package auth
 
 import (
@@ -11,6 +12,7 @@ import (
 	"github.com/go-chi/chi/v5"
 )
 
+// handleWebAuthnCredentialsList returns the current user's registered WebAuthn credentials.
 func (h *Handler) handleWebAuthnCredentialsList(w http.ResponseWriter, r *http.Request) {
 	claims := ClaimsFromContext(r.Context())
 	if claims == nil {
@@ -34,6 +36,7 @@ type webauthnCredentialRenameRequest struct {
 	DisplayName string `json:"display_name"`
 }
 
+// handleWebAuthnCredentialRename updates a credential display name after ownership and AAL checks.
 func (h *Handler) handleWebAuthnCredentialRename(w http.ResponseWriter, r *http.Request) {
 	claims := ClaimsFromContext(r.Context())
 	if claims == nil {
@@ -68,6 +71,7 @@ func (h *Handler) handleWebAuthnCredentialRename(w http.ResponseWriter, r *http.
 	httputil.WriteJSON(w, http.StatusOK, credential)
 }
 
+// handleWebAuthnCredentialDelete removes a credential after ownership and AAL checks.
 func (h *Handler) handleWebAuthnCredentialDelete(w http.ResponseWriter, r *http.Request) {
 	claims := ClaimsFromContext(r.Context())
 	if claims == nil {
@@ -106,6 +110,7 @@ func decodeWebAuthnCredentialIDParam(w http.ResponseWriter, r *http.Request) ([]
 	return credentialID, true
 }
 
+// blockSelfServiceWebAuthnCredentialWrite requires aal2 for writes to the user's own credentials.
 func (h *Handler) blockSelfServiceWebAuthnCredentialWrite(
 	w http.ResponseWriter,
 	r *http.Request,

@@ -84,6 +84,7 @@ type WebAuthnLoginBeginResponse struct {
 type WebAuthnLoginOptions struct {
 	Challenge        string                         `json:"challenge"`
 	RPID             string                         `json:"rpId"`
+	Timeout          int                            `json:"timeout,omitempty"`
 	AllowCredentials []WebAuthnCredentialDescriptor `json:"allowCredentials"`
 }
 
@@ -92,7 +93,58 @@ type WebAuthnCredentialDescriptor struct {
 	Type string `json:"type"`
 }
 
+type WebAuthnRPEntity struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
+}
+
+type WebAuthnUserEntity struct {
+	ID          string `json:"id"`
+	Name        string `json:"name"`
+	DisplayName string `json:"displayName"`
+}
+
+type WebAuthnCredentialParameter struct {
+	Alg  int    `json:"alg"`
+	Type string `json:"type"`
+}
+
+type WebAuthnAuthenticatorSelection struct {
+	RequireResidentKey bool   `json:"requireResidentKey"`
+	ResidentKey        string `json:"residentKey"`
+	UserVerification   string `json:"userVerification"`
+}
+
 type WebAuthnLoginFinishRequest struct {
+	ChallengeID       string          `json:"challenge_id"`
+	AssertionResponse json.RawMessage `json:"assertion_response"`
+}
+
+type WebAuthnEnrollBeginResponse struct {
+	Attestation            string                         `json:"attestation"`
+	AuthenticatorSelection WebAuthnAuthenticatorSelection `json:"authenticatorSelection"`
+	Challenge              string                         `json:"challenge"`
+	PubKeyCredParams       []WebAuthnCredentialParameter  `json:"pubKeyCredParams"`
+	RP                     WebAuthnRPEntity               `json:"rp"`
+	Timeout                int                            `json:"timeout"`
+	User                   WebAuthnUserEntity             `json:"user"`
+}
+
+type WebAuthnEnrollConfirmRequest struct {
+	DisplayName         string          `json:"display_name"`
+	AttestationResponse json.RawMessage `json:"attestation_response"`
+}
+
+type WebAuthnEnrollConfirmResponse struct {
+	Message string `json:"message"`
+}
+
+type WebAuthnMFAChallengeResponse struct {
+	ChallengeID string               `json:"challenge_id"`
+	Options     WebAuthnLoginOptions `json:"options"`
+}
+
+type WebAuthnMFAVerifyRequest struct {
 	ChallengeID       string          `json:"challenge_id"`
 	AssertionResponse json.RawMessage `json:"assertion_response"`
 }

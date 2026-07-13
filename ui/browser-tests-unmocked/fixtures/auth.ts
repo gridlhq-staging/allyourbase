@@ -1,6 +1,3 @@
-/**
- * @module ui/browser-tests-unmocked/fixtures/auth.ts
- */
 import type { APIRequestContext, CDPSession, Page } from "@playwright/test";
 import { createHmac } from "crypto";
 import { execSQL, probeEndpoint, sqlLiteral, validateResponse } from "./core";

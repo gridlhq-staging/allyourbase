@@ -62,9 +62,17 @@ test.describe("Smoke: Apps List", () => {
     await page.locator("aside").getByRole("button", { name: /^Apps$/i }).click();
     await expect(page.getByRole("heading", { name: /Applications/i })).toBeVisible({ timeout: 15_000 });
 
+    await expect(page.getByRole("columnheader", { name: "Name" })).toBeVisible();
+    await expect(page.getByRole("columnheader", { name: "Description" })).toBeVisible();
+    await expect(page.getByRole("columnheader", { name: "Owner" })).toBeVisible();
+    await expect(page.getByRole("columnheader", { name: "Rate Limit" })).toBeVisible();
+    await expect(page.getByRole("columnheader", { name: "Created" })).toBeVisible();
+    await expect(page.getByRole("columnheader", { name: "Actions" })).toBeVisible();
+
     const row = page.getByRole("row", { name: new RegExp(appName) }).first();
     await expect(row).toBeVisible({ timeout: 5000 });
     await expect(row.getByText(appDescription)).toBeVisible();
+    await expect(row).toContainText("120 req/60s");
     await expect(row.getByRole("button", { name: /Delete app/i })).toBeVisible();
   });
 });

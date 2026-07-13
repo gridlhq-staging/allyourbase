@@ -3,8 +3,11 @@
  */
 import { AYBError } from "./errors";
 import {
+  encodePathSegment,
   normalizeAuthResponse,
   normalizeMagicLinkConfirmResponse,
+  normalizePasskeyCredentialListResponse,
+  normalizePasskeyCredentialMetadata,
   normalizeUser,
   normalizeWebAuthnLoginBeginResponse,
   normalizeWebAuthnMFAChallengeResponse,
@@ -17,6 +20,7 @@ import type {
   MagicLinkRequestResponse,
   OAuthOptions,
   OAuthProvider,
+  PasskeyCredentialMetadata,
   User,
   WebAuthnEnrollBeginResponse,
   WebAuthnLoginBeginResponse,
@@ -33,13 +37,22 @@ export function serializeWebAuthnMFAVerifyRequest(
   });
 }
 
+export function serializeWebAuthnLoginFinishRequest(
+  payload: WebAuthnLoginFinishRequest,
+): string {
+  return JSON.stringify({
+    challenge_id: payload.challengeId,
+    assertion_response: payload.assertionResponse,
+  });
+}
+
 export function buildOAuthStartURL(
   baseURL: string,
   provider: OAuthProvider,
   state: string,
   options?: Pick<OAuthOptions, "scopes" | "redirectTo">,
 ): string {
-  let oauthURL = `${baseURL.replace(/\/+$/, "")}/api/auth/oauth/${provider}?state=${state}`;
+  let oauthURL = `${baseURL.replace(/\/+$/, "")}/api/auth/oauth/${encodeURIComponent(provider)}?state=${encodeURIComponent(state)}`;
   if (options?.scopes?.length) {
     oauthURL += `&scopes=${encodeURIComponent(options.scopes.join(","))}`;
   }
@@ -135,10 +148,7 @@ export class AuthClient {
     const response = await this.client.request<AuthResponse>("/api/auth/webauthn/login/finish", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        challenge_id: payload.challengeId,
-        assertion_response: payload.assertionResponse,
-      }),
+      body: serializeWebAuthnLoginFinishRequest(payload),
     });
     return this.applySignedInSession(response);
   }
@@ -151,6 +161,30 @@ export class AuthClient {
     const begin = await this.beginWebAuthnLogin(email);
     const assertionResponse = await createPasskeyAssertion(begin.options);
     return this.finishWebAuthnLogin(begin.challengeId, assertionResponse);
+  }
+
+  /**
+   * Run a username-less WebAuthn first-factor login ceremony.
+   */
+  async signInWithDiscoverablePasskey(): Promise<AuthResponse> {
+    const beginRaw = await this.client.request<unknown>(
+      "/api/auth/webauthn/login/discover/begin",
+      { method: "POST" },
+    );
+    const begin = normalizeWebAuthnLoginBeginResponse(beginRaw);
+    const assertionResponse = await createPasskeyAssertion(begin.options);
+    const response = await this.client.request<AuthResponse>(
+      "/api/auth/webauthn/login/discover/finish",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: serializeWebAuthnLoginFinishRequest({
+          challengeId: begin.challengeId,
+          assertionResponse,
+        }),
+      },
+    );
+    return this.applySignedInSession(response);
   }
 
   /**
@@ -171,6 +205,39 @@ export class AuthClient {
         attestation_response: attestationResponse,
       }),
     });
+  }
+
+  /** List passkey credentials for the currently signed-in user. */
+  async listPasskeys(): Promise<PasskeyCredentialMetadata[]> {
+    const response = await this.client.request<unknown>(
+      "/api/auth/mfa/webauthn/credentials",
+      { method: "GET" },
+    );
+    return normalizePasskeyCredentialListResponse(response).credentials;
+  }
+
+  /** Rename one passkey credential for the currently signed-in user. */
+  async renamePasskey(
+    credentialId: string,
+    displayName: string,
+  ): Promise<PasskeyCredentialMetadata> {
+    const response = await this.client.request<unknown>(
+      `/api/auth/mfa/webauthn/credentials/${encodePathSegment(credentialId)}`,
+      {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ display_name: displayName }),
+      },
+    );
+    return normalizePasskeyCredentialMetadata(response);
+  }
+
+  /** Delete one passkey credential for the currently signed-in user. */
+  async deletePasskey(credentialId: string): Promise<void> {
+    await this.client.request<void>(
+      `/api/auth/mfa/webauthn/credentials/${encodePathSegment(credentialId)}`,
+      { method: "DELETE" },
+    );
   }
 
   /**

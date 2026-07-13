@@ -1,6 +1,8 @@
-/**
- * @module ui/browser-tests-unmocked/fixtures/realtime.ts
- */
+import { createHash, randomBytes } from "node:crypto";
+import * as http from "node:http";
+import * as https from "node:https";
+import type { Socket } from "node:net";
+import type { TLSSocket } from "node:tls";
 import type { Page } from "@playwright/test";
 
 const REALTIME_WS_PATH = "/api/realtime/ws";
@@ -17,6 +19,14 @@ interface SSEFrame {
 
 interface RealtimeSSEOpenResult {
   body: ReadableStream<Uint8Array>;
+}
+
+type RealtimeWSSocket = Socket | TLSSocket;
+
+interface RealtimeWsSubscriptionHandle {
+  closed: boolean;
+  closePromise: Promise<void>;
+  socket: RealtimeWSSocket;
 }
 
 function delay(ms: number): Promise<void> {
@@ -205,12 +215,132 @@ export async function startSSECapture(
   };
 }
 
-function buildRealtimeWsUrl(currentPageUrl: string, token: string): string {
+function buildRealtimeWsUrl(currentPageUrl: string): URL {
   const currentURL = new URL(currentPageUrl);
   const wsProtocol = currentURL.protocol === "https:" ? "wss:" : "ws:";
   const wsURL = new URL(REALTIME_WS_PATH, `${wsProtocol}//${currentURL.host}`);
-  wsURL.searchParams.set("token", token);
-  return wsURL.toString();
+  return wsURL;
+}
+
+function describeUpgradeFailure(res: http.IncomingMessage): string {
+  const { statusCode, statusMessage } = res;
+  if (statusCode === undefined) {
+    return "WebSocket handshake failed before an HTTP status was returned";
+  }
+  const statusText = statusMessage ? ` ${statusMessage}` : "";
+  return `WebSocket handshake failed with status ${statusCode}${statusText}`;
+}
+
+function encodeWebSocketFrame(opcode: number, payloadText: string): Buffer {
+  const payload = Buffer.from(payloadText, "utf-8");
+  const mask = randomBytes(4);
+
+  let header = Buffer.from([0x80 | opcode, 0x80 | payload.length]);
+  if (payload.length >= 126 && payload.length <= 0xffff) {
+    header = Buffer.alloc(4);
+    header[0] = 0x80 | opcode;
+    header[1] = 0x80 | 126;
+    header.writeUInt16BE(payload.length, 2);
+  } else if (payload.length > 0xffff) {
+    header = Buffer.alloc(10);
+    header[0] = 0x80 | opcode;
+    header[1] = 0x80 | 127;
+    header.writeBigUInt64BE(BigInt(payload.length), 2);
+  }
+
+  const maskedPayload = Buffer.alloc(payload.length);
+  for (let i = 0; i < payload.length; i += 1) {
+    maskedPayload[i] = payload[i] ^ mask[i % mask.length];
+  }
+
+  return Buffer.concat([header, mask, maskedPayload]);
+}
+
+async function openRealtimeWsSocket(
+  endpoint: URL,
+  token: string,
+): Promise<RealtimeWsSubscriptionHandle> {
+  const upgradeKey = randomBytes(16).toString("base64");
+  const expectedAccept = createHash("sha1")
+    .update(`${upgradeKey}258EAFA5-E914-47DA-95CA-C5AB0DC85B11`)
+    .digest("base64");
+  const transport = endpoint.protocol === "wss:" ? https : http;
+
+  return await new Promise<RealtimeWsSubscriptionHandle>((resolve, reject) => {
+    let settled = false;
+    const req = transport.request({
+      host: endpoint.hostname,
+      method: "GET",
+      path: `${endpoint.pathname}${endpoint.search}`,
+      port:
+        endpoint.port.length > 0 ? Number(endpoint.port) : endpoint.protocol === "wss:" ? 443 : 80,
+      headers: {
+        Authorization: `Bearer ${token}`,
+        Connection: "Upgrade",
+        Upgrade: "websocket",
+        "Sec-WebSocket-Key": upgradeKey,
+        "Sec-WebSocket-Version": "13",
+      },
+    });
+
+    const fail = (error: Error): void => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      reject(error);
+    };
+
+    req.once("response", (res) => {
+      fail(new Error(describeUpgradeFailure(res)));
+    });
+    req.once("error", (error) => {
+      fail(error instanceof Error ? error : new Error(String(error)));
+    });
+    req.once("upgrade", (res, socket, head) => {
+      if (settled) {
+        socket.destroy();
+        return;
+      }
+      settled = true;
+      if (res.headers["sec-websocket-accept"] !== expectedAccept) {
+        socket.destroy();
+        reject(new Error("WebSocket handshake returned an unexpected Sec-WebSocket-Accept header"));
+        return;
+      }
+      if (head.length > 0) {
+        socket.unshift(head);
+      }
+      socket.setNoDelay(true);
+      const closePromise = new Promise<void>((resolveClose) => {
+        socket.once("close", resolveClose);
+        socket.once("end", resolveClose);
+      });
+      resolve({
+        closed: false,
+        closePromise,
+        socket,
+      });
+    });
+    req.end();
+  });
+}
+
+function sendRealtimeWsSubscribeFrame(
+  socket: RealtimeWSSocket,
+  table: string,
+): Promise<void> {
+  const payload = JSON.stringify({ type: "subscribe", ref: "inspect-users", tables: [table] });
+  const frame = encodeWebSocketFrame(0x1, payload);
+  return new Promise<void>((resolve, reject) => {
+    socket.write(frame, (error) => {
+      if (error) {
+        reject(error);
+        return;
+      }
+      resolve();
+    });
+  });
 }
 
 async function openRealtimeWsSubscription(
@@ -218,94 +348,45 @@ async function openRealtimeWsSubscription(
   currentPageUrl: string,
   token: string,
   table: string,
-): Promise<string> {
-  const handle = `__aybRealtimeSmokeWs${Date.now()}${Math.random().toString(36).slice(2)}`;
-  const wsURL = buildRealtimeWsUrl(currentPageUrl, token);
-  await page.evaluate(
-    async ({ wsURL: evaluateWsUrl, table: evaluateTable, handle: evaluateHandle }) => {
-      const registry = globalThis as typeof globalThis & Record<string, WebSocket | undefined>;
-      await new Promise<void>((resolve, reject) => {
-        const ws = new WebSocket(evaluateWsUrl);
-        const timeout = setTimeout(() => {
-          cleanup();
-          reject(new Error("Timed out waiting for WebSocket to open"));
-        }, 5000);
-        const onOpen = () => {
-          try {
-            ws.send(
-              JSON.stringify({ type: "subscribe", ref: "inspect-users", tables: [evaluateTable] }),
-            );
-            registry[evaluateHandle] = ws;
-            cleanup();
-            resolve();
-          } catch (error) {
-            cleanup();
-            reject(error);
-          }
-        };
-        const onError = () => {
-          cleanup();
-          reject(new Error("WebSocket failed to open"));
-        };
-        const onClose = () => {
-          cleanup();
-          reject(new Error("WebSocket closed before opening"));
-        };
-        const cleanup = () => {
-          clearTimeout(timeout);
-          ws.removeEventListener("open", onOpen);
-          ws.removeEventListener("error", onError);
-          ws.removeEventListener("close", onClose);
-        };
-        ws.addEventListener("open", onOpen);
-        ws.addEventListener("error", onError);
-        ws.addEventListener("close", onClose);
-      });
-    },
-    { wsURL, table, handle },
-  );
+): Promise<RealtimeWsSubscriptionHandle> {
+  void page;
+
+  const wsURL = buildRealtimeWsUrl(currentPageUrl);
+  const handle = await openRealtimeWsSocket(wsURL, token);
+  await sendRealtimeWsSubscribeFrame(handle.socket, table);
   return handle;
 }
 
-async function closeRealtimeWsSubscription(page: Page, handle: string): Promise<void> {
-  await page.evaluate(async (evaluateHandle) => {
-    const registry = globalThis as typeof globalThis & Record<string, WebSocket | undefined>;
-    const ws = registry[evaluateHandle];
-    if (!ws || ws.readyState === ws.CLOSED) {
-      delete registry[evaluateHandle];
-      return;
-    }
+async function closeRealtimeWsSubscription(
+  page: Page,
+  handle: RealtimeWsSubscriptionHandle,
+): Promise<void> {
+  void page;
 
-    await new Promise<void>((resolve, reject) => {
-      const timeout = setTimeout(() => {
-        cleanup();
-        reject(new Error("Timed out waiting for WebSocket to close"));
-      }, 5000);
-      const onClose = () => {
-        cleanup();
-        resolve();
-      };
-      const onError = () => {
-        cleanup();
-        reject(new Error("WebSocket failed while closing"));
-      };
-      const cleanup = () => {
-        clearTimeout(timeout);
-        ws.removeEventListener("close", onClose);
-        ws.removeEventListener("error", onError);
-        delete registry[evaluateHandle];
-      };
-      ws.addEventListener("close", onClose);
-      ws.addEventListener("error", onError);
-      if (ws.readyState !== ws.CLOSING) {
-        ws.close();
-      }
-      if (ws.readyState === ws.CLOSED) {
-        cleanup();
-        resolve();
-      }
-    });
-  }, handle);
+  if (handle.closed) {
+    return;
+  }
+  handle.closed = true;
+
+  if (!handle.socket.destroyed) {
+    handle.socket.write(encodeWebSocketFrame(0x8, ""));
+    handle.socket.end();
+  }
+
+  let timeoutHandle: ReturnType<typeof setTimeout> | null = null;
+  const timeoutPromise = new Promise<void>((_, reject) => {
+    timeoutHandle = setTimeout(() => {
+      handle.socket.destroy();
+      reject(new Error("Timed out waiting for WebSocket to close"));
+    }, 5000);
+  });
+  try {
+    await Promise.race([handle.closePromise, timeoutPromise]);
+  } finally {
+    if (timeoutHandle) {
+      clearTimeout(timeoutHandle);
+    }
+  }
 }
 
 export async function withRealtimeWsSubscription<T>(

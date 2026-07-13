@@ -66,6 +66,26 @@ describe("AccountLinking", () => {
     });
   });
 
+  it("shows the returned error and keeps the form usable when starting an anonymous session fails", async () => {
+    mockGetAuthToken.mockReturnValue(null);
+    mockCreateAnonymousSession.mockRejectedValue(
+      new Error("anonymous auth is disabled"),
+    );
+    const user = userEvent.setup();
+    render(<AccountLinking onLinked={onLinked} />);
+
+    await user.click(screen.getByRole("button", { name: /start anonymous session/i }));
+
+    await waitFor(() => {
+      expect(screen.getByText(/anonymous auth is disabled/i)).toBeInTheDocument();
+    });
+    // Form remains usable: start-session action stays available and inputs persist.
+    expect(screen.getByRole("button", { name: /start anonymous session/i })).toBeInTheDocument();
+    expect(screen.getByTestId("link-email-input")).toBeInTheDocument();
+    expect(screen.getByTestId("link-password-input")).toBeInTheDocument();
+    expect(mockLinkEmail).not.toHaveBeenCalled();
+  });
+
   it("renders heading and email/password form", () => {
     render(<AccountLinking onLinked={onLinked} />);
     expect(screen.getByRole("heading", { name: /link your account/i })).toBeInTheDocument();

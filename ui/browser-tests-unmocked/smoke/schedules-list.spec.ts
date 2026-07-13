@@ -55,6 +55,10 @@ test.describe("Smoke: Schedules List", () => {
     await expect(page.getByRole("columnheader", { name: "Name" })).toBeVisible();
     await expect(page.getByRole("columnheader", { name: "Job Type" })).toBeVisible();
     await expect(page.getByRole("columnheader", { name: "Cron" })).toBeVisible();
+    await expect(page.getByRole("columnheader", { name: "Last Run" })).toBeVisible();
+    await expect(page.getByRole("columnheader", { name: "Next Run" })).toBeVisible();
+    await expect(page.getByRole("columnheader", { name: "Enabled" })).toBeVisible();
+    await expect(page.getByRole("columnheader", { name: "Actions" })).toBeVisible();
 
     const row = page.getByRole("row", { name: new RegExp(scheduleName) }).first();
     await expect(row).toBeVisible({ timeout: 5000 });

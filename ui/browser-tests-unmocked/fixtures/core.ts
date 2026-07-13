@@ -1,6 +1,3 @@
-/**
- * @module ui/browser-tests-unmocked/fixtures/core.ts
- */
 import { expect, type APIRequestContext, type Page } from "@playwright/test";
 
 export function sqlLiteral(value: string): string {

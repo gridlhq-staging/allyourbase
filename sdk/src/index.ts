@@ -35,6 +35,8 @@ export type {
   OAuthOptions,
   OAuthProvider,
   OAuthTokenResponse,
+  PasskeyCredentialListResponse,
+  PasskeyCredentialMetadata,
   PersistedAuthSession,
   PublicKeyCredentialCreationOptionsJSON,
   PublicKeyCredentialDescriptorJSON,

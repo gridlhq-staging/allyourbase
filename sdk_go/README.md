@@ -16,6 +16,51 @@ go mod edit -replace=github.com/allyourbase/ayb/sdk_go=/absolute/path/to/allyour
 go get github.com/allyourbase/ayb/sdk_go
 ```
 
+## Auth
+
+```go
+client := allyourbase.NewClient("http://localhost:8080")
+
+redirectTo := "http://localhost:3000/auth/callback"
+oauthURL := client.Auth.OAuthStartURL(
+	"google",
+	"opaque-csrf-state",
+	[]string{"email", "profile"},
+	&redirectTo,
+)
+fmt.Println(oauthURL)
+```
+
+Use the raw WebAuthn MFA helpers around your own browser authenticator ceremony:
+
+```go
+ctx := context.Background()
+
+begin, err := client.Auth.EnrollWebAuthn(ctx)
+if err != nil {
+	return err
+}
+_ = begin
+
+attestationResponse := json.RawMessage(`{"id":"credential","rawId":"credential","response":{},"type":"public-key"}`)
+_, err = client.Auth.ConfirmWebAuthnEnrollment(ctx, "Primary security key", attestationResponse)
+if err != nil {
+	return err
+}
+
+challenge, err := client.Auth.WebAuthnChallenge(ctx, mfaToken)
+if err != nil {
+	return err
+}
+
+assertionResponse := json.RawMessage(`{"id":"credential","rawId":"credential","response":{},"type":"public-key"}`)
+session, err := client.Auth.WebAuthnVerify(ctx, mfaToken, challenge.ChallengeID, assertionResponse)
+if err != nil {
+	return err
+}
+fmt.Println(session.User.Email)
+```
+
 ## Realtime
 
 ```go

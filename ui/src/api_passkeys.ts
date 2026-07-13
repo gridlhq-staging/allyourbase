@@ -1,7 +1,4 @@
-/**
- * @module ui/src/api_passkeys.ts
- */
-import type { AuthTokens, MFAFactor } from "./types";
+import type { AuthTokens } from "./types";
 import { requestAuth, requestAuthNoBody, setAuthToken } from "./api_client";
 import type {
   PublicKeyCredentialCreationOptionsJSON,
@@ -13,6 +10,16 @@ export interface PasskeyChallenge {
   options: PublicKeyCredentialRequestOptionsJSON;
 }
 
+export interface PasskeyCredentialMetadata {
+  credentialId: string;
+  displayName: string;
+  transports: string[];
+  createdAt: string;
+  lastUsedAt?: string;
+}
+
+const PASSKEY_CREDENTIALS_PATH = "/api/auth/mfa/webauthn/credentials";
+
 async function requestAndStoreAuthToken(
   path: string,
   init?: RequestInit,
@@ -20,6 +27,59 @@ async function requestAndStoreAuthToken(
   const tokens = await requestAuth<AuthTokens>(path, init);
   setAuthToken(tokens.token);
   return tokens;
+}
+
+function requireRecord(value: unknown, message: string): Record<string, unknown> {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    throw new Error(message);
+  }
+  return value as Record<string, unknown>;
+}
+
+function requireStringField(
+  source: Record<string, unknown>,
+  field: string,
+  message: string,
+): string {
+  const value = source[field];
+  if (typeof value !== "string") {
+    throw new Error(message);
+  }
+  return value;
+}
+
+function normalizeTransports(value: unknown): string[] {
+  if (!Array.isArray(value) || value.some((transport) => typeof transport !== "string")) {
+    throw new Error("Invalid passkey credential metadata");
+  }
+  return [...value];
+}
+
+function normalizePasskeyCredentialMetadata(value: unknown): PasskeyCredentialMetadata {
+  const source = requireRecord(value, "Invalid passkey credential metadata");
+  const lastUsedAt = source.last_used_at;
+  if (lastUsedAt !== undefined && lastUsedAt !== null && typeof lastUsedAt !== "string") {
+    throw new Error("Invalid passkey credential metadata");
+  }
+
+  const metadata: PasskeyCredentialMetadata = {
+    credentialId: requireStringField(source, "credential_id", "Invalid passkey credential metadata"),
+    displayName: requireStringField(source, "display_name", "Invalid passkey credential metadata"),
+    transports: normalizeTransports(source.transports),
+    createdAt: requireStringField(source, "created_at", "Invalid passkey credential metadata"),
+  };
+  if (typeof lastUsedAt === "string") {
+    metadata.lastUsedAt = lastUsedAt;
+  }
+  return metadata;
+}
+
+function normalizePasskeyCredentialsEnvelope(value: unknown): PasskeyCredentialMetadata[] {
+  const source = requireRecord(value, "Invalid passkey credentials response");
+  if (!Array.isArray(source.credentials)) {
+    throw new Error("Invalid passkey credentials response");
+  }
+  return source.credentials.map((credential) => normalizePasskeyCredentialMetadata(credential));
 }
 
 export async function beginPasskeyEnroll(): Promise<PublicKeyCredentialCreationOptionsJSON> {
@@ -62,11 +122,24 @@ export async function verifyPasskeyChallenge(
   });
 }
 
-export async function listPasskeys(): Promise<MFAFactor[]> {
-  const response = await requestAuth<{ factors: MFAFactor[] }>("/api/auth/mfa/factors");
-  return response.factors.filter((factor) => factor.method === "webauthn");
+export async function listPasskeys(): Promise<PasskeyCredentialMetadata[]> {
+  const response = await requestAuth<unknown>(PASSKEY_CREDENTIALS_PATH, { method: "GET" });
+  return normalizePasskeyCredentialsEnvelope(response);
 }
 
-export async function deletePasskey(): Promise<void> {
-  await requestAuthNoBody("/api/auth/mfa/webauthn/", { method: "DELETE" });
+export async function renamePasskey(
+  credentialId: string,
+  displayName: string,
+): Promise<PasskeyCredentialMetadata> {
+  return normalizePasskeyCredentialMetadata(
+    await requestAuth<unknown>(`${PASSKEY_CREDENTIALS_PATH}/${encodeURIComponent(credentialId)}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ display_name: displayName }),
+    }),
+  );
+}
+
+export async function deletePasskey(credentialId: string): Promise<void> {
+  await requestAuthNoBody(`${PASSKEY_CREDENTIALS_PATH}/${encodeURIComponent(credentialId)}`, { method: "DELETE" });
 }

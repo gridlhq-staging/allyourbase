@@ -713,6 +713,83 @@ describe("auth webauthn MFA", () => {
     });
   });
 
+  it("signInWithDiscoverablePasskey POSTs bodyless begin, finishes assertion, and stores tokens", async () => {
+    const beginBody = {
+      challenge_id: "discoverable-challenge-id",
+      options: {
+        challenge: "ZGlzY292ZXJhYmxlLWNoYWxsZW5nZQ",
+        rpId: "localhost",
+        userVerification: "preferred",
+      },
+    };
+    const finishBody = {
+      token: "discoverable-token",
+      refreshToken: "discoverable-refresh",
+      user: { id: "u-discoverable", email: "discoverable@example.com", email_verified: true },
+    };
+    const assertionCredential = new MockPublicKeyCredential(
+      "discoverable-cred",
+      utf8Bytes("raw-discoverable"),
+      "public-key",
+      new MockAuthenticatorAssertionResponse(
+        utf8Bytes('{"type":"webauthn.get"}'),
+        utf8Bytes("auth-data"),
+        utf8Bytes("sig"),
+        utf8Bytes("user-handle"),
+      ),
+    );
+    const credentialsGet = vi.fn().mockResolvedValue(assertionCredential);
+    stubWebAuthnGlobals({ get: credentialsGet });
+
+    const fetchFn = mockFetchSequence([
+      { status: 200, body: beginBody },
+      { status: 200, body: finishBody },
+    ]);
+    const client = new AYBClient("http://localhost:8090", { fetch: fetchFn });
+    client.onAuthStateChange((event) => {
+      expect(event).toBe("SIGNED_IN");
+    });
+
+    const result = await client.auth.signInWithDiscoverablePasskey();
+
+    const calls = (fetchFn as ReturnType<typeof vi.fn>).mock.calls;
+    expect(calls).toHaveLength(2);
+    expect(calls[0][0]).toContain("/api/auth/webauthn/login/discover/begin");
+    expect(calls[0][1].method).toBe("POST");
+    expect(calls[0][1].body).toBeUndefined();
+
+    expect(credentialsGet).toHaveBeenCalledWith({
+      publicKey: {
+        challenge: utf8Bytes("discoverable-challenge"),
+        rpId: "localhost",
+        userVerification: "preferred",
+        allowCredentials: undefined,
+      },
+    });
+
+    expect(calls[1][0]).toContain("/api/auth/webauthn/login/discover/finish");
+    expect(calls[1][1].method).toBe("POST");
+    expect(JSON.parse(calls[1][1].body as string)).toEqual({
+      challenge_id: "discoverable-challenge-id",
+      assertion_response: {
+        id: "discoverable-cred",
+        rawId: "cmF3LWRpc2NvdmVyYWJsZQ",
+        type: "public-key",
+        response: {
+          clientDataJSON: "eyJ0eXBlIjoid2ViYXV0aG4uZ2V0In0",
+          authenticatorData: "YXV0aC1kYXRh",
+          signature: "c2ln",
+          userHandle: "dXNlci1oYW5kbGU",
+        },
+        clientExtensionResults: {},
+      },
+    });
+    expect(result.token).toBe("discoverable-token");
+    expect(client.token).toBe("discoverable-token");
+    expect(client.refreshToken).toBe("discoverable-refresh");
+    expect(result.user.emailVerified).toBe(true);
+  });
+
   it("verifyPasskey sends mfa bearer on both challenge and verify, persists session from verify response", async () => {
     const challengeBody = {
       challenge_id: "mfa-challenge-1",
@@ -813,6 +890,112 @@ describe("auth webauthn MFA", () => {
     const calls = (fetchFn as ReturnType<typeof vi.fn>).mock.calls;
     expect(calls[0][1].headers.Authorization).toBe("Bearer pending-mfa-token");
     expect(calls[1][1].headers.Authorization).toBe("Bearer pending-mfa-token");
+  });
+});
+
+describe("auth passkey credential management", () => {
+  function expectPublicCredentialMetadataOnly(value: Record<string, unknown>): void {
+    expect(value).not.toHaveProperty("id");
+    expect(value).not.toHaveProperty("factor_id");
+    expect(value).not.toHaveProperty("public_key");
+    expect(value).not.toHaveProperty("sign_count");
+  }
+
+  it("listPasskeys GETs credential management endpoint and normalizes metadata", async () => {
+    const fetchFn = mockFetch(200, {
+      credentials: [
+        {
+          credential_id: "primary_credential",
+          display_name: "Primary security key",
+          transports: ["usb"],
+          created_at: "2026-07-01T10:00:00Z",
+          last_used_at: "2026-07-02T11:00:00Z",
+          id: "backend-row-id",
+          factor_id: "factor-id",
+          public_key: "secret-public-key",
+          sign_count: 42,
+        },
+        {
+          credential_id: "backup_credential",
+          display_name: "Backup security key",
+          transports: ["internal"],
+          created_at: "2026-07-03T12:00:00Z",
+        },
+      ],
+    });
+    const client = new AYBClient("http://localhost:8090", { fetch: fetchFn });
+    client.setTokens("session-token", "session-refresh");
+
+    const result = await client.auth.listPasskeys();
+    const call = (fetchFn as ReturnType<typeof vi.fn>).mock.calls[0];
+
+    expect(call[0]).toContain("/api/auth/mfa/webauthn/credentials");
+    expect(call[1].method).toBe("GET");
+    expect(call[1].headers.Authorization).toBe("Bearer session-token");
+    expect(result).toEqual([
+      {
+        credentialId: "primary_credential",
+        displayName: "Primary security key",
+        transports: ["usb"],
+        createdAt: "2026-07-01T10:00:00Z",
+        lastUsedAt: "2026-07-02T11:00:00Z",
+      },
+      {
+        credentialId: "backup_credential",
+        displayName: "Backup security key",
+        transports: ["internal"],
+        createdAt: "2026-07-03T12:00:00Z",
+      },
+    ]);
+    result.forEach((credential) => {
+      expectPublicCredentialMetadataOnly(credential as unknown as Record<string, unknown>);
+    });
+  });
+
+  it("renamePasskey PATCHes encoded credential id and returns normalized metadata", async () => {
+    const fetchFn = mockFetch(200, {
+      credential_id: "credential/a?b",
+      display_name: "Renamed primary key",
+      transports: ["hybrid"],
+      created_at: "2026-07-01T10:00:00Z",
+      last_used_at: "2026-07-04T13:00:00Z",
+      id: "backend-row-id",
+      factor_id: "factor-id",
+      public_key: "secret-public-key",
+      sign_count: 43,
+    });
+    const client = new AYBClient("http://localhost:8090", { fetch: fetchFn });
+    client.setTokens("session-token", "session-refresh");
+
+    const result = await client.auth.renamePasskey("credential/a?b", "Renamed primary key");
+    const call = (fetchFn as ReturnType<typeof vi.fn>).mock.calls[0];
+
+    expect(call[0]).toContain("/api/auth/mfa/webauthn/credentials/credential%2Fa%3Fb");
+    expect(call[1].method).toBe("PATCH");
+    expect(call[1].headers.Authorization).toBe("Bearer session-token");
+    expect(JSON.parse(call[1].body as string)).toEqual({ display_name: "Renamed primary key" });
+    expect(result).toEqual({
+      credentialId: "credential/a?b",
+      displayName: "Renamed primary key",
+      transports: ["hybrid"],
+      createdAt: "2026-07-01T10:00:00Z",
+      lastUsedAt: "2026-07-04T13:00:00Z",
+    });
+    expectPublicCredentialMetadataOnly(result as unknown as Record<string, unknown>);
+  });
+
+  it("deletePasskey DELETEs encoded credential id with bearer token", async () => {
+    const fetchFn = mockFetch(204, undefined);
+    const client = new AYBClient("http://localhost:8090", { fetch: fetchFn });
+    client.setTokens("session-token", "session-refresh");
+
+    const result = await client.auth.deletePasskey("credential/a?b");
+    const call = (fetchFn as ReturnType<typeof vi.fn>).mock.calls[0];
+
+    expect(result).toBeUndefined();
+    expect(call[0]).toContain("/api/auth/mfa/webauthn/credentials/credential%2Fa%3Fb");
+    expect(call[1].method).toBe("DELETE");
+    expect(call[1].headers.Authorization).toBe("Bearer session-token");
   });
 });
 

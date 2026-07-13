@@ -1,6 +1,8 @@
 import type {
   AuthResponse,
   MagicLinkConfirmResponse,
+  PasskeyCredentialListResponse,
+  PasskeyCredentialMetadata,
   RealtimeEvent,
   StorageObject,
   User,
@@ -56,6 +58,52 @@ export function normalizeWebAuthnMFAChallengeResponse(
       ...optionsSource,
       challenge: String(optionsSource.challenge ?? ""),
     } as WebAuthnMFAChallengeResponse["options"],
+  };
+}
+
+export function normalizePasskeyCredentialMetadata(
+  value: unknown,
+): PasskeyCredentialMetadata {
+  const source = requireRecord(value, "Invalid passkey credential metadata");
+  const lastUsedAt = readOptionalString(
+    source,
+    ["lastUsedAt", "last_used_at"],
+    "Invalid passkey credential metadata",
+  );
+  const metadata: PasskeyCredentialMetadata = {
+    credentialId: requireStringField(
+      source,
+      ["credentialId", "credential_id"],
+      "Invalid passkey credential metadata",
+    ),
+    displayName: requireStringField(
+      source,
+      ["displayName", "display_name"],
+      "Invalid passkey credential metadata",
+    ),
+    transports: requireStringArray(source.transports, "Invalid passkey credential metadata"),
+    createdAt: requireStringField(
+      source,
+      ["createdAt", "created_at"],
+      "Invalid passkey credential metadata",
+    ),
+  };
+  if (lastUsedAt !== undefined) {
+    metadata.lastUsedAt = lastUsedAt;
+  }
+  return metadata;
+}
+
+export function normalizePasskeyCredentialListResponse(
+  value: unknown,
+): PasskeyCredentialListResponse {
+  const source = requireRecord(value, "Invalid passkey credentials response");
+  if (!Array.isArray(source.credentials)) {
+    throw new Error("Invalid passkey credentials response");
+  }
+  const credentials = source.credentials;
+  return {
+    credentials: credentials.map((credential) => normalizePasskeyCredentialMetadata(credential)),
   };
 }
 
@@ -134,6 +182,57 @@ export function readBoolean(source: Record<string, unknown>, keys: string[]): bo
     }
   }
   return undefined;
+}
+
+function requireRecord(value: unknown, message: string): Record<string, unknown> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error(message);
+  }
+  return value as Record<string, unknown>;
+}
+
+function requireStringField(
+  source: Record<string, unknown>,
+  keys: string[],
+  message: string,
+): string {
+  const value = readOptionalString(source, keys, message);
+  if (value === undefined) {
+    throw new Error(message);
+  }
+  return value;
+}
+
+function readOptionalString(
+  source: Record<string, unknown>,
+  keys: string[],
+  message: string,
+): string | undefined {
+  for (const key of keys) {
+    const value = source[key];
+    if (value === undefined || value === null) {
+      continue;
+    }
+    if (typeof value !== "string") {
+      throw new Error(message);
+    }
+    return value;
+  }
+  return undefined;
+}
+
+function requireStringArray(value: unknown, message: string): string[] {
+  if (!Array.isArray(value) || value.some((item) => typeof item !== "string")) {
+    throw new Error(message);
+  }
+  return [...value];
+}
+
+function readStringArray(value: unknown): string[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return value.filter((item): item is string => typeof item === "string");
 }
 
 export function encodePathSegment(value: string): string {

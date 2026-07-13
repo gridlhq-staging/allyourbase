@@ -1,6 +1,3 @@
-/**
- * @module ui/browser-tests-unmocked/fixtures/oauth.ts
- */
 import type { APIRequestContext } from "@playwright/test";
 import { createHash, randomBytes } from "crypto";
 import { validateResponse } from "./core";

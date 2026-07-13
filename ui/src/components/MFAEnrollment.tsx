@@ -300,7 +300,6 @@ export function MFAEnrollment() {
             <Passkeys
               factors={factors}
               onChanged={() => fetchData({ background: true })}
-              onPasskeyRegistered={() => setCurrentAAL("aal2")}
             />
           )}
 

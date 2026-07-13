@@ -1,9 +1,13 @@
 package allyourbase
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"io"
 	"net/http"
+	"net/url"
+	"strings"
 )
 
 type AuthClient struct {
@@ -16,6 +20,27 @@ func (a *AuthClient) Register(ctx context.Context, email, password string) (*Aut
 
 func (a *AuthClient) Login(ctx context.Context, email, password string) (*AuthResponse, error) {
 	return a.authWithCredentials(ctx, "/api/auth/login", email, password)
+}
+
+func (a *AuthClient) OAuthStartURL(provider, state string, scopes []string, redirectTo *string) string {
+	query := []string{"state=" + oauthQueryEscape(state)}
+	if len(scopes) > 0 {
+		query = append(query, "scopes="+oauthQueryEscape(strings.Join(scopes, ",")))
+	}
+	if redirectTo != nil {
+		query = append(query, "redirect_to="+oauthQueryEscape(*redirectTo))
+	}
+	return a.client.baseURL + "/api/auth/oauth/" + url.PathEscape(provider) + "?" + strings.Join(query, "&")
+}
+
+func oauthQueryEscape(value string) string {
+	escaped := url.QueryEscape(value)
+	escaped = strings.ReplaceAll(escaped, "+", "%20")
+	escaped = strings.ReplaceAll(escaped, "%21", "!")
+	escaped = strings.ReplaceAll(escaped, "%27", "'")
+	escaped = strings.ReplaceAll(escaped, "%28", "(")
+	escaped = strings.ReplaceAll(escaped, "%29", ")")
+	return strings.ReplaceAll(escaped, "%2A", "*")
 }
 
 func (a *AuthClient) BeginWebAuthnLogin(ctx context.Context, email string) (*WebAuthnLoginBeginResponse, error) {
@@ -45,6 +70,86 @@ func (a *AuthClient) FinishWebAuthnLogin(ctx context.Context, challengeID string
 	}
 	a.client.SetTokens(out.Token, out.RefreshToken)
 	return &out, nil
+}
+
+func (a *AuthClient) EnrollWebAuthn(ctx context.Context) (*WebAuthnEnrollBeginResponse, error) {
+	body, err := a.client.doJSON(ctx, http.MethodPost, "/api/auth/mfa/webauthn/enroll", nil, nil)
+	if err != nil {
+		return nil, err
+	}
+	var out WebAuthnEnrollBeginResponse
+	if err := json.Unmarshal(body, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+func (a *AuthClient) ConfirmWebAuthnEnrollment(ctx context.Context, displayName string, attestationResponse json.RawMessage) (*WebAuthnEnrollConfirmResponse, error) {
+	req := WebAuthnEnrollConfirmRequest{
+		DisplayName:         displayName,
+		AttestationResponse: attestationResponse,
+	}
+	body, err := a.client.doJSON(ctx, http.MethodPost, "/api/auth/mfa/webauthn/enroll/confirm", nil, req)
+	if err != nil {
+		return nil, err
+	}
+	var out WebAuthnEnrollConfirmResponse
+	if err := json.Unmarshal(body, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+func (a *AuthClient) WebAuthnChallenge(ctx context.Context, mfaToken string) (*WebAuthnMFAChallengeResponse, error) {
+	body, err := a.doJSONWithBearer(ctx, http.MethodPost, "/api/auth/mfa/webauthn/challenge", mfaToken, nil)
+	if err != nil {
+		return nil, err
+	}
+	var out WebAuthnMFAChallengeResponse
+	if err := json.Unmarshal(body, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+func (a *AuthClient) WebAuthnVerify(ctx context.Context, mfaToken, challengeID string, assertionResponse json.RawMessage) (*AuthResponse, error) {
+	req := WebAuthnMFAVerifyRequest{
+		ChallengeID:       challengeID,
+		AssertionResponse: assertionResponse,
+	}
+	body, err := a.doJSONWithBearer(ctx, http.MethodPost, "/api/auth/mfa/webauthn/verify", mfaToken, req)
+	if err != nil {
+		return nil, err
+	}
+	var out AuthResponse
+	if err := json.Unmarshal(body, &out); err != nil {
+		return nil, err
+	}
+	a.client.SetTokens(out.Token, out.RefreshToken)
+	return &out, nil
+}
+
+func (a *AuthClient) DeleteWebAuthn(ctx context.Context) error {
+	_, err := a.client.doJSON(ctx, http.MethodDelete, "/api/auth/mfa/webauthn", nil, nil)
+	return err
+}
+
+func (a *AuthClient) doJSONWithBearer(ctx context.Context, method, path, bearer string, body any) ([]byte, error) {
+	var rdr io.Reader
+	headers := map[string]string{"Authorization": "Bearer " + bearer}
+	if body != nil {
+		buf := bytes.NewBuffer(nil)
+		if err := json.NewEncoder(buf).Encode(body); err != nil {
+			return nil, err
+		}
+		rdr = buf
+		headers["Content-Type"] = "application/json"
+	}
+	_, respBody, _, err := a.client.do(ctx, method, path, nil, rdr, headers, false)
+	if err != nil {
+		return nil, err
+	}
+	return respBody, nil
 }
 
 func (a *AuthClient) SignInAnonymously(ctx context.Context) (*AuthResponse, error) {

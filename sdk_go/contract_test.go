@@ -344,6 +344,159 @@ func TestContractErrorResponseNumericCodePreservesNonIntegerValue(t *testing.T) 
 	}
 }
 
+func TestContractWebAuthnEnrollBeginResponseFixture(t *testing.T) {
+	data := mustLoadContractFixture(t, "webauthn_enroll_begin_response.json")
+	var out WebAuthnEnrollBeginResponse
+	if err := json.Unmarshal(data, &out); err != nil {
+		t.Fatalf("decode webauthn_enroll_begin_response: %v", err)
+	}
+	if out.Challenge != "webauthn_enroll_begin_challenge" {
+		t.Fatalf("unexpected challenge %q", out.Challenge)
+	}
+	if out.RP.ID != "127.0.0.1" || out.RP.Name != "Allyourbase" {
+		t.Fatalf("unexpected rp %+v", out.RP)
+	}
+	if out.Timeout != 300000 {
+		t.Fatalf("unexpected timeout %d", out.Timeout)
+	}
+	if out.User.ID != "webauthn_enroll_user_id" {
+		t.Fatalf("unexpected user id %q", out.User.ID)
+	}
+	if out.User.Name != "webauthn-e2e@example.com" {
+		t.Fatalf("unexpected user name %q", out.User.Name)
+	}
+	if out.User.DisplayName != "webauthn-e2e@example.com" {
+		t.Fatalf("unexpected user displayName %q", out.User.DisplayName)
+	}
+	if out.AuthenticatorSelection.ResidentKey != "preferred" {
+		t.Fatalf("unexpected residentKey %q", out.AuthenticatorSelection.ResidentKey)
+	}
+	wantAlgs := []int{-7, -35, -36, -257, -258, -259, -37, -38, -39, -8}
+	if len(out.PubKeyCredParams) != len(wantAlgs) {
+		t.Fatalf("expected %d pubKeyCredParams, got %d", len(wantAlgs), len(out.PubKeyCredParams))
+	}
+	for i, want := range wantAlgs {
+		if out.PubKeyCredParams[i].Alg != want {
+			t.Fatalf("pubKeyCredParams[%d].alg = %d, want %d", i, out.PubKeyCredParams[i].Alg, want)
+		}
+	}
+}
+
+func TestContractWebAuthnEnrollConfirmRequestFixture(t *testing.T) {
+	data := mustLoadContractFixture(t, "webauthn_enroll_confirm_request.json")
+	var req WebAuthnEnrollConfirmRequest
+	if err := json.Unmarshal(data, &req); err != nil {
+		t.Fatalf("decode webauthn_enroll_confirm_request: %v", err)
+	}
+	if req.DisplayName != "Primary security key" {
+		t.Fatalf("unexpected display_name %q", req.DisplayName)
+	}
+	actualData, err := json.Marshal(req)
+	if err != nil {
+		t.Fatalf("marshal webauthn_enroll_confirm_request: %v", err)
+	}
+	var expectedEnvelope map[string]any
+	if err := json.Unmarshal(data, &expectedEnvelope); err != nil {
+		t.Fatalf("decode expected webauthn_enroll_confirm_request envelope: %v", err)
+	}
+	var actualEnvelope map[string]any
+	if err := json.Unmarshal(actualData, &actualEnvelope); err != nil {
+		t.Fatalf("decode actual webauthn_enroll_confirm_request envelope: %v", err)
+	}
+	if !reflect.DeepEqual(actualEnvelope, expectedEnvelope) {
+		t.Fatalf("request envelope mismatch\nactual:   %#v\nexpected: %#v", actualEnvelope, expectedEnvelope)
+	}
+}
+
+func TestContractWebAuthnEnrollConfirmResponseFixture(t *testing.T) {
+	data := mustLoadContractFixture(t, "webauthn_enroll_confirm_response.json")
+	var out WebAuthnEnrollConfirmResponse
+	if err := json.Unmarshal(data, &out); err != nil {
+		t.Fatalf("decode webauthn_enroll_confirm_response: %v", err)
+	}
+	if out.Message != "WebAuthn MFA enrollment confirmed" {
+		t.Fatalf("unexpected message %q", out.Message)
+	}
+}
+
+func TestContractWebAuthnMFAChallengeResponseFixture(t *testing.T) {
+	data := mustLoadContractFixture(t, "webauthn_mfa_challenge_response.json")
+	var out WebAuthnMFAChallengeResponse
+	if err := json.Unmarshal(data, &out); err != nil {
+		t.Fatalf("decode webauthn_mfa_challenge_response: %v", err)
+	}
+	if out.ChallengeID != "webauthn_mfa_challenge_fixture" {
+		t.Fatalf("unexpected challenge_id %q", out.ChallengeID)
+	}
+	if out.Options.Challenge != "webauthn_mfa_challenge" {
+		t.Fatalf("unexpected challenge %q", out.Options.Challenge)
+	}
+	if out.Options.RPID != "127.0.0.1" {
+		t.Fatalf("unexpected rpId %q", out.Options.RPID)
+	}
+	if out.Options.Timeout != 300000 {
+		t.Fatalf("unexpected timeout %d", out.Options.Timeout)
+	}
+	if len(out.Options.AllowCredentials) == 0 {
+		t.Fatalf("expected allowCredentials to be populated")
+	}
+	first := out.Options.AllowCredentials[0]
+	if first.ID != "webauthn_mfa_credential_a" || first.Type != "public-key" {
+		t.Fatalf("unexpected first allow credential %+v", first)
+	}
+
+	field, ok := reflect.TypeOf(WebAuthnMFAChallengeResponse{}).FieldByName("ChallengeID")
+	if !ok {
+		t.Fatalf("ChallengeID field missing")
+	}
+	if field.Tag.Get("json") != "challenge_id" {
+		t.Fatalf("ChallengeID json tag must own challenge_id, got %q", field.Tag.Get("json"))
+	}
+}
+
+func TestContractWebAuthnMFAVerifyRequestFixture(t *testing.T) {
+	data := mustLoadContractFixture(t, "webauthn_mfa_verify_request.json")
+	var req WebAuthnMFAVerifyRequest
+	if err := json.Unmarshal(data, &req); err != nil {
+		t.Fatalf("decode webauthn_mfa_verify_request: %v", err)
+	}
+	if req.ChallengeID != "webauthn_mfa_challenge_fixture" {
+		t.Fatalf("unexpected challenge_id %q", req.ChallengeID)
+	}
+	actualData, err := json.Marshal(req)
+	if err != nil {
+		t.Fatalf("marshal webauthn_mfa_verify_request: %v", err)
+	}
+	var expectedEnvelope map[string]any
+	if err := json.Unmarshal(data, &expectedEnvelope); err != nil {
+		t.Fatalf("decode expected webauthn_mfa_verify_request envelope: %v", err)
+	}
+	var actualEnvelope map[string]any
+	if err := json.Unmarshal(actualData, &actualEnvelope); err != nil {
+		t.Fatalf("decode actual webauthn_mfa_verify_request envelope: %v", err)
+	}
+	if !reflect.DeepEqual(actualEnvelope, expectedEnvelope) {
+		t.Fatalf("request envelope mismatch\nactual:   %#v\nexpected: %#v", actualEnvelope, expectedEnvelope)
+	}
+}
+
+func TestContractWebAuthnMFAVerifyResponseFixture(t *testing.T) {
+	data := mustLoadContractFixture(t, "webauthn_mfa_verify_response.json")
+	var out AuthResponse
+	if err := json.Unmarshal(data, &out); err != nil {
+		t.Fatalf("decode webauthn_mfa_verify_response: %v", err)
+	}
+	if out.Token != "jwt_webauthn_mfa" {
+		t.Fatalf("unexpected token %q", out.Token)
+	}
+	if out.RefreshToken != "refresh_webauthn_mfa" {
+		t.Fatalf("unexpected refresh token %q", out.RefreshToken)
+	}
+	if out.User.Email != "webauthn-e2e@example.com" {
+		t.Fatalf("unexpected email %q", out.User.Email)
+	}
+}
+
 func TestContractErrorResponseStringCodeShape(t *testing.T) {
 	raw := []byte(`{"code":"auth/missing-refresh-token","message":"Missing refresh token","data":{"detail":"refresh token not available"}}`)
 	err := normalizeError(400, "Bad Request", raw)

@@ -76,14 +76,17 @@ class AuthClient internal constructor(
         redirectTo: String? = null,
     ): String {
         val baseUrl = client.configuration.baseURL.trimEnd('/')
-        val queryItems = mutableListOf("state=$state")
+        val queryItems = mutableListOf("state=${state.oauthQueryEncode()}")
         if (!scopes.isNullOrEmpty()) {
             queryItems += "scopes=${scopes.joinToString(",").oauthQueryEncode()}"
         }
         if (!redirectTo.isNullOrEmpty()) {
             queryItems += "redirect_to=${redirectTo.oauthQueryEncode()}"
         }
-        return "$baseUrl/api/auth/oauth/$provider?${queryItems.joinToString("&")}"
+        // Provider is one path segment: the canonical contract requires "/"
+        // and spaces inside it to arrive percent-encoded (the conservative
+        // query-safe set is a valid path-segment encoding superset).
+        return "$baseUrl/api/auth/oauth/${provider.oauthQueryEncode()}?${queryItems.joinToString("&")}"
     }
 
     suspend fun enrollWebAuthn(): WebAuthnEnrollBeginResponse =

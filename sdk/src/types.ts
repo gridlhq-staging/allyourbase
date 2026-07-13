@@ -159,6 +159,20 @@ export interface WebAuthnLoginFinishRequest {
   assertionResponse: Record<string, unknown>;
 }
 
+/** Public passkey credential metadata returned by credential-management helpers. */
+export interface PasskeyCredentialMetadata {
+  credentialId: string;
+  displayName: string;
+  transports: string[];
+  createdAt: string;
+  lastUsedAt?: string;
+}
+
+/** Response envelope for GET /api/auth/mfa/webauthn/credentials in canonical SDK shape. */
+export interface PasskeyCredentialListResponse {
+  credentials: PasskeyCredentialMetadata[];
+}
+
 /** JSON-serializable PublicKeyCredentialUserEntity used by WebAuthn creation options. */
 export interface PublicKeyCredentialUserEntityJSON {
   id: string;

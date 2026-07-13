@@ -94,6 +94,32 @@ describe("SAMLConfig", () => {
     });
   });
 
+  it("shows error and does not submit when attribute mapping JSON is invalid", async () => {
+    renderWithProviders(<SAMLConfig />);
+    await waitFor(() => {
+      expect(screen.getByText("okta-prod")).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: /add provider/i }));
+    fireEvent.change(screen.getByLabelText("Name"), {
+      target: { value: "bad-json-idp" },
+    });
+    fireEvent.change(screen.getByLabelText("Entity ID"), {
+      target: { value: "https://bad.example.com" },
+    });
+    fireEvent.change(screen.getByLabelText(/attribute mapping/i), {
+      target: { value: "{ not valid json" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /^create$/i }));
+
+    await waitFor(() => {
+      expect(
+        screen.getByText("Attribute Mapping is not valid JSON"),
+      ).toBeInTheDocument();
+    });
+    expect(api.createSAMLProvider).not.toHaveBeenCalled();
+  });
+
   it("supports metadata via raw XML textarea", async () => {
     renderWithProviders(<SAMLConfig />);
     await waitFor(() => {

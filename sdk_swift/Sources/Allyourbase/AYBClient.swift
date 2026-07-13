@@ -265,7 +265,10 @@ public final class AuthClient {
         scopes: [String]? = nil,
         redirectTo: String? = nil
     ) throws -> URL {
-        let baseURL = try client.makeURL(path: "/api/auth/oauth/\(provider)")
+        // Provider is one path segment: the canonical contract
+        // (oauth_start_url_cases.json) requires "/" and spaces inside it to
+        // arrive percent-encoded, so it cannot be interpolated raw.
+        let baseURL = try client.makeURL(path: "/api/auth/oauth/\(percentEncodeOAuthQueryValue(provider))")
         var queryItems = ["state=\(percentEncodeOAuthQueryValue(state))"]
         if let scopes, scopes.isEmpty == false {
             queryItems.append("scopes=\(percentEncodeOAuthQueryValue(scopes.joined(separator: ",")))")

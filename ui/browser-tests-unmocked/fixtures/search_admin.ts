@@ -1,6 +1,3 @@
-/**
- * @module ui/browser-tests-unmocked/fixtures/search_admin.ts
- */
 import type { APIRequestContext } from "@playwright/test";
 import type { CollectionSearchSettingsPayload } from "../../src/api_admin";
 import { validateResponse } from "./core";

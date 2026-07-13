@@ -132,7 +132,7 @@ describe("SDK contract fixtures", () => {
       "oauth_start_url_cases.json",
     ) as OAuthStartURLFixtureCase[];
 
-    expect(cases).toHaveLength(5);
+    expect(cases).toHaveLength(6);
 
     for (const fixtureCase of cases) {
       const actualURL = new URL(

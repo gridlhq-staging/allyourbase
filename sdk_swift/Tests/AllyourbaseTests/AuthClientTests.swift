@@ -20,7 +20,11 @@ struct AuthClientTests {
                 redirectTo: redirectTo
             )
 
-            #expect(url.path + (url.query.map { "?\($0)" } ?? "") == expectedPathQuery)
+            // URL.path percent-DECODES; compare encoded bytes via URLComponents
+            // so encoded provider segments (e.g. %2F) are asserted exactly.
+            let components = try #require(URLComponents(url: url, resolvingAgainstBaseURL: false))
+            let actualPathQuery = components.percentEncodedPath + (components.percentEncodedQuery.map { "?\($0)" } ?? "")
+            #expect(actualPathQuery == expectedPathQuery)
         }
     }
 

@@ -1,6 +1,3 @@
-/**
- * @module ui/browser-tests-unmocked/fixtures/index.ts
- */
 import { expect, test as base, type APIRequestContext, type Page, type TestInfo } from "@playwright/test";
 import { getBrowserUnmockedSkipReason } from "../browser-preflight";
 import { checkAuthEnabled, execSQL, getStoredAdminToken, waitForDashboard } from "./core";

@@ -4,7 +4,27 @@ import {
   getAuthSettingsUnavailableSkipReason,
   waitForDashboard,
   createVirtualAuthenticator,
+  createLinkedEmailAuthSessionToken,
 } from "../fixtures";
+import type { Locator, Page } from "@playwright/test";
+
+function passkeyRow(page: Page, passkeyName: string): Locator {
+  return page.getByTestId(/^passkey-row-/).filter({ has: page.getByText(passkeyName, { exact: true }) });
+}
+
+async function enrollPasskey(page: Page, passkeyName: string): Promise<void> {
+  await page.getByTestId("passkey-display-name-input").fill(passkeyName);
+  await page.getByTestId("passkey-register-button").click();
+  await expect(page.getByText(`Passkey "${passkeyName}" registered`)).toBeVisible({ timeout: 10000 });
+  await expect(passkeyRow(page, passkeyName)).toBeVisible({ timeout: 10000 });
+}
+
+async function deletePasskeyThroughUI(passkey: Locator): Promise<void> {
+  await passkey.getByTestId("passkey-delete-button").click();
+  const dialog = passkey.page().getByRole("dialog", { name: "Delete passkey" });
+  await expect(dialog).toBeVisible();
+  await dialog.getByRole("button", { name: "Delete" }).click();
+}
 
 test.describe("Auth Passkey Lifecycle (Full E2E)", () => {
   const userEmails: string[] = [];
@@ -29,12 +49,21 @@ test.describe("Auth Passkey Lifecycle (Full E2E)", () => {
     test.skip(Boolean(authSettingsSkipReason), authSettingsSkipReason ?? "Auth settings unavailable");
 
     const runId = Date.now();
-    const passkeyName = `e2e-passkey-${runId}`;
+    const testEmail = `passkey-lifecycle-${runId}@example.test`;
+    const testPassword = `PasskeyLifecycle!${runId}`;
+    const firstPasskeyName = `e2e-passkey-primary-${runId}`;
+    const secondPasskeyName = `e2e-passkey-backup-${runId}`;
+    const renamedPasskeyName = `e2e-passkey-renamed-${runId}`;
+    userEmails.push(testEmail);
 
     await mfaHelpers.ensureAuthSettings({
       webauthn_enabled: true,
       anonymous_auth_enabled: true,
     });
+    const authToken = await createLinkedEmailAuthSessionToken(request, testEmail, testPassword);
+    await page.addInitScript((token: string) => {
+      window.localStorage.setItem("ayb_auth_token", token);
+    }, authToken);
 
     let virtualAuthenticator: Awaited<ReturnType<typeof createVirtualAuthenticator>> | null = null;
     try {
@@ -48,16 +77,41 @@ test.describe("Auth Passkey Lifecycle (Full E2E)", () => {
         });
       });
 
-      await test.step("MFA Management: register a passkey with a distinctive name", async () => {
+      await test.step("MFA Management: register two passkeys with distinctive names", async () => {
         await page.locator("aside").getByRole("button", { name: /MFA Management/i }).click();
         await expect(page.getByRole("heading", { name: /Multi-Factor Authentication/i })).toBeVisible({ timeout: 5000 });
         await expect(page.getByRole("button", { name: /Register Passkey/i })).toBeVisible({ timeout: 5000 });
         virtualAuthenticator = await createVirtualAuthenticator(page);
 
-        await page.getByTestId("passkey-display-name-input").fill(passkeyName);
-        await page.getByTestId("passkey-register-button").click();
-        await expect(page.getByText(`Passkey "${passkeyName}" registered`)).toBeVisible({ timeout: 10000 });
-        await expect(page.getByTestId("passkey-name")).toContainText(passkeyName, { timeout: 10000 });
+        await enrollPasskey(page, firstPasskeyName);
+        await mfaHelpers.promoteSessionToAAL2WithPasskey(page, testEmail, testPassword);
+        await virtualAuthenticator.remove();
+        virtualAuthenticator = await createVirtualAuthenticator(page);
+        await enrollPasskey(page, secondPasskeyName);
+        await expect(passkeyRow(page, firstPasskeyName)).toBeVisible();
+        await expect(passkeyRow(page, secondPasskeyName)).toBeVisible();
+      });
+
+      await test.step("MFA Management: rename one passkey and delete the other", async () => {
+        const firstPasskey = passkeyRow(page, firstPasskeyName);
+        await firstPasskey.getByTestId("passkey-rename-input").fill(renamedPasskeyName);
+        await firstPasskey.getByTestId("passkey-rename-button").click();
+        await expect(page.getByText(`Passkey "${renamedPasskeyName}" renamed`)).toBeVisible({ timeout: 10000 });
+        await expect(passkeyRow(page, renamedPasskeyName)).toBeVisible({ timeout: 10000 });
+        await expect(firstPasskey).not.toBeVisible({ timeout: 10000 });
+
+        const secondPasskey = passkeyRow(page, secondPasskeyName);
+        await deletePasskeyThroughUI(secondPasskey);
+        await expect(page.getByText("Passkey deleted")).toBeVisible({ timeout: 10000 });
+        await expect(secondPasskey).not.toBeVisible({ timeout: 10000 });
+        await expect(passkeyRow(page, renamedPasskeyName)).toBeVisible();
+      });
+
+      await test.step("MFA Management: reject deleting the final remaining passkey", async () => {
+        const remainingPasskey = passkeyRow(page, renamedPasskeyName);
+        await deletePasskeyThroughUI(remainingPasskey);
+        await expect(page.getByText("cannot delete final WebAuthn credential")).toBeVisible({ timeout: 10000 });
+        await expect(passkeyRow(page, renamedPasskeyName)).toBeVisible();
       });
 
       await test.step("MFA Management: require passkey-backed AAL2 success indicator", async () => {

@@ -33,6 +33,16 @@ test.describe("Smoke: API Explorer", () => {
     await expect(page.getByLabel(/HTTP method/i)).toBeVisible();
     await expect(page.getByLabel(/Request path/i)).toBeVisible();
     await expect(page.getByRole("button", { name: /^Send$/i })).toBeVisible();
+    await expect(page.getByRole("button", { name: /Query Parameters/i })).toBeVisible();
+
+    await page.getByRole("button", { name: /Query Parameters/i }).click();
+    await expect(page.getByLabel("filter")).toBeVisible();
+    await expect(page.getByLabel("sort")).toBeVisible();
+    await expect(page.getByRole("textbox", { name: "page", exact: true })).toBeVisible();
+    await expect(page.getByRole("textbox", { name: "perPage", exact: true })).toBeVisible();
+    await expect(page.getByLabel("fields")).toBeVisible();
+    await expect(page.getByLabel("expand")).toBeVisible();
+    await expect(page.getByLabel("search")).toBeVisible();
 
     // Arrange: set path to a known admin endpoint
     const pathInput = page.getByLabel(/Request path/i);
@@ -46,5 +56,12 @@ test.describe("Smoke: API Explorer", () => {
     await expect(page.getByText(/uptime_seconds/)).toBeVisible({ timeout: 5000 });
     await expect(page.getByText(/go_version/)).toBeVisible();
     await expect(page.getByText(new RegExp(statsSnapshot.go_version.replaceAll(".", "\\.")))).toBeVisible();
+    await expect(page.getByRole("button", { name: /^cURL$/i })).toBeVisible();
+    await expect(page.getByRole("button", { name: /^JS SDK$/i })).toBeVisible();
+    await expect(page.getByRole("button", { name: /^Copy$/i })).toBeVisible();
+
+    await page.getByRole("button", { name: /^History \(1\)$/i }).click();
+    await expect(page.getByText("Recent Requests")).toBeVisible();
+    await expect(page.getByRole("button", { name: new RegExp("GET.*/api/admin/stats.*200") })).toBeVisible();
   });
 });
