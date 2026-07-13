@@ -1,30 +1,21 @@
-/**
- * @module ui/browser-tests-unmocked/fixtures/sms.ts
- */
+/** @module Browser-test fixtures for SMS message seeding, daily count stats, and batch insertion. */
 import type { APIRequestContext, TestInfo } from "@playwright/test";
-import { execSQL, sqlLiteral } from "./core";
+import { escapeLikePattern, execSQL, sqlLiteral } from "./core";
+import { ensureLinkedEmailAuthUser } from "./auth";
 
-const SMS_TEST_USER_ID = "00000000-0000-0000-0000-000000000099";
+const SMS_TEST_USER_EMAIL = "sms-fixture-test@example.com";
 const DEFAULT_SMS_PROVIDER_SKIP_REASON =
   "SMS provider not configured — skipping SMS Health smoke";
 
-function escapeLikePattern(value: string): string {
-  return sqlLiteral(value).replace(/[\\%_]/g, "\\$&");
-}
-
 async function ensureSMSTestUser(
   request: APIRequestContext,
-  token: string,
-): Promise<void> {
-  await execSQL(
-    request,
-    token,
-    `INSERT INTO _ayb_users (id, email, password_hash)
-     VALUES ('${SMS_TEST_USER_ID}', 'sms-fixture-test@example.com', 'noop')
-     ON CONFLICT (id) DO NOTHING`,
-  );
+  _token: string,
+): Promise<string> {
+  const user = await ensureLinkedEmailAuthUser(request, SMS_TEST_USER_EMAIL);
+  return user.id;
 }
 
+/** Inserts an SMS message row via SQL with configurable phone, body, provider, and status. */
 export async function seedSMSMessage(
   request: APIRequestContext,
   token: string,
@@ -36,7 +27,7 @@ export async function seedSMSMessage(
     error_message?: string;
   } = {},
 ): Promise<{ id: string; to_phone: string; body: string; status: string }> {
-  await ensureSMSTestUser(request, token);
+  const userID = await ensureSMSTestUser(request, token);
   const toPhone = overrides.to_phone || "+15551234567";
   const body = overrides.body || "Test SMS message";
   const provider = overrides.provider || "log";
@@ -50,8 +41,9 @@ export async function seedSMSMessage(
   const result = await execSQL(
     request,
     token,
+    // eslint-disable-next-line no-restricted-syntax -- Stage 1 product gap: SMS message history has no deterministic seed API.
     `INSERT INTO _ayb_sms_messages (user_id, to_phone, body, provider, status, error_message)
-     VALUES ('${SMS_TEST_USER_ID}', '${safeToPhone}', '${safeBody}', '${safeProvider}', '${safeStatus}', '${safeErrorMessage}')
+     VALUES ('${sqlLiteral(userID)}', '${safeToPhone}', '${safeBody}', '${safeProvider}', '${safeStatus}', '${safeErrorMessage}')
      RETURNING id, to_phone, body, status`,
   );
   return {
@@ -68,13 +60,16 @@ export async function cleanupSMSMessages(
   bodyPattern: string,
 ): Promise<void> {
   const safeBodyPattern = escapeLikePattern(bodyPattern);
+  // Stage 1 product gap: SMS message history has no domain delete/cleanup API.
   await execSQL(
     request,
     token,
+    // eslint-disable-next-line no-restricted-syntax -- Stage 1 product gap: SMS message history has no domain delete/cleanup API.
     `DELETE FROM _ayb_sms_messages WHERE body LIKE '%${safeBodyPattern}%' ESCAPE '\\'`,
   );
 }
 
+/** Inserts or upserts today's SMS daily count stats with configurable count, confirm, and fail values. */
 export async function seedSMSDailyCounts(
   request: APIRequestContext,
   token: string,
@@ -90,6 +85,7 @@ export async function seedSMSDailyCounts(
   await execSQL(
     request,
     token,
+    // eslint-disable-next-line no-restricted-syntax -- Stage 1 product gap: SMS health stats have no deterministic seed API.
     `INSERT INTO _ayb_sms_daily_counts (date, count, confirm_count, fail_count)
      VALUES (CURRENT_DATE, ${count}, ${confirm}, ${fail})
      ON CONFLICT (date) DO UPDATE SET
@@ -103,9 +99,11 @@ export async function cleanupSMSDailyCounts(
   request: APIRequestContext,
   token: string,
 ): Promise<void> {
+  // Stage 1 product gap: SMS health stats have no domain delete/cleanup API.
   await execSQL(
     request,
     token,
+    // eslint-disable-next-line no-restricted-syntax -- Stage 1 product gap: SMS health stats have no domain delete/cleanup API.
     "DELETE FROM _ayb_sms_daily_counts WHERE date = CURRENT_DATE",
   );
 }
@@ -114,26 +112,30 @@ export async function cleanupSMSDailyCountsAll(
   request: APIRequestContext,
   token: string,
 ): Promise<void> {
+  // Stage 1 product gap: SMS health stats have no domain delete/cleanup API.
   await execSQL(
     request,
     token,
+    // eslint-disable-next-line no-restricted-syntax -- Stage 1 product gap: SMS health stats have no domain delete/cleanup API.
     "DELETE FROM _ayb_sms_daily_counts WHERE date >= CURRENT_DATE - INTERVAL '29 days'",
   );
 }
 
+/** Bulk-inserts SMS message rows via generate_series for pagination testing. */
 export async function seedSMSMessageBatch(
   request: APIRequestContext,
   token: string,
   count: number,
   bodyPrefix: string,
 ): Promise<void> {
-  await ensureSMSTestUser(request, token);
+  const userID = await ensureSMSTestUser(request, token);
   const safeBodyPrefix = sqlLiteral(bodyPrefix);
   await execSQL(
     request,
     token,
+    // eslint-disable-next-line no-restricted-syntax -- Stage 1 product gap: SMS pagination needs deterministic batch message history seed.
     `INSERT INTO _ayb_sms_messages (user_id, to_phone, body, provider, status)
-     SELECT '${SMS_TEST_USER_ID}',
+     SELECT '${sqlLiteral(userID)}',
             '+1555' || LPAD(g::text, 7, '0'),
             '${safeBodyPrefix}' || g,
             'log',

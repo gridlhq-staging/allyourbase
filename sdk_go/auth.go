@@ -1,3 +1,4 @@
+// Package allyourbase provides Go SDK auth helpers for credential, magic-link, anonymous, OAuth, and WebAuthn flows.
 package allyourbase
 
 import (
@@ -55,12 +56,43 @@ func (a *AuthClient) BeginWebAuthnLogin(ctx context.Context, email string) (*Web
 	return &out, nil
 }
 
+func (a *AuthClient) BeginDiscoverableLogin(ctx context.Context) (*WebAuthnLoginBeginResponse, error) {
+	body, err := a.client.doJSON(ctx, http.MethodPost, "/api/auth/webauthn/login/discover/begin", nil, nil)
+	if err != nil {
+		return nil, err
+	}
+	var out WebAuthnLoginBeginResponse
+	if err := json.Unmarshal(body, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// FinishWebAuthnLogin completes a WebAuthn login ceremony and stores returned session tokens on the client.
 func (a *AuthClient) FinishWebAuthnLogin(ctx context.Context, challengeID string, assertionResponse json.RawMessage) (*AuthResponse, error) {
 	req := WebAuthnLoginFinishRequest{
 		ChallengeID:       challengeID,
 		AssertionResponse: assertionResponse,
 	}
 	body, err := a.client.doJSON(ctx, http.MethodPost, "/api/auth/webauthn/login/finish", nil, req)
+	if err != nil {
+		return nil, err
+	}
+	var out AuthResponse
+	if err := json.Unmarshal(body, &out); err != nil {
+		return nil, err
+	}
+	a.client.SetTokens(out.Token, out.RefreshToken)
+	return &out, nil
+}
+
+// FinishDiscoverableLogin completes a discoverable WebAuthn login and stores returned session tokens on the client.
+func (a *AuthClient) FinishDiscoverableLogin(ctx context.Context, challengeID string, assertionResponse json.RawMessage) (*AuthResponse, error) {
+	req := WebAuthnLoginFinishRequest{
+		ChallengeID:       challengeID,
+		AssertionResponse: assertionResponse,
+	}
+	body, err := a.client.doJSON(ctx, http.MethodPost, "/api/auth/webauthn/login/discover/finish", nil, req)
 	if err != nil {
 		return nil, err
 	}
@@ -112,6 +144,7 @@ func (a *AuthClient) WebAuthnChallenge(ctx context.Context, mfaToken string) (*W
 	return &out, nil
 }
 
+// WebAuthnVerify verifies a WebAuthn MFA assertion with the provided MFA bearer token and stores returned session tokens.
 func (a *AuthClient) WebAuthnVerify(ctx context.Context, mfaToken, challengeID string, assertionResponse json.RawMessage) (*AuthResponse, error) {
 	req := WebAuthnMFAVerifyRequest{
 		ChallengeID:       challengeID,
@@ -134,6 +167,7 @@ func (a *AuthClient) DeleteWebAuthn(ctx context.Context) error {
 	return err
 }
 
+// doJSONWithBearer encodes an optional JSON body and sends an authenticated request using the provided bearer token.
 func (a *AuthClient) doJSONWithBearer(ctx context.Context, method, path, bearer string, body any) ([]byte, error) {
 	var rdr io.Reader
 	headers := map[string]string{"Authorization": "Bearer " + bearer}

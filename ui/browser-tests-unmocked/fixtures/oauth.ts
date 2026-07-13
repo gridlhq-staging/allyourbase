@@ -1,3 +1,4 @@
+/** @module Browser-test fixtures for OAuth client registration, authorization, consent, and token exchange. */
 import type { APIRequestContext } from "@playwright/test";
 import { createHash, randomBytes } from "crypto";
 import { validateResponse } from "./core";
@@ -34,6 +35,69 @@ export function parseOAuthRedirectURL(redirectTo: string): ParsedOAuthRedirectUR
     error: searchParams.get("error") || undefined,
     errorDescription: searchParams.get("error_description") || undefined,
   };
+}
+
+/** Creates an OAuth client via the admin API and returns its id, clientId, name, and secret. */
+export async function seedOAuthClient(
+  request: APIRequestContext,
+  token: string,
+  options: {
+    appId: string;
+    name: string;
+    clientType?: "confidential" | "public";
+    redirectUris?: string[];
+    scopes?: string[];
+  },
+): Promise<{ id: string; clientId: string; name: string; clientSecret?: string }> {
+  const res = await request.post("/api/admin/oauth/clients", {
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/json",
+    },
+    data: {
+      appId: options.appId,
+      name: options.name,
+      clientType: options.clientType || "confidential",
+      redirectUris: options.redirectUris || ["https://example.test/callback"],
+      scopes: options.scopes || ["readonly"],
+    },
+  });
+  await validateResponse(res, `Create OAuth client ${options.name}`);
+  const body = await res.json();
+  const id = body?.client?.id;
+  const clientId = body?.client?.clientId;
+  const name = body?.client?.name;
+  const clientSecret = body?.clientSecret;
+  if (typeof id !== "string" || typeof clientId !== "string" || typeof name !== "string") {
+    throw new Error(`Expected OAuth client id/clientId/name for ${options.name}`);
+  }
+  if (clientSecret !== undefined && typeof clientSecret !== "string") {
+    throw new Error(`Expected OAuth client secret to be a string when present for ${options.name}`);
+  }
+  return { id, clientId, name, clientSecret };
+}
+
+/** Lists OAuth clients and deletes all that match the given name. */
+export async function cleanupOAuthClientByName(
+  request: APIRequestContext,
+  token: string,
+  name: string,
+): Promise<void> {
+  const res = await request.get("/api/admin/oauth/clients?perPage=200", {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  await validateResponse(res, `List OAuth clients for cleanup ${name}`);
+  const body = await res.json();
+  const clients = Array.isArray(body?.items) ? body.items : [];
+  for (const client of clients) {
+    if (client?.name === name && typeof client?.clientId === "string") {
+      const deleteRes = await request.delete(
+        `/api/admin/oauth/clients/${encodeURIComponent(client.clientId)}`,
+        { headers: { Authorization: `Bearer ${token}` } },
+      );
+      await validateResponse(deleteRes, `Revoke OAuth client ${name}`);
+    }
+  }
 }
 
 export interface OAuthAuthorizeRequestOptions {
@@ -75,6 +139,7 @@ function toStringArray(value: unknown): string[] {
   return value.filter((item): item is string => typeof item === "string");
 }
 
+/** Parses an authorize response into a consent-prompt or redirect-ready discriminated union. */
 function decodeAuthorizeResult(body: unknown): OAuthAuthorizeResult {
   const responseBody = body as Record<string, unknown>;
   if (responseBody.requires_consent === true) {
@@ -114,6 +179,7 @@ function decodeAuthorizeResult(body: unknown): OAuthAuthorizeResult {
   };
 }
 
+/** Sends a PKCE authorize request and returns the parsed consent-or-redirect result. */
 export async function authorizeOAuthRequest(
   request: APIRequestContext,
   token: string,
@@ -146,6 +212,7 @@ export interface OAuthConsentRequestOptions extends OAuthAuthorizeRequestOptions
   decision: "approve" | "deny";
 }
 
+/** Posts an approval or denial to the consent endpoint and returns the redirect URL. */
 export async function submitOAuthConsent(
   request: APIRequestContext,
   token: string,
@@ -211,6 +278,7 @@ interface TokenRequestCommonOptions {
   clientAuth: OAuthClientAuth;
 }
 
+/** Applies Basic auth headers or sets client credentials as form body params depending on auth method. */
 function applyOAuthClientAuth(
   form: URLSearchParams,
   headers: Record<string, string>,
@@ -231,6 +299,7 @@ function applyOAuthClientAuth(
   }
 }
 
+/** Validates and extracts the access_token, token_type, expires_in, scope, and optional refresh_token from a token response. */
 function decodeOAuthTokenResponse(body: unknown): OAuthTokenResponse {
   const responseBody = body as Record<string, unknown>;
   if (
@@ -250,6 +319,7 @@ function decodeOAuthTokenResponse(body: unknown): OAuthTokenResponse {
   return responseBody as OAuthTokenResponse;
 }
 
+/** Posts a URL-encoded token form with client auth to /api/auth/token and returns the decoded token response. */
 async function submitOAuthTokenForm(
   request: APIRequestContext,
   form: URLSearchParams,
@@ -300,6 +370,7 @@ export interface OAuthAuthCodeTokenOptions {
   allowedTables?: string[];
 }
 
+/** Runs the full auth-code flow (authorize → consent → redirect → token exchange) and returns the access token. */
 export async function mintOAuthAuthCodeToken(
   request: APIRequestContext,
   options: OAuthAuthCodeTokenOptions,

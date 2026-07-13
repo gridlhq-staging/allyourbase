@@ -19,9 +19,11 @@ func init() {
 
 // TemplateData holds values passed to email templates.
 type TemplateData struct {
-	AppName   string
-	ActionURL string
-	Code      string // used by MFA code emails
+	AppName        string
+	ActionURL      string
+	Code           string // used by MFA code emails
+	Action         string
+	CredentialName string
 }
 
 // RenderPasswordReset renders the password reset email and returns HTML and plain text.
@@ -49,6 +51,11 @@ func RenderMFAEmailChallenge(data TemplateData) (html string, text string, err e
 	return render("mfa_email_challenge.html", data)
 }
 
+// RenderWebAuthnCredentialChanged renders a passkey account-security notification.
+func RenderWebAuthnCredentialChanged(data TemplateData) (html string, text string, err error) {
+	return render("webauthn_credential_changed.html", data)
+}
+
 func render(name string, data TemplateData) (string, string, error) {
 	var buf bytes.Buffer
 	if err := templates.ExecuteTemplate(&buf, name, data); err != nil {
@@ -62,11 +69,12 @@ func render(name string, data TemplateData) (string, string, error) {
 
 // Default subjects for system email templates.
 const (
-	DefaultPasswordResetSubject     = "Reset your password"
-	DefaultVerificationSubject      = "Verify your email"
-	DefaultMagicLinkSubject         = "Your login link"
-	DefaultMFAEmailEnrollSubject    = "Verify your email MFA enrollment"
-	DefaultMFAEmailChallengeSubject = "Your verification code"
+	DefaultPasswordResetSubject             = "Reset your password"
+	DefaultVerificationSubject              = "Verify your email"
+	DefaultMagicLinkSubject                 = "Your login link"
+	DefaultMFAEmailEnrollSubject            = "Verify your email MFA enrollment"
+	DefaultMFAEmailChallengeSubject         = "Your verification code"
+	DefaultWebAuthnCredentialChangedSubject = "Passkey {{.Action}}: {{.CredentialName}}"
 )
 
 // BuiltinHTMLTemplate returns the raw HTML source for a built-in template.

@@ -1,16 +1,14 @@
-/**
- * @module ui/browser-tests-unmocked/fixtures/admin.ts
- */
+/** @module Browser-test fixtures for admin dashboard seeding and cleanup. */
 import type { APIRequestContext } from "@playwright/test";
 import { randomUUID } from "crypto";
 import { execSQL, sqlLiteral, validateResponse } from "./core";
+import {
+  deleteAdminUserByID,
+  ensureLinkedEmailAuthUser,
+  resolveAuthUserIdByEmail,
+} from "./auth";
 
-const TEST_PASSWORD_HASH = "$argon2id$v=19$m=65536,t=3,p=4$dGVzdHNhbHQ$dGVzdGhhc2g";
-const OAUTH_CLIENT_DEPENDENCY_TABLES = [
-  "_ayb_oauth_tokens",
-  "_ayb_oauth_authorization_codes",
-  "_ayb_oauth_consents",
-] as const;
+const DEFAULT_FIXTURE_PASSWORD = "Password123!";
 
 function assertSafeSQLInteger(value: number, label: string): number {
   if (!Number.isInteger(value) || value < 0) {
@@ -19,29 +17,17 @@ function assertSafeSQLInteger(value: number, label: string): number {
   return value;
 }
 
+/** Finds an existing user by email or creates one via the linked-email auth flow. */
 export async function ensureUserByEmail(
   request: APIRequestContext,
   token: string,
   email: string,
 ): Promise<{ id: string; email: string }> {
-  const escapedEmail = sqlLiteral(email);
-  await execSQL(
-    request,
-    token,
-    `INSERT INTO _ayb_users (email, password_hash)
-     VALUES ('${escapedEmail}', '${TEST_PASSWORD_HASH}')
-     ON CONFLICT DO NOTHING`,
-  );
-  const result = await execSQL(
-    request,
-    token,
-    `SELECT id FROM _ayb_users WHERE email = '${escapedEmail}'`,
-  );
-  const id = result.rows[0]?.[0];
-  if (typeof id !== "string") {
-    throw new Error(`Expected user id for email ${email}`);
+  const existingID = await resolveAuthUserIdByEmail(request, token, email).catch(() => null);
+  if (existingID) {
+    return { id: existingID, email };
   }
-  return { id, email };
+  return ensureLinkedEmailAuthUser(request, email, DEFAULT_FIXTURE_PASSWORD);
 }
 
 export async function cleanupUserByEmail(
@@ -49,10 +35,13 @@ export async function cleanupUserByEmail(
   token: string,
   email: string,
 ): Promise<void> {
-  const escapedEmail = sqlLiteral(email);
-  await execSQL(request, token, `DELETE FROM _ayb_users WHERE email = '${escapedEmail}'`);
+  const userID = await resolveAuthUserIdByEmail(request, token, email).catch(() => null);
+  if (userID) {
+    await deleteAdminUserByID(request, token, userID);
+  }
 }
 
+/** Creates an API key for a user via the admin API and returns its id and name. */
 export async function seedApiKey(
   request: APIRequestContext,
   token: string,
@@ -64,84 +53,44 @@ export async function seedApiKey(
     scope?: "*" | "readonly" | "readwrite";
   },
 ): Promise<{ id: string; name: string }> {
-  const keyHash = options.keyHash || `seed-hash-${Date.now()}`;
-  const keyPrefix = options.keyPrefix || "ayb_seed";
   const scope = options.scope || "*";
-  const result = await execSQL(
-    request,
-    token,
-    `INSERT INTO _ayb_api_keys (user_id, name, key_hash, key_prefix, scope)
-     VALUES ('${sqlLiteral(options.userId)}', '${sqlLiteral(options.name)}', '${sqlLiteral(keyHash)}', '${sqlLiteral(keyPrefix)}', '${sqlLiteral(scope)}')
-     RETURNING id, name`,
-  );
-  const id = result.rows[0]?.[0];
-  const name = result.rows[0]?.[1];
+  const res = await request.post("/api/admin/api-keys", {
+    headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+    data: { userId: options.userId, name: options.name, scope },
+  });
+  await validateResponse(res, `Create API key ${options.name}`);
+  const body = await res.json();
+  const id = body?.apiKey?.id;
+  const name = body?.apiKey?.name;
   if (typeof id !== "string" || typeof name !== "string") {
     throw new Error(`Expected seeded API key id/name for key ${options.name}`);
   }
   return { id, name };
 }
 
+/** Lists API keys and deletes all that match the given name. */
 export async function cleanupApiKeyByName(
   request: APIRequestContext,
   token: string,
   name: string,
 ): Promise<void> {
-  await execSQL(request, token, `DELETE FROM _ayb_api_keys WHERE name = '${sqlLiteral(name)}'`);
-}
-
-export async function seedOAuthClient(
-  request: APIRequestContext,
-  token: string,
-  options: {
-    appId: string;
-    name: string;
-    clientType?: "confidential" | "public";
-    redirectUris?: string[];
-    scopes?: string[];
-  },
-): Promise<{ id: string; clientId: string; name: string; clientSecret?: string }> {
-  const res = await request.post("/api/admin/oauth/clients", {
-    headers: {
-      Authorization: `Bearer ${token}`,
-      "Content-Type": "application/json",
-    },
-    data: {
-      appId: options.appId,
-      name: options.name,
-      clientType: options.clientType || "confidential",
-      redirectUris: options.redirectUris || ["https://example.test/callback"],
-      scopes: options.scopes || ["readonly"],
-    },
+  const res = await request.get("/api/admin/api-keys?perPage=200", {
+    headers: { Authorization: `Bearer ${token}` },
   });
-  await validateResponse(res, `Create OAuth client ${options.name}`);
+  await validateResponse(res, `List API keys for cleanup ${name}`);
   const body = await res.json();
-  const id = body?.client?.id;
-  const clientId = body?.client?.clientId;
-  const name = body?.client?.name;
-  const clientSecret = body?.clientSecret;
-  if (typeof id !== "string" || typeof clientId !== "string" || typeof name !== "string") {
-    throw new Error(`Expected OAuth client id/clientId/name for ${options.name}`);
+  const keys = Array.isArray(body?.items) ? body.items : [];
+  for (const key of keys) {
+    if (key?.name === name && typeof key?.id === "string") {
+      const deleteRes = await request.delete(`/api/admin/api-keys/${encodeURIComponent(key.id)}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      await validateResponse(deleteRes, `Revoke API key ${name}`);
+    }
   }
-  if (clientSecret !== undefined && typeof clientSecret !== "string") {
-    throw new Error(`Expected OAuth client secret to be a string when present for ${options.name}`);
-  }
-  return { id, clientId, name, clientSecret };
 }
 
-export async function cleanupOAuthClientByName(
-  request: APIRequestContext,
-  token: string,
-  name: string,
-): Promise<void> {
-  const safeName = sqlLiteral(name);
-  const clientIDQuery = `(SELECT client_id FROM _ayb_oauth_clients WHERE name = '${safeName}')`;
-  for (const tableName of OAUTH_CLIENT_DEPENDENCY_TABLES) {
-    await execSQL(request, token, `DELETE FROM ${tableName} WHERE client_id IN ${clientIDQuery}`);
-  }
-  await execSQL(request, token, `DELETE FROM _ayb_oauth_clients WHERE name = '${safeName}'`);
-}
-
+/** Creates an admin app and optionally configures rate-limit settings via a follow-up PUT. */
 export async function seedAdminApp(
   request: APIRequestContext,
   token: string,
@@ -153,34 +102,62 @@ export async function seedAdminApp(
     rateLimitWindowSeconds?: number;
   },
 ): Promise<{ id: string; name: string }> {
-  const rateLimitRps = assertSafeSQLInteger(options.rateLimitRps ?? 0, "rateLimitRps");
-  const rateLimitWindowSeconds = assertSafeSQLInteger(
-    options.rateLimitWindowSeconds ?? 60,
-    "rateLimitWindowSeconds",
-  );
-  const result = await execSQL(
-    request,
-    token,
-    `INSERT INTO _ayb_apps (name, description, owner_user_id, rate_limit_rps, rate_limit_window_seconds)
-     VALUES ('${sqlLiteral(options.name)}', '${sqlLiteral(options.description || "")}', '${sqlLiteral(options.ownerUserId)}', ${rateLimitRps}, ${rateLimitWindowSeconds})
-     RETURNING id, name`,
-  );
-  const id = result.rows[0]?.[0];
-  const name = result.rows[0]?.[1];
+  const createRes = await request.post("/api/admin/apps", {
+    headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+    data: {
+      name: options.name,
+      description: options.description || "",
+      ownerUserId: options.ownerUserId,
+    },
+  });
+  await validateResponse(createRes, `Create admin app ${options.name}`);
+  const created = await createRes.json();
+  const id = created?.id;
+  const name = created?.name;
   if (typeof id !== "string" || typeof name !== "string") {
     throw new Error(`Expected seeded app id/name for app ${options.name}`);
+  }
+  if (options.rateLimitRps !== undefined || options.rateLimitWindowSeconds !== undefined) {
+    const updateRes = await request.put(`/api/admin/apps/${encodeURIComponent(id)}`, {
+      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+      data: {
+        name,
+        description: options.description || "",
+        rateLimitRps: assertSafeSQLInteger(options.rateLimitRps ?? 0, "rateLimitRps"),
+        rateLimitWindowSeconds: assertSafeSQLInteger(
+          options.rateLimitWindowSeconds ?? 60,
+          "rateLimitWindowSeconds",
+        ),
+      },
+    });
+    await validateResponse(updateRes, `Update admin app rate limits ${options.name}`);
   }
   return { id, name };
 }
 
+/** Lists admin apps and deletes all that match the given name. */
 export async function cleanupAdminAppByName(
   request: APIRequestContext,
   token: string,
   name: string,
 ): Promise<void> {
-  await execSQL(request, token, `DELETE FROM _ayb_apps WHERE name = '${sqlLiteral(name)}'`);
+  const res = await request.get("/api/admin/apps?perPage=200", {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  await validateResponse(res, `List admin apps for cleanup ${name}`);
+  const body = await res.json();
+  const apps = Array.isArray(body?.items) ? body.items : [];
+  for (const app of apps) {
+    if (app?.name === name && typeof app?.id === "string") {
+      const deleteRes = await request.delete(`/api/admin/apps/${encodeURIComponent(app.id)}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      await validateResponse(deleteRes, `Delete admin app ${name}`);
+    }
+  }
 }
 
+/** Creates a support ticket, optionally updates its status/priority, and returns the final state. */
 export async function seedSupportTicket(
   request: APIRequestContext,
   token: string,
@@ -193,22 +170,39 @@ export async function seedSupportTicket(
     initialMessage?: string;
   },
 ): Promise<{ id: string; subject: string; priority: string; status: string }> {
-  const tenantSQL = options.tenantId ? `'${sqlLiteral(options.tenantId)}'` : "NULL";
-  const userSQL = options.userId ? `'${sqlLiteral(options.userId)}'` : "NULL";
   const status = options.status || "open";
   const priority = options.priority || "normal";
-
-  const ticketResult = await execSQL(
-    request,
-    token,
-    `INSERT INTO _ayb_support_tickets (tenant_id, user_id, subject, status, priority)
-     VALUES (${tenantSQL}, ${userSQL}, '${sqlLiteral(options.subject)}', '${sqlLiteral(status)}', '${sqlLiteral(priority)}')
-     RETURNING id, subject, priority, status`,
-  );
-  const id = ticketResult.rows[0]?.[0];
-  const subject = ticketResult.rows[0]?.[1];
-  const returnedPriority = ticketResult.rows[0]?.[2];
-  const returnedStatus = ticketResult.rows[0]?.[3];
+  const createRes = await request.post("/api/support/tickets", {
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/json",
+      ...(options.tenantId ? { "X-Tenant-ID": options.tenantId } : {}),
+    },
+    data: {
+      subject: options.subject,
+      body: options.initialMessage || "Initial customer message",
+      priority,
+    },
+  });
+  await validateResponse(createRes, `Create support ticket ${options.subject}`);
+  const created = await createRes.json();
+  const id = created?.id;
+  if (status !== "open" || priority !== created?.priority) {
+    const updateRes = await request.put(`/api/admin/support/tickets/${encodeURIComponent(id)}`, {
+      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+      data: { status, priority },
+    });
+    await validateResponse(updateRes, `Update support ticket ${options.subject}`);
+  }
+  const getRes = await request.get(`/api/admin/support/tickets/${encodeURIComponent(id)}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  await validateResponse(getRes, `Get support ticket ${options.subject}`);
+  const body = await getRes.json();
+  const ticket = body?.ticket ?? body;
+  const subject = ticket?.subject;
+  const returnedPriority = ticket?.priority;
+  const returnedStatus = ticket?.status;
   if (
     typeof id !== "string" ||
     typeof subject !== "string" ||
@@ -218,14 +212,6 @@ export async function seedSupportTicket(
     throw new Error(`Expected seeded support ticket fields for subject ${options.subject}`);
   }
 
-  const initialMessage = options.initialMessage || "Initial customer message";
-  await execSQL(
-    request,
-    token,
-    `INSERT INTO _ayb_support_messages (ticket_id, sender_type, body)
-     VALUES ('${sqlLiteral(id)}', 'customer', '${sqlLiteral(initialMessage)}')`,
-  );
-
   return { id, subject, priority: returnedPriority, status: returnedStatus };
 }
 
@@ -234,13 +220,16 @@ export async function cleanupSupportTicketByID(
   token: string,
   ticketID: string,
 ): Promise<void> {
+  // Stage 1 product gap: support ticket cleanup has no domain delete/retention API.
   await execSQL(
     request,
     token,
+    // eslint-disable-next-line no-restricted-syntax -- Stage 1 product gap: support ticket cleanup has no domain delete/retention API.
     `DELETE FROM _ayb_support_tickets WHERE id = '${sqlLiteral(ticketID)}'`,
   );
 }
 
+/** Creates an incident and optionally posts an initial status update. */
 export async function seedIncident(
   request: APIRequestContext,
   token: string,
@@ -253,22 +242,19 @@ export async function seedIncident(
   },
 ): Promise<{ id: string; title: string; status: string }> {
   const status = options.status || "investigating";
-  const services = options.affectedServices || [];
-  const affectedServicesSQL =
-    services.length === 0
-      ? "ARRAY[]::text[]"
-      : `ARRAY[${services.map((serviceName) => `'${sqlLiteral(serviceName)}'`).join(", ")}]`;
-
-  const incidentResult = await execSQL(
-    request,
-    token,
-    `INSERT INTO _ayb_incidents (title, status, affected_services)
-     VALUES ('${sqlLiteral(options.title)}', '${sqlLiteral(status)}', ${affectedServicesSQL})
-     RETURNING id, title, status`,
-  );
-  const id = incidentResult.rows[0]?.[0];
-  const title = incidentResult.rows[0]?.[1];
-  const returnedStatus = incidentResult.rows[0]?.[2];
+  const createRes = await request.post("/api/admin/incidents", {
+    headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+    data: {
+      title: options.title,
+      status,
+      affectedServices: options.affectedServices || [],
+    },
+  });
+  await validateResponse(createRes, `Create incident ${options.title}`);
+  const created = await createRes.json();
+  const id = created?.id;
+  const title = created?.title;
+  const returnedStatus = created?.status;
   if (
     typeof id !== "string" ||
     typeof title !== "string" ||
@@ -279,12 +265,11 @@ export async function seedIncident(
 
   if (options.initialUpdateMessage) {
     const updateStatus = options.initialUpdateStatus || returnedStatus;
-    await execSQL(
-      request,
-      token,
-      `INSERT INTO _ayb_incident_updates (incident_id, message, status)
-       VALUES ('${sqlLiteral(id)}', '${sqlLiteral(options.initialUpdateMessage)}', '${sqlLiteral(updateStatus)}')`,
-    );
+    const updateRes = await request.post(`/api/admin/incidents/${encodeURIComponent(id)}/updates`, {
+      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+      data: { message: options.initialUpdateMessage, status: updateStatus },
+    });
+    await validateResponse(updateRes, `Add incident update ${options.title}`);
   }
 
   return { id, title, status: returnedStatus };
@@ -295,9 +280,11 @@ export async function cleanupIncidentByID(
   token: string,
   incidentID: string,
 ): Promise<void> {
+  // Stage 1 product gap: incident cleanup has no domain delete/retention API.
   await execSQL(
     request,
     token,
+    // eslint-disable-next-line no-restricted-syntax -- Stage 1 product gap: incident cleanup has no domain delete/retention API.
     `DELETE FROM _ayb_incidents WHERE id = '${sqlLiteral(incidentID)}'`,
   );
 }
@@ -307,9 +294,11 @@ export async function cleanupNotificationsByTitle(
   token: string,
   title: string,
 ): Promise<void> {
+  // Stage 1 product gap: notifications have no domain delete/cleanup API.
   await execSQL(
     request,
     token,
+    // eslint-disable-next-line no-restricted-syntax -- Stage 1 product gap: notifications have no domain delete/cleanup API.
     `DELETE FROM _ayb_notifications WHERE title = '${sqlLiteral(title)}'`,
   );
 }
@@ -326,6 +315,7 @@ interface SeedRequestLogEntryOptions {
   ipAddress?: string;
 }
 
+/** Inserts a request log row via SQL and returns the seeded entry's fields. */
 export async function seedRequestLogEntry(
   request: APIRequestContext,
   token: string,
@@ -348,6 +338,7 @@ export async function seedRequestLogEntry(
   const result = await execSQL(
     request,
     token,
+    // eslint-disable-next-line no-restricted-syntax -- Stage 1 product gap: request logs are generated internally and have no deterministic seed API.
     `INSERT INTO _ayb_request_logs (
        timestamp, method, path, status_code, duration_ms, request_size, response_size, request_id, ip_address
      )
@@ -388,9 +379,11 @@ export async function cleanupRequestLogsByPath(
   token: string,
   path: string,
 ): Promise<void> {
+  // Stage 1 product gap: request logs have no domain delete/cleanup API.
   await execSQL(
     request,
     token,
+    // eslint-disable-next-line no-restricted-syntax -- Stage 1 product gap: request logs have no domain delete/cleanup API.
     `DELETE FROM _ayb_request_logs WHERE path = '${sqlLiteral(path)}'`,
   );
 }
@@ -405,6 +398,7 @@ interface SeedAuditLogEntryOptions {
   ipAddress?: string;
 }
 
+/** Inserts an audit log row via SQL and returns the seeded entry's id, table, and operation. */
 export async function seedAuditLogEntry(
   request: APIRequestContext,
   token: string,
@@ -429,6 +423,7 @@ export async function seedAuditLogEntry(
   const result = await execSQL(
     request,
     token,
+    // eslint-disable-next-line no-restricted-syntax -- Stage 1 product gap: audit history is read-only and has no deterministic seed API.
     `INSERT INTO _ayb_audit_log (
        timestamp, table_name, operation, record_id, old_values, new_values, ip_address
      )
@@ -463,9 +458,11 @@ export async function cleanupAuditLogsByTable(
   token: string,
   tableName: string,
 ): Promise<void> {
+  // Stage 1 product gap: audit history has no domain delete/cleanup API.
   await execSQL(
     request,
     token,
+    // eslint-disable-next-line no-restricted-syntax -- Stage 1 product gap: audit history has no domain delete/cleanup API.
     `DELETE FROM _ayb_audit_log WHERE table_name = '${sqlLiteral(tableName)}'`,
   );
 }
@@ -483,6 +480,7 @@ export interface AdminStatsSnapshot {
   db_pool_max?: number;
 }
 
+/** Fetches runtime stats (uptime, memory, goroutines, DB pool) from GET /api/admin/stats. */
 export async function fetchAdminStatsSnapshot(
   request: APIRequestContext,
   token: string,
@@ -507,6 +505,7 @@ export async function fetchAdminStatsSnapshot(
   return body as AdminStatsSnapshot;
 }
 
+/** Creates or updates an email template by key via PUT and returns the stored template fields. */
 export async function seedEmailTemplate(
   request: APIRequestContext,
   token: string,
@@ -565,6 +564,72 @@ export async function cleanupEmailTemplate(
   await validateResponse(res, `Delete email template ${key}`);
 }
 
+export interface AdminMatviewRegistration {
+  id: string;
+  schemaName: string;
+  viewName: string;
+  refreshMode: string;
+}
+
+/** Validates and extracts id/schema/view/refreshMode fields from a matview registration response. */
+function parseAdminMatviewRegistration(body: unknown, context: string): AdminMatviewRegistration {
+  const item = body as Record<string, unknown>;
+  if (
+    typeof item?.id !== "string" ||
+    typeof item?.schemaName !== "string" ||
+    typeof item?.viewName !== "string" ||
+    typeof item?.refreshMode !== "string"
+  ) {
+    throw new Error(`Expected matview registration fields for ${context}`);
+  }
+  return {
+    id: item.id,
+    schemaName: item.schemaName,
+    viewName: item.viewName,
+    refreshMode: item.refreshMode,
+  };
+}
+
+export async function registerAdminMatview(
+  request: APIRequestContext,
+  token: string,
+  options: { schema: string; viewName: string; refreshMode: string },
+): Promise<AdminMatviewRegistration> {
+  const res = await request.post("/api/admin/matviews", {
+    headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+    data: options,
+  });
+  await validateResponse(res, `Register matview ${options.schema}.${options.viewName}`);
+  return parseAdminMatviewRegistration(await res.json(), options.viewName);
+}
+
+/** Lists matview registrations and deletes the one matching the given schema and view name. */
+export async function cleanupAdminMatviewByName(
+  request: APIRequestContext,
+  token: string,
+  schemaName: string,
+  viewName: string,
+): Promise<void> {
+  const res = await request.get("/api/admin/matviews", {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  await validateResponse(res, "List matviews for cleanup");
+  const body = await res.json();
+  const items = Array.isArray(body?.items) ? body.items : [];
+  for (const item of items) {
+    const registration = parseAdminMatviewRegistration(item, viewName);
+    if (registration.schemaName !== schemaName || registration.viewName !== viewName) {
+      continue;
+    }
+    const deleteRes = await request.delete(`/api/admin/matviews/${encodeURIComponent(registration.id)}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (deleteRes.status() !== 404) {
+      await validateResponse(deleteRes, `Delete matview registration ${schemaName}.${viewName}`);
+    }
+  }
+}
+
 export interface AuthSettingsSnapshot {
   totp_enabled: boolean;
   anonymous_auth_enabled: boolean;
@@ -617,6 +682,7 @@ export interface SecurityAdvisorSnapshot {
   }>;
 }
 
+/** Fetches the security advisor report and validates its findings-array shape. */
 export async function fetchSecurityAdvisorReport(
   request: APIRequestContext,
   token: string,
@@ -652,6 +718,7 @@ export interface PerformanceAdvisorSnapshot {
   }>;
 }
 
+/** Fetches the performance advisor report for a given time range and validates its query-array shape. */
 export async function fetchPerformanceAdvisorReport(
   request: APIRequestContext,
   token: string,

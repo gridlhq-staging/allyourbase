@@ -3,6 +3,10 @@
 
 This guide covers read replica configuration, lifecycle management, query routing, and health monitoring in AYB, based on code in `internal/replica/`, `internal/cli/db_replicas.go`, and `internal/server/admin_replicas.go`.
 
+For the tested multi-node AYB application-cell shape, see
+[High Availability](./ha.md). Read replicas are database routing capacity; they
+are not a replacement for an external HA Postgres failover manager.
+
 ## Configuration
 
 Replicas are configured in the `[database.replicas]` TOML array in `ayb.toml`. Each entry defines a read replica connection.

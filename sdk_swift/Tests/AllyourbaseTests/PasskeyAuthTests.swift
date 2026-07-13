@@ -77,6 +77,63 @@ struct PasskeyAuthTests {
         #expect(clientExtensionResults.isEmpty)
     }
 
+    @Test func signInWithDiscoverablePasskeyRunsBeginAuthenticatorAndFinishFlowWithoutSessionBearer() async throws {
+        let transport = MockTransport()
+        transport.enqueue(StubResponse(status: 200, json: ContractFixtures.webAuthnDiscoverBeginResponse))
+        transport.enqueue(StubResponse(status: 200, json: ContractFixtures.authResponse))
+        let tokenStore = InMemoryTokenStore(accessToken: "existing_jwt", refreshToken: "existing_refresh")
+        let client = AYBClient(
+            Stage3TestBootstrap.baseURL,
+            transport: transport,
+            tokenStore: tokenStore
+        )
+        let authenticator = FakePasskeyAuthenticator(assertionResponse: .init(
+            id: "webauthn_discover_credential",
+            rawId: "webauthn_discover_credential",
+            response: .init(
+                clientDataJSON: "eyJ0eXBlIjoid2ViYXV0aG4uZ2V0IiwiY2hhbGxlbmdlIjoid2ViYXV0aG5fZGlzY292ZXJfY2hhbGxlbmdlIiwib3JpZ2luIjoiaHR0cDovLzEyNy4wLjAuMTo4MDkwIn0",
+                authenticatorData: "EsoXtJryKJQ28wPgFmAwoh5SXSZuIJJnQzgBqP1AcaAFAAAAAw",
+                signature: "webauthn_discover_signature",
+                userHandle: "webauthn_discover_user_handle"
+            )
+        ))
+        var emitted: [AuthStateEvent] = []
+        _ = client.onAuthStateChange { event, _ in emitted.append(event) }
+
+        let response = try await client.auth.signInWithDiscoverablePasskey(authenticator: authenticator)
+
+        #expect(response.token == "jwt_stage3")
+        #expect(client.token == "jwt_stage3")
+        #expect(client.refreshToken == "refresh_stage3")
+        #expect(emitted == [.signedIn])
+        #expect(authenticator.capturedOptions.count == 1)
+        let capturedOptions = try #require(authenticator.capturedOptions.first)
+        #expect(capturedOptions.challenge == "webauthn_discover_challenge")
+        #expect(capturedOptions.rpId == "127.0.0.1")
+        #expect(capturedOptions.timeout == 300000)
+        #expect(capturedOptions.allowCredentials.isEmpty == true)
+
+        #expect(transport.requests.count == 2)
+        let beginRequest = transport.requests[0]
+        #expect(beginRequest.url.absoluteString == "https://api.example.com/api/auth/webauthn/login/discover/begin")
+        #expect(beginRequest.method.rawValue == "POST")
+        #expect(beginRequest.body == nil)
+        #expect(lowercasedLookup(beginRequest.headers, "Authorization") == nil)
+
+        let finishRequest = transport.requests[1]
+        #expect(finishRequest.url.absoluteString == "https://api.example.com/api/auth/webauthn/login/discover/finish")
+        #expect(finishRequest.method.rawValue == "POST")
+        #expect(lowercasedLookup(finishRequest.headers, "Authorization") == nil)
+        let finishBody = try #require(finishRequest.body)
+        let payload = try #require(JSONSerialization.jsonObject(with: finishBody) as? [String: Any])
+        #expect(payload["challenge_id"] as? String == "webauthn_discover_challenge_fixture")
+        #expect(payload["challengeId"] == nil)
+        let assertion = try #require(payload["assertion_response"] as? [String: Any])
+        #expect(payload["assertionResponse"] == nil)
+        #expect(assertion["id"] as? String == "webauthn_discover_credential")
+        #expect(assertion["type"] as? String == "public-key")
+    }
+
     #if canImport(AuthenticationServices)
     @Test @MainActor func systemPasskeyAuthenticatorBuildsAssertionRequestFromOptions() throws {
         let authenticator = SystemPasskeyAuthenticator()

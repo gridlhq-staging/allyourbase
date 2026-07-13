@@ -4,6 +4,8 @@ import 'types.dart';
 ///
 /// Implementers run the native device ceremony and return the resulting
 /// assertion or attestation response as a JSON-compatible map.
+/// The Dart SDK keeps native biometric/passkey UI behind this boundary; client
+/// helpers only transport and serialize server WebAuthn options and responses.
 abstract class PasskeyAuthenticator {
   const PasskeyAuthenticator();
 

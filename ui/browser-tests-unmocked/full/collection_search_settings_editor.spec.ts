@@ -18,22 +18,6 @@ interface CleanupTarget {
   schemaName?: string;
 }
 
-async function deleteSearchSettings(
-  request: APIRequest,
-  adminToken: string,
-  tableName: string,
-  schemaName = "public",
-): Promise<void> {
-  await execSQL(
-    request,
-    adminToken,
-    `
-      DELETE FROM _ayb_search_settings
-      WHERE schema_name = '${schemaName}' AND table_name = '${tableName}';
-    `,
-  );
-}
-
 async function recreateSearchableCollection(
   request: APIRequest,
   adminToken: string,
@@ -41,7 +25,6 @@ async function recreateSearchableCollection(
 ): Promise<void> {
   const safeTableName = assertSafeSQLIdentifier(tableName, "collection search settings test table");
   await dropTableIfExists(request, adminToken, safeTableName, "collection search settings test table");
-  await deleteSearchSettings(request, adminToken, safeTableName);
   await execSQL(
     request,
     adminToken,
@@ -55,6 +38,10 @@ async function recreateSearchableCollection(
       );
     `,
   );
+  await replaceCollectionSearchSettings(request, adminToken, safeTableName, {
+    attributes: [],
+    customRanking: [],
+  });
 }
 
 async function recreateDuplicateCollectionPair(
@@ -67,8 +54,6 @@ async function recreateDuplicateCollectionPair(
   const safeTableName = assertSafeSQLIdentifier(tableName, "collection search settings duplicate table");
   await execSQL(request, adminToken, `DROP SCHEMA IF EXISTS ${safeSchemaName} CASCADE`);
   await dropTableIfExists(request, adminToken, safeTableName, "collection search settings duplicate table");
-  await deleteSearchSettings(request, adminToken, safeTableName);
-  await deleteSearchSettings(request, adminToken, safeTableName, safeSchemaName);
   await execSQL(
     request,
     adminToken,
@@ -84,6 +69,10 @@ async function recreateDuplicateCollectionPair(
       );
     `,
   );
+  await replaceCollectionSearchSettings(request, adminToken, safeTableName, {
+    attributes: [],
+    customRanking: [],
+  });
 }
 
 async function openCollectionSearchSettings(

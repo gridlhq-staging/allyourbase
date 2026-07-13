@@ -12,6 +12,7 @@ from allyourbase import AYBClient, AYBError
 _BASE_LIVE_ENV_MISSING = (
     not os.environ.get("AYB_TEST_URL") or not os.environ.get("AYB_TEST_COLLECTION")
 )
+_URL_LIVE_ENV_MISSING = not os.environ.get("AYB_TEST_URL")
 _ADMIN_LIVE_ENV_MISSING = _BASE_LIVE_ENV_MISSING or (
     not os.environ.get("AYB_ADMIN_TOKEN") and not os.environ.get("AYB_ADMIN_PASSWORD")
 )
@@ -128,8 +129,8 @@ async def test_e2e_contract_live_server() -> None:
 
 
 @pytest.mark.skipif(
-    _BASE_LIVE_ENV_MISSING,
-    reason="AYB_TEST_URL or AYB_TEST_COLLECTION is not set",
+    _URL_LIVE_ENV_MISSING,
+    reason="AYB_TEST_URL is not set",
 )
 @pytest.mark.asyncio
 async def test_e2e_webauthn_begin_live_server() -> None:
@@ -141,6 +142,24 @@ async def test_e2e_webauthn_begin_live_server() -> None:
         assert result.challenge_id
         assert result.options["challenge"]
         assert result.options["allowCredentials"]
+    finally:
+        await client.close()
+
+
+@pytest.mark.skipif(
+    _URL_LIVE_ENV_MISSING,
+    reason="AYB_TEST_URL is not set",
+)
+@pytest.mark.asyncio
+async def test_e2e_webauthn_discoverable_begin_live_server() -> None:
+    client = AYBClient(_live_base_url())
+    try:
+        result = await client.auth.begin_discoverable_login()
+
+        assert result.challenge_id
+        assert result.options["challenge"]
+        assert result.options["rpId"]
+        assert not result.options.get("allowCredentials")
     finally:
         await client.close()
 

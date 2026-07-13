@@ -1,9 +1,11 @@
+/** @module Browser-test core helpers for SQL execution, response validation, and endpoint probing. */
 import { expect, type APIRequestContext, type Page } from "@playwright/test";
 
 export function sqlLiteral(value: string): string {
   return value.replaceAll("'", "''");
 }
 
+/** Throws a descriptive error with status, message, and code if the response is not ok. */
 export async function validateResponse(
   res: Awaited<ReturnType<APIRequestContext["post"]>>,
   context: string,
@@ -38,6 +40,7 @@ export async function checkAuthEnabled(
   return { auth: !!body.auth };
 }
 
+/** Executes SQL via the admin API, splitting on semicolons and returning the last result's columns, rows, and rowCount. */
 export async function execSQL(
   request: APIRequestContext,
   token: string,
@@ -71,6 +74,7 @@ export async function execSQL(
   return lastResult;
 }
 
+/** Sends an HTTP request to a path and returns only the status code, without throwing on non-2xx. */
 export async function probeEndpoint(
   request: APIRequestContext,
   token: string,
@@ -141,6 +145,7 @@ export async function waitForDashboard(page: Page): Promise<void> {
   await sidebar.waitFor({ state: "visible", timeout: 1000 });
 }
 
+/** Asserts that an RLS policy card appears in the page's main aria snapshot with the expected name, command, and USING expression. */
 export async function expectRlsPolicyCard(
   page: Page,
   params: {
@@ -167,6 +172,7 @@ export async function expectRlsPolicyCard(
   expect(policyBlock).toContain(usingExpression);
 }
 
+/** Reads the admin auth token from the .auth/admin.json storage state file's localStorage. */
 export async function getStoredAdminToken(): Promise<string> {
   const fs = await import("fs/promises");
   const path = await import("path");

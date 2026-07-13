@@ -85,6 +85,7 @@ export default defineConfig({
         text: "Operations",
         items: [
           { text: "Deployment", link: "/guide/deployment" },
+          { text: "HA", link: "/guide/ha" },
           { text: "Performance", link: "/guide/performance" },
           { text: "Comparison", link: "/guide/comparison" },
         ],

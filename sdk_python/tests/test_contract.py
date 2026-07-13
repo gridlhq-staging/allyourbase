@@ -42,6 +42,12 @@ _MAGIC_LINK_CONFIRM_PENDING_MFA_FIXTURE = json.loads(
 _WEBAUTHN_LOGIN_BEGIN_RESPONSE_FIXTURE = json.loads(
     (_CONTRACT_FIXTURE_DIR / "webauthn_login_begin_response.json").read_text()
 )
+_WEBAUTHN_DISCOVER_BEGIN_RESPONSE_FIXTURE = json.loads(
+    (_CONTRACT_FIXTURE_DIR / "webauthn_discover_begin_response.json").read_text()
+)
+_WEBAUTHN_DISCOVER_FINISH_REQUEST_FIXTURE = json.loads(
+    (_CONTRACT_FIXTURE_DIR / "webauthn_discover_finish_request.json").read_text()
+)
 _WEBAUTHN_ENROLL_BEGIN_RESPONSE_FIXTURE = json.loads(
     (_CONTRACT_FIXTURE_DIR / "webauthn_enroll_begin_response.json").read_text()
 )
@@ -60,6 +66,7 @@ _WEBAUTHN_MFA_VERIFY_REQUEST_FIXTURE = json.loads(
 _WEBAUTHN_MFA_VERIFY_RESPONSE_FIXTURE = json.loads(
     (_CONTRACT_FIXTURE_DIR / "webauthn_mfa_verify_response.json").read_text()
 )
+_AUTH_RESPONSE_FIXTURE = json.loads((_CONTRACT_FIXTURE_DIR / "auth_response.json").read_text())
 _SEARCH_SYNONYMS_REQUEST_FIXTURE = json.loads(
     (_CONTRACT_FIXTURE_DIR / "search_synonyms_request.json").read_text()
 )
@@ -130,6 +137,30 @@ def test_webauthn_login_begin_response_matches_canonical_shape() -> None:
         "id": "webauthn_login_begin_credential_a",
         "type": "public-key",
     }
+
+
+def test_webauthn_discoverable_fixtures_match_canonical_shapes() -> None:
+    begin = WebAuthnLoginBeginResponse.model_validate(
+        _WEBAUTHN_DISCOVER_BEGIN_RESPONSE_FIXTURE
+    )
+    auth = AuthResponse.model_validate(_AUTH_RESPONSE_FIXTURE)
+
+    assert begin.challenge_id == "webauthn_discover_challenge_fixture"
+    assert begin.options["challenge"] == "webauthn_discover_challenge"
+    assert begin.options["rpId"] == "127.0.0.1"
+    assert begin.options["timeout"] == 300000
+    assert begin.options.get("allowCredentials") is None
+    assert (
+        _WEBAUTHN_DISCOVER_FINISH_REQUEST_FIXTURE["challenge_id"]
+        == "webauthn_discover_challenge_fixture"
+    )
+    assert (
+        _WEBAUTHN_DISCOVER_FINISH_REQUEST_FIXTURE["assertion_response"]["id"]
+        == "webauthn_discover_credential"
+    )
+    assert auth.token == "jwt_stage3"
+    assert auth.refresh_token == "refresh_stage3"
+    assert auth.user.email == "dev@allyourbase.io"
 
 
 def test_webauthn_mfa_enroll_begin_response_matches_canonical_shape() -> None:

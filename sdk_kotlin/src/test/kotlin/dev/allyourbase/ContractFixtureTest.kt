@@ -84,6 +84,38 @@ class ContractFixtureTest {
     }
 
     @Test
+    fun `webauthn discoverable begin fixture decodes without manufacturing allow credentials`() {
+        val begin = json.decodeFromJsonElement(
+            WebAuthnLoginBeginResponse.serializer(),
+            ContractFixtures.webAuthnDiscoverBeginResponse,
+        )
+
+        assertEquals("webauthn_discover_challenge_fixture", begin.challengeId)
+        assertEquals("webauthn_discover_challenge", begin.options["challenge"]!!.jsonPrimitive.content)
+        assertEquals("127.0.0.1", begin.options["rpId"]!!.jsonPrimitive.content)
+        assertEquals(300000, begin.options["timeout"]!!.jsonPrimitive.content.toInt())
+        assertNull(begin.options["allowCredentials"])
+    }
+
+    @Test
+    fun `webauthn discoverable finish fixture round trips as snake case payload`() {
+        val request = json.decodeFromJsonElement(
+            WebAuthnLoginFinishRequest.serializer(),
+            ContractFixtures.webAuthnDiscoverFinishRequest,
+        )
+        val payload = json.encodeToJsonElement(WebAuthnLoginFinishRequest.serializer(), request).jsonObject
+
+        assertEquals(ContractFixtures.webAuthnDiscoverFinishRequest, payload)
+        assertEquals("webauthn_discover_challenge_fixture", payload["challenge_id"]!!.jsonPrimitive.content)
+        assertEquals(
+            "webauthn_discover_credential",
+            payload["assertion_response"]!!.jsonObject["id"]!!.jsonPrimitive.content,
+        )
+        assertNull(payload["challengeId"])
+        assertNull(payload["assertionResponse"])
+    }
+
+    @Test
     fun `webauthn mfa response fixtures decode exact contract values`() {
         val enrollBegin = json.decodeFromJsonElement<WebAuthnEnrollBeginResponse>(
             ContractFixtures.webAuthnEnrollBeginResponse,

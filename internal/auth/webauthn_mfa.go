@@ -179,6 +179,7 @@ func (s *Service) ConfirmWebAuthnEnrollment(
 		return fmt.Errorf("committing WebAuthn enrollment: %w", err)
 	}
 
+	s.sendWebAuthnCredentialChangedEmail(ctx, userID, "added", trimmedDisplayName)
 	s.logger.Info("WebAuthn enrollment confirmed", "user_id", userID)
 	return nil
 }

@@ -4,22 +4,28 @@ package auth_test
 
 import (
 	"bytes"
+	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/allyourbase/ayb/internal/auth"
 	"github.com/allyourbase/ayb/internal/config"
 	"github.com/allyourbase/ayb/internal/httputil"
+	"github.com/allyourbase/ayb/internal/mailer"
 	"github.com/allyourbase/ayb/internal/schema"
 	"github.com/allyourbase/ayb/internal/server"
 	"github.com/allyourbase/ayb/internal/sms"
 	"github.com/allyourbase/ayb/internal/testutil"
 	"github.com/descope/virtualwebauthn"
 )
+
+const passkeyNotificationAppName = "Passkey Test App"
 
 type webAuthnManagementFixture struct {
 	UserID    string
@@ -79,6 +85,106 @@ func TestWebAuthnMFACredentialManagement_ListRenameDelete(t *testing.T) {
 		Passkey:              fixture.Backup,
 		Counter:              5,
 		AllowedCredentialIDs: [][]byte{fixture.Backup.Credential.ID},
+	})
+}
+
+func TestWebAuthnCredentialManagement_PasskeyChangeNotifications(t *testing.T) {
+	srv, _, capture := setupWebAuthnCredentialManagementServerWithMailer(t, &captureEmailMailer{})
+	email := "webauthn-credential-notifications@example.com"
+	accessToken, userID := registerForMFA(t, srv, email)
+	clearCapturedEmails(capture)
+	rp := expectedRelyingPartyFromConfig(t)
+
+	primary := enrollVirtualWebAuthnCredential(t, srv, accessToken, rp, "   ", nil)
+	assertSinglePasskeyChangeEmail(t, capture, email, "added", "Unnamed passkey")
+	clearCapturedEmails(capture)
+
+	aal2Token := webAuthnAAL2TokenForCredential(t, srv, rp, userID, email, primary)
+	assertNoCapturedEmails(t, capture)
+
+	backup := enrollVirtualWebAuthnCredential(t, srv, aal2Token, rp, "Backup security key", nil)
+	assertSinglePasskeyChangeEmail(t, capture, email, "added", "Backup security key")
+	clearCapturedEmails(capture)
+
+	primaryID := webAuthnCredentialAPIID(primary.Credential.ID)
+	rename := doJSON(t, srv, "PATCH", "/api/auth/mfa/webauthn/credentials/"+primaryID, map[string]any{
+		"display_name": "  Trimmed primary key  ",
+	}, aal2Token)
+	testutil.StatusCode(t, http.StatusOK, rename.Code)
+	assertSinglePasskeyChangeEmail(t, capture, email, "renamed", "Trimmed primary key")
+	clearCapturedEmails(capture)
+
+	deletePrimary := doJSON(t, srv, "DELETE", "/api/auth/mfa/webauthn/credentials/"+primaryID, nil, aal2Token)
+	testutil.StatusCode(t, http.StatusNoContent, deletePrimary.Code)
+	assertSinglePasskeyChangeEmail(t, capture, email, "deleted", "Trimmed primary key")
+
+	rows := loadWebAuthnCredentialRows(t, userID)
+	testutil.SliceLen(t, rows, 1)
+	testutil.True(t, bytes.Equal(backup.Credential.ID, rows[0].CredentialID), "delete must keep the unaddressed credential")
+}
+
+func TestWebAuthnCredentialManagement_LoginUsageDoesNotSendPasskeyChangeEmail(t *testing.T) {
+	srv, _, capture := setupWebAuthnCredentialManagementServerWithMailer(t, &captureEmailMailer{})
+	email := "webauthn-credential-login-notification@example.com"
+	accessToken, userID := registerForMFA(t, srv, email)
+	clearCapturedEmails(capture)
+	rp := expectedRelyingPartyFromConfig(t)
+	passkey := enrollVirtualWebAuthnCredential(t, srv, accessToken, rp, "Login security key", nil)
+	clearCapturedEmails(capture)
+
+	verifyWebAuthnMFACredential(t, srv, webAuthnMFAVerification{
+		RP:                   rp,
+		UserID:               userID,
+		Email:                email,
+		Passkey:              passkey,
+		Counter:              3,
+		AllowedCredentialIDs: [][]byte{passkey.Credential.ID},
+	})
+	assertNoCapturedEmails(t, capture)
+
+	passkey.Authenticator.Options.UserHandle = []byte(userID)
+	challenge := beginWebAuthnDiscoverableChallenge(t, srv)
+	passkey.Credential.Counter = 4
+	assertionResponse := virtualwebauthn.CreateAssertionResponse(rp, passkey.Authenticator, passkey.Credential, *challenge.Options)
+	finish := doJSON(t, srv, "POST", "/api/auth/webauthn/login/discover/finish", map[string]any{
+		"challenge_id":       challenge.ChallengeID,
+		"assertion_response": mustJSONObject(t, assertionResponse),
+	}, "")
+	testutil.StatusCode(t, http.StatusOK, finish.Code)
+	assertNoCapturedEmails(t, capture)
+}
+
+func TestWebAuthnCredentialManagement_NotificationFailuresDoNotRollbackMutations(t *testing.T) {
+	t.Run("template render failure", func(t *testing.T) {
+		srv, authSvc, _ := setupWebAuthnCredentialManagementServerWithMailer(t, &captureEmailMailer{})
+		authSvc.SetEmailTemplateService(failingTemplateRenderer{})
+		email := "webauthn-credential-template-failure@example.com"
+		accessToken, userID := registerForMFA(t, srv, email)
+		rp := expectedRelyingPartyFromConfig(t)
+
+		enrollVirtualWebAuthnCredential(t, srv, accessToken, rp, "Render failure key", nil)
+
+		rows := loadWebAuthnCredentialRows(t, userID)
+		testutil.SliceLen(t, rows, 1)
+		testutil.Equal(t, "Render failure key", rows[0].DisplayName)
+	})
+
+	t.Run("mailer send failure", func(t *testing.T) {
+		srv, _, _ := setupWebAuthnCredentialManagementServerWithMailer(t, failingEmailMailer{})
+		email := "webauthn-credential-mailer-failure@example.com"
+		accessToken, userID := registerForMFA(t, srv, email)
+		rp := expectedRelyingPartyFromConfig(t)
+		primary := enrollVirtualWebAuthnCredential(t, srv, accessToken, rp, "Primary key", nil)
+		aal2Token := webAuthnAAL2TokenForCredential(t, srv, rp, userID, email, primary)
+		backup := enrollVirtualWebAuthnCredential(t, srv, aal2Token, rp, "Backup key", nil)
+
+		backupID := webAuthnCredentialAPIID(backup.Credential.ID)
+		deleteBackup := doJSON(t, srv, "DELETE", "/api/auth/mfa/webauthn/credentials/"+backupID, nil, aal2Token)
+		testutil.StatusCode(t, http.StatusNoContent, deleteBackup.Code)
+
+		rows := loadWebAuthnCredentialRows(t, userID)
+		testutil.SliceLen(t, rows, 1)
+		testutil.True(t, bytes.Equal(primary.Credential.ID, rows[0].CredentialID), "send failure must not roll back delete")
 	})
 }
 
@@ -167,6 +273,14 @@ func setupWebAuthnCredentialManagement(t *testing.T) (*server.Server, *auth.Serv
 }
 
 func setupWebAuthnCredentialManagementServer(t *testing.T) (*server.Server, *auth.Service) {
+	srv, authSvc, _ := setupWebAuthnCredentialManagementServerWithMailer(t, nil)
+	return srv, authSvc
+}
+
+func setupWebAuthnCredentialManagementServerWithMailer(
+	t *testing.T,
+	emailMailer mailer.Mailer,
+) (*server.Server, *auth.Service, *captureEmailMailer) {
 	t.Helper()
 	ctx := t.Context()
 	resetAndMigrate(t, ctx)
@@ -192,8 +306,12 @@ func setupWebAuthnCredentialManagementServer(t *testing.T) (*server.Server, *aut
 		DailyLimit:       0,
 		AllowedCountries: []string{"US", "CA"},
 	})
+	capture, _ := emailMailer.(*captureEmailMailer)
+	if emailMailer != nil {
+		authSvc.SetMailer(emailMailer, passkeyNotificationAppName, "http://localhost:8090/api")
+	}
 
-	return server.New(cfg, logger, ch, sharedPG.Pool, authSvc, nil), authSvc
+	return server.New(cfg, logger, ch, sharedPG.Pool, authSvc, nil), authSvc, capture
 }
 
 func parseWebAuthnCredentialList(t *testing.T, w *httptest.ResponseRecorder) []map[string]any {
@@ -256,6 +374,55 @@ func assertErrorMessage(t *testing.T, w *httptest.ResponseRecorder, want string)
 	var errResp httputil.ErrorResponse
 	testutil.NoError(t, json.Unmarshal(w.Body.Bytes(), &errResp))
 	testutil.Equal(t, want, errResp.Message)
+}
+
+type failingTemplateRenderer struct{}
+
+func (failingTemplateRenderer) RenderWithFallback(context.Context, string, map[string]string) (string, string, string, error) {
+	return "", "", "", errors.New("template render failed")
+}
+
+type failingEmailMailer struct{}
+
+func (failingEmailMailer) Send(context.Context, *mailer.Message) error {
+	return errors.New("mailer send failed")
+}
+
+func clearCapturedEmails(capture *captureEmailMailer) {
+	capture.mu.Lock()
+	defer capture.mu.Unlock()
+	capture.calls = nil
+}
+
+func capturedEmails(capture *captureEmailMailer) []mailer.Message {
+	capture.mu.Lock()
+	defer capture.mu.Unlock()
+	return append([]mailer.Message(nil), capture.calls...)
+}
+
+func assertNoCapturedEmails(t *testing.T, capture *captureEmailMailer) {
+	t.Helper()
+	testutil.Equal(t, 0, len(capturedEmails(capture)))
+}
+
+func assertSinglePasskeyChangeEmail(t *testing.T, capture *captureEmailMailer, to, action, credentialName string) {
+	t.Helper()
+	calls := capturedEmails(capture)
+	testutil.Equal(t, 1, len(calls))
+	msg := calls[0]
+	testutil.Equal(t, to, msg.To)
+	assertMessageContains(t, msg.Subject, action, "subject")
+	assertMessageContains(t, msg.Subject, credentialName, "subject")
+	body := msg.HTML + "\n" + msg.Text
+	assertMessageContains(t, body, action, "body")
+	assertMessageContains(t, body, credentialName, "body")
+	assertMessageContains(t, body, passkeyNotificationAppName, "body")
+}
+
+func assertMessageContains(t *testing.T, value, want, field string) {
+	t.Helper()
+	testutil.True(t, strings.Contains(strings.ToLower(value), strings.ToLower(want)),
+		"%s should contain %q, got %q", field, want, value)
 }
 
 func webAuthnCredentialAPIID(raw []byte) string {

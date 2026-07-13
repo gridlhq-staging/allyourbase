@@ -27,6 +27,8 @@ func TestWebAuthnCredentialsMigrationContract(t *testing.T) {
 		runFullMigrations(t, ctx)
 
 		assertWebAuthnCredentialsSchema(t, ctx)
+		assertLegacyWebAuthnCredentialColumnsDropped(t, ctx)
+		assertWebAuthnSessionColumnsPresent(t, ctx)
 	})
 
 	t.Run("legacy upgrade", func(t *testing.T) {
@@ -37,6 +39,8 @@ func TestWebAuthnCredentialsMigrationContract(t *testing.T) {
 		runFullMigrations(t, ctx)
 
 		assertWebAuthnCredentialsSchema(t, ctx)
+		assertLegacyWebAuthnCredentialColumnsDropped(t, ctx)
+		assertWebAuthnSessionColumnsPresent(t, ctx)
 		assertLegacyWebAuthnFactorsBackfilled(t, ctx)
 	})
 }
@@ -196,10 +200,7 @@ func assertLegacyWebAuthnFactorsBackfilled(t *testing.T, ctx context.Context) {
 
 	assertLegacyWebAuthnCredential(t, ctx, legacyWebAuthnUserA, []byte("credential-a"), []byte("public-key-a"), 11, "Work key")
 	assertLegacyWebAuthnCredential(t, ctx, legacyWebAuthnUserB, []byte("credential-b"), []byte("public-key-b"), 22, "")
-	assertLegacyWebAuthnFactorUnchanged(t, ctx, legacyDisabledWebAuthnUser, []byte("credential-disabled"), []byte("public-key-disabled"), 33, sql.NullString{
-		String: "Disabled key",
-		Valid:  true,
-	})
+	assertLegacyDisabledWebAuthnFactorNotBackfilled(t, ctx)
 }
 
 func assertLegacyWebAuthnCredential(
@@ -234,40 +235,71 @@ func assertLegacyWebAuthnCredential(
 	testutil.Equal(t, expectedDisplayName, displayName)
 	testutil.Equal(t, 0, transportCount)
 	testutil.False(t, lastUsedAt.Valid, "last_used_at should be null")
-
-	assertLegacyWebAuthnFactorUnchanged(t, ctx, userID, expectedCredentialID, expectedPublicKey, expectedSignCount, sql.NullString{
-		String: expectedDisplayName,
-		Valid:  expectedDisplayName != "",
-	})
 }
 
-func assertLegacyWebAuthnFactorUnchanged(
-	t *testing.T,
-	ctx context.Context,
-	userID string,
-	expectedCredentialID []byte,
-	expectedPublicKey []byte,
-	expectedSignCount int64,
-	expectedDisplayName sql.NullString,
-) {
+func assertLegacyDisabledWebAuthnFactorNotBackfilled(t *testing.T, ctx context.Context) {
 	t.Helper()
 
-	var credentialID []byte
-	var publicKey []byte
-	var signCount int64
-	var displayName sql.NullString
-	var sessionData []byte
+	var enabled bool
+	var credentialRows int
 	err := sharedPG.Pool.QueryRow(ctx,
-		`SELECT webauthn_credential_id, webauthn_public_key, webauthn_sign_count,
-		        webauthn_display_name, webauthn_session_data
-		   FROM _ayb_user_mfa
-		  WHERE user_id = $1 AND method = 'webauthn'`,
-		userID,
-	).Scan(&credentialID, &publicKey, &signCount, &displayName, &sessionData)
+		`SELECT f.enabled, COUNT(c.id)
+		   FROM _ayb_user_mfa f
+		   LEFT JOIN _ayb_webauthn_credentials c ON c.factor_id = f.id
+		  WHERE f.user_id = $1 AND f.method = 'webauthn'
+		  GROUP BY f.id`,
+		legacyDisabledWebAuthnUser,
+	).Scan(&enabled, &credentialRows)
 	testutil.NoError(t, err)
-	testutil.True(t, bytes.Equal(expectedCredentialID, credentialID), "legacy credential id should remain unchanged")
-	testutil.True(t, bytes.Equal(expectedPublicKey, publicKey), "legacy public key should remain unchanged")
-	testutil.Equal(t, expectedSignCount, signCount)
-	testutil.Equal(t, expectedDisplayName, displayName)
-	testutil.True(t, bytes.Equal([]byte("legacy-session"), sessionData), "legacy session data should remain unchanged")
+	testutil.False(t, enabled, "disabled legacy WebAuthn factor should remain disabled")
+	testutil.Equal(t, 0, credentialRows)
+}
+
+func assertLegacyWebAuthnCredentialColumnsDropped(t *testing.T, ctx context.Context) {
+	t.Helper()
+
+	for _, columnName := range []string{
+		"webauthn_credential_id",
+		"webauthn_public_key",
+		"webauthn_sign_count",
+		"webauthn_display_name",
+	} {
+		testutil.False(t, columnExists(t, ctx, "_ayb_user_mfa", columnName),
+			"_ayb_user_mfa.%s should be dropped after full migrate-up", columnName)
+	}
+}
+
+func assertWebAuthnSessionColumnsPresent(t *testing.T, ctx context.Context) {
+	t.Helper()
+
+	for _, tableColumn := range []struct {
+		table  string
+		column string
+	}{
+		{"_ayb_user_mfa", "webauthn_session_data"},
+		{"_ayb_mfa_challenges", "webauthn_session_data"},
+		{"_ayb_webauthn_discoverable_challenges", "webauthn_session_data"},
+	} {
+		testutil.True(t, columnExists(t, ctx, tableColumn.table, tableColumn.column),
+			"%s.%s should remain present after full migrate-up", tableColumn.table, tableColumn.column)
+	}
+}
+
+func columnExists(t *testing.T, ctx context.Context, tableName, columnName string) bool {
+	t.Helper()
+
+	var exists bool
+	err := sharedPG.Pool.QueryRow(ctx,
+		`SELECT EXISTS (
+		     SELECT 1
+		       FROM information_schema.columns
+		      WHERE table_schema = 'public'
+		        AND table_name = $1
+		        AND column_name = $2
+		 )`,
+		tableName,
+		columnName,
+	).Scan(&exists)
+	testutil.NoError(t, err)
+	return exists
 }

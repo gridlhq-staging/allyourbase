@@ -1,5 +1,5 @@
 /**
- * @module ui/browser-tests-unmocked/fixtures/edge-functions.ts
+ * @module Browser-test fixtures for edge-function lifecycle, triggers, and log polling.
  */
 import type { APIRequestContext, APIResponse } from "@playwright/test";
 import { validateResponse } from "./core";
@@ -29,6 +29,7 @@ async function deleteAdminResource(
   }
 }
 
+/** Creates an edge function with the given source code via the admin API and returns its id and name. */
 export async function seedEdgeFunction(
   request: APIRequestContext,
   token: string,
@@ -75,6 +76,7 @@ export async function deleteEdgeFunction(
   await deleteAdminResource(request, token, `/api/admin/functions/${id}`, `Delete edge function ${id}`);
 }
 
+/** Looks up an edge function by name and returns its ID. */
 export async function getEdgeFunctionIDByName(
   request: APIRequestContext,
   token: string,
@@ -138,6 +140,7 @@ export async function createDBTrigger(
   return { id: body.id };
 }
 
+/** Deletes a database trigger from an edge function by trigger ID. */
 export async function deleteDBTrigger(
   request: APIRequestContext,
   token: string,
@@ -167,6 +170,7 @@ export async function createCronTrigger(
   return { id: body.id };
 }
 
+/** Deletes a cron trigger from an edge function by trigger ID. */
 export async function deleteCronTrigger(
   request: APIRequestContext,
   token: string,
@@ -197,6 +201,7 @@ export async function manualRunCronTrigger(
   return res.json();
 }
 
+/** Creates a storage trigger on an edge function for the given bucket and event types. */
 export async function createStorageTrigger(
   request: APIRequestContext,
   token: string,
@@ -217,6 +222,7 @@ export async function createStorageTrigger(
   return { id: body.id };
 }
 
+/** Deletes a storage trigger from an edge function by trigger ID. */
 export async function deleteStorageTrigger(
   request: APIRequestContext,
   token: string,
@@ -231,9 +237,6 @@ export async function deleteStorageTrigger(
   );
 }
 
-/**
- * TODO: Document waitForFunctionLog.
- */
 type FunctionLogEntry = {
   requestMethod?: string;
   requestPath?: string;
@@ -245,6 +248,7 @@ type FunctionLogEntry = {
   createdAt?: string | number | Date;
 };
 
+/** Polls an edge function's logs until a matching entry appears or the timeout expires. */
 export async function waitForFunctionLog(
   request: APIRequestContext,
   token: string,

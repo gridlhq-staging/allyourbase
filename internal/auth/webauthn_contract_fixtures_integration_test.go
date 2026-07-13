@@ -113,6 +113,31 @@ func sanitizeWebAuthnMFAChallengeFixture(t *testing.T, payload map[string]any) m
 	return clone
 }
 
+func sanitizeWebAuthnDiscoverBeginFixture(t *testing.T, payload map[string]any) map[string]any {
+	t.Helper()
+
+	clone := cloneJSONMap(t, payload)
+	clone["challenge_id"] = "webauthn_discover_challenge_fixture"
+	if options, ok := clone["options"].(map[string]any); ok {
+		options["challenge"] = "webauthn_discover_challenge"
+	}
+	return clone
+}
+
+func sanitizeWebAuthnDiscoverFinishRequestFixture(t *testing.T, payload map[string]any) map[string]any {
+	t.Helper()
+
+	clone := cloneJSONMap(t, payload)
+	clone["challenge_id"] = "webauthn_discover_challenge_fixture"
+	if response, ok := clone["assertion_response"].(map[string]any); ok {
+		sanitizeCredentialResponse(response, "webauthn_discover_credential")
+		normalizeClientDataJSON(t, response["response"], "webauthn_discover_challenge")
+		sanitizeNestedString(response["response"], "signature", "webauthn_discover_signature")
+		sanitizeNestedString(response["response"], "userHandle", "webauthn_discover_user_handle")
+	}
+	return clone
+}
+
 func sanitizeWebAuthnMFAVerifyRequestFixture(t *testing.T, payload map[string]any) map[string]any {
 	t.Helper()
 

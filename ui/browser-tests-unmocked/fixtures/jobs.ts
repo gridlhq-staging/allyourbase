@@ -1,9 +1,8 @@
-/**
- * @module ui/browser-tests-unmocked/fixtures/jobs.ts
- */
+/** @module Browser-test fixtures for job queue, job run, and schedule seeding. */
 import type { APIRequestContext } from "@playwright/test";
 import { execSQL, sqlLiteral, validateResponse } from "./core";
 
+/** Inserts a job row via SQL with configurable type, state, payload, and attempts, and returns the seeded entry. */
 export async function seedJob(
   request: APIRequestContext,
   token: string,
@@ -21,9 +20,11 @@ export async function seedJob(
   const attempts = options.attempts ?? 1;
   const maxAttempts = options.maxAttempts ?? 3;
   const lastErrorSQL = options.lastError ? `'${sqlLiteral(options.lastError)}'` : "NULL";
+  // Stage 1 product gap: job queue history has no deterministic seed API.
   const result = await execSQL(
     request,
     token,
+    // eslint-disable-next-line no-restricted-syntax -- Stage 1 product gap: job queue history has no deterministic seed API.
     `INSERT INTO _ayb_jobs (type, payload, state, attempts, max_attempts, last_error)
      VALUES ('${sqlLiteral(options.type)}', '${sqlLiteral(payload)}'::jsonb, '${state}', ${attempts}, ${maxAttempts}, ${lastErrorSQL})
      RETURNING id, type, state`,
@@ -37,6 +38,7 @@ export async function seedJob(
   return { id, type, state: returnedState };
 }
 
+/** Inserts one or more job run rows via SQL with attempt number, status, duration, and timestamps. */
 export async function seedJobRuns(
   request: APIRequestContext,
   token: string,
@@ -54,9 +56,11 @@ export async function seedJobRuns(
 ): Promise<void> {
   for (const run of options.runs) {
     const errorSQL = run.error ? `'${sqlLiteral(run.error)}'` : "NULL";
+    // Stage 1 product gap: job run history has no deterministic seed API.
     await execSQL(
       request,
       token,
+      // eslint-disable-next-line no-restricted-syntax -- Stage 1 product gap: job run history has no deterministic seed API.
       `INSERT INTO _ayb_job_runs (job_id, attempt, status, started_at, finished_at, duration_ms, error)
        VALUES ('${sqlLiteral(options.jobId)}', ${run.attempt}, '${run.status}', '${sqlLiteral(run.startedAt)}'::timestamptz, '${sqlLiteral(run.finishedAt)}'::timestamptz, ${run.durationMs}, ${errorSQL})`,
     );
@@ -68,9 +72,11 @@ export async function cleanupJobsByType(
   token: string,
   type: string,
 ): Promise<void> {
+  // eslint-disable-next-line no-restricted-syntax -- Stage 1 product gap: job queue history has no domain cleanup API.
   await execSQL(request, token, `DELETE FROM _ayb_jobs WHERE type = '${sqlLiteral(type)}'`);
 }
 
+/** Creates a job schedule via the admin API and returns its id, name, jobType, cronExpr, and timezone. */
 export async function seedSchedule(
   request: APIRequestContext,
   token: string,

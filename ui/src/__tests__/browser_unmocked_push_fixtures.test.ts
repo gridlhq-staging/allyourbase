@@ -16,57 +16,98 @@ function okResponse(body: unknown) {
   };
 }
 
-function buildSQLRequestMock() {
+function noContentResponse() {
+  return {
+    ok: () => true,
+    status: () => 204,
+    json: async () => ({}),
+    text: async () => "",
+  };
+}
+
+function buildPushRequestMock() {
   const queries: string[] = [];
+  const posts: Array<{ path: string; data?: unknown }> = [];
+  const deletes: string[] = [];
 
   const request = {
     post: vi.fn(async (path: string, init?: { data?: { query?: string } }) => {
-      expect(path).toBe("/api/admin/sql");
-      const query = init?.data?.query || "";
-      queries.push(query);
-      if (query.includes("RETURNING id, token, provider, platform")) {
+      posts.push({ path, data: init?.data });
+      if (path === "/api/admin/sql") {
+        const query = init?.data?.query || "";
+        queries.push(query);
+        if (query.includes("RETURNING id, title, status, device_token_id")) {
+          return okResponse({
+            columns: ["id", "title", "status", "device_token_id"],
+            rows: [["delivery-001", "Push fixture lifecycle", "sent", "device-001"]],
+            rowCount: 1,
+          });
+        }
+        return okResponse({ columns: [], rows: [], rowCount: 0 });
+      }
+      if (path === "/api/auth/anonymous") {
+        return okResponse({ token: "anonymous-token" });
+      }
+      if (path === "/api/auth/link/email") {
+        return okResponse({ token: "linked-token", user: { is_anonymous: false } });
+      }
+      if (path === "/api/admin/apps") {
+        return okResponse({ id: "app-001", name: "push-test-app" });
+      }
+      if (path === "/api/admin/push/devices") {
         return okResponse({
-          columns: ["id", "token", "provider", "platform"],
-          rows: [["device-001", "tok-001", "fcm", "android"]],
-          rowCount: 1,
+          id: "device-001",
+          token: "tok-001",
+          provider: "fcm",
+          platform: "android",
         });
       }
-      if (query.includes("RETURNING id, title, status, device_token_id")) {
-        return okResponse({
-          columns: ["id", "title", "status", "device_token_id"],
-          rows: [["delivery-001", "Push fixture lifecycle", "sent", "device-001"]],
-          rowCount: 1,
-        });
+      throw new Error(`Unexpected POST ${path}`);
+    }),
+    get: vi.fn(async (path: string) => {
+      if (path.startsWith("/api/admin/apps")) {
+        return okResponse({ items: [] });
       }
-      return okResponse({ columns: [], rows: [], rowCount: 0 });
+      if (path.startsWith("/api/admin/push/devices")) {
+        return okResponse({ items: [{ id: "device-001", token: "fixture-token" }] });
+      }
+      if (path === "/api/auth/me") {
+        return okResponse({ id: "user-001", email: "push-fixture-test@example.com" });
+      }
+      throw new Error(`Unexpected GET ${path}`);
+    }),
+    delete: vi.fn(async (path: string) => {
+      deletes.push(path);
+      return noContentResponse();
     }),
   };
 
-  return { request: request as unknown as APIRequestContext, queries };
+  return { request: request as unknown as APIRequestContext, queries, posts, deletes };
 }
 
 describe("browser-unmocked push fixture helpers", () => {
-  it("seedPushDeviceToken uses _ayb_device_tokens and app owner_user_id seed", async () => {
-    const { request, queries } = buildSQLRequestMock();
+  it("seedPushDeviceToken uses auth, app, and push device APIs", async () => {
+    const { request, queries, posts } = buildPushRequestMock();
 
     await seedPushDeviceToken(request, "admin-token", { tokenValue: "fixture-token-1" });
 
-    expect(queries).toHaveLength(3);
-    expect(queries[1]).toContain("INSERT INTO _ayb_apps");
-    expect(queries[1]).toContain("owner_user_id");
-    expect(queries[2]).toContain("INSERT INTO _ayb_device_tokens");
-    expect(queries[2]).not.toContain("_ayb_push_device_tokens");
+    expect(queries).toHaveLength(0);
+    expect(posts.map((call) => call.path)).toEqual([
+      "/api/auth/anonymous",
+      "/api/auth/link/email",
+      "/api/admin/apps",
+      "/api/admin/push/devices",
+    ]);
   });
 
-  it("cleanupPushTestData deletes via _ayb_device_tokens references", async () => {
-    const { request, queries } = buildSQLRequestMock();
+  it("cleanupPushTestData revokes matching push devices through the admin API", async () => {
+    const { request, queries, deletes } = buildPushRequestMock();
 
     await cleanupPushTestData(request, "admin-token", "fixture-token");
 
-    expect(queries).toHaveLength(2);
-    expect(queries[0]).toContain("SELECT id FROM _ayb_device_tokens");
-    expect(queries[1]).toContain("DELETE FROM _ayb_device_tokens");
-    expect(queries[1]).not.toContain("_ayb_push_device_tokens");
+    expect(queries).toHaveLength(1);
+    expect(queries[0]).toContain("DELETE FROM _ayb_push_deliveries");
+    expect(deletes).toEqual(["/api/admin/push/devices/device-001"]);
   });
 
   it("isPushEnabled only treats 200 as enabled and 503 as disabled", async () => {
@@ -98,7 +139,7 @@ describe("browser-unmocked push fixture helpers", () => {
   });
 
   it("escapes SQL literals in push fixture helpers", async () => {
-    const { request, queries } = buildSQLRequestMock();
+    const { request, posts } = buildPushRequestMock();
 
     await seedPushDeviceToken(request, "admin-token", {
       tokenValue: "abc'def",
@@ -106,15 +147,14 @@ describe("browser-unmocked push fixture helpers", () => {
     });
     await cleanupPushTestData(request, "admin-token", "abc'def");
 
-    expect(queries[2]).toContain("abc''def");
-    expect(queries[2]).toContain("Stu''s iPhone");
-    expect(queries[2]).not.toContain("abc'def");
-    expect(queries[3]).toContain("abc''def");
-    expect(queries[4]).toContain("abc''def");
+    expect(posts[3].data).toMatchObject({
+      token: "abc'def",
+      device_name: "Stu's iPhone",
+    });
   });
 
   it("seedPushDelivery inserts push delivery linked to seeded device token", async () => {
-    const { request, queries } = buildSQLRequestMock();
+    const { request, queries } = buildPushRequestMock();
 
     await seedPushDelivery(request, "admin-token", {
       tokenValue: "delivery-fixture-token",
@@ -123,29 +163,28 @@ describe("browser-unmocked push fixture helpers", () => {
       status: "sent",
     });
 
-    expect(queries).toHaveLength(4);
-    expect(queries[2]).toContain("INSERT INTO _ayb_device_tokens");
-    expect(queries[3]).toContain("INSERT INTO _ayb_push_deliveries");
-    expect(queries[3]).toContain("device_token_id, app_id, user_id, provider");
-    expect(queries[3]).toContain("'Push fixture lifecycle'");
-    expect(queries[3]).toContain("'Fixture seeded delivery body'");
+    expect(queries).toHaveLength(1);
+    expect(queries[0]).toContain("INSERT INTO _ayb_push_deliveries");
+    expect(queries[0]).toContain("device_token_id, app_id, user_id, provider");
+    expect(queries[0]).toContain("'Push fixture lifecycle'");
+    expect(queries[0]).toContain("'Fixture seeded delivery body'");
   });
 
   it("seedPushDelivery uses NOW() for sent status and NULL for non-sent", async () => {
-    const { request: reqSent, queries: qSent } = buildSQLRequestMock();
+    const { request: reqSent, queries: qSent } = buildPushRequestMock();
     await seedPushDelivery(reqSent, "admin-token", {
       tokenValue: "sent-token",
       status: "sent",
     });
-    expect(qSent[3]).toContain("NOW()");
-    expect(qSent[3]).not.toContain("NULL");
+    expect(qSent[0]).toContain("NOW()");
+    expect(qSent[0]).not.toContain("NULL");
 
-    const { request: reqFailed, queries: qFailed } = buildSQLRequestMock();
+    const { request: reqFailed, queries: qFailed } = buildPushRequestMock();
     await seedPushDelivery(reqFailed, "admin-token", {
       tokenValue: "failed-token",
       status: "failed",
     });
-    expect(qFailed[3]).toContain("NULL");
-    expect(qFailed[3]).not.toContain("NOW()");
+    expect(qFailed[0]).toContain("NULL");
+    expect(qFailed[0]).not.toContain("NOW()");
   });
 });

@@ -81,6 +81,7 @@ func (s *Service) RenameWebAuthnCredential(
 		}
 		return nil, err
 	}
+	s.sendWebAuthnCredentialChangedEmail(ctx, userID, "renamed", credential.DisplayName)
 	return &credential, nil
 }
 
@@ -106,6 +107,11 @@ func (s *Service) DeleteWebAuthnCredential(ctx context.Context, userID string, c
 		return ErrWebAuthnLastCredential
 	}
 
+	displayName, err := webAuthnCredentialDisplayNameForDelete(ctx, tx, userID, credentialID)
+	if err != nil {
+		return err
+	}
+
 	result, err := tx.Exec(ctx,
 		`DELETE FROM _ayb_webauthn_credentials c
 		  USING _ayb_user_mfa f
@@ -125,6 +131,7 @@ func (s *Service) DeleteWebAuthnCredential(ctx context.Context, userID string, c
 	if err := tx.Commit(ctx); err != nil {
 		return fmt.Errorf("committing WebAuthn credential delete: %w", err)
 	}
+	s.sendWebAuthnCredentialChangedEmail(ctx, userID, "deleted", displayName)
 	return nil
 }
 
@@ -167,10 +174,15 @@ func webAuthnCredentialCountForDelete(
 		        AND f.method = 'webauthn'
 		        AND f.enabled = true
 		        AND c.credential_id = $2
+		 ),
+		 locked_credentials AS (
+		     SELECT c.id
+		       FROM _ayb_webauthn_credentials c
+		       JOIN target t ON t.factor_id = c.factor_id
+		      FOR UPDATE OF c
 		 )
-		 SELECT COUNT(c.id)
-		   FROM _ayb_webauthn_credentials c
-		   JOIN target t ON t.factor_id = c.factor_id`,
+		 SELECT COUNT(id)
+		   FROM locked_credentials`,
 		userID, credentialID,
 	).Scan(&credentialCount)
 	if err != nil {
@@ -180,4 +192,30 @@ func webAuthnCredentialCountForDelete(
 		return 0, ErrWebAuthnCredentialNotFound
 	}
 	return credentialCount, nil
+}
+
+func webAuthnCredentialDisplayNameForDelete(
+	ctx context.Context,
+	tx webAuthnCredentialDeleteTx,
+	userID string,
+	credentialID []byte,
+) (string, error) {
+	var displayName string
+	err := tx.QueryRow(ctx,
+		`SELECT c.display_name
+		   FROM _ayb_webauthn_credentials c
+		   JOIN _ayb_user_mfa f ON f.id = c.factor_id
+		  WHERE f.user_id = $1
+		    AND f.method = 'webauthn'
+		    AND f.enabled = true
+		    AND c.credential_id = $2`,
+		userID, credentialID,
+	).Scan(&displayName)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return "", ErrWebAuthnCredentialNotFound
+		}
+		return "", fmt.Errorf("loading WebAuthn credential display name: %w", err)
+	}
+	return displayName, nil
 }

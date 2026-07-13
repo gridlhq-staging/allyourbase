@@ -3,6 +3,7 @@ package allyourbase
 import (
 	"context"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -196,6 +197,50 @@ func TestAuthBeginWebAuthnLoginPostsEmailWithoutMutatingTokens(t *testing.T) {
 	}
 }
 
+func TestAuthBeginDiscoverableLoginPostsBodylessRequestWithoutMutatingTokens(t *testing.T) {
+	response := mustLoadSDKContractResponse(t, "webauthn_discover_begin_response.json")
+	var requestBody []byte
+	var contentType string
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			t.Fatalf("expected POST, got %s", r.Method)
+		}
+		if r.URL.Path != "/api/auth/webauthn/login/discover/begin" {
+			t.Fatalf("unexpected path %s", r.URL.Path)
+		}
+		var err error
+		requestBody, err = io.ReadAll(r.Body)
+		if err != nil {
+			t.Fatalf("read request body: %v", err)
+		}
+		contentType = r.Header.Get("Content-Type")
+		_ = json.NewEncoder(w).Encode(response)
+	}))
+	defer ts.Close()
+
+	c := NewClient(ts.URL)
+	c.SetTokens("existing_tok", "existing_ref")
+	res, err := c.Auth.BeginDiscoverableLogin(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.ChallengeID != "webauthn_discover_challenge_fixture" {
+		t.Fatalf("unexpected challenge id %q", res.ChallengeID)
+	}
+	if len(res.Options.AllowCredentials) != 0 {
+		t.Fatalf("expected absent or empty allowCredentials, got %+v", res.Options.AllowCredentials)
+	}
+	if c.Token() != "existing_tok" || c.RefreshToken() != "existing_ref" {
+		t.Fatalf("tokens mutated: token=%q refresh=%q", c.Token(), c.RefreshToken())
+	}
+	if len(requestBody) != 0 {
+		t.Fatalf("expected bodyless request, got %q", string(requestBody))
+	}
+	if contentType != "" {
+		t.Fatalf("expected no content type for bodyless request, got %q", contentType)
+	}
+}
+
 func TestAuthFinishWebAuthnLoginPostsRawAssertionAndStoresTokens(t *testing.T) {
 	response := mustLoadSDKContractResponse(t, "auth_response.json")
 	assertion := json.RawMessage(`{"id":"credential-a","response":{"clientDataJSON":"client","authenticatorData":"auth","signature":"sig"},"type":"public-key"}`)
@@ -236,6 +281,62 @@ func TestAuthFinishWebAuthnLoginPostsRawAssertionAndStoresTokens(t *testing.T) {
 	}
 	if string(requestBody.AssertionResponse) != string(assertion) {
 		t.Fatalf("assertion_response changed: got %s want %s", requestBody.AssertionResponse, assertion)
+	}
+}
+
+func TestAuthFinishDiscoverableLoginPostsRawAssertionAndStoresTokens(t *testing.T) {
+	response := mustLoadSDKContractResponse(t, "auth_response.json")
+	requestData := mustLoadContractFixture(t, "webauthn_discover_finish_request.json")
+	var expectedRequest WebAuthnLoginFinishRequest
+	if err := json.Unmarshal(requestData, &expectedRequest); err != nil {
+		t.Fatalf("decode webauthn_discover_finish_request: %v", err)
+	}
+	var requestBody WebAuthnLoginFinishRequest
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			t.Fatalf("expected POST, got %s", r.Method)
+		}
+		if r.URL.Path != "/api/auth/webauthn/login/discover/finish" {
+			t.Fatalf("unexpected path %s", r.URL.Path)
+		}
+		if err := json.NewDecoder(r.Body).Decode(&requestBody); err != nil {
+			t.Fatalf("decode request: %v", err)
+		}
+		_ = json.NewEncoder(w).Encode(response)
+	}))
+	defer ts.Close()
+
+	c := NewClient(ts.URL)
+	res, err := c.Auth.FinishDiscoverableLogin(
+		context.Background(),
+		expectedRequest.ChallengeID,
+		expectedRequest.AssertionResponse,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res == nil {
+		t.Fatalf("expected AuthResponse")
+	}
+	if res.Token != "jwt_stage3" || res.RefreshToken != "refresh_stage3" {
+		t.Fatalf("unexpected auth response %+v", res)
+	}
+	if c.Token() != "jwt_stage3" || c.RefreshToken() != "refresh_stage3" {
+		t.Fatalf("tokens not stored: token=%q refresh=%q", c.Token(), c.RefreshToken())
+	}
+	if requestBody.ChallengeID != expectedRequest.ChallengeID {
+		t.Fatalf("unexpected challenge_id %q", requestBody.ChallengeID)
+	}
+	var actualAssertion map[string]any
+	if err := json.Unmarshal(requestBody.AssertionResponse, &actualAssertion); err != nil {
+		t.Fatalf("decode actual assertion_response: %v", err)
+	}
+	var expectedAssertion map[string]any
+	if err := json.Unmarshal(expectedRequest.AssertionResponse, &expectedAssertion); err != nil {
+		t.Fatalf("decode expected assertion_response: %v", err)
+	}
+	if !reflect.DeepEqual(actualAssertion, expectedAssertion) {
+		t.Fatalf("assertion_response changed: got %#v want %#v", actualAssertion, expectedAssertion)
 	}
 }
 

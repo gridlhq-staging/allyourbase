@@ -12,6 +12,10 @@ Public container-image pulls are not available right now because the current Git
 
 ## Docker
 
+For the tested two-node compose cell with nginx load balancing, see
+[High Availability](./ha.md). This page keeps the single-container and general
+runtime configuration details.
+
 ### Build the image locally
 
 ```bash

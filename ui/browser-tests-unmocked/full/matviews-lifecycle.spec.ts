@@ -1,9 +1,21 @@
-import { test, expect, execSQL, waitForDashboard } from "../fixtures";
+import {
+  cleanupAdminMatviewByName,
+  registerAdminMatview,
+  test,
+  expect,
+  execSQL,
+  waitForDashboard,
+} from "../fixtures";
 
 test.describe("Matviews Lifecycle (Full E2E)", () => {
   const pendingCleanup: string[] = [];
+  const pendingMatviewCleanup: string[] = [];
 
   test.afterEach(async ({ request, adminToken }) => {
+    for (const viewName of pendingMatviewCleanup) {
+      await cleanupAdminMatviewByName(request, adminToken, "public", viewName).catch(() => {});
+    }
+    pendingMatviewCleanup.length = 0;
     for (const sql of pendingCleanup) {
       await execSQL(request, adminToken, sql).catch(() => {});
     }
@@ -15,7 +27,7 @@ test.describe("Matviews Lifecycle (Full E2E)", () => {
     const sourceTable = `mv_seed_source_${runId}`;
     const matviewName = `mv_seed_${runId}`;
 
-    pendingCleanup.push(`DELETE FROM _ayb_matview_refreshes WHERE schema_name = 'public' AND view_name = '${matviewName}'`);
+    pendingMatviewCleanup.push(matviewName);
     pendingCleanup.push(`DROP MATERIALIZED VIEW IF EXISTS public.${matviewName}`);
     pendingCleanup.push(`DROP TABLE IF EXISTS public.${sourceTable}`);
 
@@ -39,12 +51,11 @@ test.describe("Matviews Lifecycle (Full E2E)", () => {
        SELECT count(*)::int AS total_rows, sum(score)::int AS total_score
        FROM public.${sourceTable}`
     );
-    await execSQL(
-      request,
-      adminToken,
-      `INSERT INTO _ayb_matview_refreshes (schema_name, view_name, refresh_mode)
-       VALUES ('public', '${matviewName}', 'standard')`
-    );
+    await registerAdminMatview(request, adminToken, {
+      schema: "public",
+      viewName: matviewName,
+      refreshMode: "standard",
+    });
 
     await page.goto("/admin/");
     await waitForDashboard(page);
@@ -61,7 +72,7 @@ test.describe("Matviews Lifecycle (Full E2E)", () => {
     const sourceTable = `mv_refresh_source_${runId}`;
     const matviewName = `mv_refresh_${runId}`;
 
-    pendingCleanup.push(`DELETE FROM _ayb_matview_refreshes WHERE schema_name = 'public' AND view_name = '${matviewName}'`);
+    pendingMatviewCleanup.push(matviewName);
     pendingCleanup.push(`DROP MATERIALIZED VIEW IF EXISTS public.${matviewName}`);
     pendingCleanup.push(`DROP TABLE IF EXISTS public.${sourceTable}`);
 

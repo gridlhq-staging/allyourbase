@@ -1,4 +1,4 @@
-import { test, expect, execSQL, sqlLiteral, waitForDashboard } from "../fixtures";
+import { cleanupEmailTemplate, seedEmailTemplate, test, expect, waitForDashboard } from "../fixtures";
 import type { Page } from "@playwright/test";
 
 async function openEmailTemplatesPage(page: Page): Promise<void> {
@@ -12,8 +12,8 @@ test.describe("Email Templates Lifecycle (Full E2E)", () => {
   const pendingCleanup: string[] = [];
 
   test.afterEach(async ({ request, adminToken }) => {
-    for (const sql of pendingCleanup) {
-      await execSQL(request, adminToken, sql).catch(() => {});
+    for (const templateKey of pendingCleanup) {
+      await cleanupEmailTemplate(request, adminToken, templateKey).catch(() => {});
     }
     pendingCleanup.length = 0;
   });
@@ -24,14 +24,9 @@ test.describe("Email Templates Lifecycle (Full E2E)", () => {
     const subjectTemplate = `Seeded subject ${runId}`;
     const htmlTemplate = `<p>Seeded body ${runId} for {{.Invitee}}</p>`;
 
-    pendingCleanup.push(`DELETE FROM _ayb_email_templates WHERE template_key = '${templateKey}'`);
+    pendingCleanup.push(templateKey);
 
-    await execSQL(
-      request,
-      adminToken,
-      `INSERT INTO _ayb_email_templates (template_key, subject_template, html_template, enabled)
-       VALUES ('${templateKey}', '${sqlLiteral(subjectTemplate)}', '${sqlLiteral(htmlTemplate)}', true)`
-    );
+    await seedEmailTemplate(request, adminToken, { key: templateKey, subjectTemplate, htmlTemplate });
 
     await openEmailTemplatesPage(page);
 
@@ -52,13 +47,9 @@ test.describe("Email Templates Lifecycle (Full E2E)", () => {
     const customSubject = `Custom reset ${runId} for {{.AppName}}`;
     const customHTML = `<p>Lifecycle ${runId}: <a href=\"{{.ActionURL}}\">reset</a> for {{.AppName}}</p>`;
 
-    pendingCleanup.push(`DELETE FROM _ayb_email_templates WHERE template_key = 'auth.password_reset'`);
+    pendingCleanup.push("auth.password_reset");
 
-    await execSQL(
-      request,
-      adminToken,
-      `DELETE FROM _ayb_email_templates WHERE template_key = 'auth.password_reset'`
-    );
+    await cleanupEmailTemplate(request, adminToken, "auth.password_reset");
 
     await openEmailTemplatesPage(page);
 

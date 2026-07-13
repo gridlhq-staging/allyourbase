@@ -5,12 +5,8 @@ package multinode
 import (
 	"bytes"
 	"context"
-	"crypto/rand"
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"io"
-	"mime/multipart"
 	"net/http"
 	"net/url"
 	"os"
@@ -21,6 +17,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/allyourbase/ayb/internal/e2e/crossnode"
 	"github.com/allyourbase/ayb/internal/testutil"
 	"github.com/allyourbase/ayb/internal/ws"
 	"github.com/gorilla/websocket"
@@ -45,10 +42,10 @@ func TestMultiNodeRealtimeFanoutAcrossNodes(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 4*time.Minute)
 	defer cancel()
 
-	seedRealtimeProofTable(ctx, t, testDatabaseURL)
+	crossnode.SeedRealtimeProofTable(ctx, t, testDatabaseURL, realtimeProofTable)
 	harness := bootTwoNodeHarness(t)
 	auth := registerHarnessUser(t, harness.nodeA.baseURL(), "multinode-realtime@example.com")
-	configureHarnessUsersAsSharedTenants(ctx, t, testDatabaseURL, auth.userID)
+	crossnode.ConfigureUsersAsSharedTenants(ctx, t, testDatabaseURL, auth.userID)
 	conn := dialHarnessRealtimeWS(t, harness.nodeB, auth.accessToken)
 	defer conn.Close()
 
@@ -93,7 +90,7 @@ func TestMultiNodeSessionRevocationAcrossNodes(t *testing.T) {
 			initialStatus, initialBody, auth.userID, auth.email, combinedNodeOutput(harness.nodeA, harness.nodeB))
 	}
 
-	sessions := listHarnessSessions(t, harness.nodeA.baseURL(), auth.accessToken)
+	sessions := crossnode.ListSessions(t, harness.nodeA.baseURL(), auth.accessToken)
 	if len(sessions) != 1 || sessions[0].ID == "" {
 		t.Fatalf("expected one current session before revoke, got %#v\nnodes:\n%s", sessions, combinedNodeOutput(harness.nodeA, harness.nodeB))
 	}
@@ -104,7 +101,8 @@ func TestMultiNodeSessionRevocationAcrossNodes(t *testing.T) {
 			revokedSessionID, deleteStatus, deleteBody, combinedNodeOutput(harness.nodeA, harness.nodeB))
 	}
 
-	finalStatus, finalBody := waitForHarnessAuthMeStatus(t, harness.nodeB.baseURL(), auth.accessToken, http.StatusUnauthorized, 10*time.Second)
+	finalResp := crossnode.WaitForAuthMeStatus(t, harness.nodeB.baseURL(), auth.accessToken, http.StatusUnauthorized, 10*time.Second)
+	finalStatus, finalBody := finalResp.Status, finalResp.Body
 	if finalStatus != http.StatusUnauthorized {
 		t.Fatalf("node B access token was not revoked: initial=%d final=%d session=%s body=%s\nnodes:\n%s",
 			initialStatus, finalStatus, revokedSessionID, finalBody, combinedNodeOutput(harness.nodeA, harness.nodeB))
@@ -472,12 +470,7 @@ func deriveNodeDatabaseURL(t *testing.T, rawURL, applicationName string) string 
 
 func randomHex(t *testing.T, byteCount int) string {
 	t.Helper()
-
-	buf := make([]byte, byteCount)
-	if _, err := rand.Read(buf); err != nil {
-		t.Fatalf("generate random bytes: %v", err)
-	}
-	return hex.EncodeToString(buf)
+	return crossnode.RandomHex(t, byteCount)
 }
 
 func freePort(t *testing.T) int {
@@ -593,27 +586,9 @@ func tableEventsChannelListen() string { return "LISTEN " + tableEventsChannel }
 
 func oauthEventsChannelListen() string { return "LISTEN " + oauthEventsChannel }
 
-func seedRealtimeProofTable(ctx context.Context, t *testing.T, databaseURL string) {
-	t.Helper()
-
-	pool, err := pgxpool.New(ctx, databaseURL)
-	if err != nil {
-		t.Fatalf("connect to TEST_DATABASE_URL for realtime seed: %v", err)
-	}
-	defer pool.Close()
-
-	_, err = pool.Exec(ctx, `
-		DROP TABLE IF EXISTS multinode_realtime_events;
-		CREATE TABLE multinode_realtime_events (
-			id BIGSERIAL PRIMARY KEY,
-			sentinel TEXT NOT NULL
-		);
-	`)
-	if err != nil {
-		t.Fatalf("seed realtime proof table: %v", err)
-	}
-}
-
+// harnessAuthTokens adapts crossnode.AuthTokens to the lower-cased field names
+// the multinode _test.go files reference. The registration logic itself lives
+// in the importable crossnode package.
 type harnessAuthTokens struct {
 	accessToken  string
 	refreshToken string
@@ -621,30 +596,19 @@ type harnessAuthTokens struct {
 	email        string
 }
 
-type harnessSession struct {
-	ID string `json:"id"`
-}
-
 func registerHarnessUser(t *testing.T, baseURL, email string) harnessAuthTokens {
 	t.Helper()
-
-	status, body := harnessHTTPJSON(t, http.MethodPost, baseURL+"/api/auth/register",
-		map[string]string{"email": email, "password": "password123"}, "")
-	if status != http.StatusCreated {
-		t.Fatalf("register user status=%d body=%s", status, body)
-	}
-	user, ok := body.object["user"].(map[string]any)
-	if !ok {
-		t.Fatalf("register response missing user object: %s", body)
-	}
+	tokens := crossnode.RegisterUser(t, baseURL, email)
 	return harnessAuthTokens{
-		accessToken:  body.stringValue(t, "token"),
-		refreshToken: body.stringValue(t, "refreshToken"),
-		userID:       stringFromMap(t, user, "id"),
-		email:        stringFromMap(t, user, "email"),
+		accessToken:  tokens.AccessToken,
+		refreshToken: tokens.RefreshToken,
+		userID:       tokens.UserID,
+		email:        tokens.Email,
 	}
 }
 
+// harnessJSONBody adapts crossnode.JSONBody to the lower-cased field names the
+// multinode _test.go files reference (body.object / body.raw).
 type harnessJSONBody struct {
 	object map[string]any
 	raw    string
@@ -654,96 +618,19 @@ func (b harnessJSONBody) String() string {
 	return b.raw
 }
 
-func (b harnessJSONBody) stringValue(t *testing.T, key string) string {
-	t.Helper()
-	return stringFromMap(t, b.object, key)
-}
-
-func stringFromMap(t *testing.T, values map[string]any, key string) string {
-	t.Helper()
-	value, ok := values[key].(string)
-	if !ok || value == "" {
-		t.Fatalf("expected non-empty string field %q in %v", key, values)
-	}
-	return value
+func adaptJSONBody(body crossnode.JSONBody) harnessJSONBody {
+	return harnessJSONBody{object: body.Object, raw: body.Raw}
 }
 
 func harnessHTTPJSON(t *testing.T, method, url string, body any, token string) (int, harnessJSONBody) {
 	t.Helper()
-	status, raw := harnessRaw(t, method, url, body, token)
-	result := map[string]any{}
-	if len(raw) > 0 {
-		if err := json.Unmarshal([]byte(raw), &result); err != nil {
-			t.Fatalf("decode %s %s JSON: %v\nbody: %s", method, url, err, raw)
-		}
-	}
-	return status, harnessJSONBody{object: result, raw: raw}
-}
-
-func listHarnessSessions(t *testing.T, baseURL, token string) []harnessSession {
-	t.Helper()
-	status, raw := harnessRaw(t, http.MethodGet, baseURL+"/api/auth/sessions", nil, token)
-	if status != http.StatusOK {
-		t.Fatalf("list sessions status=%d body=%s", status, raw)
-	}
-	var sessions []harnessSession
-	if err := json.Unmarshal([]byte(raw), &sessions); err != nil {
-		t.Fatalf("decode sessions response: %v\nbody=%s", err, raw)
-	}
-	return sessions
+	status, decoded := crossnode.HTTPJSON(t, method, url, body, token)
+	return status, adaptJSONBody(decoded)
 }
 
 func harnessRaw(t *testing.T, method, url string, body any, token string) (int, string) {
 	t.Helper()
-	return harnessRawWithOptions(t, harnessRawRequest{
-		method: method,
-		url:    url,
-		body:   body,
-		token:  token,
-	})
-}
-
-type harnessRawRequest struct {
-	method  string
-	url     string
-	body    any
-	token   string
-	headers map[string]string
-}
-
-func harnessRawWithOptions(t *testing.T, rawReq harnessRawRequest) (int, string) {
-	t.Helper()
-	var reqBody io.Reader
-	if rawReq.body != nil {
-		payload, err := json.Marshal(rawReq.body)
-		if err != nil {
-			t.Fatalf("marshal %s %s body: %v", rawReq.method, rawReq.url, err)
-		}
-		reqBody = bytes.NewReader(payload)
-	}
-	req, err := http.NewRequest(rawReq.method, rawReq.url, reqBody)
-	if err != nil {
-		t.Fatalf("build %s %s request: %v", rawReq.method, rawReq.url, err)
-	}
-	if rawReq.body != nil {
-		req.Header.Set("Content-Type", "application/json")
-	}
-	if rawReq.token != "" {
-		req.Header.Set("Authorization", "Bearer "+rawReq.token)
-	}
-	for name, value := range rawReq.headers {
-		req.Header.Set(name, value)
-	}
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		t.Fatalf("%s %s failed: %v", rawReq.method, rawReq.url, err)
-	}
-	defer resp.Body.Close()
-	raw, err := io.ReadAll(resp.Body)
-	if err != nil {
-		t.Fatalf("read %s %s response: %v", rawReq.method, rawReq.url, err)
-	}
-	return resp.StatusCode, string(raw)
+	return crossnode.Raw(t, method, url, body, token)
 }
 
 func harnessAnonymousStorageRead(t *testing.T, node *harnessNode, bucket, filename, tenantID string) (int, string) {
@@ -752,51 +639,18 @@ func harnessAnonymousStorageRead(t *testing.T, node *harnessNode, bucket, filena
 	if tenantID != "" {
 		headers["X-Tenant-ID"] = tenantID
 	}
-	return harnessRawWithOptions(t, harnessRawRequest{
-		method:  http.MethodGet,
-		url:     node.baseURL() + "/api/storage/" + bucket + "/" + url.PathEscape(filename),
-		headers: headers,
+	resp := crossnode.Do(t, crossnode.RawRequest{
+		Method:  http.MethodGet,
+		URL:     crossnode.StorageObjectURL(node.baseURL(), bucket, filename),
+		Headers: headers,
 	})
+	return resp.Status, resp.Body
 }
 
 func uploadHarnessFile(t *testing.T, baseURL, bucket, filename, fileBody, token string) (int, harnessJSONBody) {
 	t.Helper()
-
-	requestBody := &bytes.Buffer{}
-	writer := multipart.NewWriter(requestBody)
-	fileWriter, err := writer.CreateFormFile("file", filename)
-	if err != nil {
-		t.Fatalf("create multipart file field: %v", err)
-	}
-	if _, err := fileWriter.Write([]byte(fileBody)); err != nil {
-		t.Fatalf("write multipart file field: %v", err)
-	}
-	if err := writer.Close(); err != nil {
-		t.Fatalf("close multipart writer: %v", err)
-	}
-
-	req, err := http.NewRequest(http.MethodPost, baseURL+"/api/storage/"+bucket, requestBody)
-	if err != nil {
-		t.Fatalf("build upload request: %v", err)
-	}
-	req.Header.Set("Content-Type", writer.FormDataContentType())
-	req.Header.Set("Authorization", "Bearer "+token)
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		t.Fatalf("upload %s/%s failed: %v", bucket, filename, err)
-	}
-	defer resp.Body.Close()
-	raw, err := io.ReadAll(resp.Body)
-	if err != nil {
-		t.Fatalf("read upload response: %v", err)
-	}
-	result := map[string]any{}
-	if len(raw) > 0 {
-		if err := json.Unmarshal(raw, &result); err != nil {
-			t.Fatalf("decode upload response: %v\nbody=%s", err, raw)
-		}
-	}
-	return resp.StatusCode, harnessJSONBody{object: result, raw: string(raw)}
+	resp, decoded := crossnode.Upload(t, baseURL, bucket, filename, fileBody, token)
+	return resp.Status, adaptJSONBody(decoded)
 }
 
 func waitForHarnessStorageBody(
@@ -810,32 +664,8 @@ func waitForHarnessStorageBody(
 	timeout time.Duration,
 ) (int, string) {
 	t.Helper()
-	deadline := time.Now().Add(timeout)
-	var status int
-	var body string
-	for time.Now().Before(deadline) {
-		status, body = harnessRaw(t, http.MethodGet, baseURL+"/api/storage/"+bucket+"/"+url.PathEscape(filename), nil, token)
-		if status == wantStatus && body == wantBody {
-			return status, body
-		}
-		time.Sleep(100 * time.Millisecond)
-	}
-	return status, body
-}
-
-func waitForHarnessAuthMeStatus(t *testing.T, baseURL, token string, wantStatus int, timeout time.Duration) (int, string) {
-	t.Helper()
-	deadline := time.Now().Add(timeout)
-	var status int
-	var body string
-	for time.Now().Before(deadline) {
-		status, body = harnessRaw(t, http.MethodGet, baseURL+"/api/auth/me", nil, token)
-		if status == wantStatus {
-			return status, body
-		}
-		time.Sleep(100 * time.Millisecond)
-	}
-	return status, body
+	resp := crossnode.WaitForStorageBody(t, baseURL, bucket, filename, token, wantStatus, wantBody, timeout)
+	return resp.Status, resp.Body
 }
 
 func waitForHarnessSchemaTableColumn(
@@ -886,22 +716,7 @@ func schemaBodyHasColumn(body map[string]any, schemaName, tableName, columnName 
 
 func dialHarnessRealtimeWS(t *testing.T, node *harnessNode, token string) *websocket.Conn {
 	t.Helper()
-
-	wsURL := fmt.Sprintf("ws://127.0.0.1:%d/api/realtime/ws", node.port)
-	headers := http.Header{"Authorization": []string{"Bearer " + token}}
-	conn, _, err := websocket.DefaultDialer.Dial(wsURL, headers)
-	if err != nil {
-		t.Fatalf("%s: dial realtime websocket: %v\noutput:\n%s", node.name, err, nodeOutput(node))
-	}
-	msg, err := readHarnessWSUntil(t, conn, ws.MsgTypeConnected, 5*time.Second)
-	if err != nil {
-		conn.Close()
-		t.Fatalf("%s: websocket connected message failed: %v\noutput:\n%s", node.name, err, nodeOutput(node))
-	}
-	if msg.ClientID == "" {
-		conn.Close()
-		t.Fatalf("%s: websocket connected message missing client id: %#v", node.name, msg)
-	}
+	conn, _ := crossnode.DialRealtimeWS(t, node.baseURL(), token)
 	return conn
 }
 
@@ -980,29 +795,12 @@ func readHarnessGraphQLWSUntil(
 
 func writeHarnessWSJSON(t *testing.T, conn *websocket.Conn, msg any) {
 	t.Helper()
-	if err := conn.WriteJSON(msg); err != nil {
-		t.Fatalf("write websocket JSON: %v", err)
-	}
+	crossnode.WriteWSJSON(t, conn, msg)
 }
 
 func readHarnessWSUntil(t *testing.T, conn *websocket.Conn, msgType string, timeout time.Duration) (ws.ServerMessage, error) {
 	t.Helper()
-
-	_ = conn.SetReadDeadline(time.Now().Add(timeout))
-	var lastMismatch string
-	for {
-		var msg ws.ServerMessage
-		if err := conn.ReadJSON(&msg); err != nil {
-			if lastMismatch != "" {
-				return ws.ServerMessage{}, fmt.Errorf("%w (last message: %s)", err, lastMismatch)
-			}
-			return ws.ServerMessage{}, err
-		}
-		if msg.Type == msgType {
-			return msg, nil
-		}
-		lastMismatch = fmt.Sprintf("type=%s status=%s action=%s table=%s", msg.Type, msg.Status, msg.Action, msg.Table)
-	}
+	return crossnode.ReadWSUntil(t, conn, msgType, timeout)
 }
 
 func nodeOutput(node *harnessNode) string {

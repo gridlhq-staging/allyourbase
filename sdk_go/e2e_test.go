@@ -281,6 +281,34 @@ func TestE2EWebAuthnBeginLive(t *testing.T) {
 	}
 }
 
+func TestE2EWebAuthnDiscoverableBeginLive(t *testing.T) {
+	baseURL := os.Getenv("AYB_TEST_URL")
+	if baseURL == "" {
+		t.Skip("AYB_TEST_URL not set")
+	}
+
+	c := NewClient(baseURL)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	resp, err := c.Auth.BeginDiscoverableLogin(ctx)
+	if err != nil {
+		t.Fatalf("BeginDiscoverableLogin: %v", err)
+	}
+	if resp.ChallengeID == "" {
+		t.Fatal("expected non-empty ChallengeID")
+	}
+	if resp.Options.Challenge == "" {
+		t.Fatal("expected non-empty Options.Challenge")
+	}
+	if resp.Options.RPID == "" {
+		t.Fatal("expected non-empty Options.RPID")
+	}
+	if len(resp.Options.AllowCredentials) != 0 {
+		t.Fatalf("expected absent or empty Options.AllowCredentials, got %+v", resp.Options.AllowCredentials)
+	}
+}
+
 func TestE2ESynonymsRoundTripLive(t *testing.T) {
 	baseURL := os.Getenv("AYB_TEST_URL")
 	if baseURL == "" {

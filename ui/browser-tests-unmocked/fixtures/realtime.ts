@@ -1,3 +1,6 @@
+/**
+ * @module Helpers for exercising realtime SSE and WebSocket flows in unmocked browser tests.
+ */
 import { createHash, randomBytes } from "node:crypto";
 import * as http from "node:http";
 import * as https from "node:https";
@@ -33,6 +36,9 @@ function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+/**
+ * Opens a realtime SSE stream, retrying transient unknown-table responses while schema caches warm.
+ */
 async function openRealtimeSSE(
   endpoint: URL,
   token: string,
@@ -79,6 +85,9 @@ function emitSSEFrame(
   pendingEvent.dataLines = [];
 }
 
+/**
+ * Parses an SSE byte stream into event/data frames.
+ */
 async function consumeSSEStream(
   stream: ReadableStream<Uint8Array>,
   onFrame: (frame: SSEFrame) => void,
@@ -136,6 +145,9 @@ async function consumeSSEStream(
   }
 }
 
+/**
+ * Starts a realtime SSE subscription and captures parsed message payloads after the connected event arrives.
+ */
 export async function startSSECapture(
   page: Page,
   baseURL: string,
@@ -231,6 +243,9 @@ function describeUpgradeFailure(res: http.IncomingMessage): string {
   return `WebSocket handshake failed with status ${statusCode}${statusText}`;
 }
 
+/**
+ * Encodes a masked client-to-server WebSocket frame for the given opcode and text payload.
+ */
 function encodeWebSocketFrame(opcode: number, payloadText: string): Buffer {
   const payload = Buffer.from(payloadText, "utf-8");
   const mask = randomBytes(4);
@@ -256,6 +271,9 @@ function encodeWebSocketFrame(opcode: number, payloadText: string): Buffer {
   return Buffer.concat([header, mask, maskedPayload]);
 }
 
+/**
+ * Opens and validates a raw realtime WebSocket upgrade using the provided bearer token.
+ */
 async function openRealtimeWsSocket(
   endpoint: URL,
   token: string,
@@ -326,6 +344,9 @@ async function openRealtimeWsSocket(
   });
 }
 
+/**
+ * Sends the test subscription frame for a single realtime table over an open socket.
+ */
 function sendRealtimeWsSubscribeFrame(
   socket: RealtimeWSSocket,
   table: string,
@@ -343,6 +364,9 @@ function sendRealtimeWsSubscribeFrame(
   });
 }
 
+/**
+ * Opens a realtime WebSocket subscription for a single table from the current page origin.
+ */
 async function openRealtimeWsSubscription(
   page: Page,
   currentPageUrl: string,
@@ -357,6 +381,9 @@ async function openRealtimeWsSubscription(
   return handle;
 }
 
+/**
+ * Closes a realtime WebSocket subscription and waits for socket shutdown without masking primary test failures.
+ */
 async function closeRealtimeWsSubscription(
   page: Page,
   handle: RealtimeWsSubscriptionHandle,
@@ -389,6 +416,9 @@ async function closeRealtimeWsSubscription(
   }
 }
 
+/**
+ * Runs a callback while a realtime WebSocket subscription is open, preserving the callback error if cleanup also fails.
+ */
 export async function withRealtimeWsSubscription<T>(
   page: Page,
   currentPageUrl: string,
@@ -417,6 +447,9 @@ export async function withRealtimeWsSubscription<T>(
 // Fixture helper: create an API key for a user via the admin API.
 // Extracted from spec files to comply with eslint no-restricted-syntax rule
 // that bans request.* calls in spec files.
+/**
+ * Creates an API key for a user through the admin API, retrying the trailing-slash route used by some local stacks.
+ */
 export async function createApiKeyForUser(
   request: import("@playwright/test").APIRequestContext,
   adminToken: string,

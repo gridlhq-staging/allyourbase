@@ -330,12 +330,18 @@ public struct WebAuthnLoginOptions {
         self.challenge = try AYBJSON.requiredString(json, ["challenge"], "WebAuthnLoginOptions.challenge")
         self.timeout = try AYBJSON.requiredInt(json, ["timeout"])
         self.rpId = try AYBJSON.requiredString(json, ["rpId", "rp_id"], "WebAuthnLoginOptions.rpId")
-        let credentials = try AYBJSON.expectArray(json["allowCredentials"], "WebAuthnLoginOptions.allowCredentials")
-        self.allowCredentials = try credentials.map { credential in
-            guard let dictionary = credential as? [String: Any] else {
-                throw AYBDecodingError.invalidType("WebAuthnLoginOptions.allowCredentials")
+        if json["allowCredentials"] == nil {
+            // Discoverable login omits allowCredentials — the authenticator selects a
+            // resident credential locally, so the server sends no credential filter.
+            self.allowCredentials = []
+        } else {
+            let credentials = try AYBJSON.expectArray(json["allowCredentials"], "WebAuthnLoginOptions.allowCredentials")
+            self.allowCredentials = try credentials.map { credential in
+                guard let dictionary = credential as? [String: Any] else {
+                    throw AYBDecodingError.invalidType("WebAuthnLoginOptions.allowCredentials")
+                }
+                return try WebAuthnCredentialDescriptor(from: dictionary)
             }
-            return try WebAuthnCredentialDescriptor(from: dictionary)
         }
     }
 }

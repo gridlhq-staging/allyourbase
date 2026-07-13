@@ -35,6 +35,12 @@ _MAGIC_LINK_CONFIRM_PENDING_MFA_FIXTURE = json.loads(
 _WEBAUTHN_LOGIN_BEGIN_RESPONSE_FIXTURE = json.loads(
     (_CONTRACT_FIXTURE_DIR / "webauthn_login_begin_response.json").read_text()
 )
+_WEBAUTHN_DISCOVER_BEGIN_RESPONSE_FIXTURE = json.loads(
+    (_CONTRACT_FIXTURE_DIR / "webauthn_discover_begin_response.json").read_text()
+)
+_WEBAUTHN_DISCOVER_FINISH_REQUEST_FIXTURE = json.loads(
+    (_CONTRACT_FIXTURE_DIR / "webauthn_discover_finish_request.json").read_text()
+)
 _WEBAUTHN_ENROLL_BEGIN_RESPONSE_FIXTURE = json.loads(
     (_CONTRACT_FIXTURE_DIR / "webauthn_enroll_begin_response.json").read_text()
 )
@@ -133,6 +139,27 @@ async def test_begin_webauthn_login_sends_email_without_mutating_tokens(
     assert client.refresh_token is None
 
 
+async def test_begin_discoverable_login_sends_bodyless_request_without_mutating_tokens(
+    httpx_mock: pytest.fixture,
+) -> None:
+    httpx_mock.add_response(json=_WEBAUTHN_DISCOVER_BEGIN_RESPONSE_FIXTURE)
+    client = AYBClient("https://api.example.com")
+    client.set_tokens("existing_token", "existing_refresh")
+
+    result = await client.auth.begin_discoverable_login()
+
+    assert isinstance(result, WebAuthnLoginBeginResponse)
+    assert result.challenge_id == "webauthn_discover_challenge_fixture"
+    assert result.options == _WEBAUTHN_DISCOVER_BEGIN_RESPONSE_FIXTURE["options"]
+    req = httpx_mock.get_request()
+    assert req is not None
+    assert req.method == "POST"
+    assert str(req.url) == "https://api.example.com/api/auth/webauthn/login/discover/begin"
+    assert req.content == b""
+    assert client.token == "existing_token"
+    assert client.refresh_token == "existing_refresh"
+
+
 async def test_finish_webauthn_login_sends_assertion_stores_tokens_emits_event(
     httpx_mock: pytest.fixture,
 ) -> None:
@@ -172,6 +199,35 @@ async def test_finish_webauthn_login_sends_assertion_stores_tokens_emits_event(
         "challenge_id": "webauthn_challenge_fixture",
         "assertion_response": assertion,
     }
+    assert events == [
+        ("SIGNED_IN", {"token": "jwt_stage3", "refresh_token": "refresh_stage3"}),
+    ]
+
+
+async def test_finish_discoverable_login_sends_assertion_stores_tokens_emits_event(
+    httpx_mock: pytest.fixture,
+) -> None:
+    httpx_mock.add_response(json=_AUTH_RESPONSE_FIXTURE)
+    client = AYBClient("https://api.example.com")
+    events: list[tuple[str, dict[str, str] | None]] = []
+    client.on_auth_state_change(lambda e, s: events.append((e, s)))
+
+    result = await client.auth.finish_discoverable_login(
+        _WEBAUTHN_DISCOVER_FINISH_REQUEST_FIXTURE["challenge_id"],
+        _WEBAUTHN_DISCOVER_FINISH_REQUEST_FIXTURE["assertion_response"],
+    )
+
+    assert isinstance(result, AuthResponse)
+    assert result.token == "jwt_stage3"
+    assert result.refresh_token == "refresh_stage3"
+    assert result.user.email == "dev@allyourbase.io"
+    assert client.token == "jwt_stage3"
+    assert client.refresh_token == "refresh_stage3"
+    req = httpx_mock.get_request()
+    assert req is not None
+    assert req.method == "POST"
+    assert str(req.url) == "https://api.example.com/api/auth/webauthn/login/discover/finish"
+    assert json.loads(req.content) == _WEBAUTHN_DISCOVER_FINISH_REQUEST_FIXTURE
     assert events == [
         ("SIGNED_IN", {"token": "jwt_stage3", "refresh_token": "refresh_stage3"}),
     ]

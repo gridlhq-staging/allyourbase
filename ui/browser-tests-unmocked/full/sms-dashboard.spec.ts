@@ -26,7 +26,7 @@ test.describe("SMS Dashboard (Full E2E)", () => {
   test("seeded messages render with correct status badges", async ({ page, request, adminToken }) => {
     const runId = Date.now();
 
-    // Register cleanup early
+    // eslint-disable-next-line no-restricted-syntax -- Stage 1 product gap: SMS message history has no domain delete/cleanup API.
     pendingCleanup.push(`DELETE FROM _ayb_sms_messages WHERE body LIKE '%full-sms-${runId}%'`);
 
     // Arrange: seed 3 messages with different statuses
@@ -70,6 +70,7 @@ test.describe("SMS Dashboard (Full E2E)", () => {
 
   test("error message renders in failed message row", async ({ page, request, adminToken }) => {
     const runId = Date.now();
+    // eslint-disable-next-line no-restricted-syntax -- Stage 1 product gap: SMS message history has no domain delete/cleanup API.
     pendingCleanup.push(`DELETE FROM _ayb_sms_messages WHERE body LIKE '%full-sms-err-${runId}%'`);
 
     // Arrange: seed a failed message with error_message
@@ -163,7 +164,7 @@ test.describe("SMS Dashboard (Full E2E)", () => {
   });
 
   test("SMS Health stats display with seeded daily counts", async ({ page, request, adminToken }) => {
-    // Register cleanup for full 30-day window
+    // eslint-disable-next-line no-restricted-syntax -- Stage 1 product gap: SMS health stats have no domain delete/cleanup API.
     pendingCleanup.push("DELETE FROM _ayb_sms_daily_counts WHERE date >= CURRENT_DATE - INTERVAL '29 days'");
 
     // Clean ALL daily counts in the 30-day window for deterministic assertions
@@ -217,7 +218,7 @@ test.describe("SMS Dashboard (Full E2E)", () => {
   });
 
   test("SMS Health warning badge displays for low conversion rate", async ({ page, request, adminToken }) => {
-    // Register cleanup
+    // eslint-disable-next-line no-restricted-syntax -- Stage 1 product gap: SMS health stats have no domain delete/cleanup API.
     pendingCleanup.push("DELETE FROM _ayb_sms_daily_counts WHERE date >= CURRENT_DATE - INTERVAL '29 days'");
 
     // Clean and seed with low conversion rate: 5/100 = 5.0% < 10% threshold
@@ -242,6 +243,7 @@ test.describe("SMS Dashboard (Full E2E)", () => {
 
   test("pagination appears and works with many messages", async ({ page, request, adminToken }) => {
     const runId = Date.now();
+    // eslint-disable-next-line no-restricted-syntax -- Stage 1 product gap: SMS message history has no domain delete/cleanup API.
     pendingCleanup.push(`DELETE FROM _ayb_sms_messages WHERE body LIKE '%page-test-${runId}-%'`);
 
     // Arrange: seed 55 messages via batch SQL (exceeds default perPage=50)

@@ -1,3 +1,4 @@
+/** @module Re-exports all browser-test fixtures and defines the extended Playwright test object with auth/MFA helpers. */
 import { expect, test as base, type APIRequestContext, type Page, type TestInfo } from "@playwright/test";
 import { getBrowserUnmockedSkipReason } from "../browser-preflight";
 import { checkAuthEnabled, execSQL, getStoredAdminToken, waitForDashboard } from "./core";
@@ -52,6 +53,33 @@ export async function dropTableIfExists(
   await execSQL(request, token, `DROP TABLE IF EXISTS ${safeTableName}`);
 }
 
+export async function waitForTableInSidebar(page: Page, tableName: string): Promise<void> {
+  const safeTableName = assertSafeSQLIdentifier(tableName, "table name");
+  const sidebar = page.getByRole("complementary");
+  const refreshButton = page.getByRole("button", { name: /refresh schema/i });
+  const tableLink = sidebar.getByText(safeTableName, { exact: true });
+
+  await expect(refreshButton).toBeVisible({ timeout: 5000 });
+  await expect
+    .poll(
+      async () => {
+        await refreshButton.click();
+        return tableLink.isVisible();
+      },
+      { timeout: 15000 },
+    )
+    .toBe(true);
+}
+
+export async function openTableFromSidebar(page: Page, tableName: string): Promise<void> {
+  const safeTableName = assertSafeSQLIdentifier(tableName, "table name");
+  const sidebar = page.getByRole("complementary");
+
+  await waitForTableInSidebar(page, safeTableName);
+  await sidebar.getByText(safeTableName, { exact: true }).click();
+}
+
+/** Navigates to the admin dashboard, opens the SQL Editor, creates a table, and waits for it to appear in the sidebar. */
 export async function createTableViaSQLEditor(page: Page, tableName: string): Promise<void> {
   const safeTableName = assertSafeSQLIdentifier(tableName, "table name");
   await page.goto("/admin/");
@@ -71,9 +99,7 @@ export async function createTableViaSQLEditor(page: Page, tableName: string): Pr
   await expect(page.getByText(/Statement executed successfully/i)).toBeVisible({
     timeout: 5000,
   });
-  await expect(sidebar.getByText(safeTableName, { exact: true })).toBeVisible({
-    timeout: 10000,
-  });
+  await waitForTableInSidebar(page, safeTableName);
 }
 
 export const test = base.extend<{

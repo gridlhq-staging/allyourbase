@@ -559,16 +559,27 @@ func TestWebAuthnDiscoverableLoginBeginFinish_Contract(t *testing.T) {
 	passkey.Authenticator.Options.UserHandle = []byte(userID)
 
 	challenge := beginWebAuthnDiscoverableChallenge(t, srv)
+	assertSDKContractFixture(
+		t,
+		"webauthn_discover_begin_response.json",
+		sanitizeWebAuthnDiscoverBeginFixture(t, challenge.Body),
+	)
 	testutil.Equal(t, rp.ID, challenge.Options.RelyingPartyID)
 	testutil.True(t, len(challenge.Options.Challenge) > 0, "discoverable begin must return assertion challenge bytes")
 	testutil.Equal(t, 0, len(challenge.Options.AllowCredentials))
 
 	passkey.Credential.Counter = 3
 	assertionResponse := virtualwebauthn.CreateAssertionResponse(rp, passkey.Authenticator, passkey.Credential, *challenge.Options)
-	finish := doJSON(t, srv, "POST", "/api/auth/webauthn/login/discover/finish", map[string]any{
+	finishRequest := map[string]any{
 		"challenge_id":       challenge.ChallengeID,
 		"assertion_response": mustJSONObject(t, assertionResponse),
-	}, "")
+	}
+	assertSDKContractFixture(
+		t,
+		"webauthn_discover_finish_request.json",
+		sanitizeWebAuthnDiscoverFinishRequestFixture(t, finishRequest),
+	)
+	finish := doJSON(t, srv, "POST", "/api/auth/webauthn/login/discover/finish", finishRequest, "")
 	testutil.StatusCode(t, http.StatusOK, finish.Code)
 
 	login := parseAuthResp(t, finish)

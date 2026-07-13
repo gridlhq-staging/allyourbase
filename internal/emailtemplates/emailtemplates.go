@@ -77,7 +77,8 @@ type BuiltinTemplate struct {
 
 func DefaultBuiltins() map[string]BuiltinTemplate {
 	systemVars, mfaVars := []string{"AppName", "ActionURL"}, []string{"AppName", "Code"}
-	builtins := make(map[string]BuiltinTemplate, 5)
+	passkeyVars := []string{"AppName", "Action", "CredentialName"}
+	builtins := make(map[string]BuiltinTemplate, 6)
 
 	keys := []struct {
 		key     string
@@ -90,6 +91,7 @@ func DefaultBuiltins() map[string]BuiltinTemplate {
 		{"auth.magic_link", mailer.DefaultMagicLinkSubject, "magic_link.html", systemVars},
 		{"auth.mfa_email_enroll", mailer.DefaultMFAEmailEnrollSubject, "mfa_email_enroll.html", mfaVars},
 		{"auth.mfa_email_challenge", mailer.DefaultMFAEmailChallengeSubject, "mfa_email_challenge.html", mfaVars},
+		{"auth.webauthn_credential_changed", mailer.DefaultWebAuthnCredentialChangedSubject, "webauthn_credential_changed.html", passkeyVars},
 	}
 	for _, k := range keys {
 		html, err := mailer.BuiltinHTMLTemplate(k.file)

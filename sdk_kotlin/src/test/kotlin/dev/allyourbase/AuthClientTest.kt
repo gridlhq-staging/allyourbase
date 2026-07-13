@@ -159,6 +159,117 @@ class AuthClientTest {
     }
 
     @Test
+    fun `begin discoverable webauthn login posts bodyless request without mutating tokens`() = runTest {
+        val transport = MockHttpTransport()
+        transport.enqueue(StubResponse(status = 200, json = ContractFixtures.webAuthnDiscoverBeginResponse))
+        val client = AYBClient("https://api.example.com", transport = transport)
+        // Seed an existing session so a leaked bearer would be observable.
+        client.setTokens("existing_session_token", "existing_refresh")
+
+        val response = client.auth.beginDiscoverableWebAuthnLogin()
+
+        assertEquals("webauthn_discover_challenge_fixture", response.challengeId)
+        assertEquals("webauthn_discover_challenge", response.options["challenge"]!!.jsonPrimitive.content)
+        assertEquals("127.0.0.1", response.options["rpId"]!!.jsonPrimitive.content)
+        assertNull(response.options["allowCredentials"])
+        assertEquals("existing_session_token", client.token)
+        assertEquals("existing_refresh", client.refreshToken)
+
+        val request = transport.requests.single()
+        assertEquals(HttpMethod.POST, request.method)
+        assertEquals("/api/auth/webauthn/login/discover/begin", java.net.URI(request.url).path)
+        assertNull(request.body)
+        // First-factor discover endpoint must never carry the existing session bearer.
+        assertNull(lowercasedLookup(request.headers, "authorization"))
+    }
+
+    @Test
+    fun `finish discoverable webauthn login serializes fixture shape and signs in`() = runTest {
+        val transport = MockHttpTransport()
+        transport.enqueue(StubResponse(status = 200, json = ContractFixtures.authResponse))
+        val client = AYBClient("https://api.example.com", transport = transport)
+        // Seed an existing session so a leaked bearer would be observable.
+        client.setTokens("existing_session_token", "existing_refresh")
+        val events = mutableListOf<AuthStateEvent>()
+        client.onAuthStateChange { event, _ -> events.add(event) }
+
+        val assertionResponse = ContractFixtures.webAuthnDiscoverFinishRequest["assertion_response"]!!.jsonObject
+        val response = client.auth.finishDiscoverableWebAuthnLogin(
+            "webauthn_discover_challenge_fixture",
+            assertionResponse,
+        )
+
+        assertEquals("jwt_stage3", response.token)
+        assertEquals("jwt_stage3", client.token)
+        assertEquals("refresh_stage3", client.refreshToken)
+        assertEquals(listOf(AuthStateEvent.SIGNED_IN), events)
+
+        val request = transport.requests.single()
+        assertEquals(HttpMethod.POST, request.method)
+        assertEquals("/api/auth/webauthn/login/discover/finish", java.net.URI(request.url).path)
+        // First-factor discover endpoint must never carry the existing session bearer.
+        assertNull(lowercasedLookup(request.headers, "authorization"))
+        val body = json.parseToJsonElement(request.body!!.decodeToString()) as JsonObject
+        assertEquals(ContractFixtures.webAuthnDiscoverFinishRequest, body)
+        assertEquals("webauthn_discover_challenge_fixture", body["challenge_id"]!!.jsonPrimitive.content)
+        assertEquals(
+            "webauthn_discover_credential",
+            body["assertion_response"]!!.jsonObject["id"]!!.jsonPrimitive.content,
+        )
+        assertNull(body["challengeId"])
+        assertNull(body["assertionResponse"])
+    }
+
+    @Test
+    fun `sign in with discoverable passkey passes raw options and applies session`() = runTest {
+        val transport = MockHttpTransport()
+        transport.enqueue(StubResponse(status = 200, json = ContractFixtures.webAuthnDiscoverBeginResponse))
+        transport.enqueue(StubResponse(status = 200, json = ContractFixtures.authResponse))
+        val client = AYBClient("https://api.example.com", transport = transport)
+        // Seed an existing session so a leaked bearer would be observable.
+        client.setTokens("existing_session_token", "existing_refresh")
+        val events = mutableListOf<AuthStateEvent>()
+        client.onAuthStateChange { event, _ -> events.add(event) }
+
+        val expectedBegin = json.decodeFromJsonElement(
+            WebAuthnLoginBeginResponse.serializer(),
+            ContractFixtures.webAuthnDiscoverBeginResponse,
+        )
+        val assertionResponse = ContractFixtures.webAuthnDiscoverFinishRequest["assertion_response"]!!.jsonObject
+        val authenticatorRequests = mutableListOf<JsonObject>()
+        val authenticator = PasskeyAuthenticator { options ->
+            authenticatorRequests.add(options)
+            assertionResponse
+        }
+
+        val response = client.auth.signInWithDiscoverablePasskey(authenticator)
+
+        assertEquals("jwt_stage3", response.token)
+        assertEquals("jwt_stage3", client.token)
+        assertEquals("refresh_stage3", client.refreshToken)
+        assertEquals(listOf(AuthStateEvent.SIGNED_IN), events)
+        assertEquals(listOf(expectedBegin.options), authenticatorRequests)
+
+        assertEquals(2, transport.requests.size)
+        val beginRequest = transport.requests[0]
+        assertEquals(HttpMethod.POST, beginRequest.method)
+        assertEquals("/api/auth/webauthn/login/discover/begin", java.net.URI(beginRequest.url).path)
+        assertNull(beginRequest.body)
+        // First-factor discover endpoint must never carry the existing session bearer.
+        assertNull(lowercasedLookup(beginRequest.headers, "authorization"))
+
+        val finishRequest = transport.requests[1]
+        assertEquals(HttpMethod.POST, finishRequest.method)
+        assertEquals("/api/auth/webauthn/login/discover/finish", java.net.URI(finishRequest.url).path)
+        assertNull(lowercasedLookup(finishRequest.headers, "authorization"))
+        val finishBody = json.parseToJsonElement(finishRequest.body!!.decodeToString()) as JsonObject
+        assertEquals("webauthn_discover_challenge_fixture", finishBody["challenge_id"]!!.jsonPrimitive.content)
+        assertEquals(assertionResponse, finishBody["assertion_response"])
+        assertNull(finishBody["challengeId"])
+        assertNull(finishBody["assertionResponse"])
+    }
+
+    @Test
     fun `oauth start url matches contract fixture path and query bytes`() {
         assertTrue(ContractFixtures.oauthStartUrlCases.isNotEmpty())
 

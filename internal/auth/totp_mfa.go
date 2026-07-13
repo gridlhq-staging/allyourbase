@@ -237,7 +237,7 @@ func (s *Service) GetUserMFAFactors(ctx context.Context, userID string) ([]MFAFa
 		             WHERE c.factor_id = f.id
 		             ORDER BY c.created_at, c.id
 		             LIMIT 1
-		        ), f.webauthn_display_name, '')
+		        ), '')
 		 FROM _ayb_user_mfa f
 		 JOIN _ayb_users u ON u.id = f.user_id
 		 WHERE f.user_id = $1 AND f.enabled = true

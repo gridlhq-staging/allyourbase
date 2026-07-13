@@ -1,32 +1,23 @@
 import { randomUUID } from "crypto";
-import { test, expect, execSQL, waitForDashboard } from "../fixtures";
+import {
+  cleanupTenantsBySlug,
+  cleanupUserByEmail,
+  ensureUserByEmail,
+  test,
+  expect,
+  execSQL,
+  sqlLiteral,
+  waitForDashboard,
+} from "../fixtures";
 import type { APIRequestContext, Page } from "@playwright/test";
-
-const TEST_PASSWORD_HASH = "$argon2id$v=19$m=65536,t=3,p=4$dGVzdHNhbHQ$dGVzdGhhc2g";
-
-function sqlLiteral(value: string): string {
-  return value.replace(/'/g, "''");
-}
 
 async function createOwnerUser(
   request: APIRequestContext,
   adminToken: string,
   email: string,
 ): Promise<string> {
-  const escapedEmail = sqlLiteral(email);
-  const result = await execSQL(
-    request,
-    adminToken,
-    `DELETE FROM _ayb_users WHERE email = '${escapedEmail}';
-     INSERT INTO _ayb_users (email, password_hash)
-     VALUES ('${escapedEmail}', '${TEST_PASSWORD_HASH}')
-     RETURNING id`,
-  );
-  const userID = result.rows[0]?.[0];
-  if (typeof userID !== "string") {
-    throw new Error(`Expected owner user id for email ${email}`);
-  }
-  return userID;
+  const user = await ensureUserByEmail(request, adminToken, email);
+  return user.id;
 }
 
 async function openTenantsPage(page: Page): Promise<void> {
@@ -79,9 +70,11 @@ async function setTenantState(options: {
   slug: string;
   state: string;
 }): Promise<void> {
+  // Stage 1 product gap: tenant activation has no admin API for provisioning -> active.
   await execSQL(
     options.request,
     options.adminToken,
+    // eslint-disable-next-line no-restricted-syntax -- Stage 1 product gap: tenant activation has no admin API for provisioning to active.
     `UPDATE _ayb_tenants
      SET state = '${sqlLiteral(options.state)}'
      WHERE slug = '${sqlLiteral(options.slug)}'`,
@@ -89,13 +82,16 @@ async function setTenantState(options: {
 }
 
 test.describe("Tenants Lifecycle (Full E2E)", () => {
-  const pendingCleanup: string[] = [];
+  const pendingTenantCleanup: string[] = [];
+  const pendingUserCleanup: string[] = [];
 
   test.afterEach(async ({ request, adminToken }) => {
-    for (const sql of pendingCleanup) {
-      await execSQL(request, adminToken, sql).catch(() => {});
+    await cleanupTenantsBySlug(request, adminToken, pendingTenantCleanup).catch(() => {});
+    for (const email of pendingUserCleanup) {
+      await cleanupUserByEmail(request, adminToken, email).catch(() => {});
     }
-    pendingCleanup.length = 0;
+    pendingTenantCleanup.length = 0;
+    pendingUserCleanup.length = 0;
   });
 
   test("create, update, suspend/resume, and delete tenant", async ({
@@ -109,10 +105,8 @@ test.describe("Tenants Lifecycle (Full E2E)", () => {
     const tenantSlug = `tenant-lifecycle-${runID}`;
     const updatedTenantName = `Lifecycle Tenant Updated ${runID}`;
 
-    pendingCleanup.push(
-      `DELETE FROM _ayb_tenants WHERE slug = '${sqlLiteral(tenantSlug)}'`,
-      `DELETE FROM _ayb_users WHERE email = '${sqlLiteral(ownerEmail)}'`,
-    );
+    pendingTenantCleanup.push(tenantSlug);
+    pendingUserCleanup.push(ownerEmail);
 
     const ownerUserID = await createOwnerUser(request, adminToken, ownerEmail);
 
@@ -188,7 +182,7 @@ test.describe("Tenants Lifecycle (Full E2E)", () => {
     const tenantName = `Ownerless Tenant ${runID}`;
     const tenantSlug = `tenant-ownerless-${runID}`;
 
-    pendingCleanup.push(`DELETE FROM _ayb_tenants WHERE slug = '${sqlLiteral(tenantSlug)}'`);
+    pendingTenantCleanup.push(tenantSlug);
 
     await openTenantsPage(page);
 

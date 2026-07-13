@@ -1,4 +1,4 @@
-import { test, expect, execSQL, seedRecord, waitForDashboard } from "../fixtures";
+import { test, expect, execSQL, openTableFromSidebar, seedRecord, waitForDashboard } from "../fixtures";
 
 /**
  * FULL E2E TEST: Collections CRUD Operations
@@ -43,9 +43,7 @@ test.describe("Collections CRUD (Full E2E)", () => {
     // Act: navigate to the table
     await page.goto("/admin/");
     await waitForDashboard(page);
-    const sidebar = page.locator("aside");
-    await expect(sidebar.getByText("crud_test_products", { exact: true })).toBeVisible({ timeout: 10000 });
-    await sidebar.getByText("crud_test_products", { exact: true }).click();
+    await openTableFromSidebar(page, "crud_test_products");
 
     // Assert: seeded record appears in the table
     await expect(page.getByRole("cell", { name: `Seed Product ${runId}` })).toBeVisible({ timeout: 5000 });
@@ -87,10 +85,7 @@ test.describe("Collections CRUD (Full E2E)", () => {
     // ============================================================
     await page.reload();
     await waitForDashboard(page);
-    await expect(sidebar).toBeVisible();
-
-    await expect(sidebar.getByText("crud_test_products", { exact: true })).toBeVisible({ timeout: 10000 });
-    await sidebar.getByText("crud_test_products", { exact: true }).click();
+    await openTableFromSidebar(page, "crud_test_products");
 
     await page.getByRole("button", { name: "New Row" }).click();
     await expect(page.getByText("New Record")).toBeVisible();

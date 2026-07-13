@@ -11,6 +11,7 @@ struct WebAuthnLoginTests {
         #expect(response.options.challenge == "webauthn_mfa_challenge")
         #expect(response.options.rpId == "127.0.0.1")
         #expect(response.options.timeout == 300000)
+        #expect(response.options.allowCredentials.count == 1)
         #expect(firstCredential.id == "webauthn_mfa_credential_a")
         #expect(firstCredential.type == "public-key")
     }
@@ -23,6 +24,7 @@ struct WebAuthnLoginTests {
         #expect(response.options.challenge == "webauthn_login_begin_challenge")
         #expect(response.options.rpId == "127.0.0.1")
         #expect(response.options.timeout == 300000)
+        #expect(response.options.allowCredentials.count == 1)
         #expect(firstCredential.id == "webauthn_login_begin_credential_a")
         #expect(firstCredential.type == "public-key")
     }
@@ -88,6 +90,70 @@ struct WebAuthnLoginTests {
         #expect(payload["assertionResponse"] == nil)
         let encodedAssertion = try #require(payload["assertion_response"] as? [String: Any])
         #expect(encodedAssertion["id"] as? String == "credential-id")
+        #expect(encodedAssertion["type"] as? String == "public-key")
+    }
+
+    @Test func beginDiscoverableWebAuthnLoginPostsBodylessRequestWithoutSessionBearer() async throws {
+        let transport = MockTransport()
+        transport.enqueue(StubResponse(status: 200, json: ContractFixtures.webAuthnDiscoverBeginResponse))
+        let tokenStore = InMemoryTokenStore(accessToken: "existing_jwt", refreshToken: "existing_refresh")
+        let client = AYBClient(
+            Stage3TestBootstrap.baseURL,
+            transport: transport,
+            tokenStore: tokenStore
+        )
+
+        let response = try await client.auth.beginDiscoverableWebAuthnLogin()
+
+        #expect(response.challengeId == "webauthn_discover_challenge_fixture")
+        #expect(response.options.challenge == "webauthn_discover_challenge")
+        #expect(response.options.rpId == "127.0.0.1")
+        #expect(response.options.timeout == 300000)
+        #expect(response.options.allowCredentials.isEmpty == true)
+        #expect(client.token == "existing_jwt")
+        #expect(client.refreshToken == "existing_refresh")
+        let request = try #require(transport.requests.last)
+        #expect(request.url.absoluteString == "https://api.example.com/api/auth/webauthn/login/discover/begin")
+        #expect(request.method.rawValue == "POST")
+        #expect(request.body == nil)
+        #expect(lowercasedLookup(request.headers, "Authorization") == nil)
+    }
+
+    @Test func finishDiscoverableWebAuthnLoginPostsSnakeCasePayloadAndStoresSession() async throws {
+        let transport = MockTransport()
+        transport.enqueue(StubResponse(status: 200, json: ContractFixtures.authResponse))
+        let tokenStore = InMemoryTokenStore(accessToken: "existing_jwt", refreshToken: "existing_refresh")
+        let client = AYBClient(
+            Stage3TestBootstrap.baseURL,
+            transport: transport,
+            tokenStore: tokenStore
+        )
+        var emitted: [AuthStateEvent] = []
+        _ = client.onAuthStateChange { event, _ in emitted.append(event) }
+        let finishFixture = ContractFixtures.webAuthnDiscoverFinishRequest
+        let assertionResponse = try #require(finishFixture["assertion_response"] as? [String: Any])
+
+        let response = try await client.auth.finishDiscoverableWebAuthnLogin(
+            challengeId: "webauthn_discover_challenge_fixture",
+            assertionResponse: assertionResponse
+        )
+
+        #expect(response.token == "jwt_stage3")
+        #expect(response.refreshToken == "refresh_stage3")
+        #expect(client.token == "jwt_stage3")
+        #expect(client.refreshToken == "refresh_stage3")
+        #expect(emitted == [.signedIn])
+        let request = try #require(transport.requests.last)
+        #expect(request.url.absoluteString == "https://api.example.com/api/auth/webauthn/login/discover/finish")
+        #expect(request.method.rawValue == "POST")
+        #expect(lowercasedLookup(request.headers, "Authorization") == nil)
+        let body = try #require(request.body)
+        let payload = try #require(JSONSerialization.jsonObject(with: body) as? [String: Any])
+        #expect(payload["challenge_id"] as? String == "webauthn_discover_challenge_fixture")
+        #expect(payload["challengeId"] == nil)
+        #expect(payload["assertionResponse"] == nil)
+        let encodedAssertion = try #require(payload["assertion_response"] as? [String: Any])
+        #expect(encodedAssertion["id"] as? String == "webauthn_discover_credential")
         #expect(encodedAssertion["type"] as? String == "public-key")
     }
 

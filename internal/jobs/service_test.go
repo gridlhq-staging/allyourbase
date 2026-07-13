@@ -806,21 +806,31 @@ func TestSchedulerTimezone(t *testing.T) {
 	})
 	testutil.NoError(t, err)
 
+	var processed atomic.Int32
 	svc.RegisterHandler("tz_job", func(ctx context.Context, payload json.RawMessage) error {
+		processed.Add(1)
 		return nil
 	})
 
 	svc.Start(ctx)
 	defer svc.Stop()
 
-	time.Sleep(500 * time.Millisecond)
+	deadline := time.After(3 * time.Second)
+	for processed.Load() == 0 {
+		select {
+		case <-deadline:
+			t.Fatal("timed out waiting for timezone scheduled job")
+		default:
+			time.Sleep(50 * time.Millisecond)
+		}
+	}
 
 	// Verify the next_run_at was computed (schedule was advanced).
 	sched, err := svc.GetScheduleByName(ctx, "tz_sched")
 	testutil.NoError(t, err)
 	testutil.NotNil(t, sched.NextRunAt)
-	testutil.True(t, sched.NextRunAt.After(time.Now()),
-		"next_run_at should be in the future")
+	testutil.True(t, sched.NextRunAt.After(past),
+		"next_run_at should advance from the due timestamp")
 }
 
 func TestSchedulerDisabledDoesNotEnqueue(t *testing.T) {

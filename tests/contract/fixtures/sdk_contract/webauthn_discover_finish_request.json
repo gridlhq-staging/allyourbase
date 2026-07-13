@@ -1,0 +1,15 @@
+{
+  "assertion_response": {
+    "clientExtensionResults": {},
+    "id": "webauthn_discover_credential",
+    "rawId": "webauthn_discover_credential",
+    "response": {
+      "authenticatorData": "EsoXtJryKJQ28wPgFmAwoh5SXSZuIJJnQzgBqP1AcaAFAAAAAw",
+      "clientDataJSON": "eyJ0eXBlIjoid2ViYXV0aG4uZ2V0IiwiY2hhbGxlbmdlIjoid2ViYXV0aG5fZGlzY292ZXJfY2hhbGxlbmdlIiwib3JpZ2luIjoiaHR0cDovLzEyNy4wLjAuMTo4MDkwIn0",
+      "signature": "webauthn_discover_signature",
+      "userHandle": "webauthn_discover_user_handle"
+    },
+    "type": "public-key"
+  },
+  "challenge_id": "webauthn_discover_challenge_fixture"
+}

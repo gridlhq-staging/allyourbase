@@ -1,3 +1,4 @@
+/** @module Browser-test fixtures for site deploy creation, file upload, promotion, and failure marking. */
 import type { APIRequestContext } from "@playwright/test";
 import { validateResponse } from "./core";
 
@@ -17,6 +18,7 @@ export interface SiteDeployListResult {
   perPage: number;
 }
 
+/** Validates and extracts id, siteId, status, fileCount, totalBytes, and errorMessage from a deploy response. */
 function decodeSiteDeploy(body: unknown, context: string): SiteDeploy {
   const deploy = body as Record<string, unknown>;
   if (
@@ -42,6 +44,7 @@ function decodeSiteDeploy(body: unknown, context: string): SiteDeploy {
   };
 }
 
+/** Validates and parses a paginated deploy list with deploys, totalCount, page, and perPage. */
 function decodeSiteDeployList(body: unknown, siteID: string): SiteDeployListResult {
   const payload = body as Record<string, unknown>;
   if (
@@ -103,6 +106,7 @@ export async function listSiteDeploys(
   return decodeSiteDeployList(await res.json(), siteID);
 }
 
+/** Uploads a file to an existing deploy via multipart POST and returns the updated deploy state. */
 export async function uploadSiteDeployFile(
   request: APIRequestContext,
   token: string,
@@ -148,6 +152,7 @@ export async function promoteSiteDeploy(
   return decodeSiteDeploy(await res.json(), `promote deploy ${deployID} for site ${siteID}`);
 }
 
+/** Marks a deploy as failed with the given error message and returns the updated deploy state. */
 export async function failSiteDeploy(
   request: APIRequestContext,
   token: string,

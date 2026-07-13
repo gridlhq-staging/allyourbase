@@ -52,6 +52,8 @@ enum ContractFixtures {
     nonisolated(unsafe) static let magicLinkConfirmResponse: [String: Any] = loadFixture(at: "sdk_contract/magic_link_confirm_success_response.json")
     nonisolated(unsafe) static let magicLinkConfirmPendingMFAResponse: [String: Any] = loadFixture(at: "sdk_contract/magic_link_confirm_pending_mfa_response.json")
     nonisolated(unsafe) static let webAuthnLoginBeginResponse: [String: Any] = loadFixture(at: "sdk_contract/webauthn_login_begin_response.json")
+    nonisolated(unsafe) static let webAuthnDiscoverBeginResponse: [String: Any] = loadFixture(at: "sdk_contract/webauthn_discover_begin_response.json")
+    nonisolated(unsafe) static let webAuthnDiscoverFinishRequest: [String: Any] = loadFixture(at: "sdk_contract/webauthn_discover_finish_request.json")
     nonisolated(unsafe) static let oauthStartURLCases: [[String: Any]] = loadArrayFixture(at: "sdk_contract/oauth_start_url_cases.json")
     nonisolated(unsafe) static let webAuthnEnrollBeginResponse: [String: Any] = loadFixture(at: "sdk_contract/webauthn_enroll_begin_response.json")
     nonisolated(unsafe) static let webAuthnEnrollConfirmRequest: [String: Any] = loadFixture(at: "sdk_contract/webauthn_enroll_confirm_request.json")

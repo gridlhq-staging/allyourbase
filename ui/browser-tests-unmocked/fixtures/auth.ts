@@ -1,6 +1,11 @@
+/**
+ * @module Browser-test fixtures for authentication flow seeding and session management.
+ */
 import type { APIRequestContext, CDPSession, Page } from "@playwright/test";
 import { createHmac } from "crypto";
 import { execSQL, probeEndpoint, sqlLiteral, validateResponse } from "./core";
+
+const DEFAULT_LINKED_EMAIL_PASSWORD = "Password123!";
 
 interface VirtualAuthenticatorHandle {
   authenticatorId: string;
@@ -45,6 +50,7 @@ export async function createVirtualAuthenticator(
   };
 }
 
+/** Decodes a base32-encoded string (RFC 4648 alphabet) to a Buffer for TOTP secret handling. */
 function base32Decode(encoded: string): Buffer {
   const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
   let bits = "";
@@ -75,6 +81,7 @@ export function generateTOTPCode(base32Secret: string): string {
   return code.toString().padStart(6, "0");
 }
 
+/** Logs in, enrolls TOTP, generates a verification code, and stores the AAL2 token in page localStorage. */
 export async function promoteSessionToAAL2WithTOTP(
   request: APIRequestContext,
   page: Page,
@@ -151,6 +158,7 @@ export async function promoteSessionToAAL2WithTOTP(
   }, upgradedToken);
 }
 
+/** Logs in, creates a WebAuthn challenge, gets a CDP virtual-authenticator assertion, and stores the AAL2 token in page localStorage. */
 export async function promoteSessionToAAL2WithPasskey(
   request: APIRequestContext,
   page: Page,
@@ -305,6 +313,7 @@ export async function createAnonymousAuthSessionToken(
   return body.token;
 }
 
+/** Creates an anonymous session, links an email identity to it, and returns the upgraded token. */
 export async function createLinkedEmailAuthSessionToken(
   request: APIRequestContext,
   email: string,
@@ -329,6 +338,49 @@ export async function createLinkedEmailAuthSessionToken(
   return body.token;
 }
 
+/** Registers a new user or logs in an existing one (409 fallback) and returns the session id, email, and token. */
+async function createRegisteredEmailAuthSession(
+  request: APIRequestContext,
+  email: string,
+  password: string,
+): Promise<{ id: string; email: string; token: string }> {
+  const registerRes = await request.post("/api/auth/register", {
+    data: { email, password },
+  });
+  if (registerRes.status() !== 409) {
+    await validateResponse(registerRes, `Register auth user ${email}`);
+    return parseAuthSessionBody(await registerRes.json(), email, "Registered auth user");
+  }
+
+  const loginRes = await request.post("/api/auth/login", {
+    data: { email, password },
+  });
+  await validateResponse(loginRes, `Login existing auth user ${email}`);
+  return parseAuthSessionBody(await loginRes.json(), email, "Existing auth user");
+}
+
+/** Extracts id, email, and token from an auth API response, supporting both flat and nested user shapes. */
+function parseAuthSessionBody(
+  body: Record<string, unknown>,
+  expectedEmail: string,
+  context: string,
+): { id: string; email: string; token: string } {
+  const user = body.user as Record<string, unknown> | undefined;
+  const id = body.id ?? user?.id;
+  const email = body.email ?? user?.email ?? expectedEmail;
+  const token = body.token;
+  if (typeof id !== "string" || id.length === 0) {
+    throw new Error(`${context} ${expectedEmail} returned no user id`);
+  }
+  if (typeof email !== "string" || email.length === 0) {
+    throw new Error(`${context} ${expectedEmail} returned no email`);
+  }
+  if (typeof token !== "string" || token.length === 0) {
+    throw new Error(`${context} ${expectedEmail} returned no token`);
+  }
+  return { id, email, token };
+}
+
 export async function getAuthMeWithToken(
   request: APIRequestContext,
   token: string,
@@ -336,6 +388,50 @@ export async function getAuthMeWithToken(
   return request.get("/api/auth/me", {
     headers: { Authorization: `Bearer ${token}` },
   });
+}
+
+/** Creates a user via link flow, falling back to register/login if anonymous auth is unavailable or the email is taken. */
+export async function ensureLinkedEmailAuthUser(
+  request: APIRequestContext,
+  email: string,
+  password = DEFAULT_LINKED_EMAIL_PASSWORD,
+): Promise<{ id: string; email: string; token: string }> {
+  let authToken: string;
+  try {
+    authToken = await createLinkedEmailAuthSessionToken(request, email, password);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (
+      !message.includes("anonymous auth is not enabled") &&
+      !message.includes("email already belongs to another account")
+    ) {
+      throw error;
+    }
+    return createRegisteredEmailAuthSession(request, email, password);
+  }
+  const meRes = await getAuthMeWithToken(request, authToken);
+  await validateResponse(meRes, `Fetch linked auth user ${email}`);
+  const body = await meRes.json();
+  const id = body?.id ?? body?.user?.id;
+  const returnedEmail = body?.email ?? body?.user?.email ?? email;
+  if (typeof id !== "string" || id.length === 0) {
+    throw new Error(`Linked auth user ${email} returned no user id`);
+  }
+  if (typeof returnedEmail !== "string" || returnedEmail.length === 0) {
+    throw new Error(`Linked auth user ${email} returned no email`);
+  }
+  return { id, email: returnedEmail, token: authToken };
+}
+
+export async function deleteAdminUserByID(
+  request: APIRequestContext,
+  token: string,
+  userID: string,
+): Promise<void> {
+  const res = await request.delete(`/api/admin/users/${encodeURIComponent(userID)}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  await validateResponse(res, `Delete admin user ${userID}`);
 }
 
 export async function loginEmailAuthSessionToken(
@@ -382,6 +478,7 @@ export async function resolveAuthUserIdByEmail(
   return userId;
 }
 
+/** Queries tenant memberships to find the user's highest-priority tenant (owner > admin > member). */
 export async function resolveDefaultTenantIdByUserId(
   request: APIRequestContext,
   token: string,
@@ -419,6 +516,7 @@ export async function resolveDefaultTenantIdByUserId(
   return tenantId;
 }
 
+/** Fetches current auth settings and PUTs a merged override of the specified fields. */
 export async function ensureAuthSettings(
   request: APIRequestContext,
   token: string,
@@ -437,6 +535,7 @@ export async function ensureAuthSettings(
   await validateResponse(putRes, "Update auth settings");
 }
 
+/** Probes the auth-settings endpoint and returns a skip-reason string if unavailable (404/501/503), or null if reachable. */
 export async function getAuthSettingsUnavailableSkipReason(
   request: APIRequestContext,
   token: string,
@@ -453,6 +552,7 @@ export async function getAuthSettingsUnavailableSkipReason(
   return null;
 }
 
+/** Overwrites the most recent unverified email MFA challenge OTP hash via direct SQL using pgcrypto. */
 export async function overrideEmailMFACode(
   request: APIRequestContext,
   token: string,
@@ -460,9 +560,11 @@ export async function overrideEmailMFACode(
 ): Promise<void> {
   await execSQL(request, token, "CREATE EXTENSION IF NOT EXISTS pgcrypto");
   const safeCode = sqlLiteral(knownCode);
+  // Stage 1 product gap: email MFA deterministic code override has no auth-owned API.
   await execSQL(
     request,
     token,
+    // eslint-disable-next-line no-restricted-syntax -- Stage 1 product gap: email MFA deterministic code override has no auth-owned API.
     `UPDATE _ayb_mfa_challenges
      SET otp_code_hash = crypt('${safeCode}', gen_salt('bf', 10))
      WHERE id = (
@@ -474,26 +576,17 @@ export async function overrideEmailMFACode(
   );
 }
 
+/** Resolves a user ID by email and deletes it via the admin API; no-op if the user is not found. */
 export async function cleanupAuthUser(
   request: APIRequestContext,
   token: string,
   email: string,
 ): Promise<void> {
-  const safeEmail = sqlLiteral(email);
-  const uid = `(SELECT id FROM _ayb_users WHERE email = '${safeEmail}')`;
-  const fid = `(SELECT id FROM _ayb_user_mfa WHERE user_id IN ${uid})`;
-  await execSQL(request, token, `DELETE FROM _ayb_mfa_backup_codes WHERE user_id IN ${uid}`).catch(
-    () => {},
-  );
-  await execSQL(request, token, `DELETE FROM _ayb_mfa_challenges WHERE factor_id IN ${fid}`).catch(
-    () => {},
-  );
-  await execSQL(request, token, `DELETE FROM _ayb_user_mfa WHERE user_id IN ${uid}`).catch(
-    () => {},
-  );
-  await execSQL(request, token, `DELETE FROM _ayb_users WHERE email = '${safeEmail}'`).catch(
-    () => {},
-  );
+  const userID = await resolveAuthUserIdByEmail(request, token, email).catch(() => null);
+  if (!userID) {
+    return;
+  }
+  await deleteAdminUserByID(request, token, userID).catch(() => {});
 }
 
 export async function fetchAuthHooksConfig(
@@ -526,6 +619,7 @@ export async function listAuthProviders(
   return body.providers ?? [];
 }
 
+/** PUTs an auth provider config update and returns the updated provider info. */
 export async function updateAuthProvider(
   request: APIRequestContext,
   token: string,

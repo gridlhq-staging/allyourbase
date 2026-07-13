@@ -60,6 +60,21 @@ let session = try await ayb.auth.signInWithPasskey(
 )
 ```
 
+For usernameless (discoverable) passkey login, call `signInWithDiscoverablePasskey`.
+The server-side ceremony omits `allowCredentials` so the local authenticator picks
+a resident credential; the app still owns the native biometric ceremony through
+`PasskeyAuthenticating` / `SystemPasskeyAuthenticator`:
+
+```swift
+let session = try await ayb.auth.signInWithDiscoverablePasskey()
+
+let sessionWithInjectedAuthenticator = try await ayb.auth.signInWithDiscoverablePasskey(
+    authenticator: SystemPasskeyAuthenticator(
+        presentationContextProvider: presentationContextProvider
+    )
+)
+```
+
 The SDK unit-tests the WebAuthn request/response serialization and HTTP flow.
 The native biometric sheet itself is outside autonomous unit validation and
 requires device or simulator runtime validation by the app.

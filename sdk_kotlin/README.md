@@ -61,6 +61,16 @@ val auth = ayb.auth.signInWithPasskey(
 )
 ```
 
+For discoverable (username-less) login the app never supplies an email; the same
+`PasskeyAuthenticator` seam drives the Credential Manager ceremony from the raw
+server options:
+
+```kotlin
+val auth = ayb.auth.signInWithDiscoverablePasskey(
+    AndroidPasskeyAuthenticator(CredentialManager.create(context), context),
+)
+```
+
 `sdk_kotlin` does not perform on-device biometric validation and does not ship a packaged Android credentials module yet.
 
 ## WebAuthn MFA

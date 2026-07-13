@@ -4,6 +4,24 @@
 import playwright from "eslint-plugin-playwright";
 import tseslint from "typescript-eslint";
 
+// Reject direct writes to AYB system tables (_ayb_*) in browser tests. Shared
+// across the spec-file and fixture-file config blocks so both surfaces enforce
+// the same guard from a single source of truth.
+const systemTableWriteSelectors = [
+  {
+    selector:
+      "Literal[value=/\\b(?:INSERT\\s+INTO\\s+_ayb|UPDATE\\s+_ayb|DELETE\\s+FROM\\s+_ayb)/i]",
+    message:
+      "Direct writes to AYB system tables are not allowed in browser tests. Use a domain fixture or add a local Stage 1 product-gap eslint-disable-next-line.",
+  },
+  {
+    selector:
+      "TemplateElement[value.raw=/\\b(?:INSERT\\s+INTO\\s+_ayb|UPDATE\\s+_ayb|DELETE\\s+FROM\\s+_ayb)/i]",
+    message:
+      "Direct writes to AYB system tables are not allowed in browser tests. Use a domain fixture or add a local Stage 1 product-gap eslint-disable-next-line.",
+  },
+];
+
 export default [
   {
     // Spec files: strict human-like interaction only
@@ -69,7 +87,25 @@ export default [
             "CallExpression[callee.property.name='setExtraHTTPHeaders']",
           message: "setExtraHTTPHeaders not allowed in spec files.",
         },
+        // Spec files must also reject direct AYB system-table writes. Merged in
+        // here (rather than a separate **/*.{ts,tsx} block) because ESLint flat
+        // config applies rules last-write-wins: a later block redefining
+        // no-restricted-syntax would silently drop the spec-only selectors above.
+        ...systemTableWriteSelectors,
       ],
+    },
+  },
+  {
+    // Fixture and helper files (non-spec): only the system-table-write guard.
+    // Excludes **/*.spec.ts so the spec block above remains the sole owner of
+    // no-restricted-syntax for spec files.
+    files: ["**/*.{ts,tsx}"],
+    ignores: ["**/*.spec.ts"],
+    languageOptions: {
+      parser: tseslint.parser,
+    },
+    rules: {
+      "no-restricted-syntax": ["error", ...systemTableWriteSelectors],
     },
   },
 ];

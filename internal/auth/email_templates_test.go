@@ -37,6 +37,7 @@ func TestRenderAuthEmail_TemplateServiceUsed_AllKeys(t *testing.T) {
 		"auth.magic_link",
 		"auth.mfa_email_enroll",
 		"auth.mfa_email_challenge",
+		"auth.webauthn_credential_changed",
 	}
 	for _, key := range keys {
 		key := key
@@ -80,9 +81,11 @@ func TestRenderAuthEmail_GracefulDegradation(t *testing.T) {
 
 	svc := &Service{appName: "TestApp", emailTplSvc: mock}
 	vars := map[string]string{
-		"AppName":   "TestApp",
-		"ActionURL": "https://example.com",
-		"Code":      "123456",
+		"AppName":        "TestApp",
+		"ActionURL":      "https://example.com",
+		"Action":         "added",
+		"CredentialName": "Security key",
+		"Code":           "123456",
 	}
 
 	_, _, _, err := svc.renderAuthEmail(context.Background(), "auth.password_reset", vars)
@@ -97,9 +100,11 @@ func TestRenderAuthEmail_AllKeysLegacyPath(t *testing.T) {
 	// Verify all built-in auth email keys render correctly through the legacy path.
 	svc := &Service{appName: "TestApp"}
 	vars := map[string]string{
-		"AppName":   "TestApp",
-		"ActionURL": "https://example.com/action",
-		"Code":      "123456",
+		"AppName":        "TestApp",
+		"ActionURL":      "https://example.com/action",
+		"Code":           "123456",
+		"Action":         "added",
+		"CredentialName": "Security key",
 	}
 
 	tests := []struct {
@@ -111,6 +116,7 @@ func TestRenderAuthEmail_AllKeysLegacyPath(t *testing.T) {
 		{"auth.magic_link", mailer.DefaultMagicLinkSubject},
 		{"auth.mfa_email_enroll", mailer.DefaultMFAEmailEnrollSubject},
 		{"auth.mfa_email_challenge", mailer.DefaultMFAEmailChallengeSubject},
+		{"auth.webauthn_credential_changed", "Passkey added: Security key"},
 	}
 
 	for _, tc := range tests {
@@ -120,9 +126,13 @@ func TestRenderAuthEmail_AllKeysLegacyPath(t *testing.T) {
 			testutil.NoError(t, err)
 			testutil.Equal(t, tc.subject, subject)
 			testutil.True(t, strings.Contains(html, "TestApp"), "HTML for %s should contain AppName", tc.key)
-			if strings.Contains(tc.key, "mfa_email") {
+			switch {
+			case tc.key == "auth.webauthn_credential_changed":
+				testutil.True(t, strings.Contains(html, "added"), "HTML for %s should contain Action", tc.key)
+				testutil.True(t, strings.Contains(html, "Security key"), "HTML for %s should contain CredentialName", tc.key)
+			case strings.Contains(tc.key, "mfa_email"):
 				testutil.True(t, strings.Contains(html, "123456"), "HTML for %s should contain Code", tc.key)
-			} else {
+			default:
 				testutil.True(t, strings.Contains(html, "https://example.com/action"), "HTML for %s should contain ActionURL", tc.key)
 			}
 			testutil.True(t, len(text) > 0, "plaintext for %s should not be empty", tc.key)

@@ -31,6 +31,16 @@ final _webauthnLoginBeginFixture = (jsonDecode(
       .readAsStringSync(),
 ) as Map<Object?, Object?>)
     .cast<String, Object?>();
+final _webauthnDiscoverBeginFixture = (jsonDecode(
+  File('../tests/contract/fixtures/sdk_contract/webauthn_discover_begin_response.json')
+      .readAsStringSync(),
+) as Map<Object?, Object?>)
+    .cast<String, Object?>();
+final _webauthnDiscoverFinishRequestFixture = (jsonDecode(
+  File('../tests/contract/fixtures/sdk_contract/webauthn_discover_finish_request.json')
+      .readAsStringSync(),
+) as Map<Object?, Object?>)
+    .cast<String, Object?>();
 final _webauthnEnrollBeginFixture = (jsonDecode(
   File('../tests/contract/fixtures/sdk_contract/webauthn_enroll_begin_response.json')
       .readAsStringSync(),
@@ -198,6 +208,33 @@ void main() {
       });
     });
 
+    test('WebAuthnLoginBeginResponse parses discoverable begin payload', () {
+      final response =
+          WebAuthnLoginBeginResponse.fromJson(_webauthnDiscoverBeginFixture);
+
+      expect(response.challengeId, 'webauthn_discover_challenge_fixture');
+      expect(response.options['challenge'], 'webauthn_discover_challenge');
+      expect(response.options['rpId'], '127.0.0.1');
+      expect(response.options['timeout'], 300000);
+      expect(response.options.containsKey('allowCredentials'), isFalse);
+    });
+
+    test('WebAuthnLoginFinishRequest emits discoverable finish payload', () {
+      final assertionResponse =
+          _webauthnDiscoverFinishRequestFixture['assertion_response']
+              as Map<String, Object?>;
+      final request = WebAuthnLoginFinishRequest(
+        challengeId: 'webauthn_discover_challenge_fixture',
+        assertionResponse: assertionResponse,
+      );
+
+      expect(request.toJson(), _webauthnDiscoverFinishRequestFixture);
+      expect(request.toJson().keys, [
+        'challenge_id',
+        'assertion_response',
+      ]);
+    });
+
     test('WebAuthnEnrollBeginResponse parses canonical MFA enroll payload', () {
       final response =
           WebAuthnEnrollBeginResponse.fromJson(_webauthnEnrollBeginFixture);
@@ -218,8 +255,7 @@ void main() {
       expect(pubKeyCredParams.last, {'alg': -8, 'type': 'public-key'});
     });
 
-    test('WebAuthnEnrollConfirmRequest emits canonical MFA enroll payload',
-        () {
+    test('WebAuthnEnrollConfirmRequest emits canonical MFA enroll payload', () {
       final attestationResponse =
           _webauthnEnrollConfirmRequestFixture['attestation_response']
               as Map<String, Object?>;

@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/allyourbase/ayb/internal/e2e/crossnode"
 	"github.com/allyourbase/ayb/internal/ws"
 	"github.com/gorilla/websocket"
 	"github.com/jackc/pgx/v5"
@@ -192,19 +193,7 @@ func seedPooledTenantPublicPostsTable(ctx context.Context, t *testing.T, databas
 
 func configureHarnessUsersAsSharedTenants(ctx context.Context, t *testing.T, databaseURL string, userIDs ...string) {
 	t.Helper()
-
-	pool, err := pgxpool.New(ctx, databaseURL)
-	if err != nil {
-		t.Fatalf("connect to TEST_DATABASE_URL for tenant mode setup: %v", err)
-	}
-	defer pool.Close()
-
-	for _, userID := range userIDs {
-		tenantRecord := configureHarnessUserTenantMode(ctx, t, pool, userID, "shared")
-		if tenantRecord.id == "" {
-			t.Fatalf("user %s did not resolve to a tenant", userID)
-		}
-	}
+	crossnode.ConfigureUsersAsSharedTenants(ctx, t, databaseURL, userIDs...)
 }
 
 func configureHarnessUserAsSharedTenant(ctx context.Context, t *testing.T, pool *pgxpool.Pool, userID string) string {

@@ -455,6 +455,11 @@ func TestDefaultBuiltins(t *testing.T) {
 			requiredVars:  []string{"AppName", "Code"},
 			forbiddenVars: []string{"ActionURL"},
 		},
+		"auth.webauthn_credential_changed": {
+			subject:       "Passkey {{.Action}}: {{.CredentialName}}",
+			requiredVars:  []string{"AppName", "Action", "CredentialName"},
+			forbiddenVars: []string{"ActionURL", "Code"},
+		},
 	}
 	for key, expected := range expectedBuiltins {
 		b, ok := builtins[key]
@@ -504,6 +509,11 @@ func TestDefaultBuiltins(t *testing.T) {
 			"AppName": "TestApp",
 			"Code":    "654321",
 		},
+		"auth.webauthn_credential_changed": {
+			"AppName":        "TestApp",
+			"Action":         "renamed",
+			"CredentialName": "Security key",
+		},
 	}
 	for key, b := range builtins {
 		rendered, err := renderTemplates(ctx, key, b.SubjectTemplate, b.HTMLTemplate, renderVars[key])
@@ -511,10 +521,16 @@ func TestDefaultBuiltins(t *testing.T) {
 		testutil.True(t, rendered.Subject != "", "rendered subject for %q should not be empty", key)
 		testutil.True(t, strings.Contains(rendered.HTML, "TestApp"),
 			"rendered HTML for %q should contain AppName", key)
-		if strings.Contains(key, "mfa_email") {
+		switch {
+		case key == "auth.webauthn_credential_changed":
+			testutil.True(t, strings.Contains(rendered.Subject, "renamed"),
+				"rendered subject for %q should contain Action", key)
+			testutil.True(t, strings.Contains(rendered.HTML, "Security key"),
+				"rendered HTML for %q should contain CredentialName", key)
+		case strings.Contains(key, "mfa_email"):
 			testutil.True(t, strings.Contains(rendered.HTML, renderVars[key]["Code"]),
 				"rendered HTML for %q should contain Code", key)
-		} else {
+		default:
 			testutil.True(t, strings.Contains(rendered.HTML, "https://example.com/action"),
 				"rendered HTML for %q should contain ActionURL", key)
 		}

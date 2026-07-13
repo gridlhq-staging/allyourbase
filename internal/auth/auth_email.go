@@ -16,20 +16,22 @@ import (
 
 // legacyRenderFuncs maps template keys to their legacy render functions.
 var legacyRenderFuncs = map[string]func(mailer.TemplateData) (string, string, error){
-	"auth.password_reset":      mailer.RenderPasswordReset,
-	"auth.email_verification":  mailer.RenderVerification,
-	"auth.magic_link":          mailer.RenderMagicLink,
-	"auth.mfa_email_enroll":    mailer.RenderMFAEmailEnroll,
-	"auth.mfa_email_challenge": mailer.RenderMFAEmailChallenge,
+	"auth.password_reset":              mailer.RenderPasswordReset,
+	"auth.email_verification":          mailer.RenderVerification,
+	"auth.magic_link":                  mailer.RenderMagicLink,
+	"auth.mfa_email_enroll":            mailer.RenderMFAEmailEnroll,
+	"auth.mfa_email_challenge":         mailer.RenderMFAEmailChallenge,
+	"auth.webauthn_credential_changed": mailer.RenderWebAuthnCredentialChanged,
 }
 
 // legacySubjects maps template keys to their default subjects.
 var legacySubjects = map[string]string{
-	"auth.password_reset":      mailer.DefaultPasswordResetSubject,
-	"auth.email_verification":  mailer.DefaultVerificationSubject,
-	"auth.magic_link":          mailer.DefaultMagicLinkSubject,
-	"auth.mfa_email_enroll":    mailer.DefaultMFAEmailEnrollSubject,
-	"auth.mfa_email_challenge": mailer.DefaultMFAEmailChallengeSubject,
+	"auth.password_reset":              mailer.DefaultPasswordResetSubject,
+	"auth.email_verification":          mailer.DefaultVerificationSubject,
+	"auth.magic_link":                  mailer.DefaultMagicLinkSubject,
+	"auth.mfa_email_enroll":            mailer.DefaultMFAEmailEnrollSubject,
+	"auth.mfa_email_challenge":         mailer.DefaultMFAEmailChallengeSubject,
+	"auth.webauthn_credential_changed": mailer.DefaultWebAuthnCredentialChangedSubject,
 }
 
 // renderAuthEmail renders an email using the template service if available,
@@ -44,15 +46,26 @@ func (s *Service) renderAuthEmail(ctx context.Context, key string, vars map[stri
 		return "", "", "", fmt.Errorf("unknown auth email template key: %s", key)
 	}
 	data := mailer.TemplateData{
-		AppName:   vars["AppName"],
-		ActionURL: vars["ActionURL"],
-		Code:      vars["Code"],
+		AppName:        vars["AppName"],
+		ActionURL:      vars["ActionURL"],
+		Code:           vars["Code"],
+		Action:         vars["Action"],
+		CredentialName: vars["CredentialName"],
 	}
 	html, text, err = renderFn(data)
 	if err != nil {
 		return "", "", "", err
 	}
-	return legacySubjects[key], html, text, nil
+	return renderLegacyAuthEmailSubject(legacySubjects[key], vars), html, text, nil
+}
+
+func renderLegacyAuthEmailSubject(subject string, vars map[string]string) string {
+	replacer := strings.NewReplacer(
+		"{{.AppName}}", vars["AppName"],
+		"{{.Action}}", vars["Action"],
+		"{{.CredentialName}}", vars["CredentialName"],
+	)
+	return replacer.Replace(subject)
 }
 
 // SetMailer configures the mailer for email-based auth flows.
@@ -120,6 +133,50 @@ func (s *Service) sendAuthEmail(ctx context.Context, to, subject, html, text, em
 		HTML:    html,
 		Text:    text,
 	})
+}
+
+func (s *Service) sendWebAuthnCredentialChangedEmail(ctx context.Context, userID, action, credentialName string) {
+	if !s.emailDeliveryConfigured() {
+		return
+	}
+	user, err := s.UserByID(ctx, userID)
+	if err != nil {
+		s.logger.Error("failed to load user for passkey notification", "user_id", userID, "error", err)
+		return
+	}
+	email := strings.TrimSpace(user.Email)
+	if email == "" {
+		return
+	}
+
+	vars := map[string]string{
+		"AppName":        authEmailAppName(s.appName),
+		"Action":         action,
+		"CredentialName": passkeyNotificationCredentialName(credentialName),
+	}
+	subject, html, text, err := s.renderAuthEmail(ctx, "auth.webauthn_credential_changed", vars)
+	if err != nil {
+		s.logger.Error("failed to render passkey notification", "user_id", userID, "action", action, "error", err)
+		return
+	}
+	if err := s.sendAuthEmail(ctx, email, subject, html, text, "security"); err != nil {
+		s.logger.Error("failed to send passkey notification", "user_id", userID, "action", action, "error", err)
+	}
+}
+
+func passkeyNotificationCredentialName(name string) string {
+	trimmed := strings.TrimSpace(name)
+	if trimmed == "" {
+		return "Unnamed passkey"
+	}
+	return trimmed
+}
+
+func authEmailAppName(appName string) string {
+	if strings.TrimSpace(appName) == "" {
+		return "Allyourbase"
+	}
+	return appName
 }
 
 // sendAuthSMS sends an SMS message via the configured hook dispatcher or SMS provider. If a hook dispatcher is configured, it attempts to send via the hook; if that returns ErrHookNotConfigured or no hook dispatcher is present, it falls back to the SMS provider. Returns nil if SMS delivery is not configured.

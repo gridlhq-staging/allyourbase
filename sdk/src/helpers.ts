@@ -1,3 +1,6 @@
+/**
+ * @module Shared normalization and encoding helpers for SDK auth, storage, and realtime responses.
+ */
 import type {
   AuthResponse,
   MagicLinkConfirmResponse,
@@ -61,6 +64,9 @@ export function normalizeWebAuthnMFAChallengeResponse(
   };
 }
 
+/**
+ * Normalizes passkey credential metadata while accepting camelCase and snake_case field names.
+ */
 export function normalizePasskeyCredentialMetadata(
   value: unknown,
 ): PasskeyCredentialMetadata {
@@ -203,6 +209,9 @@ function requireStringField(
   return value;
 }
 
+/**
+ * Reads the first present string field from a list of aliases and rejects non-string values.
+ */
 function readOptionalString(
   source: Record<string, unknown>,
   keys: string[],
@@ -226,13 +235,6 @@ function requireStringArray(value: unknown, message: string): string[] {
     throw new Error(message);
   }
   return [...value];
-}
-
-function readStringArray(value: unknown): string[] {
-  if (!Array.isArray(value)) {
-    return [];
-  }
-  return value.filter((item): item is string => typeof item === "string");
 }
 
 export function encodePathSegment(value: string): string {

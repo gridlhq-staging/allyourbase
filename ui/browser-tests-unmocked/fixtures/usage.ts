@@ -1,8 +1,6 @@
-/**
- * @module ui/browser-tests-unmocked/fixtures/usage.ts
- */
+/** @module Browser-test fixtures for usage metering tenant creation and daily usage row seeding. */
 import type { APIRequestContext } from "@playwright/test";
-import { execSQL, sqlLiteral } from "./core";
+import { execSQL, sqlLiteral, validateResponse } from "./core";
 
 export interface SeededUsageMeteringTenant {
   tenantId: string;
@@ -13,6 +11,7 @@ export interface SeededUsageMeteringTenant {
 const USAGE_SMOKE_REQUEST_COUNT_TODAY = 4_000_000_000_000_000;
 const USAGE_SMOKE_REQUEST_COUNT_YESTERDAY = 2_000_000_000_000_000;
 
+/** Creates a tenant, activates it via SQL, and inserts two usage daily rows (today + yesterday) with large sentinel values. */
 export async function seedUsageMeteringTenantDailyRows(
   request: APIRequestContext,
   token: string,
@@ -21,19 +20,33 @@ export async function seedUsageMeteringTenantDailyRows(
   const tenantName = `Usage Smoke Tenant ${suffix}`;
   const tenantSlug = `usage-smoke-${suffix.toLowerCase()}`;
 
-  const tenantResult = await execSQL(
-    request,
-    token,
-    `INSERT INTO _ayb_tenants (name, slug, state)
-     VALUES ('${sqlLiteral(tenantName)}', '${sqlLiteral(tenantSlug)}', 'active')
-     RETURNING id, name, slug`,
-  );
+  const tenantRes = await request.post("/api/admin/tenants", {
+    headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+    data: {
+      name: tenantName,
+      slug: tenantSlug,
+      isolationMode: "shared",
+      planTier: "free",
+    },
+  });
+  await validateResponse(tenantRes, `Create usage metering tenant ${tenantSlug}`);
+  const tenant = await tenantRes.json();
 
-  const tenantId = String(tenantResult.rows[0][0]);
+  const tenantId = String(tenant.id);
 
   await execSQL(
     request,
     token,
+    // eslint-disable-next-line no-restricted-syntax -- Stage 1 product gap: tenant activation has no admin API for provisioning to active.
+    `UPDATE _ayb_tenants
+     SET state = 'active', updated_at = NOW()
+     WHERE id = '${sqlLiteral(tenantId)}'`,
+  );
+
+  await execSQL(
+    request,
+    token,
+    // eslint-disable-next-line no-restricted-syntax -- Stage 1 product gap: usage metering history has no deterministic seed API.
     `INSERT INTO _ayb_tenant_usage_daily (
        tenant_id,
        date,
@@ -64,9 +77,8 @@ export async function cleanupUsageMeteringTenant(
   token: string,
   tenantId: string,
 ): Promise<void> {
-  await execSQL(
-    request,
-    token,
-    `DELETE FROM _ayb_tenants WHERE id = '${sqlLiteral(tenantId)}'`,
-  );
+  const res = await request.delete(`/api/admin/tenants/${encodeURIComponent(tenantId)}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  await validateResponse(res, `Delete usage metering tenant ${tenantId}`);
 }

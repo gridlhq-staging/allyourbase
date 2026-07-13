@@ -47,8 +47,23 @@ final _magicLinkConfirmPendingMfaFixture = (jsonDecode(
       .readAsStringSync(),
 ) as Map<Object?, Object?>)
     .cast<String, Object?>();
+final _authResponseFixture = (jsonDecode(
+  File('../tests/contract/fixtures/sdk_contract/auth_response.json')
+      .readAsStringSync(),
+) as Map<Object?, Object?>)
+    .cast<String, Object?>();
 final _webauthnLoginBeginFixture = (jsonDecode(
   File('../tests/contract/fixtures/sdk_contract/webauthn_login_begin_response.json')
+      .readAsStringSync(),
+) as Map<Object?, Object?>)
+    .cast<String, Object?>();
+final _webauthnDiscoverBeginFixture = (jsonDecode(
+  File('../tests/contract/fixtures/sdk_contract/webauthn_discover_begin_response.json')
+      .readAsStringSync(),
+) as Map<Object?, Object?>)
+    .cast<String, Object?>();
+final _webauthnDiscoverFinishRequestFixture = (jsonDecode(
+  File('../tests/contract/fixtures/sdk_contract/webauthn_discover_finish_request.json')
       .readAsStringSync(),
 ) as Map<Object?, Object?>)
     .cast<String, Object?>();
@@ -330,6 +345,104 @@ void main() {
         expect(result.refreshToken, 'refresh_new');
         expect(client.token, 'jwt_new');
         expect(client.refreshToken, 'refresh_new');
+        expect(events, ['SIGNED_IN']);
+      });
+
+      test('begins discoverable login with a bodyless POST', () async {
+        final http = DeterministicHttpClient([
+          StubResponse.json(200, _webauthnDiscoverBeginFixture),
+        ]);
+        final client = AYBClient('https://api.example.com', httpClient: http);
+        client.setApiKey('stale_api_key');
+        final events = <String>[];
+        client.onAuthStateChange((event, _) => events.add(event));
+
+        final result = await client.auth.beginDiscoverableWebAuthnLogin();
+
+        final req = http.requests.single;
+        expect(req.method, 'POST');
+        expect(req.url.toString(),
+            'https://api.example.com/api/auth/webauthn/login/discover/begin');
+        expect(_header(req.headers, 'Authorization'), isNull);
+        expect(req.decodeJsonBody(), isNull);
+        expect(_header(req.headers, 'Content-Type'), isNull);
+        expect(result.challengeId, 'webauthn_discover_challenge_fixture');
+        expect(result.options['challenge'], 'webauthn_discover_challenge');
+        expect(result.options.containsKey('allowCredentials'), isFalse);
+        expect(client.token, 'stale_api_key');
+        expect(client.refreshToken, isNull);
+        expect(events, isEmpty);
+      });
+
+      test('finishes discoverable login with canonical fixture payload',
+          () async {
+        final assertionResponse =
+            _webauthnDiscoverFinishRequestFixture['assertion_response']
+                as Map<String, Object?>;
+        final http = DeterministicHttpClient([
+          StubResponse.json(200, _authResponseFixture),
+        ]);
+        final client = AYBClient('https://api.example.com', httpClient: http);
+        client.setTokens('stale_session_token', 'stale_session_refresh');
+        final events = <String>[];
+        client.onAuthStateChange((event, _) => events.add(event));
+
+        final result = await client.auth.finishDiscoverableWebAuthnLogin(
+          'webauthn_discover_challenge_fixture',
+          assertionResponse,
+        );
+
+        final req = http.requests.single;
+        expect(req.method, 'POST');
+        expect(req.url.toString(),
+            'https://api.example.com/api/auth/webauthn/login/discover/finish');
+        expect(_header(req.headers, 'Authorization'), isNull);
+        expect(req.decodeJsonBody(), _webauthnDiscoverFinishRequestFixture);
+        expect(result.token, 'jwt_stage3');
+        expect(result.refreshToken, 'refresh_stage3');
+        expect(client.token, 'jwt_stage3');
+        expect(client.refreshToken, 'refresh_stage3');
+        expect(events, ['SIGNED_IN']);
+      });
+
+      test('signInWithDiscoverablePasskey authenticates raw begin options',
+          () async {
+        final assertionResponse =
+            _webauthnDiscoverFinishRequestFixture['assertion_response']
+                as Map<String, Object?>;
+        final beginResponse = WebAuthnLoginBeginResponse.fromJson(
+          _webauthnDiscoverBeginFixture,
+        );
+        final authenticator = _FakePasskeyAuthenticator(assertionResponse);
+        final http = DeterministicHttpClient([
+          StubResponse.json(200, _webauthnDiscoverBeginFixture),
+          StubResponse.json(200, _authResponseFixture),
+        ]);
+        final client = AYBClient('https://api.example.com', httpClient: http);
+        client.setTokens('stale_session_token', 'stale_session_refresh');
+        final events = <String>[];
+        client.onAuthStateChange((event, _) => events.add(event));
+
+        final result =
+            await client.auth.signInWithDiscoverablePasskey(authenticator);
+
+        expect(authenticator.receivedOptions, [beginResponse.options]);
+        expect(http.requests, hasLength(2));
+        final beginRequest = http.requests[0];
+        expect(_header(beginRequest.headers, 'Authorization'), isNull);
+        expect(beginRequest.decodeJsonBody(), isNull);
+        expect(_header(beginRequest.headers, 'Content-Type'), isNull);
+        final finishRequest = http.requests[1];
+        expect(finishRequest.method, 'POST');
+        expect(finishRequest.url.toString(),
+            'https://api.example.com/api/auth/webauthn/login/discover/finish');
+        expect(_header(finishRequest.headers, 'Authorization'), isNull);
+        expect(finishRequest.decodeJsonBody(),
+            _webauthnDiscoverFinishRequestFixture);
+        expect(result.token, 'jwt_stage3');
+        expect(result.refreshToken, 'refresh_stage3');
+        expect(client.token, 'jwt_stage3');
+        expect(client.refreshToken, 'refresh_stage3');
         expect(events, ['SIGNED_IN']);
       });
 

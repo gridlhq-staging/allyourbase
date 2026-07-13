@@ -35,6 +35,8 @@ object ContractFixtures {
     val webAuthnEnrollConfirmRequest: JsonObject = loadJsonObject("sdk_contract/webauthn_enroll_confirm_request.json")
     val webAuthnEnrollConfirmResponse: JsonObject = loadJsonObject("sdk_contract/webauthn_enroll_confirm_response.json")
     val webAuthnLoginBeginResponse: JsonObject = loadJsonObject("sdk_contract/webauthn_login_begin_response.json")
+    val webAuthnDiscoverBeginResponse: JsonObject = loadJsonObject("sdk_contract/webauthn_discover_begin_response.json")
+    val webAuthnDiscoverFinishRequest: JsonObject = loadJsonObject("sdk_contract/webauthn_discover_finish_request.json")
     val webAuthnMfaChallengeResponse: JsonObject = loadJsonObject("sdk_contract/webauthn_mfa_challenge_response.json")
     val webAuthnMfaVerifyRequest: JsonObject = loadJsonObject("sdk_contract/webauthn_mfa_verify_request.json")
     val webAuthnMfaVerifyResponse: JsonObject = loadJsonObject("sdk_contract/webauthn_mfa_verify_response.json")

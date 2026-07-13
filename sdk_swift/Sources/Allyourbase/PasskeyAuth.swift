@@ -145,6 +145,18 @@ public extension AuthClient {
         )
     }
 
+    func signInWithDiscoverablePasskey(
+        authenticator: any PasskeyAuthenticating
+    ) async throws -> AuthResponse {
+        let begin = try await beginDiscoverableWebAuthnLogin()
+        let options = PasskeyAssertionRequestOptions(begin.options)
+        let assertionResponse = try await authenticator.createAssertionResponse(options: options)
+        return try await finishDiscoverableWebAuthnLogin(
+            challengeId: begin.challengeId,
+            assertionResponse: assertionResponse.toDictionary()
+        )
+    }
+
     func enrollPasskey(
         displayName: String = "",
         authenticator: any PasskeyAttestationAuthenticating
@@ -184,6 +196,12 @@ public extension AuthClient {
     func signInWithPasskey(email: String) async throws -> AuthResponse {
         try await signInWithPasskey(
             email: email,
+            authenticator: SystemPasskeyAuthenticator()
+        )
+    }
+
+    func signInWithDiscoverablePasskey() async throws -> AuthResponse {
+        try await signInWithDiscoverablePasskey(
             authenticator: SystemPasskeyAuthenticator()
         )
     }

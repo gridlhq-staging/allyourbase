@@ -32,6 +32,16 @@ class AuthClient:
         self._client._emit_auth_event("SIGNED_IN")
         return auth
 
+    def _webauthn_assertion_body(
+        self,
+        challenge_id: str,
+        assertion_response: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        return {
+            "challenge_id": challenge_id,
+            "assertion_response": assertion_response,
+        }
+
     async def register(self, email: str, password: str) -> AuthResponse:
         resp = await self._client._request(
             "/api/auth/register",
@@ -64,21 +74,50 @@ class AuthClient:
             raise RuntimeError("Expected response body for begin_webauthn_login")
         return WebAuthnLoginBeginResponse.model_validate(resp.json())
 
+    async def begin_discoverable_login(self) -> WebAuthnLoginBeginResponse:
+        resp = await self._client._request(
+            "/api/auth/webauthn/login/discover/begin",
+            method="POST",
+        )
+        if resp is None:
+            raise RuntimeError("Expected response body for begin_discoverable_login")
+        return WebAuthnLoginBeginResponse.model_validate(resp.json())
+
     async def finish_webauthn_login(
         self,
         challenge_id: str,
         assertion_response: Dict[str, Any],
     ) -> AuthResponse:
+        """Finish login with a caller-supplied WebAuthn assertion.
+
+        The SDK does not run browser or platform-authenticator ceremony.
+        """
         resp = await self._client._request(
             "/api/auth/webauthn/login/finish",
             method="POST",
-            json={
-                "challenge_id": challenge_id,
-                "assertion_response": assertion_response,
-            },
+            json=self._webauthn_assertion_body(challenge_id, assertion_response),
         )
         if resp is None:
             raise RuntimeError("Expected response body for finish_webauthn_login")
+        auth = AuthResponse.model_validate(resp.json())
+        return self._apply_signed_in_session(auth)
+
+    async def finish_discoverable_login(
+        self,
+        challenge_id: str,
+        assertion_response: Dict[str, Any],
+    ) -> AuthResponse:
+        """Finish discoverable login with a caller-supplied WebAuthn assertion.
+
+        The SDK does not run browser or platform-authenticator ceremony.
+        """
+        resp = await self._client._request(
+            "/api/auth/webauthn/login/discover/finish",
+            method="POST",
+            json=self._webauthn_assertion_body(challenge_id, assertion_response),
+        )
+        if resp is None:
+            raise RuntimeError("Expected response body for finish_discoverable_login")
         auth = AuthResponse.model_validate(resp.json())
         return self._apply_signed_in_session(auth)
 
@@ -129,10 +168,7 @@ class AuthClient:
             "/api/auth/mfa/webauthn/verify",
             method="POST",
             headers={"Authorization": f"Bearer {mfa_token}"},
-            json={
-                "challenge_id": challenge_id,
-                "assertion_response": assertion_response,
-            },
+            json=self._webauthn_assertion_body(challenge_id, assertion_response),
             skip_auth=True,
         )
         if resp is None:

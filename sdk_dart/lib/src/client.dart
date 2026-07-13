@@ -265,6 +265,15 @@ class AuthClient {
     );
   }
 
+  Future<WebAuthnLoginBeginResponse> beginDiscoverableWebAuthnLogin() {
+    return client.request<WebAuthnLoginBeginResponse>(
+      '/api/auth/webauthn/login/discover/begin',
+      method: 'POST',
+      skipAuth: true,
+      decode: (value) => WebAuthnLoginBeginResponse.fromJson(value as JsonMap),
+    );
+  }
+
   Future<AuthResponse> signInWithPasskey(
     String email,
     PasskeyAuthenticator authenticator,
@@ -275,13 +284,51 @@ class AuthClient {
     return finishWebAuthnLogin(beginResponse.challengeId, assertionResponse);
   }
 
+  Future<AuthResponse> signInWithDiscoverablePasskey(
+    PasskeyAuthenticator authenticator,
+  ) async {
+    final beginResponse = await beginDiscoverableWebAuthnLogin();
+    final assertionResponse =
+        await authenticator.authenticate(beginResponse.options);
+    return finishDiscoverableWebAuthnLogin(
+      beginResponse.challengeId,
+      assertionResponse,
+    );
+  }
+
   Future<AuthResponse> finishWebAuthnLogin(
     String challengeId,
     JsonMap assertionResponse,
   ) async {
-    final response = await client.request<AuthResponse>(
+    return _finishWebAuthnLogin(
       '/api/auth/webauthn/login/finish',
+      challengeId,
+      assertionResponse,
+    );
+  }
+
+  Future<AuthResponse> finishDiscoverableWebAuthnLogin(
+    String challengeId,
+    JsonMap assertionResponse,
+  ) async {
+    return _finishWebAuthnLogin(
+      '/api/auth/webauthn/login/discover/finish',
+      challengeId,
+      assertionResponse,
+      skipAuth: true,
+    );
+  }
+
+  Future<AuthResponse> _finishWebAuthnLogin(
+    String path,
+    String challengeId,
+    JsonMap assertionResponse, {
+    bool skipAuth = false,
+  }) async {
+    final response = await client.request<AuthResponse>(
+      path,
       method: 'POST',
+      skipAuth: skipAuth,
       body: WebAuthnLoginFinishRequest(
         challengeId: challengeId,
         assertionResponse: assertionResponse,

@@ -309,6 +309,37 @@ public final class AuthClient {
         return response
     }
 
+    public func beginDiscoverableWebAuthnLogin() async throws -> WebAuthnLoginBeginResponse {
+        // First-factor ceremony: never attach an existing session bearer, and send
+        // no body — the server derives the challenge without any client identity hint.
+        return try await client.request(
+            "/api/auth/webauthn/login/discover/begin",
+            method: .post,
+            body: nil,
+            skipAuth: true,
+            decode: WebAuthnLoginBeginResponse.decode
+        )
+    }
+
+    public func finishDiscoverableWebAuthnLogin(
+        challengeId: String,
+        assertionResponse: [String: Any]
+    ) async throws -> AuthResponse {
+        let response: AuthResponse = try await client.request(
+            "/api/auth/webauthn/login/discover/finish",
+            method: .post,
+            body: [
+                "challenge_id": challengeId,
+                "assertion_response": assertionResponse,
+            ],
+            skipAuth: true,
+            decode: AuthResponse.decode
+        )
+        client.setTokens(response.token, refreshToken: response.refreshToken)
+        client.emitAuthState(.signedIn)
+        return response
+    }
+
     public func enrollWebAuthn() async throws -> WebAuthnEnrollBeginResponse {
         try await client.request(
             "/api/auth/mfa/webauthn/enroll",

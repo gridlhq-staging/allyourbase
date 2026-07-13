@@ -65,6 +65,36 @@ class AuthClient internal constructor(
         return finishWebAuthnLogin(begin.challengeId, assertionResponse)
     }
 
+    suspend fun beginDiscoverableWebAuthnLogin(): WebAuthnLoginBeginResponse =
+        client.request(
+            path = "/api/auth/webauthn/login/discover/begin",
+            method = HttpMethod.POST,
+            // Discoverable login is a first-factor ceremony: never attach an existing
+            // session bearer to the discover endpoints (matches sdk_dart parity).
+            skipAuth = true,
+            decode = { payload -> decodePayload(payload) },
+        )
+
+    suspend fun finishDiscoverableWebAuthnLogin(
+        challengeId: String,
+        assertionResponse: JsonObject,
+    ): AuthResponse {
+        val response: AuthResponse = client.request(
+            path = "/api/auth/webauthn/login/discover/finish",
+            method = HttpMethod.POST,
+            body = encodePayload(WebAuthnLoginFinishRequest(challengeId, assertionResponse)),
+            skipAuth = true,
+            decode = { payload -> decodePayload(payload) },
+        )
+        return applySignedInSession(response)
+    }
+
+    suspend fun signInWithDiscoverablePasskey(authenticator: PasskeyAuthenticator): AuthResponse {
+        val begin = beginDiscoverableWebAuthnLogin()
+        val assertionResponse = authenticator.createAssertion(begin.options)
+        return finishDiscoverableWebAuthnLogin(begin.challengeId, assertionResponse)
+    }
+
     /**
      * Build the OAuth provider start URL. The Kotlin SDK only returns the URL; callers
      * are responsible for opening it and handling the redirect or popup flow.

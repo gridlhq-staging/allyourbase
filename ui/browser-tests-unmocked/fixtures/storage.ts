@@ -1,14 +1,13 @@
-/**
- * @module ui/browser-tests-unmocked/fixtures/storage.ts
- */
+/** @module Browser-test fixtures for storage buckets, file uploads, and webhooks. */
 import type { APIRequestContext } from "@playwright/test";
-import { execSQL, sqlLiteral, validateResponse } from "./core";
+import { validateResponse } from "./core";
 
+/** Creates a webhook for the given URL and returns its id and URL. */
 export async function seedWebhook(
   request: APIRequestContext,
   token: string,
   url: string,
-): Promise<{ id: number; url: string }> {
+): Promise<{ id: string; url: string }> {
   const res = await request.post("/api/webhooks", {
     headers: { Authorization: `Bearer ${token}` },
     data: { url, events: ["create"], enabled: true },
@@ -18,13 +17,13 @@ export async function seedWebhook(
   if (!body.id) {
     throw new Error("Webhook created but no ID in response");
   }
-  return { id: body.id, url: body.url };
+  return { id: String(body.id), url: body.url };
 }
 
 export async function deleteWebhook(
   request: APIRequestContext,
   token: string,
-  id: number,
+  id: string,
 ): Promise<void> {
   const res = await request.delete(`/api/webhooks/${id}`, {
     headers: { Authorization: `Bearer ${token}` },
@@ -32,6 +31,33 @@ export async function deleteWebhook(
   await validateResponse(res, `Delete webhook ${id}`);
 }
 
+/** Lists all webhooks and deletes those whose URL is in the given set. */
+export async function deleteWebhooksByURL(
+  request: APIRequestContext,
+  token: string,
+  urls: string[],
+): Promise<void> {
+  if (urls.length === 0) {
+    return;
+  }
+  const res = await request.get("/api/webhooks", {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  await validateResponse(res, "List webhooks for URL cleanup");
+  const body = await res.json();
+  const items = Array.isArray(body?.items) ? body.items : [];
+  const urlSet = new Set(urls);
+  for (const item of items) {
+    if (typeof item?.url !== "string" || !urlSet.has(item.url)) {
+      continue;
+    }
+    if (typeof item?.id === "string" || typeof item?.id === "number") {
+      await deleteWebhook(request, token, String(item.id)).catch(() => {});
+    }
+  }
+}
+
+/** Uploads a file via multipart POST to a storage bucket and returns its name. */
 export async function seedFile(
   request: APIRequestContext,
   token: string,
@@ -57,20 +83,39 @@ export async function seedFile(
   return { name: body.name };
 }
 
+/** Creates a storage bucket, or updates it on 409 conflict if it already exists. */
 export async function ensureStorageBucket(
   request: APIRequestContext,
   token: string,
   bucket: string,
   publicBucket = true,
 ): Promise<void> {
-  const safeBucket = sqlLiteral(bucket);
-  await execSQL(
-    request,
-    token,
-    `INSERT INTO _ayb_storage_buckets (tenant_id, name, public)
-     VALUES ('', '${safeBucket}', ${publicBucket ? "true" : "false"})
-     ON CONFLICT (tenant_id, name) DO UPDATE SET public = EXCLUDED.public`,
+  const createRes = await request.post("/api/storage/buckets/", {
+    headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+    data: { name: bucket, public: publicBucket },
+  });
+  if (createRes.status() === 409) {
+    const updateRes = await request.put(`/api/storage/buckets/${encodeURIComponent(bucket)}`, {
+      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+      data: { public: publicBucket },
+    });
+    await validateResponse(updateRes, `Update storage bucket ${bucket}`);
+    return;
+  }
+  await validateResponse(createRes, `Create storage bucket ${bucket}`);
+}
+
+export async function deleteStorageBucket(
+  request: APIRequestContext,
+  token: string,
+  bucket: string,
+  force = true,
+): Promise<void> {
+  const res = await request.delete(
+    `/api/storage/buckets/${encodeURIComponent(bucket)}${force ? "?force=true" : ""}`,
+    { headers: { Authorization: `Bearer ${token}` } },
   );
+  await validateResponse(res, `Delete storage bucket ${bucket}`);
 }
 
 export async function deleteFile(

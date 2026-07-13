@@ -61,9 +61,11 @@ test.describe("Audit Logs Lifecycle (Full E2E)", () => {
       timestampISO: new Date(Date.now() + 4000).toISOString(),
     });
 
+    // Stage 1 product gap: audit history batch pagination seed has no domain API.
     await execSQL(
       request,
       adminToken,
+      // eslint-disable-next-line no-restricted-syntax -- Stage 1 product gap: audit history is read-only and has no deterministic seed API.
       `INSERT INTO _ayb_audit_log (timestamp, table_name, operation, record_id, old_values, new_values)
        SELECT NOW() + (g * interval '1 second'),
               '${paginationTable}',

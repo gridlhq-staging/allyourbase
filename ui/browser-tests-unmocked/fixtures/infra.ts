@@ -1,9 +1,10 @@
 /**
- * @module ui/browser-tests-unmocked/fixtures/infra.ts
+ * @module Browser-test fixtures for infrastructure resource seeding (sites, domains, replicas, backups, FDW).
  */
 import type { APIRequestContext } from "@playwright/test";
 import { execSQL, sqlLiteral, validateResponse } from "./core";
 
+/** Creates a hosting site via the admin API and returns its id, name, and slug. */
 export async function seedSite(
   request: APIRequestContext,
   token: string,
@@ -41,6 +42,7 @@ export async function cleanupSiteByID(
   }
 }
 
+/** Fetches a site by ID and returns its fields, normalizing both camelCase and snake_case spaMode variants. */
 export async function getSite(
   request: APIRequestContext,
   token: string,
@@ -81,6 +83,7 @@ export async function getSiteStatus(
   return res.status();
 }
 
+/** Creates a custom domain with a hostname and environment, returning id, hostname, status, and verification record. */
 export async function seedCustomDomain(
   request: APIRequestContext,
   token: string,
@@ -130,6 +133,7 @@ export async function cleanupCustomDomain(
   }
 }
 
+/** Creates a log drain via the admin API and returns its id and name. */
 export async function seedLogDrain(
   request: APIRequestContext,
   token: string,
@@ -173,6 +177,7 @@ export async function cleanupLogDrain(
   }
 }
 
+/** Creates a SAML provider with generated XML metadata and returns its name and entity_id. */
 export async function seedSAMLProvider(
   request: APIRequestContext,
   token: string,
@@ -275,6 +280,7 @@ export async function cleanupBranch(
   }
 }
 
+/** Creates a read replica with the given connection config and returns its name. */
 export async function seedReplica(
   request: APIRequestContext,
   token: string,
@@ -304,6 +310,7 @@ export async function seedReplica(
   return { name: options.name };
 }
 
+/** Fetches all replicas and returns an array of {url, state} status entries. */
 export async function fetchReplicaStatuses(
   request: APIRequestContext,
   token: string,
@@ -372,6 +379,7 @@ export async function disableExtension(
   }
 }
 
+/** Inserts a backup row via SQL (no domain API) and returns its id and dbName. */
 export async function seedBackup(
   request: APIRequestContext,
   token: string,
@@ -391,9 +399,11 @@ export async function seedBackup(
   if (!Number.isSafeInteger(sizeBytes) || sizeBytes < 0) {
     throw new Error("sizeBytes must be a non-negative safe integer");
   }
+  // Stage 1 product gap: backup metadata has no deterministic seed API.
   const result = await execSQL(
     request,
     token,
+    // eslint-disable-next-line no-restricted-syntax -- Stage 1 product gap: backup metadata has no deterministic seed API.
     `INSERT INTO _ayb_backups (db_name, status, backup_type, triggered_by, size_bytes, started_at, completed_at)
      VALUES ('${dbName}', '${status}', '${backupType}', '${triggeredBy}', ${sizeBytes}, NOW() - INTERVAL '5 minutes', NOW())
      RETURNING id`,
@@ -410,13 +420,16 @@ export async function cleanupBackupsByDbName(
   token: string,
   dbName: string,
 ): Promise<void> {
+  // Stage 1 product gap: backup metadata has no domain cleanup API.
   await execSQL(
     request,
     token,
+    // eslint-disable-next-line no-restricted-syntax -- Stage 1 product gap: backup metadata has no domain cleanup API.
     `DELETE FROM _ayb_backups WHERE db_name = '${sqlLiteral(dbName)}'`,
   );
 }
 
+/** Creates an FDW server (postgres_fdw or file_fdw) via the admin API and returns its name and type. */
 export async function seedFDWServer(
   request: APIRequestContext,
   token: string,
@@ -488,6 +501,7 @@ export async function seedAIPrompt(
   return { id: body.id, name: body.name };
 }
 
+/** Lists AI prompts and deletes all that match the given name. */
 export async function cleanupAIPromptByName(
   request: APIRequestContext,
   token: string,

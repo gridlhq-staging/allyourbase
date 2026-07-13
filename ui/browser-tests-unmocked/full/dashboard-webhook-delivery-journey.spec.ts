@@ -2,6 +2,7 @@ import type { Locator, Page } from "@playwright/test";
 import {
   test,
   expect,
+  deleteWebhooksByURL,
   execSQL,
   seedRecord,
   sqlLiteral,
@@ -199,11 +200,7 @@ test.describe("Webhook Delivery History Journey (Full E2E)", () => {
     }
 
     if (webhookUrl) {
-      await execSQL(
-        request,
-        adminToken,
-        `DELETE FROM _ayb_webhooks WHERE url = '${sqlLiteral(webhookUrl)}';`,
-      ).catch(() => {});
+      await deleteWebhooksByURL(request, adminToken, [webhookUrl]).catch(() => {});
     }
 
     tableName = "";

@@ -134,6 +134,75 @@ func TestContractWebAuthnLoginBeginResponseFixture(t *testing.T) {
 	}
 }
 
+func TestContractWebAuthnDiscoverableLoginFixturesReuseCanonicalModels(t *testing.T) {
+	beginData := mustLoadContractFixture(t, "webauthn_discover_begin_response.json")
+	var begin WebAuthnLoginBeginResponse
+	if err := json.Unmarshal(beginData, &begin); err != nil {
+		t.Fatalf("decode webauthn_discover_begin_response: %v", err)
+	}
+	if begin.ChallengeID != "webauthn_discover_challenge_fixture" {
+		t.Fatalf("unexpected challenge_id %q", begin.ChallengeID)
+	}
+	if begin.Options.Challenge != "webauthn_discover_challenge" {
+		t.Fatalf("unexpected challenge %q", begin.Options.Challenge)
+	}
+	if begin.Options.RPID != "127.0.0.1" {
+		t.Fatalf("unexpected rpId %q", begin.Options.RPID)
+	}
+	if begin.Options.Timeout != 300000 {
+		t.Fatalf("unexpected timeout %d", begin.Options.Timeout)
+	}
+	if len(begin.Options.AllowCredentials) != 0 {
+		t.Fatalf("expected absent or empty allowCredentials, got %+v", begin.Options.AllowCredentials)
+	}
+
+	finishData := mustLoadContractFixture(t, "webauthn_discover_finish_request.json")
+	var finish WebAuthnLoginFinishRequest
+	if err := json.Unmarshal(finishData, &finish); err != nil {
+		t.Fatalf("decode webauthn_discover_finish_request: %v", err)
+	}
+	if finish.ChallengeID != "webauthn_discover_challenge_fixture" {
+		t.Fatalf("unexpected challenge_id %q", finish.ChallengeID)
+	}
+	var assertion map[string]any
+	if err := json.Unmarshal(finish.AssertionResponse, &assertion); err != nil {
+		t.Fatalf("decode assertion_response: %v", err)
+	}
+	if assertion["id"] != "webauthn_discover_credential" {
+		t.Fatalf("unexpected assertion_response.id %#v", assertion["id"])
+	}
+	actualData, err := json.Marshal(finish)
+	if err != nil {
+		t.Fatalf("marshal webauthn_discover_finish_request: %v", err)
+	}
+	var expectedEnvelope map[string]any
+	if err := json.Unmarshal(finishData, &expectedEnvelope); err != nil {
+		t.Fatalf("decode expected webauthn_discover_finish_request envelope: %v", err)
+	}
+	var actualEnvelope map[string]any
+	if err := json.Unmarshal(actualData, &actualEnvelope); err != nil {
+		t.Fatalf("decode actual webauthn_discover_finish_request envelope: %v", err)
+	}
+	if !reflect.DeepEqual(actualEnvelope, expectedEnvelope) {
+		t.Fatalf("request envelope mismatch\nactual:   %#v\nexpected: %#v", actualEnvelope, expectedEnvelope)
+	}
+
+	authData := mustLoadContractFixture(t, "auth_response.json")
+	var auth AuthResponse
+	if err := json.Unmarshal(authData, &auth); err != nil {
+		t.Fatalf("decode auth_response: %v", err)
+	}
+	if auth.Token != "jwt_stage3" {
+		t.Fatalf("unexpected token %q", auth.Token)
+	}
+	if auth.RefreshToken != "refresh_stage3" {
+		t.Fatalf("unexpected refresh token %q", auth.RefreshToken)
+	}
+	if auth.User.Email != "dev@allyourbase.io" {
+		t.Fatalf("unexpected email %q", auth.User.Email)
+	}
+}
+
 func TestContractWebAuthnFinishReusesAuthResponseFixture(t *testing.T) {
 	data := mustLoadContractFixture(t, "auth_response.json")
 	var out AuthResponse

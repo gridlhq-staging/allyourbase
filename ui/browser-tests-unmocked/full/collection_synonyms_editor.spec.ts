@@ -26,20 +26,13 @@ async function recreateSearchableCollection(
     request,
     adminToken,
     `
-      DELETE FROM _ayb_search_synonyms
-      WHERE schema_name = 'public' AND table_name = '${safeTableName}';
-    `,
-  );
-  await execSQL(
-    request,
-    adminToken,
-    `
       CREATE TABLE ${safeTableName} (
         id BIGSERIAL PRIMARY KEY,
         title TEXT NOT NULL
       );
     `,
   );
+  await replaceCollectionSearchSynonyms(request, adminToken, safeTableName, []);
 }
 
 async function openCollectionSynonyms(page: DashboardPage, tableName: string): Promise<void> {

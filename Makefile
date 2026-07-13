@@ -1,4 +1,4 @@
-.PHONY: build dev test test-sdk test-sdk-go test-sdk-python test-sdk-dart test-sdk-swift test-sdk-kotlin test-sdk-react test-sdk-ssr test-sdk-all test-sdk-integration test-ui test-integration test-multinode test-demo-smoke test-demo-e2e test-demo-launch test-demo-cross-smoke test-e2e test-smoke test-browser-full test-full test-all test-everything test-api-smoke test-api-journey lint check hygiene check-hygiene check-sizes check-ui-lint check-browser-tests-lint check-func-sizes check-installer check-sdk-build release-candidate-check clean ui demos release docker docker-runtime-smoke help sync-openapi build-postgres load-admin-status load-admin-status-local load-auth-request-path load-auth-request-path-local load-data-path load-data-path-local load-data-pool-pressure load-data-pool-pressure-local load-http-100 load-http-100-local load-http-500 load-http-500-local load-http-1000 load-http-1000-local load-realtime-ws load-realtime-ws-local load-realtime-ws-1000 load-realtime-ws-1000-local load-realtime-ws-5000 load-realtime-ws-5000-local load-realtime-ws-10000 load-realtime-ws-10000-local load-sustained-soak load-sustained-soak-local
+.PHONY: build dev test test-sdk test-sdk-go test-sdk-python test-sdk-dart test-sdk-swift test-sdk-kotlin test-sdk-react test-sdk-ssr test-sdk-all test-sdk-integration test-ui test-integration test-multinode test-cell test-demo-smoke test-demo-e2e test-demo-launch test-demo-cross-smoke test-e2e test-smoke test-browser-full test-full test-all test-everything test-api-smoke test-api-journey lint check hygiene check-hygiene check-sizes check-ui-lint check-browser-tests-lint check-func-sizes check-installer check-sdk-build release-candidate-check clean ui demos release docker docker-runtime-smoke help sync-openapi build-postgres load-admin-status load-admin-status-local load-auth-request-path load-auth-request-path-local load-data-path load-data-path-local load-data-pool-pressure load-data-pool-pressure-local load-http-100 load-http-100-local load-http-500 load-http-500-local load-http-1000 load-http-1000-local load-realtime-ws load-realtime-ws-local load-realtime-ws-1000 load-realtime-ws-1000-local load-realtime-ws-5000 load-realtime-ws-5000-local load-realtime-ws-10000 load-realtime-ws-10000-local load-sustained-soak load-sustained-soak-local
 
 # Build variables
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
@@ -210,6 +210,9 @@ test-multinode: build ## Real 2-node cross-node E2E: shared PG + MinIO, ephemera
 	go run ./internal/testutil/cmd/testpg -- \
 	  go test -tags=multinode -count=1 -timeout 300s ./internal/e2e/multinode/...
 
+test-cell: ## LB-routed cell topology E2E: compose PG + MinIO + ayb1/ayb2 + nginx LB (needs Docker; builds images via compose)
+	go test -tags=cell -count=1 -timeout 600s ./internal/e2e/celltopology/...
+
 test-demo-smoke: ## Run demo smoke tests only — schema apply, tables, RLS, CRUD (needs managed Postgres)
 	go run ./internal/testutil/cmd/testpg -- go tool gotestsum --format testdox -- -tags=integration -count=1 -run TestDemoSmoke ./internal/e2e/
 
@@ -394,7 +397,7 @@ check-installer: ## Run installer validation suite
 check-sdk-build: ## Build the JavaScript SDK
 	cd sdk && npm run build
 
-release-candidate-check: check check-browser-tests-lint test-all ui check-sdk-build check-installer test-demo-launch test-demo-e2e test-smoke ## Run the trusted public release candidate gate
+release-candidate-check: check check-browser-tests-lint test-all test-multinode ui check-sdk-build check-installer test-demo-launch test-demo-e2e test-smoke test-browser-full ## Run the trusted public release candidate gate
 
 ui: ## Build the admin dashboard SPA
 	cd ui && pnpm install && pnpm build

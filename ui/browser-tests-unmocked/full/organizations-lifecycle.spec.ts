@@ -1,10 +1,14 @@
 import { randomUUID } from "crypto";
-import { test, expect, execSQL, waitForDashboard, getOrganizationById } from "../fixtures";
+import {
+  cleanupOrganizationsBySlug,
+  test,
+  expect,
+  execSQL,
+  sqlLiteral,
+  waitForDashboard,
+  getOrganizationById,
+} from "../fixtures";
 import type { Page } from "@playwright/test";
-
-function sqlLiteral(value: string): string {
-  return value.replace(/'/g, "''");
-}
 
 async function openOrganizationsPage(page: Page): Promise<void> {
   await page.goto("/admin/");
@@ -20,9 +24,7 @@ test.describe("Organizations Lifecycle (Full E2E)", () => {
   const pendingCleanup: string[] = [];
 
   test.afterEach(async ({ request, adminToken }) => {
-    for (const sql of pendingCleanup) {
-      await execSQL(request, adminToken, sql).catch(() => {});
-    }
+    await cleanupOrganizationsBySlug(request, adminToken, pendingCleanup).catch(() => {});
     pendingCleanup.length = 0;
   });
 
@@ -33,9 +35,7 @@ test.describe("Organizations Lifecycle (Full E2E)", () => {
     const updatedOrgName = `Lifecycle Org Updated ${runID}`;
     const updatedOrgSlug = `org-lifecycle-updated-${runID}`;
 
-    pendingCleanup.push(
-      `DELETE FROM _ayb_organizations WHERE slug = '${sqlLiteral(orgSlug)}' OR slug = '${sqlLiteral(updatedOrgSlug)}'`,
-    );
+    pendingCleanup.push(orgSlug, updatedOrgSlug);
 
     await openOrganizationsPage(page);
 
@@ -56,8 +56,6 @@ test.describe("Organizations Lifecycle (Full E2E)", () => {
     if (typeof orgID !== "string") {
       throw new Error(`Expected org id for slug ${orgSlug}`);
     }
-    pendingCleanup.push(`DELETE FROM _ayb_organizations WHERE id = '${sqlLiteral(orgID)}'`);
-
     await page.getByLabel("Organization Name").fill(updatedOrgName);
     await page.getByLabel("Organization Slug").fill(updatedOrgSlug);
     await page.getByRole("button", { name: "Save Info" }).click();

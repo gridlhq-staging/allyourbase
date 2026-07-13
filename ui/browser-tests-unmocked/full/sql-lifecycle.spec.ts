@@ -1,5 +1,4 @@
-import { test, expect, execSQL, waitForDashboard } from "../fixtures";
-import type { Page } from "@playwright/test";
+import { test, expect, execSQL, openTableFromSidebar, waitForDashboard } from "../fixtures";
 
 /**
  * FULL E2E TEST: SQL View Lifecycle (table-context SQL tab)
@@ -11,25 +10,6 @@ import type { Page } from "@playwright/test";
 
 test.describe("SQL View Lifecycle (Full E2E)", () => {
   const cleanupSQL: string[] = [];
-
-  async function openTableFromSidebar(page: Page, tableName: string): Promise<void> {
-    const sidebar = page.locator("aside");
-    const refreshButton = page.getByRole("button", { name: /refresh schema/i });
-    const tableLink = sidebar.getByText(tableName, { exact: true });
-
-    await expect(refreshButton).toBeVisible({ timeout: 5000 });
-    await expect
-      .poll(
-        async () => {
-          await refreshButton.click();
-          return tableLink.isVisible();
-        },
-        { timeout: 15000 },
-      )
-      .toBe(true);
-
-    await tableLink.click();
-  }
 
   test.afterEach(async ({ request, adminToken }) => {
     for (const sql of cleanupSQL) {

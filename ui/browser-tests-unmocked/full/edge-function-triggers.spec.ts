@@ -6,8 +6,10 @@ import {
   seedEdgeFunction,
   deleteEdgeFunction,
   execSQL,
+  sqlLiteral,
   seedFile,
   deleteFile,
+  manualRunCronTrigger,
   waitForFunctionLog,
   waitForDashboard,
 } from "../fixtures";
@@ -62,10 +64,6 @@ function buildTriggerLifecycleFunctionSource(functionName: string): string {
 
 function marker(label: string, runId: number): string {
   return `${label}-${runId}-${Date.now()}`;
-}
-
-function escapeSQLLiteral(value: string): string {
-  return value.replace(/'/g, "''");
 }
 
 function extractInvocationMarker(stdout: string | undefined, context: string): string {
@@ -356,7 +354,7 @@ test.describe("Edge Function Triggers (Full E2E)", () => {
       await execSQL(
         request,
         adminToken,
-        `INSERT INTO ${tableName} (name) VALUES ('${escapeSQLLiteral(rowMarker)}')`,
+        `INSERT INTO ${tableName} (name) VALUES ('${sqlLiteral(rowMarker)}')`,
       );
       return actionStartedAt;
     };
@@ -419,41 +417,67 @@ test.describe("Edge Function Triggers (Full E2E)", () => {
     await expect(cronRow).toBeVisible({ timeout: 10000 });
     const cronControls = await getTriggerRowControls(cronRow);
     await expect(cronControls.runButton).toBeVisible({ timeout: 3000 });
-    const clickRunNow = async (runMarker: string): Promise<number> => {
-      const payloadJSON = JSON.stringify({ testRunId: runId, marker: runMarker });
-      await execSQL(
-        request,
-        adminToken,
-        `UPDATE _ayb_edge_cron_triggers
-         SET payload = '${escapeSQLLiteral(payloadJSON)}'::jsonb,
-             updated_at = NOW()
-         WHERE id = '${escapeSQLLiteral(cronControls.triggerId)}'`,
-      );
+
+    const runCronTrigger = async (triggerId: string): Promise<number> => {
       const actionStartedAt = Date.now();
-      await cronControls.runButton.click();
+      await manualRunCronTrigger(request, adminToken, fn.id, triggerId);
       return actionStartedAt;
     };
-    const initialCronMarker = marker("cron-initial", runId);
-    const disabledCronMarker = marker("cron-disabled", runId);
-    const reenabledCronMarker = marker("cron-reenabled", runId);
-    const { initialLog: initialCronLog, reenabledLog: reenabledCronLog } =
-      await assertTriggerToggleLifecycle({
-        request,
-        adminToken,
-        functionID: fn.id,
-        controls: cronControls,
-        path: "/cron",
-        triggerType: "cron",
-        initialMarker: initialCronMarker,
-        disabledMarker: disabledCronMarker,
-        reenabledMarker: reenabledCronMarker,
-        performAction: clickRunNow,
-        assertDisabledAction: async () => {
-          await expect(
-            page.getByTestId("toast").filter({ hasText: "cron trigger is disabled" }).last(),
-          ).toBeVisible({ timeout: 5000 });
-        },
-      });
+
+    const cronMarker = marker("cron-api-payload", runId);
+    await page.getByTestId(`trigger-delete-${cronControls.triggerId}`).click();
+    await page.getByTestId(`trigger-confirm-delete-${cronControls.triggerId}`).click();
+    await page.getByTestId("add-cron-trigger-btn").click();
+    await page.getByTestId("cron-trigger-expr").fill("5 0 * * *");
+    await page.getByTestId("cron-trigger-payload").fill(JSON.stringify({ testRunId: runId, marker: cronMarker }));
+    await page.getByTestId("cron-trigger-submit").click();
+
+    const apiPayloadCronRow = page.locator("tr").filter({ hasText: "5 0 * * *" }).first();
+    await expect(apiPayloadCronRow).toBeVisible({ timeout: 10000 });
+    const apiPayloadCronControls = await getTriggerRowControls(apiPayloadCronRow);
+    await expectTriggerStatus(apiPayloadCronControls.statusBadge, true);
+
+    const initialActionAt = await runCronTrigger(apiPayloadCronControls.triggerId);
+    const initialCronLog = await waitForMarkerLog(
+      request,
+      adminToken,
+      fn.id,
+      "/cron",
+      "cron",
+      cronMarker,
+      initialActionAt,
+    );
+
+    await apiPayloadCronControls.toggleButton.click();
+    await expectTriggerStatus(apiPayloadCronControls.statusBadge, false);
+    const disabledActionAt = Date.now();
+    await expect(
+      manualRunCronTrigger(request, adminToken, fn.id, apiPayloadCronControls.triggerId),
+    ).rejects.toThrow("cron trigger is disabled");
+    await apiPayloadCronControls.runButton.click();
+    await expect(page.getByTestId("toast").filter({ hasText: "cron trigger is disabled" })).toBeVisible();
+    await expectNoMarkerLog(
+      request,
+      adminToken,
+      fn.id,
+      "/cron",
+      "cron",
+      cronMarker,
+      disabledActionAt,
+    );
+
+    await apiPayloadCronControls.toggleButton.click();
+    await expectTriggerStatus(apiPayloadCronControls.statusBadge, true);
+    const reenabledActionAt = await runCronTrigger(apiPayloadCronControls.triggerId);
+    const reenabledCronLog = await waitForMarkerLog(
+      request,
+      adminToken,
+      fn.id,
+      "/cron",
+      "cron",
+      cronMarker,
+      reenabledActionAt,
+    );
     expect(initialCronLog.requestPath).toBe("/cron");
     expect(initialCronLog.triggerType).toBe("cron");
     expect(reenabledCronLog.requestPath).toBe("/cron");

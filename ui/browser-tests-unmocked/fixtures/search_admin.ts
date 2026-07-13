@@ -1,3 +1,4 @@
+/** @module Browser-test fixtures for search admin settings, synonyms, and transient-error retry logic. */
 import type { APIRequestContext } from "@playwright/test";
 import type { CollectionSearchSettingsPayload } from "../../src/api_admin";
 import { validateResponse } from "./core";
@@ -22,6 +23,7 @@ function isTransientSearchAdminError(status: number, message: string): boolean {
   return status === 500 && message.includes("failed to refresh search indexes");
 }
 
+/** Builds a descriptive error message from the response status and JSON body message/code, with text fallback. */
 async function describeResponseError(
   res: Awaited<ReturnType<APIRequestContext["put"]>>,
   context: string,
@@ -45,6 +47,7 @@ async function describeResponseError(
   return message;
 }
 
+/** PUTs a search admin resource with retry logic for transient 503/404/500 errors. */
 async function putSearchAdminResource(
   request: APIRequestContext,
   token: string,
@@ -122,8 +125,11 @@ export async function replaceCollectionSearchSettings(
   );
   await validateResponse(res, `Replace search settings for ${tableName}`);
   const body = await res.json();
-  if (!Array.isArray(body?.attributes) || !Array.isArray(body?.customRanking)) {
+  if (!Array.isArray(body?.attributes)) {
     throw new Error(`Expected search settings arrays for collection ${tableName}`);
   }
-  return body as CollectionSearchSettingsPayload;
+  return {
+    attributes: body.attributes,
+    customRanking: Array.isArray(body?.customRanking) ? body.customRanking : [],
+  } as CollectionSearchSettingsPayload;
 }

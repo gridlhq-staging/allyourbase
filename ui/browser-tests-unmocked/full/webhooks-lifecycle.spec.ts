@@ -2,7 +2,15 @@ import { createHmac } from "node:crypto";
 import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
 
-import { test, expect, execSQL, seedRecord, seedWebhook, sqlLiteral, waitForDashboard } from "../fixtures";
+import {
+  test,
+  expect,
+  deleteWebhooksByURL,
+  execSQL,
+  seedRecord,
+  seedWebhook,
+  waitForDashboard,
+} from "../fixtures";
 
 /**
  * FULL E2E TEST: Webhooks Lifecycle
@@ -17,7 +25,8 @@ import { test, expect, execSQL, seedRecord, seedWebhook, sqlLiteral, waitForDash
  */
 
 test.describe("Webhooks Lifecycle (Full E2E)", () => {
-  const pendingCleanup: string[] = [];
+  const pendingTableCleanup: string[] = [];
+  const pendingWebhookCleanup: string[] = [];
   const pendingServerCloses: Array<() => Promise<void>> = [];
 
   async function startWebhookTargetServer(): Promise<{
@@ -82,8 +91,9 @@ test.describe("Webhooks Lifecycle (Full E2E)", () => {
   }
 
   test.afterEach(async ({ request, adminToken }) => {
-    for (const sql of pendingCleanup.splice(0)) {
-      await execSQL(request, adminToken, sql).catch(() => {});
+    await deleteWebhooksByURL(request, adminToken, pendingWebhookCleanup.splice(0)).catch(() => {});
+    for (const tableName of pendingTableCleanup.splice(0)) {
+      await execSQL(request, adminToken, `DROP TABLE IF EXISTS ${tableName};`).catch(() => {});
     }
     for (const close of pendingServerCloses.splice(0).reverse()) {
       await close().catch(() => {});
@@ -95,7 +105,7 @@ test.describe("Webhooks Lifecycle (Full E2E)", () => {
     const webhookUrl = `https://example.com/lifecycle-verify-${runId}`;
 
     // Register cleanup early (by URL pattern) so afterEach runs it even on failure
-    pendingCleanup.push(`DELETE FROM _ayb_webhooks WHERE url = '${webhookUrl}';`);
+    pendingWebhookCleanup.push(webhookUrl);
 
     // Arrange: seed a webhook via API
     await seedWebhook(request, adminToken, webhookUrl);
@@ -123,10 +133,8 @@ test.describe("Webhooks Lifecycle (Full E2E)", () => {
     pendingServerCloses.push(webhookTarget.close);
 
     // Register cleanup early — URL may change mid-test (edit step), so clean up both
-    pendingCleanup.push(
-      `DROP TABLE IF EXISTS ${tableName};`,
-      `DELETE FROM _ayb_webhooks WHERE url = '${sqlLiteral(webhookUrl)}' OR url = '${sqlLiteral(updatedUrl)}';`,
-    );
+    pendingTableCleanup.push(tableName);
+    pendingWebhookCleanup.push(webhookUrl, updatedUrl);
     await execSQL(
       request,
       adminToken,

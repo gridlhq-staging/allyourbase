@@ -5,8 +5,7 @@ import {
   seedFile,
   deleteFile,
   ensureStorageBucket,
-  execSQL,
-  sqlLiteral,
+  deleteStorageBucket,
   waitForDashboard,
 } from "../fixtures";
 
@@ -34,11 +33,7 @@ test.describe("Storage Lifecycle (Full E2E)", () => {
     pendingFileCleanup.length = 0;
 
     for (const bucket of pendingBucketCleanup) {
-      await execSQL(
-        request,
-        adminToken,
-        `DELETE FROM _ayb_storage_buckets WHERE tenant_id = '' AND name = '${sqlLiteral(bucket)}'`,
-      ).catch(() => {});
+      await deleteStorageBucket(request, adminToken, bucket).catch(() => {});
     }
     pendingBucketCleanup.length = 0;
   });

@@ -3,9 +3,14 @@ import { readFileSync, readdirSync } from "node:fs";
 import { basename, resolve } from "node:path";
 import { AYBClient } from "./client";
 import { AYBError } from "./errors";
-import { buildOAuthStartURL, serializeWebAuthnMFAVerifyRequest } from "./auth";
+import {
+  buildOAuthStartURL,
+  serializeWebAuthnLoginFinishRequest,
+  serializeWebAuthnMFAVerifyRequest,
+} from "./auth";
 import {
   normalizeAuthResponse,
+  normalizeWebAuthnLoginBeginResponse,
   normalizeWebAuthnMFAChallengeResponse,
 } from "./helpers";
 import { AYBClient as PublicAYBClient } from "./index";
@@ -42,6 +47,7 @@ import type {
   WebAuthnEnrollBeginResponse,
   WebAuthnEnrollConfirmRequest,
   WebAuthnLoginBeginResponse,
+  WebAuthnLoginFinishRequest,
   WebAuthnMFAChallengeResponse,
   WebAuthnMFAVerifyRequest,
 } from "./types";
@@ -478,6 +484,17 @@ describe("SDK contract fixtures", () => {
     ]);
   });
 
+  it("discoverable webauthn begin response fixture normalizes challenge_id", () => {
+    const fixture = loadContractFixture("webauthn_discover_begin_response.json");
+    const response = normalizeWebAuthnLoginBeginResponse(fixture);
+
+    expect(response.challengeId).toBe("webauthn_discover_challenge_fixture");
+    expect(response.options.challenge).toBe("webauthn_discover_challenge");
+    expect(response.options.rpId).toBe("127.0.0.1");
+    expect(response.options.timeout).toBe(300000);
+    expect(response.options.allowCredentials ?? []).toEqual([]);
+  });
+
   it("webauthn mfa enroll begin fixture pins creation options", () => {
     const fixture = loadContractFixture(
       "webauthn_enroll_begin_response.json",
@@ -594,6 +611,47 @@ describe("SDK contract fixtures", () => {
         updatedAt: "2026-07-11T00:00:00Z",
       },
     });
+  });
+
+  it("discoverable webauthn finish request fixture pins login serialization", () => {
+    const wireRequest = loadContractFixture("webauthn_discover_finish_request.json") as {
+      challenge_id: string;
+      assertion_response: {
+        clientExtensionResults: Record<string, never>;
+        id: string;
+        rawId: string;
+        response: {
+          authenticatorData: string;
+          clientDataJSON: string;
+          signature: string;
+          userHandle: string;
+        };
+        type: string;
+      };
+    };
+    const finishRequest: WebAuthnLoginFinishRequest = {
+      challengeId: wireRequest.challenge_id,
+      assertionResponse: wireRequest.assertion_response,
+    };
+
+    expect(JSON.parse(serializeWebAuthnLoginFinishRequest(finishRequest))).toEqual(wireRequest);
+    expect(wireRequest.challenge_id).toBe("webauthn_discover_challenge_fixture");
+    expect(wireRequest.assertion_response.id).toBe("webauthn_discover_credential");
+    expect(wireRequest.assertion_response.rawId).toBe("webauthn_discover_credential");
+    expect(wireRequest.assertion_response.type).toBe("public-key");
+    expect(wireRequest.assertion_response.response.clientDataJSON).toBe(
+      "eyJ0eXBlIjoid2ViYXV0aG4uZ2V0IiwiY2hhbGxlbmdlIjoid2ViYXV0aG5fZGlzY292ZXJfY2hhbGxlbmdlIiwib3JpZ2luIjoiaHR0cDovLzEyNy4wLjAuMTo4MDkwIn0",
+    );
+    expect(wireRequest.assertion_response.response.authenticatorData).toBe(
+      "EsoXtJryKJQ28wPgFmAwoh5SXSZuIJJnQzgBqP1AcaAFAAAAAw",
+    );
+    expect(wireRequest.assertion_response.response.signature).toBe(
+      "webauthn_discover_signature",
+    );
+    expect(wireRequest.assertion_response.response.userHandle).toBe(
+      "webauthn_discover_user_handle",
+    );
+    expect(wireRequest.assertion_response.clientExtensionResults).toEqual({});
   });
 
   it("search synonym fixtures pin PUT request and normalized response envelopes", async () => {

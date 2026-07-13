@@ -41,6 +41,16 @@ struct ContractFixtureTests {
         }
     }
 
+    @Test func webAuthnDiscoverBeginFixtureDecodesWithoutAllowCredentials() throws {
+        let response = try WebAuthnLoginBeginResponse.decode(ContractFixtures.webAuthnDiscoverBeginResponse)
+
+        #expect(response.challengeId == "webauthn_discover_challenge_fixture")
+        #expect(response.options.challenge == "webauthn_discover_challenge")
+        #expect(response.options.rpId == "127.0.0.1")
+        #expect(response.options.timeout == 300000)
+        #expect(response.options.allowCredentials.isEmpty == true)
+    }
+
     @Test func webAuthnEnrollBeginFixtureDecodesThroughModelOwner() throws {
         let response = try WebAuthnEnrollBeginResponse.decode(ContractFixtures.webAuthnEnrollBeginResponse)
 

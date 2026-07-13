@@ -1,0 +1,8 @@
+{
+  "challenge_id": "webauthn_discover_challenge_fixture",
+  "options": {
+    "challenge": "webauthn_discover_challenge",
+    "rpId": "127.0.0.1",
+    "timeout": 300000
+  }
+}

@@ -1,0 +1,12 @@
+# Test-only override for the cell topology E2E driver.
+#
+# The shipped deploy/compose/docker-compose.yml deliberately publishes ONLY the
+# nginx LB port, keeping the prod-facing example minimal. The realtime proof,
+# however, must seed a proof table over a host-side Postgres connection. This
+# override publishes postgres to an OS-assigned ephemeral localhost port; the
+# driver discovers the mapping with `docker compose port postgres 5432` after
+# `up`. It is applied via a second `-f` flag and never ships with the example.
+services:
+  postgres:
+    ports:
+      - "127.0.0.1::5432"
