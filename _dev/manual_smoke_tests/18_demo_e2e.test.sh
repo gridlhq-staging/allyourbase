@@ -45,6 +45,12 @@ PASSED=0
 FAILED=0
 TOTAL=0
 
+# Isolated demo-app ports selected at preflight (see pick_free_demo_port). The
+# release gate must NOT require the universal Vite defaults (5173/5175/5177) to
+# be globally free, because those collide with unrelated dev servers on a shared
+# host. These are the ports ensure_stopped verifies between runs.
+DEMO_APP_PORTS=()
+
 # ── Helpers ──────────────────────────────────────────────────────
 
 pass() {
@@ -69,6 +75,20 @@ require_free_port() {
     fi
 }
 
+# pick_free_demo_port returns the first currently-free port from its candidate
+# list. Demos are served on these isolated ports (via AYB_DEMO_APP_PORT) so the
+# gate does not depend on the well-known Vite defaults being globally free.
+pick_free_demo_port() {
+    local candidate
+    for candidate in "$@"; do
+        if ! lsof -ti :"$candidate" >/dev/null 2>&1; then
+            printf '%s\n' "$candidate"
+            return 0
+        fi
+    done
+    return 1
+}
+
 wait_for_url() {
     local url="$1"
     local timeout="${2:-30}"
@@ -86,7 +106,10 @@ wait_for_url() {
 ensure_stopped() {
     "$AYB_BIN" stop > /dev/null 2>&1 || true
     sleep 1
-    for port in 8090 5173 5175 5177; do
+    # 8090 is AYB's own server port; DEMO_APP_PORTS are the isolated app ports
+    # this run selected. We never require the universal Vite defaults free.
+    # ${arr[@]+...} keeps empty-array expansion safe under `set -u` on bash 3.2.
+    for port in 8090 ${DEMO_APP_PORTS[@]+"${DEMO_APP_PORTS[@]}"}; do
         if ! require_free_port "$port" "port ${port} is still occupied after ayb stop" "kill"; then
             return 1
         fi
@@ -147,6 +170,11 @@ run_demo_e2e() {
     # Isolate only embedded Postgres data for hermetic demo runs. The shared
     # ~/.ayb/pgbin binary cache stays warm, and /tmp keeps Postgres sockets short.
     data_dir=$(mktemp -d /tmp/ayb-demoe2e.XXXXXX)
+
+    # Serve this demo on the isolated port and point Playwright's config at the
+    # same port (live-polls/movies reuse the running server; kanban runs its own
+    # vite and ignores this). Keeps the gate off the universal Vite defaults.
+    export AYB_DEMO_APP_PORT="$port"
 
     echo -e "\n${CYAN}── E2E: ${name} (port ${port}) ──${NC}\n"
 
@@ -258,6 +286,14 @@ echo -e "AYB_BIN: $AYB_BIN"
 echo -e "Rate limit: ${AYB_AUTH_RATE_LIMIT:-default}"
 echo ""
 
+# Select isolated, currently-free app ports before any ensure_stopped call so
+# the gate never depends on the universal Vite defaults (5173/5175/5177) being
+# globally free on a shared host. Candidates stay in the high-port range.
+KANBAN_PORT=$(pick_free_demo_port 45173 46173 47173 48173 49173) || { echo -e "${RED}ERROR: no free port for kanban demo${NC}"; exit 1; }
+POLLS_PORT=$(pick_free_demo_port 45175 46175 47175 48175 49175) || { echo -e "${RED}ERROR: no free port for live-polls demo${NC}"; exit 1; }
+MOVIES_PORT=$(pick_free_demo_port 45177 46177 47177 48177 49177) || { echo -e "${RED}ERROR: no free port for movies demo${NC}"; exit 1; }
+DEMO_APP_PORTS=("$KANBAN_PORT" "$POLLS_PORT" "$MOVIES_PORT")
+
 # A stale demo process can make the suite pass against the wrong server.
 # Treat occupied managed ports as a hard preflight failure.
 ensure_stopped || exit 1
@@ -269,17 +305,17 @@ FILTER="${1:-all}"
 # ── Run demo E2E suites ──────────────────────────────────────────
 
 if [ "$FILTER" = "all" ] || [ "$FILTER" = "kanban" ]; then
-    run_demo_e2e "kanban" 5173 "$REPO_ROOT/examples/kanban"
+    run_demo_e2e "kanban" "$KANBAN_PORT" "$REPO_ROOT/examples/kanban"
     ensure_stopped || exit 1
 fi
 
 if [ "$FILTER" = "all" ] || [ "$FILTER" = "live-polls" ]; then
-    run_demo_e2e "live-polls" 5175 "$REPO_ROOT/examples/live-polls"
+    run_demo_e2e "live-polls" "$POLLS_PORT" "$REPO_ROOT/examples/live-polls"
     ensure_stopped || exit 1
 fi
 
 if [ "$FILTER" = "all" ] || [ "$FILTER" = "movies" ]; then
-    run_demo_e2e "movies" 5177 "$REPO_ROOT/examples/movies"
+    run_demo_e2e "movies" "$MOVIES_PORT" "$REPO_ROOT/examples/movies"
     ensure_stopped || exit 1
 fi
 

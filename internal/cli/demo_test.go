@@ -705,3 +705,58 @@ func TestDemoAdminAuthProxyNoTokenNoInjection(t *testing.T) {
 		t.Errorf("empty admin token should not inject auth, got %q", gotAuth)
 	}
 }
+
+// TestDemoAppPortDefaultsToRegistry proves that without the override env,
+// effectiveDemoPort returns each demo's documented default so `ayb demo <name>`
+// keeps its user-facing port.
+func TestDemoAppPortDefaultsToRegistry(t *testing.T) {
+	t.Setenv(demoAppPortOverrideEnv, "")
+	for name, demo := range demoRegistry {
+		if got := effectiveDemoPort(demo); got != demo.Port {
+			t.Errorf("demo %q: expected default port %d, got %d", name, demo.Port, got)
+		}
+	}
+}
+
+// TestDemoAppPortOverrideFromEnv proves the release-gate smoke test can serve a
+// demo on an isolated port via AYB_DEMO_APP_PORT, so the gate need not require
+// the universal Vite defaults (5173/5175/5177) to be globally free.
+func TestDemoAppPortOverrideFromEnv(t *testing.T) {
+	demo := demoRegistry["kanban"]
+	t.Setenv(demoAppPortOverrideEnv, "48173")
+	if got := effectiveDemoPort(demo); got != 48173 {
+		t.Fatalf("expected override port 48173, got %d", got)
+	}
+}
+
+// TestDemoAppPortOverrideIgnoresInvalid proves a malformed or out-of-range
+// override is ignored and the documented default is used, so a bad env value
+// never silently breaks the user-facing demo port.
+func TestDemoAppPortOverrideIgnoresInvalid(t *testing.T) {
+	demo := demoRegistry["kanban"]
+	for _, bad := range []string{"0", "-1", "70000", "abc", "  "} {
+		t.Setenv(demoAppPortOverrideEnv, bad)
+		if got := effectiveDemoPort(demo); got != demo.Port {
+			t.Errorf("override %q: expected fallback to default %d, got %d", bad, demo.Port, got)
+		}
+	}
+}
+
+// TestDemoServerStartEnvUsesOverridePort proves the demo-started AYB server
+// advertises the overridden app origin as its site URL, so WebAuthn origin
+// checks stay consistent with the isolated port the demo actually serves on.
+func TestDemoServerStartEnvUsesOverridePort(t *testing.T) {
+	t.Setenv(demoAppPortOverrideEnv, "49173")
+	env := demoServerStartEnv("secret", "kanban", "8090")
+	want := "AYB_SERVER_SITE_URL=http://localhost:49173"
+	found := false
+	for _, kv := range env {
+		if kv == want {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("expected env to contain %q, got %v", want, env)
+	}
+}

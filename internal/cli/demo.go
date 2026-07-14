@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/allyourbase/ayb/internal/cli/ui"
@@ -75,6 +76,27 @@ var demoRegistry = map[string]demoInfo{
 
 const demoDefaultServerPort = "8090"
 
+// demoAppPortOverrideEnv optionally overrides the port a demo app is served on.
+// It exists so CI and the release-gate smoke test can run demos on isolated
+// ports instead of requiring the universal Vite defaults (5173/5175/5177) to be
+// globally free on a shared host, where they collide with unrelated dev
+// servers. Unset, demos keep their documented user-facing ports.
+const demoAppPortOverrideEnv = "AYB_DEMO_APP_PORT"
+
+// effectiveDemoPort returns the port the demo app should be served on: the
+// AYB_DEMO_APP_PORT override when it is a valid TCP port, otherwise the registry
+// default so a plain `ayb demo <name>` keeps its documented port. This is the
+// single source of truth for the effective app port — both the served port and
+// the demo-started server's advertised site URL resolve through it.
+func effectiveDemoPort(demo demoInfo) int {
+	if raw := strings.TrimSpace(os.Getenv(demoAppPortOverrideEnv)); raw != "" {
+		if port, err := strconv.Atoi(raw); err == nil && port > 0 && port <= 65535 {
+			return port
+		}
+	}
+	return demo.Port
+}
+
 var demoCmd = &cobra.Command{
 	Use:   "demo <name>",
 	Short: "Run a demo app (one command, batteries included)",
@@ -114,6 +136,9 @@ func runDemo(cmd *cobra.Command, args []string) error {
 		}
 		return fmt.Errorf("unknown demo %q (available: %s)", name, strings.Join(names, ", "))
 	}
+	// demo is a copy of the registry entry; resolving the effective port here
+	// keeps the banner and the served port consistent under an override.
+	demo.Port = effectiveDemoPort(demo)
 
 	useColor := colorEnabled()
 	isTTY := ui.StderrIsTTY()

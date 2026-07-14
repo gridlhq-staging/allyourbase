@@ -5,6 +5,10 @@ export function sqlLiteral(value: string): string {
   return value.replaceAll("'", "''");
 }
 
+export function escapeLikePattern(value: string): string {
+  return value.replaceAll("\\", "\\\\").replaceAll("%", "\\%").replaceAll("_", "\\_").replaceAll("'", "''");
+}
+
 /** Throws a descriptive error with status, message, and code if the response is not ok. */
 export async function validateResponse(
   res: Awaited<ReturnType<APIRequestContext["post"]>>,

@@ -205,7 +205,9 @@ func demoServerStartEnv(jwtSecret, demoName, serverPort string) []string {
 	if demo, ok := demoRegistry[demoName]; ok {
 		// WebAuthn verifies the browser origin, so demo-started servers
 		// advertise the app origin rather than the backend API target.
-		siteURL = fmt.Sprintf("http://localhost:%d", demo.Port)
+		// Resolve through effectiveDemoPort so an isolated-port override
+		// stays consistent between the served app and the advertised origin.
+		siteURL = fmt.Sprintf("http://localhost:%d", effectiveDemoPort(demo))
 	}
 	return append(
 		os.Environ(),

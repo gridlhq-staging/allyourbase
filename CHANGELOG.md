@@ -8,23 +8,54 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+### Changed
+
+### Fixed
+
+## [0.0.17-beta] - 2026-07-13
+
+### Added
+
 - Passkey credential management in the dashboard: list, rename, and delete
   WebAuthn credentials, plus usernameless (discoverable) passkey login backed
   by the JS SDK's new discoverable-login and credential-management helpers.
 - Go SDK auth parity: OAuth start-URL helper and WebAuthn MFA second-factor
   wire helpers (enroll/confirm/challenge/verify), contract-tested against the
   canonical fixtures.
+- Discoverable passkey login helpers now cover the Go, Python, Dart, Kotlin,
+  and Swift SDKs, backed by language-specific auth tests and shared contract
+  fixtures.
+- HA/self-hosting guidance now includes compose cell topology docs, a
+  load-balanced cell topology E2E driver, and `make test-cell` validation for
+  multi-node deployments.
+- Public demo deployment workflows for Kanban and Movies now publish live demo
+  builds, with Fly release-image support for the demo deployment path.
+- Dashboard and admin reference coverage now includes passkeys, auth settings,
+  database-service screens, observability screens, long-tail operational
+  screens, and backfilled screen-state evidence.
 
 ### Changed
+
+- Browser release-gate fixtures now guard against system-table writes and have
+  stronger fixture contracts for CRUD, SQL lifecycle, usage, OAuth, and edge
+  function paths.
+- Browser-test fixture documentation no longer ships generated TODO stubs, and
+  obsolete SDK helper code was removed.
 
 ### Fixed
 
 - OAuth start-URL helpers in the Swift, Kotlin, and JS SDKs percent-encode
   provider names and state values, matching the canonical contract fixtures
-  byte-for-byte. (Moved from the 0.0.16-beta section, which mis-credited it:
-  fix commit `cefb30e8a` merged at the jul11_pm batch close and is not in the
-  v0.0.16-beta release lineage `aa3cb8f82` — its `buildOAuthStartURL` still
-  interpolates provider/state raw.)
+  byte-for-byte. The fix commit `cefb30e8a` belongs to this 0.0.17-beta
+  lineage, not 0.0.16-beta; the 0.0.16-beta release lineage `aa3cb8f82` still
+  interpolates provider/state raw.
+- WebAuthn credential deletion, refresh, and change-notification handling now
+  rejects unsafe final-passkey deletion paths, refreshes passkey state
+  correctly, and emails users when passkeys change.
+- Compose and demo deployment docs now use corrected validation commands,
+  nginx host-port forwarding, and a pinned MinIO client initializer image.
+- Release-gate browser fixtures and usage smoke coverage now match the current
+  API contracts instead of relying on stale test assumptions.
 
 ## [0.0.16-beta] - 2026-07-12
 

@@ -7,11 +7,12 @@ function readProjectFile(relativePath: string): string {
 }
 
 describe("stage 2 browser fixture refactor contracts", () => {
-  it("exports sqlLiteral from unmocked shared fixtures", () => {
+  it("exports shared SQL escaping helpers from unmocked shared fixtures", () => {
     const fixturesSource = readProjectFile("browser-tests-unmocked/fixtures.ts");
     const coreSource = readProjectFile("browser-tests-unmocked/fixtures/core.ts");
     expect(fixturesSource).toContain('export * from "./fixtures/index"');
     expect(coreSource).toMatch(/export function sqlLiteral\(/);
+    expect(coreSource).toMatch(/export function escapeLikePattern\(/);
   });
 
   it("removes duplicated sqlLiteral/createUser/createApp helpers from api-keys lifecycle spec", () => {
@@ -32,7 +33,7 @@ describe("stage 2 browser fixture refactor contracts", () => {
 
   it("reuses shared sqlLiteral escaping inside sms fixture helpers", () => {
     const smsFixtures = readProjectFile("browser-tests-unmocked/fixtures/sms.ts");
-    expect(smsFixtures).toContain('import { execSQL, sqlLiteral } from "./core"');
+    expect(smsFixtures).toContain('import { escapeLikePattern, execSQL, sqlLiteral } from "./core"');
     expect(smsFixtures).toContain("const safeToPhone = sqlLiteral(toPhone);");
     expect(smsFixtures).toContain("const safeBodyPrefix = sqlLiteral(bodyPrefix);");
     expect(smsFixtures).toContain("escapeLikePattern(bodyPattern)");
