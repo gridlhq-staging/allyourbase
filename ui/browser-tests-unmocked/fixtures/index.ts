@@ -1,4 +1,3 @@
-/** @module Re-exports all browser-test fixtures and defines the extended Playwright test object with auth/MFA helpers. */
 import { expect, test as base, type APIRequestContext, type Page, type TestInfo } from "@playwright/test";
 import { getBrowserUnmockedSkipReason } from "../browser-preflight";
 import { checkAuthEnabled, execSQL, getStoredAdminToken, waitForDashboard } from "./core";

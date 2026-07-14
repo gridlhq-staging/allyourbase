@@ -746,8 +746,8 @@ describe("SDK integration smoke + auth suite", () => {
       // /verify request reaches WebAuthn handler validation instead of failing
       // the auth gate first.
       await adminSql(
-        `INSERT INTO _ayb_user_mfa (user_id, method, enabled, enrolled_at, webauthn_display_name)
-         VALUES (${sqlStringLiteral(pendingRegistered.user.id)}, 'webauthn', true, NOW(), 'sdk contract passkey')`,
+        `INSERT INTO _ayb_user_mfa (user_id, method, enabled, enrolled_at)
+         VALUES (${sqlStringLiteral(pendingRegistered.user.id)}, 'webauthn', true, NOW())`,
       );
       await pendingClient.auth.logout();
 
