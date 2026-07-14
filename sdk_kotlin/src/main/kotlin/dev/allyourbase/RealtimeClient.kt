@@ -6,7 +6,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.cancel
+import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
@@ -48,9 +48,9 @@ class RealtimeClient internal constructor(
         runCatching {
             runBlocking {
                 disconnectWebSocket()
+                scope.coroutineContext[Job]?.cancelAndJoin()
             }
         }
-        scope.cancel()
     }
 
     fun subscribe(
@@ -311,7 +311,14 @@ class RealtimeClient internal constructor(
     fun subscribeWSFlow(tables: List<String>, filter: String? = null): Flow<RealtimeEvent> = callbackFlow {
         var unsubscribe: (() -> Unit)? = null
         val job = scope.launch {
-            unsubscribe = subscribeWS(tables, filter) { event -> trySend(event).isSuccess }
+            runCatching {
+                unsubscribe = subscribeWS(tables, filter) { event -> trySend(event).isSuccess }
+            }.onFailure { error ->
+                if (error is CancellationException) {
+                    throw error
+                }
+                close(error)
+            }
         }
         awaitClose {
             unsubscribe?.invoke()
