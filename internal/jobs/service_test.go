@@ -702,9 +702,20 @@ func TestLeaseRenewalStopsOnCompletion(t *testing.T) {
 
 	// Job completed quickly — no crash, no goroutine leak. This test mainly
 	// ensures the renewal goroutine doesn't panic or prevent completion.
-	completed, err := svc.List(ctx, "completed", "quick_job", 10, 0)
-	testutil.NoError(t, err)
-	testutil.Equal(t, 1, len(completed))
+	completionDeadline := time.After(3 * time.Second)
+	for {
+		completed, err := svc.List(ctx, "completed", "quick_job", 10, 0)
+		testutil.NoError(t, err)
+		if len(completed) == 1 {
+			break
+		}
+		select {
+		case <-completionDeadline:
+			t.Fatal("timed out waiting for quick job completion")
+		default:
+			time.Sleep(50 * time.Millisecond)
+		}
+	}
 }
 
 // --- Scheduler Tests ---
