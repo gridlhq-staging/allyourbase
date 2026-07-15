@@ -33,7 +33,7 @@ describe("stage 2 browser fixture refactor contracts", () => {
 
   it("reuses shared sqlLiteral escaping inside sms fixture helpers", () => {
     const smsFixtures = readProjectFile("browser-tests-unmocked/fixtures/sms.ts");
-    expect(smsFixtures).toContain('import { escapeLikePattern, execSQL, sqlLiteral } from "./core"');
+    expect(smsFixtures).toMatch(/import \{[^}]*\bsqlLiteral\b[^}]*\} from "\.\/core"/);
     expect(smsFixtures).toContain("const safeToPhone = sqlLiteral(toPhone);");
     expect(smsFixtures).toContain("const safeBodyPrefix = sqlLiteral(bodyPrefix);");
     expect(smsFixtures).toContain("escapeLikePattern(bodyPattern)");

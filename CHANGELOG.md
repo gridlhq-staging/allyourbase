@@ -23,24 +23,29 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   wire helpers (enroll/confirm/challenge/verify), contract-tested against the
   canonical fixtures.
 - Discoverable passkey login helpers now cover the Go, Python, Dart, Kotlin,
-  and Swift SDKs, backed by language-specific auth tests and shared contract
-  fixtures.
-- HA/self-hosting guidance now includes compose cell topology docs, a
-  load-balanced cell topology E2E driver, and `make test-cell` validation for
-  multi-node deployments.
-- Public demo deployment workflows for Kanban and Movies now publish live demo
-  builds, with Fly release-image support for the demo deployment path.
-- Dashboard and admin reference coverage now includes passkeys, auth settings,
-  database-service screens, observability screens, long-tail operational
-  screens, and backfilled screen-state evidence.
+  and Swift SDKs, completing usernameless login across all six clients and
+  contract-tested against the canonical discoverable-login fixtures.
+- Email notifications on passkey credential changes: adding, renaming, or
+  deleting a WebAuthn credential now notifies the account owner.
+- HA/self-hosting guidance now includes a compose cell topology (two `ayb`
+  nodes behind nginx with external Postgres and S3-compatible storage), a
+  load-balanced cell topology E2E driver proving realtime WebSocket
+  subscriptions survive round-robin load balancing without sticky sessions,
+  and `make test-cell` validation for multi-node deployments.
+- Cloudflare Pages deploy workflows for the kanban and movies demo apps,
+  matching the existing live-polls and InstantSearch demos.
+- Dashboard reference coverage now spans the full screen inventory, including
+  passkeys, auth settings, database-service, observability, and long-tail
+  operational screens.
 
 ### Changed
 
-- Browser release-gate fixtures now guard against system-table writes and have
+- Removed the superseded per-user WebAuthn columns from `_ayb_user_mfa`; the
+  per-credential table introduced in 0.0.16-beta is now the sole owner of
+  enrolled passkeys.
+- Browser release-gate fixtures guard against system-table writes and carry
   stronger fixture contracts for CRUD, SQL lifecycle, usage, OAuth, and edge
   function paths.
-- Browser-test fixture documentation no longer ships generated TODO stubs, and
-  obsolete SDK helper code was removed.
 
 ### Fixed
 
@@ -52,10 +57,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - WebAuthn credential deletion, refresh, and change-notification handling now
   rejects unsafe final-passkey deletion paths, refreshes passkey state
   correctly, and emails users when passkeys change.
-- Compose and demo deployment docs now use corrected validation commands,
-  nginx host-port forwarding, and a pinned MinIO client initializer image.
-- Release-gate browser fixtures and usage smoke coverage now match the current
-  API contracts instead of relying on stale test assumptions.
+- Kotlin SDK realtime client no longer leaks its coroutine scope on `close()`,
+  and contains subscription setup failures instead of raising an uncaught
+  coroutine exception.
+- Browser-test fixtures define `escapeLikePattern` in the shared fixtures core.
+  The push and SMS cleanup helpers called it without it ever existing, failing
+  three UI unit tests and turning CI red.
+- Compose and demo deployment docs use corrected validation commands, nginx
+  host-port forwarding, and a pinned MinIO client initializer image.
 
 ## [0.0.16-beta] - 2026-07-12
 

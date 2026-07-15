@@ -5,8 +5,18 @@ export function sqlLiteral(value: string): string {
   return value.replaceAll("'", "''");
 }
 
+/**
+ * Escapes a value for literal matching inside a single-quoted SQL `LIKE` pattern
+ * declared with `ESCAPE '\'`. Neutralizes the LIKE wildcards and the escape
+ * character itself, then quote-escapes the result so callers can interpolate it
+ * straight into the quoted pattern.
+ */
 export function escapeLikePattern(value: string): string {
-  return value.replaceAll("\\", "\\\\").replaceAll("%", "\\%").replaceAll("_", "\\_").replaceAll("'", "''");
+  const wildcardEscaped = value
+    .replaceAll("\\", "\\\\")
+    .replaceAll("%", "\\%")
+    .replaceAll("_", "\\_");
+  return sqlLiteral(wildcardEscaped);
 }
 
 /** Throws a descriptive error with status, message, and code if the response is not ok. */
