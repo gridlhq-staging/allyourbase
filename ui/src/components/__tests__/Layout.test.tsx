@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { Layout } from "../Layout";
@@ -141,9 +141,96 @@ describe("Layout", () => {
   const onRefresh = vi.fn();
 
   beforeEach(() => {
+    vi.restoreAllMocks();
     vi.clearAllMocks();
     localStorage.clear();
+    document.head.innerHTML = '<meta name="ayb-admin-base" content="/admin/">';
+    window.history.replaceState(null, "", "/admin/");
     document.documentElement.classList.remove("dark");
+  });
+
+  it("restores an exact table from a deep link", () => {
+    window.history.replaceState(null, "", "/admin/tables/public/users");
+    renderWithTheme(
+      <Layout schema={twoTableSchema} onLogout={onLogout} onRefresh={onRefresh} />,
+    );
+    expect(screen.getByTestId("table-browser")).toHaveTextContent("users");
+  });
+
+  it("pushes one pathname change and preserves query and hash", async () => {
+    window.history.replaceState(null, "", "/admin/?perfRange=24h#slow");
+    const pushState = vi.spyOn(window.history, "pushState");
+    renderWithTheme(
+      <Layout schema={twoTableSchema} onLogout={onLogout} onRefresh={onRefresh} />,
+    );
+
+    await userEvent.setup().click(screen.getByText("Webhooks"));
+
+    expect(pushState).toHaveBeenCalledOnce();
+    expect(window.location.pathname).toBe("/admin/screens/webhooks");
+    expect(window.location.search).toBe("?perfRange=24h");
+    expect(window.location.hash).toBe("#slow");
+    expect(screen.getByTestId("webhooks-view")).toBeInTheDocument();
+  });
+
+  it("applies popstate without pushing a history entry", async () => {
+    const pushState = vi.spyOn(window.history, "pushState");
+    renderWithTheme(
+      <Layout schema={twoTableSchema} onLogout={onLogout} onRefresh={onRefresh} />,
+    );
+    act(() => {
+      window.history.replaceState(null, "", "/admin/screens/sql-editor");
+      window.dispatchEvent(new PopStateEvent("popstate"));
+    });
+
+    await waitFor(() => expect(screen.getByTestId("sql-editor")).toBeInTheDocument());
+    expect(pushState).not.toHaveBeenCalled();
+  });
+
+  it("canonicalizes a valid deep link with replaceState", async () => {
+    window.history.replaceState(null, "", "/admin/screens/sql%2Deditor/?filter=slow#query");
+    const replaceState = vi.spyOn(window.history, "replaceState");
+    renderWithTheme(
+      <Layout schema={twoTableSchema} onLogout={onLogout} onRefresh={onRefresh} />,
+    );
+
+    await waitFor(() => expect(screen.getByTestId("sql-editor")).toBeInTheDocument());
+    expect(replaceState).toHaveBeenCalledOnce();
+    expect(`${window.location.pathname}${window.location.search}${window.location.hash}`).toBe(
+      "/admin/screens/sql-editor?filter=slow#query",
+    );
+  });
+
+  it("returns from a route failure with one ordinary push", async () => {
+    window.history.replaceState(null, "", "/admin/screens/missing?filter=slow#query");
+    const pushState = vi.spyOn(window.history, "pushState");
+    renderWithTheme(
+      <Layout schema={twoTableSchema} onLogout={onLogout} onRefresh={onRefresh} />,
+    );
+
+    await userEvent.setup().click(screen.getByRole("button", { name: "Return to console" }));
+    expect(pushState).toHaveBeenCalledOnce();
+    expect(`${window.location.pathname}${window.location.search}${window.location.hash}`).toBe(
+      "/admin/?filter=slow#query",
+    );
+    expect(screen.getByTestId("table-browser")).toHaveTextContent("posts");
+  });
+
+  it("re-resolves a missing table after schema changes without pushing", async () => {
+    window.history.replaceState(null, "", "/admin/tables/public/users");
+    const pushState = vi.spyOn(window.history, "pushState");
+    const { rerender } = renderWithTheme(
+      <Layout schema={makeSchema()} onLogout={onLogout} onRefresh={onRefresh} />,
+    );
+    expect(screen.getByText("Table not found")).toBeInTheDocument();
+
+    rerender(
+      <ThemeProvider>
+        <Layout schema={twoTableSchema} onLogout={onLogout} onRefresh={onRefresh} />
+      </ThemeProvider>,
+    );
+    await waitFor(() => expect(screen.getByTestId("table-browser")).toHaveTextContent("users"));
+    expect(pushState).not.toHaveBeenCalled();
   });
 
   it("renders sidebar with table names", () => {
@@ -580,5 +667,73 @@ describe("Layout", () => {
     await user.click(screen.getByText("Organizations"));
     expect(screen.getByTestId("organizations-view")).toBeInTheDocument();
     expect(screen.queryByText("Data")).not.toBeInTheDocument();
+  });
+
+  it("applies one capability-filtered registry to sidebar and command palette", async () => {
+    vi.resetModules();
+    const Icon = () => null;
+    const mockedCapability = { kind: "known" as const, capabilities: { storage: false } };
+    vi.doMock("../../capabilities", () => ({
+      useCapability: () => ({
+        state: mockedCapability,
+        canUse: (capability: string) => capability !== "storage",
+      }),
+    }));
+    vi.doMock("../../screens/registry", async () => {
+      const actual =
+        await vi.importActual<typeof import("../../screens/registry")>("../../screens/registry");
+      return {
+        ...actual,
+        SCREEN_REGISTRY: {
+          sections: [
+            {
+              title: "Services",
+              screens: [
+                {
+                  id: "storage",
+                  label: "Gated Storage",
+                  icon: Icon,
+                  requires: "storage",
+                  render: () => <div data-testid="gated-storage" />,
+                },
+              ],
+            },
+            {
+              title: "Admin",
+              screens: [
+                {
+                  id: "users",
+                  label: "Users",
+                  icon: Icon,
+                  render: () => <div data-testid="fixture-users" />,
+                },
+              ],
+            },
+          ],
+        },
+      };
+    });
+    const [{ Layout: MockedLayout }, { ThemeProvider: MockedThemeProvider }] =
+      await Promise.all([
+        import("../Layout"),
+        import("../ThemeProvider"),
+      ]);
+
+    render(
+      <MockedThemeProvider>
+        <MockedLayout schema={makeSchema()} onLogout={onLogout} onRefresh={onRefresh} />
+      </MockedThemeProvider>,
+    );
+
+    expect(screen.queryByRole("button", { name: "Gated Storage" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Users" })).toBeInTheDocument();
+
+    await userEvent.setup().click(screen.getByRole("button", { name: /Search/ }));
+
+    expect(screen.queryByText("Gated Storage")).not.toBeInTheDocument();
+    expect(screen.getAllByText("Users").length).toBeGreaterThanOrEqual(2);
+
+    vi.doUnmock("../../capabilities");
+    vi.doUnmock("../../screens/registry");
   });
 });

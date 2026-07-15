@@ -4,11 +4,13 @@ import type { SchemaCache } from "./types";
 import { Login } from "./components/Login";
 import { Layout } from "./components/Layout";
 import { OAuthConsent } from "./components/OAuthConsent";
+import { getAdminCapabilities, type AdminCapabilityState } from "./api_capabilities";
+import { CapabilityProvider } from "./capabilities";
 
 type AppState =
   | { kind: "loading" }
   | { kind: "login" }
-  | { kind: "ready"; schema: SchemaCache };
+  | { kind: "ready"; schema: SchemaCache; capabilities: AdminCapabilityState };
 
 function normalizeReturnTo(raw: string): string | null {
   const returnTo = raw.trim();
@@ -61,9 +63,11 @@ function AdminDashboard() {
         return;
       }
 
+      const capabilities = await getAdminCapabilities();
+
       // Load schema.
       const schema = await getSchema();
-      setState({ kind: "ready", schema });
+      setState({ kind: "ready", schema, capabilities });
     } catch (e) {
       if (e instanceof ApiError && e.status === 401) {
         clearAuthToken();
@@ -109,7 +113,12 @@ function AdminDashboard() {
   const refreshSchema = useCallback(async () => {
     try {
       const schema = await getSchema();
-      setState({ kind: "ready", schema });
+      setState((current) => {
+        if (current.kind !== "ready") {
+          return current;
+        }
+        return { ...current, schema };
+      });
     } catch (e) {
       if (e instanceof ApiError && e.status === 401) {
         clearAuthToken();
@@ -153,10 +162,12 @@ function AdminDashboard() {
   }
 
   return (
-    <Layout
-      schema={state.schema}
-      onLogout={handleLogout}
-      onRefresh={refreshSchema}
-    />
+    <CapabilityProvider state={state.capabilities}>
+      <Layout
+        schema={state.schema}
+        onLogout={handleLogout}
+        onRefresh={refreshSchema}
+      />
+    </CapabilityProvider>
   );
 }

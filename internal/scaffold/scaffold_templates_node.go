@@ -23,7 +23,7 @@ func expressTSConfig() string {
 
 // nodeMain returns the TypeScript entry point source that checks AYB server health and lists items, injecting collection list setup, expression, and display body for template-specific examples.
 func nodeMain(listSetup, listItemsExpression, listItemsBody string) string {
-	return fmt.Sprintf(`import { ayb } from "./lib/ayb";
+	return fmt.Sprintf(`import { ayb } from "./lib/ayb.js";
 
 async function main() {
   try {

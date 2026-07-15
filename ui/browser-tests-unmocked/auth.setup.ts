@@ -4,6 +4,7 @@
 import { test as setup, expect } from "@playwright/test";
 import { getBrowserUnmockedSkipReason } from "./browser-preflight";
 import { resolveAdminBootstrapCredential } from "./admin-bootstrap";
+import { adminPath } from "./fixtures";
 
 /**
  * AUTH SETUP: Log into the admin dashboard and save auth state.
@@ -25,11 +26,11 @@ if (browserSkipReason) {
 }
 
 async function bootstrapWithSavedToken(page: import("@playwright/test").Page, token: string): Promise<boolean> {
-  await page.goto("/admin/", { waitUntil: "domcontentloaded" });
+  await page.goto(adminPath(), { waitUntil: "domcontentloaded" });
   await page.evaluate((savedToken: string) => {
     window.localStorage.setItem("ayb_admin_token", savedToken);
   }, token);
-  await page.goto("/admin/", { waitUntil: "domcontentloaded" });
+  await page.goto(adminPath(), { waitUntil: "domcontentloaded" });
   try {
     await expect(page.getByRole("navigation")).toBeVisible({ timeout: 5000 });
     return true;
@@ -44,7 +45,7 @@ async function bootstrapWithSavedToken(page: import("@playwright/test").Page, to
 }
 
 async function loginWithPassword(page: import("@playwright/test").Page, password: string): Promise<void> {
-  await page.goto("/admin/", { waitUntil: "domcontentloaded" });
+  await page.goto(adminPath(), { waitUntil: "domcontentloaded" });
 
   // Wait for login form
   await expect(page.getByText("Enter the admin password")).toBeVisible({
@@ -60,8 +61,8 @@ async function loginWithPassword(page: import("@playwright/test").Page, password
   // The admin SPA writes the JWT to localStorage immediately after the API
   // call succeeds (before the boot/schema-fetch cycle even starts), so the
   // token appearing in localStorage is the fastest reliable signal that login
-  // worked.  The SPA never changes the URL from /admin/ — all routing is
-  // client-side state — so a URL-based wait would hang forever.
+  // worked. The SPA can remain at any configured admin-base route, so a
+  // URL-based wait cannot reliably distinguish successful authentication.
   await page.waitForFunction(
     () => {
       const token = localStorage.getItem("ayb_admin_token");

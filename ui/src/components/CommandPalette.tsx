@@ -3,29 +3,15 @@ import type { Table } from "../types";
 import {
   Search,
   Table as TableIcon,
-  Code,
-  Zap,
-  Shield,
-  HardDrive,
-  Webhook,
-  Users as UsersIcon,
-  KeyRound,
-  Compass,
-  MessageCircle,
-  MessageSquare,
   Command,
-  ListTodo,
-  CalendarClock,
-  Mail,
-  Bell,
-  Activity,
-  Gauge,
 } from "lucide-react";
 import { cn } from "../lib/utils";
+import type { AdminView } from "./layout-types";
+import { SCREEN_REGISTRY, type ScreenRegistry } from "../screens/registry";
 
 export type CommandAction =
   | { kind: "table"; table: Table }
-  | { kind: "view"; view: string };
+  | { kind: "view"; view: AdminView };
 
 interface CommandItem {
   id: string;
@@ -41,32 +27,12 @@ interface CommandPaletteProps {
   onClose: () => void;
   onSelect: (action: CommandAction) => void;
   tables: Table[];
+  screenRegistry?: ScreenRegistry;
 }
 
 const ICON_CLS = "w-4 h-4 text-gray-400 dark:text-gray-500 shrink-0";
 
-const NAV_ITEMS: Omit<CommandItem, "id">[] = [
-  { label: "SQL Editor", section: "Navigation", icon: <Code className={ICON_CLS} />, action: { kind: "view", view: "sql-editor" } },
-  { label: "Functions", section: "Navigation", icon: <Zap className={ICON_CLS} />, action: { kind: "view", view: "functions" } },
-  { label: "RLS Policies", section: "Navigation", icon: <Shield className={ICON_CLS} />, action: { kind: "view", view: "rls" } },
-  { label: "Storage", section: "Navigation", icon: <HardDrive className={ICON_CLS} />, action: { kind: "view", view: "storage" } },
-  { label: "Webhooks", section: "Navigation", icon: <Webhook className={ICON_CLS} />, action: { kind: "view", view: "webhooks" } },
-  { label: "Users", section: "Navigation", icon: <UsersIcon className={ICON_CLS} />, action: { kind: "view", view: "users" } },
-  { label: "API Keys", section: "Navigation", icon: <KeyRound className={ICON_CLS} />, action: { kind: "view", view: "api-keys" } },
-  { label: "API Explorer", section: "Navigation", icon: <Compass className={ICON_CLS} />, action: { kind: "view", view: "api-explorer" } },
-  { label: "SMS Health", section: "Navigation", icon: <MessageCircle className={ICON_CLS} />, action: { kind: "view", view: "sms-health" } },
-  { label: "SMS Messages", section: "Navigation", icon: <MessageSquare className={ICON_CLS} />, action: { kind: "view", view: "sms-messages" } },
-  { label: "Email Templates", section: "Navigation", icon: <Mail className={ICON_CLS} />, action: { kind: "view", view: "email-templates" } },
-  { label: "Push Notifications", section: "Navigation", icon: <Bell className={ICON_CLS} />, action: { kind: "view", view: "push" } },
-  { label: "Jobs", section: "Navigation", icon: <ListTodo className={ICON_CLS} />, action: { kind: "view", view: "jobs" } },
-  { label: "Schedules", section: "Navigation", icon: <CalendarClock className={ICON_CLS} />, action: { kind: "view", view: "schedules" } },
-  { label: "Realtime Inspector", section: "Navigation", icon: <Activity className={ICON_CLS} />, action: { kind: "view", view: "realtime-inspector" } },
-  { label: "Security Advisor", section: "Navigation", icon: <Shield className={ICON_CLS} />, action: { kind: "view", view: "security-advisor" } },
-  { label: "Performance Advisor", section: "Navigation", icon: <Gauge className={ICON_CLS} />, action: { kind: "view", view: "performance-advisor" } },
-  { label: "MFA Management", section: "Navigation", icon: <Shield className={ICON_CLS} />, action: { kind: "view", view: "mfa-management" } },
-];
-
-function buildItems(tables: Table[]): CommandItem[] {
+function buildItems(tables: Table[], screenRegistry: ScreenRegistry): CommandItem[] {
   const tableItems: CommandItem[] = tables.map((t) => ({
     id: `table:${t.schema}.${t.name}`,
     label: t.name,
@@ -76,10 +42,18 @@ function buildItems(tables: Table[]): CommandItem[] {
     action: { kind: "table" as const, table: t },
   }));
 
-  const navItems: CommandItem[] = NAV_ITEMS.map((n, i) => ({
-    ...n,
-    id: `nav:${i}`,
-  }));
+  const navItems: CommandItem[] = screenRegistry.sections.flatMap((section) =>
+    section.screens.map((screen) => {
+      const Icon = screen.icon;
+      return {
+        id: `nav:${screen.id}`,
+        label: screen.label,
+        section: "Navigation",
+        icon: <Icon className={ICON_CLS} />,
+        action: { kind: "view" as const, view: screen.id },
+      };
+    }),
+  );
 
   return [...tableItems, ...navItems];
 }
@@ -94,13 +68,19 @@ function fuzzyMatch(query: string, text: string): boolean {
   return qi === q.length;
 }
 
-export function CommandPalette({ open, onClose, onSelect, tables }: CommandPaletteProps) {
+export function CommandPalette({
+  open,
+  onClose,
+  onSelect,
+  tables,
+  screenRegistry = SCREEN_REGISTRY,
+}: CommandPaletteProps) {
   const [query, setQuery] = useState("");
   const [activeIndex, setActiveIndex] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
 
-  const allItems = buildItems(tables);
+  const allItems = buildItems(tables, screenRegistry);
   const filtered = query
     ? allItems.filter((item) => {
         const text = item.sublabel ? `${item.sublabel}.${item.label}` : item.label;

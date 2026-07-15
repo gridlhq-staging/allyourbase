@@ -1,4 +1,4 @@
-import { expect, test as base, type APIRequestContext, type Page, type TestInfo } from "@playwright/test";
+import { expect, test as base, type APIRequestContext, type Page, type Request, type TestInfo } from "@playwright/test";
 import { getBrowserUnmockedSkipReason } from "../browser-preflight";
 import { checkAuthEnabled, execSQL, getStoredAdminToken, waitForDashboard } from "./core";
 import {
@@ -28,6 +28,22 @@ export * from "./orgs";
 
 const browserSkipReason = getBrowserUnmockedSkipReason();
 const SAFE_SQL_IDENTIFIER = /^[A-Za-z_][A-Za-z0-9_]*$/;
+
+function expectedPageOrigin(baseURL: string | undefined): string {
+  if (!baseURL) {
+    throw new Error("Unmocked browser tests require Playwright use.baseURL for bearer-origin observation");
+  }
+
+  try {
+    return new URL(baseURL).origin;
+  } catch {
+    throw new Error(`Invalid Playwright baseURL for bearer-origin observation: ${baseURL}`);
+  }
+}
+
+function hasAuthorizationHeader(headers: Record<string, string>): boolean {
+  return Object.keys(headers).some((name) => name.toLowerCase() === "authorization");
+}
 
 export function assertSafeSQLIdentifier(identifier: string, label: string): string {
   if (!SAFE_SQL_IDENTIFIER.test(identifier)) {
@@ -105,6 +121,7 @@ export const test = base.extend<{
   authStatus: { auth: boolean };
   adminToken: string;
   _browserSkipGuard: void;
+  _browserOriginBearerGuard: void;
   mfaHelpers: {
     overrideEmailMFACode: (knownCode: string) => Promise<void>;
     ensureAuthSettings: (overrides: Record<string, boolean>) => Promise<void>;
@@ -128,6 +145,31 @@ export const test = base.extend<{
         testInfo.skip(browserSkipReason);
       }
       await use();
+    },
+    { auto: true },
+  ],
+  _browserOriginBearerGuard: [
+    async ({ baseURL, page }, use) => {
+      const pageOrigin = expectedPageOrigin(baseURL);
+      const violations: string[] = [];
+      const onRequest = (request: Request) => {
+        const requestURL = new URL(request.url());
+        if (requestURL.origin !== pageOrigin && hasAuthorizationHeader(request.headers())) {
+          violations.push(request.url());
+        }
+      };
+
+      page.on("request", onRequest);
+      try {
+        await use();
+      } finally {
+        page.off("request", onRequest);
+      }
+
+      expect(
+        violations,
+        `Browser requests must not send Authorization off ${pageOrigin}. Violating URLs: ${violations.join(", ")}`,
+      ).toEqual([]);
     },
     { auto: true },
   ],

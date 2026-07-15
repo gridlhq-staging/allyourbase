@@ -11,6 +11,10 @@ vi.mock("../../api", () => ({
   ApiError: MockApiError,
 }));
 
+vi.mock("../../api_capabilities", () => ({
+  getAdminCapabilities: vi.fn(),
+}));
+
 // Mock child components to isolate App logic.
 vi.mock("../Login", () => ({
   Login: ({ onSuccess }: { onSuccess: () => void }) => (
@@ -20,28 +24,42 @@ vi.mock("../Login", () => ({
   ),
 }));
 
-vi.mock("../Layout", () => ({
-  Layout: ({
+vi.mock("../OAuthConsent", () => ({
+  OAuthConsent: () => <div data-testid="oauth-consent" />,
+}));
+
+vi.mock("../Layout", async () => {
+  const { useCapability } =
+    await vi.importActual<typeof import("../../capabilities")>("../../capabilities");
+
+  return {
+    Layout: ({
     onLogout,
     onRefresh,
   }: {
     onLogout: () => void;
     onRefresh: () => void;
-  }) => (
-    <div data-testid="layout">
-      <button onClick={onLogout}>mock-logout</button>
-      <button onClick={onRefresh}>mock-refresh</button>
-    </div>
-  ),
-}));
+  }) => {
+    const capabilities = useCapability();
+    return (
+      <div data-testid="layout" data-capability-state={capabilities.state.kind}>
+        <button onClick={onLogout}>mock-logout</button>
+        <button onClick={onRefresh}>mock-refresh</button>
+      </div>
+    );
+  },
+  };
+});
 
 import { getAdminStatus, getSchema, clearAuthToken, clearToken } from "../../api";
+import { getAdminCapabilities } from "../../api_capabilities";
 import { App } from "../../App";
 
 const mockGetAdminStatus = vi.mocked(getAdminStatus);
 const mockGetSchema = vi.mocked(getSchema);
 const mockClearAuthToken = vi.mocked(clearAuthToken);
 const mockClearToken = vi.mocked(clearToken);
+const mockGetAdminCapabilities = vi.mocked(getAdminCapabilities);
 
 const fakeSchema = {
   tables: {},
@@ -53,6 +71,15 @@ describe("App", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     localStorage.clear();
+    window.history.replaceState(null, "", "/admin/");
+    mockGetAdminCapabilities.mockResolvedValue({ kind: "unknown" });
+  });
+
+  it("short-circuits OAuth consent before dashboard boot", () => {
+    window.history.replaceState(null, "", "/oauth/authorize?client_id=test");
+    render(<App />);
+    expect(screen.getByTestId("oauth-consent")).toBeInTheDocument();
+    expect(mockGetAdminStatus).not.toHaveBeenCalled();
   });
 
   it("shows loading state initially", () => {
@@ -91,6 +118,62 @@ describe("App", () => {
     await waitFor(() => {
       expect(screen.getByTestId("layout")).toBeInTheDocument();
     });
+  });
+
+  it("waits for capabilities before first authenticated layout render", async () => {
+    localStorage.setItem("ayb_admin_token", "tok");
+    let resolveCapabilities: (value: Awaited<ReturnType<typeof getAdminCapabilities>>) => void;
+    const capabilitiesPromise = new Promise<Awaited<ReturnType<typeof getAdminCapabilities>>>((resolve) => {
+      resolveCapabilities = resolve;
+    });
+    mockGetAdminStatus.mockResolvedValueOnce({ auth: true });
+    mockGetAdminCapabilities.mockReturnValueOnce(capabilitiesPromise);
+    mockGetSchema.mockResolvedValueOnce(fakeSchema);
+
+    render(<App />);
+
+    await waitFor(() => expect(mockGetAdminCapabilities).toHaveBeenCalledOnce());
+    expect(mockGetSchema).not.toHaveBeenCalled();
+    expect(screen.queryByTestId("layout")).not.toBeInTheDocument();
+
+    resolveCapabilities!({ kind: "unknown" });
+
+    await waitFor(() => {
+      expect(screen.getByTestId("layout")).toBeInTheDocument();
+    });
+  });
+
+  it("passes unknown capabilities through the passwordless capability-401 path", async () => {
+    mockGetAdminStatus.mockResolvedValueOnce({ auth: false });
+    mockGetAdminCapabilities.mockResolvedValueOnce({ kind: "unknown" });
+    mockGetSchema.mockResolvedValueOnce(fakeSchema);
+
+    render(<App />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("layout")).toHaveAttribute("data-capability-state", "unknown");
+    });
+    expect(screen.queryByTestId("login")).not.toBeInTheDocument();
+  });
+
+  it("keeps capability failures out of the admin-auth failure path", async () => {
+    const unauthorizedListener = vi.fn();
+    window.addEventListener("ayb:unauthorized", unauthorizedListener);
+    mockGetAdminStatus.mockResolvedValueOnce({ auth: false });
+    mockGetAdminCapabilities.mockResolvedValueOnce({ kind: "unknown" });
+    mockGetSchema.mockResolvedValueOnce(fakeSchema);
+
+    render(<App />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("layout")).toBeInTheDocument();
+    });
+
+    expect(mockClearAuthToken).not.toHaveBeenCalled();
+    expect(mockClearToken).not.toHaveBeenCalled();
+    expect(screen.queryByTestId("login")).not.toBeInTheDocument();
+    expect(unauthorizedListener).not.toHaveBeenCalled();
+    window.removeEventListener("ayb:unauthorized", unauthorizedListener);
   });
 
   it("shows login on 401 from getSchema", async () => {

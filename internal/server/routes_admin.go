@@ -24,6 +24,7 @@ func (s *Server) registerAdminRoutes(r chi.Router) {
 // SAML, custom domains, and logs.
 func (s *Server) registerAdminCoreRoutes(r chi.Router) {
 	r.Get("/admin/status", s.handleAdminStatus)
+	r.With(s.requireAdminToken).Get("/admin/capabilities", s.handleAdminCapabilities)
 	r.With(s.adminRL.Middleware).Post("/admin/auth", s.handleAdminLogin)
 
 	s.registerAdminReplicaRoutes(r)

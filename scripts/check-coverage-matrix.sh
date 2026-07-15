@@ -8,6 +8,8 @@ readonly DEFAULT_MATRIX_PATH="scripts/COVERAGE_MATRIX.md"
 readonly MATRIX_PATH="${COVERAGE_MATRIX_PATH:-$DEFAULT_MATRIX_PATH}"
 readonly DEFAULT_LAYOUT_TYPES_PATH="ui/src/components/layout-types.ts"
 readonly LAYOUT_TYPES_PATH="${COVERAGE_MATRIX_LAYOUT_TYPES_PATH:-$DEFAULT_LAYOUT_TYPES_PATH}"
+readonly DEFAULT_ADMIN_VIEWS_PATH="ui/src/screens/registry.ts"
+readonly ADMIN_VIEWS_PATH="${COVERAGE_MATRIX_ADMIN_VIEWS_PATH:-$DEFAULT_ADMIN_VIEWS_PATH}"
 
 if [[ ! -f "$MATRIX_PATH" ]]; then
   echo "Coverage matrix not found: $MATRIX_PATH" >&2
@@ -16,6 +18,11 @@ fi
 
 if [[ ! -f "$LAYOUT_TYPES_PATH" ]]; then
   echo "Layout types source not found: $LAYOUT_TYPES_PATH" >&2
+  exit 1
+fi
+
+if [[ ! -f "$ADMIN_VIEWS_PATH" ]]; then
+  echo "Admin views source not found: $ADMIN_VIEWS_PATH" >&2
   exit 1
 fi
 
@@ -71,20 +78,22 @@ assert_integer "Smoke = heading-only" "$smoke_heading_only_count"
 assert_integer "CRUD-capable views missing full lifecycle" "$crud_missing_full_count"
 assert_integer "Views missing mocked coverage" "$mocked_coverage_missing_count"
 
-node - "$MATRIX_PATH" "$LAYOUT_TYPES_PATH" <<'NODE'
+node - "$MATRIX_PATH" "$LAYOUT_TYPES_PATH" "$ADMIN_VIEWS_PATH" <<'NODE'
 const fs = require("fs");
 
 const matrixPath = process.argv[2];
 const layoutTypesPath = process.argv[3];
+const adminViewsPath = process.argv[4];
 
 const layoutSource = fs.readFileSync(layoutTypesPath, "utf8");
+const adminViewsSource = fs.readFileSync(adminViewsPath, "utf8");
 const matrixSource = fs.readFileSync(matrixPath, "utf8");
 
-function parseStringLiteralArray(constName) {
+function parseStringLiteralArray(source, constName) {
   const pattern = new RegExp(
     `const\\s+${constName}\\s*=\\s*\\[([\\s\\S]*?)\\]\\s+as\\s+const`,
   );
-  const match = layoutSource.match(pattern);
+  const match = source.match(pattern);
   if (!match) {
     return [];
   }
@@ -92,9 +101,9 @@ function parseStringLiteralArray(constName) {
   return [...match[1].matchAll(/"([^"]+)"/g)].map((entry) => entry[1]);
 }
 
-function parseStringLiteralUnion(typeName) {
+function parseStringLiteralUnion(source, typeName) {
   const pattern = new RegExp(`type\\s+${typeName}\\s*=\\s*([\\s\\S]*?);`);
-  const match = layoutSource.match(pattern);
+  const match = source.match(pattern);
   if (!match) {
     return [];
   }
@@ -105,16 +114,18 @@ function parseStringLiteralUnion(typeName) {
 const uniqueViews = [
   ...new Set([
     ...(
-      parseStringLiteralArray("DATA_VIEWS").length > 0
-        ? parseStringLiteralArray("DATA_VIEWS")
-        : parseStringLiteralUnion("DataView")
+      parseStringLiteralArray(layoutSource, "DATA_VIEWS").length > 0
+        ? parseStringLiteralArray(layoutSource, "DATA_VIEWS")
+        : parseStringLiteralUnion(layoutSource, "DataView")
     ),
-    ...parseStringLiteralArray("ADMIN_VIEWS"),
+    ...parseStringLiteralArray(adminViewsSource, "ADMIN_VIEWS"),
   ]),
 ];
 
 if (uniqueViews.length === 0) {
-  console.error(`Unable to parse view inventory from ${layoutTypesPath}`);
+  console.error(
+    `Unable to parse view inventory from ${layoutTypesPath} and ${adminViewsPath}`,
+  );
   process.exit(1);
 }
 
@@ -132,19 +143,19 @@ const extraViews = uniqueMatrixViews.filter((view) => !uniqueViews.includes(view
 if (missingViews.length > 0 || extraViews.length > 0) {
   if (missingViews.length > 0) {
     console.error(
-      `Coverage matrix missing views from ${layoutTypesPath}: ${missingViews.join(", ")}`,
+      `Coverage matrix missing views from source inventories: ${missingViews.join(", ")}`,
     );
   }
   if (extraViews.length > 0) {
     console.error(
-      `Coverage matrix has unknown views not present in ${layoutTypesPath}: ${extraViews.join(", ")}`,
+      `Coverage matrix has unknown views not present in source inventories: ${extraViews.join(", ")}`,
     );
   }
   process.exit(1);
 }
 
 console.log(
-  `Coverage matrix view inventory matches ${layoutTypesPath}: ${uniqueViews.length} views.`,
+  `Coverage matrix view inventory matches ${layoutTypesPath} and ${adminViewsPath}: ${uniqueViews.length} views.`,
 );
 NODE
 

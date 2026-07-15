@@ -23,6 +23,7 @@ NC='\033[0m'
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+source "$REPO_ROOT/tests/port_helpers.sh"
 
 # Use AYB_BIN if set, else try repo-root build, else PATH
 if [ -z "${AYB_BIN:-}" ]; then
@@ -45,7 +46,7 @@ PASSED=0
 FAILED=0
 TOTAL=0
 
-# Isolated demo-app ports selected at preflight (see pick_free_demo_port). The
+# Isolated demo-app ports selected at preflight (see pick_free_port). The
 # release gate must NOT require the universal Vite defaults (5173/5175/5177) to
 # be globally free, because those collide with unrelated dev servers on a shared
 # host. These are the ports ensure_stopped verifies between runs.
@@ -73,20 +74,6 @@ require_free_port() {
         echo -e "${RED}ERROR: ${reason}; refusing to ${action} an unknown process.${NC}" >&2
         return 1
     fi
-}
-
-# pick_free_demo_port returns the first currently-free port from its candidate
-# list. Demos are served on these isolated ports (via AYB_DEMO_APP_PORT) so the
-# gate does not depend on the well-known Vite defaults being globally free.
-pick_free_demo_port() {
-    local candidate
-    for candidate in "$@"; do
-        if ! lsof -ti :"$candidate" >/dev/null 2>&1; then
-            printf '%s\n' "$candidate"
-            return 0
-        fi
-    done
-    return 1
 }
 
 wait_for_url() {
@@ -289,9 +276,9 @@ echo ""
 # Select isolated, currently-free app ports before any ensure_stopped call so
 # the gate never depends on the universal Vite defaults (5173/5175/5177) being
 # globally free on a shared host. Candidates stay in the high-port range.
-KANBAN_PORT=$(pick_free_demo_port 45173 46173 47173 48173 49173) || { echo -e "${RED}ERROR: no free port for kanban demo${NC}"; exit 1; }
-POLLS_PORT=$(pick_free_demo_port 45175 46175 47175 48175 49175) || { echo -e "${RED}ERROR: no free port for live-polls demo${NC}"; exit 1; }
-MOVIES_PORT=$(pick_free_demo_port 45177 46177 47177 48177 49177) || { echo -e "${RED}ERROR: no free port for movies demo${NC}"; exit 1; }
+KANBAN_PORT=$(pick_free_port 45173 46173 47173 48173 49173) || { echo -e "${RED}ERROR: no free port for kanban demo${NC}"; exit 1; }
+POLLS_PORT=$(pick_free_port 45175 46175 47175 48175 49175) || { echo -e "${RED}ERROR: no free port for live-polls demo${NC}"; exit 1; }
+MOVIES_PORT=$(pick_free_port 45177 46177 47177 48177 49177) || { echo -e "${RED}ERROR: no free port for movies demo${NC}"; exit 1; }
 DEMO_APP_PORTS=("$KANBAN_PORT" "$POLLS_PORT" "$MOVIES_PORT")
 
 # A stale demo process can make the suite pass against the wrong server.

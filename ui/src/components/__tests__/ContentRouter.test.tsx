@@ -4,6 +4,10 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { SchemaCache, Table } from "../../types";
 import type { View } from "../layout-types";
 import { ContentRouter } from "../ContentRouter";
+import {
+  filterScreenRegistry,
+  type ScreenRegistry,
+} from "../../screens/registry";
 
 vi.mock("../../api_admin", () => ({
   getCollectionSearchSettings: vi.fn().mockResolvedValue({ attributes: [], customRanking: [] }),
@@ -26,6 +30,26 @@ vi.mock("../SchemaView", () => ({
 
 vi.mock("../SqlEditor", () => ({
   SqlEditor: () => <div data-testid="sql-editor" />,
+}));
+
+vi.mock("../Users", () => ({
+  Users: () => <div data-testid="users" />,
+}));
+
+vi.mock("../SchemaDesigner", () => ({
+  SchemaDesigner: () => <div data-testid="schema-designer" />,
+}));
+
+vi.mock("../MFAEnrollment", () => ({
+  MFAEnrollment: () => <div data-testid="mfa-management" />,
+}));
+
+vi.mock("../Tenants", () => ({
+  Tenants: () => <div data-testid="tenants" />,
+}));
+
+vi.mock("../Organizations", () => ({
+  Organizations: () => <div data-testid="organizations" />,
 }));
 
 function makeTable(overrides: Partial<Table> = {}): Table {
@@ -66,6 +90,119 @@ function renderSelectedRouter(view: View = "data") {
   );
   return { onSetView, onRefresh };
 }
+
+function renderAdminRouter(view: View) {
+  return render(
+    <ContentRouter
+      schema={makeSchema()}
+      view={view}
+      isAdminView={true}
+      selected={null}
+      onRefresh={vi.fn()}
+      onSetView={vi.fn()}
+      onSelectAdminView={vi.fn()}
+    />,
+  );
+}
+
+const gatedRegistry = {
+  sections: [
+    {
+      title: "Admin",
+      screens: [
+        {
+          id: "users",
+          label: "Users",
+          icon: {} as never,
+          render: () => <div data-testid="fixture-users" />,
+        },
+        {
+          id: "storage",
+          label: "Storage",
+          icon: {} as never,
+          requires: "storage",
+          render: () => <div data-testid="fixture-storage" />,
+        },
+      ],
+    },
+  ],
+} satisfies ScreenRegistry;
+
+describe("ContentRouter admin views", () => {
+  it("routes known owners without a silent fallback", () => {
+    const { rerender } = renderAdminRouter("sql-editor");
+    expect(screen.getByTestId("sql-editor")).toBeInTheDocument();
+
+    for (const [view, ownerTestId] of [
+      ["schema-designer", "schema-designer"],
+      ["mfa-management", "mfa-management"],
+      ["tenants", "tenants"],
+      ["organizations", "organizations"],
+    ] as const) {
+      rerender(
+        <ContentRouter
+          schema={makeSchema()}
+          view={view as View}
+          isAdminView={true}
+          selected={null}
+          onRefresh={vi.fn()}
+          onSetView={vi.fn()}
+          onSelectAdminView={vi.fn()}
+        />,
+      );
+      expect(screen.getByTestId(ownerTestId)).toBeInTheDocument();
+    }
+  });
+
+  it("does not render a capability-filtered admin screen and preserves visible fallback", () => {
+    const filteredRegistry = filterScreenRegistry(
+      gatedRegistry,
+      (capability) => capability !== "storage",
+    );
+
+    render(
+      <ContentRouter
+        schema={makeSchema()}
+        view={"storage"}
+        isAdminView={true}
+        selected={null}
+        onRefresh={vi.fn()}
+        onSetView={vi.fn()}
+        onSelectAdminView={vi.fn()}
+        screenRegistry={filteredRegistry}
+      />,
+    );
+
+    expect(screen.queryByTestId("fixture-storage")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("fixture-users")).not.toBeInTheDocument();
+  });
+
+  it.each([
+    "Invalid console link",
+    "Screen not found",
+    "Table not found",
+    "Screen unavailable",
+    "Page not found",
+  ])("renders the closed route failure %s with a return action", async (label) => {
+    const onReturnToBase = vi.fn();
+    render(
+      <ContentRouter
+        schema={makeSchema()}
+        view="data"
+        isAdminView={false}
+        selected={null}
+        onRefresh={vi.fn()}
+        onSetView={vi.fn()}
+        onSelectAdminView={vi.fn()}
+        routeFailure={label}
+        onReturnToBase={onReturnToBase}
+      />,
+    );
+    expect(screen.getByRole("heading", { name: label })).toBeInTheDocument();
+    await userEvent.setup().click(screen.getByRole("button", { name: "Return to console" }));
+    expect(onReturnToBase).toHaveBeenCalledOnce();
+  });
+});
 
 describe("ContentRouter selected table views", () => {
   beforeEach(() => {

@@ -4,6 +4,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { CommandPalette, CommandPaletteHint } from "../CommandPalette";
 import type { CommandAction } from "../CommandPalette";
 import type { Table } from "../../types";
+import { SCREEN_REGISTRY } from "../../screens/registry";
 
 function makeTable(name: string, schema = "public"): Table {
   return {
@@ -48,6 +49,17 @@ describe("CommandPalette", () => {
     expect(screen.getByText("posts")).toBeInTheDocument();
     expect(screen.getByText("SQL Editor")).toBeInTheDocument();
     expect(screen.getByText("API Explorer")).toBeInTheDocument();
+  });
+
+  it("exposes every registered admin screen as a navigation item", () => {
+    render(
+      <CommandPalette open={true} onClose={onClose} onSelect={onSelect} tables={[]} />,
+    );
+
+    const registeredScreens = SCREEN_REGISTRY.sections.flatMap((section) => section.screens);
+    for (const registeredScreen of registeredScreens) {
+      expect(screen.getByText(registeredScreen.label)).toBeInTheDocument();
+    }
   });
 
   it("includes SMS Health and SMS Messages in navigation items", () => {

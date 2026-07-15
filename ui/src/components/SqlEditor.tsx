@@ -166,7 +166,7 @@ interface SqlEditorProps {
   onSchemaChange?: () => void | Promise<void>;
 }
 
-export function SqlEditor({ onSchemaChange }: SqlEditorProps = {}) {
+export function SqlEditor({ onSchemaChange }: SqlEditorProps) {
   const [query, setQuery] = useState(
     () => localStorage.getItem("ayb_sql_query") || "SELECT 1 AS hello;",
   );

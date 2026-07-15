@@ -59,6 +59,8 @@ Create `index.mjs`:
 import { AYBClient } from "@allyourbase/js";
 
 const ayb = new AYBClient("http://127.0.0.1:8090");
+const summarize = (todos) =>
+  todos.map(({ id, title, completed }) => ({ id, title, completed }));
 
 // Create todos
 await ayb.records.create("todos", { title: "Buy groceries" });
@@ -69,13 +71,14 @@ await ayb.records.create("todos", { title: "Ship v1" });
 const { items: all } = await ayb.records.list("todos", {
   sort: "-created_at",
 });
-console.log("All todos:", all);
+console.log("All todos:", JSON.stringify(summarize(all)));
 
 // Filter: only incomplete
 const { items: pending } = await ayb.records.list("todos", {
   filter: "completed=false",
+  sort: "-created_at",
 });
-console.log("Pending:", pending);
+console.log("Pending:", JSON.stringify(summarize(pending)));
 
 // Update: mark one as done
 const todo = pending[0];
@@ -87,8 +90,10 @@ await ayb.records.delete("todos", String(todo.id));
 console.log(`Deleted "${todo.title}"`);
 
 // Final state
-const { items: final } = await ayb.records.list("todos");
-console.log("Remaining:", final);
+const { items: final } = await ayb.records.list("todos", {
+  sort: "-created_at",
+});
+console.log("Remaining:", JSON.stringify(summarize(final)));
 ```
 
 ## 5. Run it
@@ -100,11 +105,11 @@ node index.mjs
 Output:
 
 ```text
-All todos: [ { id: 3, title: 'Ship v1', ... }, { id: 2, title: 'Write docs', ... }, { id: 1, title: 'Buy groceries', ... } ]
-Pending: [ { id: 3, title: 'Ship v1', completed: false }, { id: 1, title: 'Buy groceries', completed: false } ]
+All todos: [{"id":3,"title":"Ship v1","completed":false},{"id":2,"title":"Write docs","completed":true},{"id":1,"title":"Buy groceries","completed":false}]
+Pending: [{"id":3,"title":"Ship v1","completed":false},{"id":1,"title":"Buy groceries","completed":false}]
 Marked "Ship v1" as done
 Deleted "Ship v1"
-Remaining: [ { id: 2, title: 'Write docs', ... }, { id: 1, title: 'Buy groceries', ... } ]
+Remaining: [{"id":2,"title":"Write docs","completed":true},{"id":1,"title":"Buy groceries","completed":false}]
 ```
 
 ## 6. Add realtime

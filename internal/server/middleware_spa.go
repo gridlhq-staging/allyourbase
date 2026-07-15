@@ -89,6 +89,7 @@ func serveEmbeddedIndexHTML(w http.ResponseWriter, adminPath string) {
 // rewriteAdminIndexHTML modifies HTML by rewriting relative asset and admin paths to be prefixed with adminPath, enabling the embedded SPA to serve correctly from a non-root URL.
 func rewriteAdminIndexHTML(html string, adminPath string) string {
 	adminBase := adminPathWithTrailingSlash(adminPath)
+	adminBaseMeta := `<meta name="ayb-admin-base" content="` + adminBase + `">`
 	replacer := strings.NewReplacer(
 		`="/assets/`, `="`+adminBase+`assets/`,
 		`='/assets/`, `='`+adminBase+`assets/`,
@@ -101,5 +102,6 @@ func rewriteAdminIndexHTML(html string, adminPath string) string {
 		`url('/admin/`, `url('`+adminBase,
 		`url("/admin/`, `url("`+adminBase,
 	)
-	return replacer.Replace(html)
+	rewritten := replacer.Replace(html)
+	return strings.Replace(rewritten, "</head>", adminBaseMeta+"</head>", 1)
 }

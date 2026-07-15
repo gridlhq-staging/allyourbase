@@ -296,6 +296,7 @@ func TestAdminPlaceholderAssetServedUnderDefaultPath(t *testing.T) {
 	srv.Router().ServeHTTP(htmlW, htmlReq)
 
 	testutil.Equal(t, http.StatusOK, htmlW.Code)
+	assertAdminBaseMeta(t, htmlW.Body.String(), "/admin/")
 	scriptPath := mustScriptAssetPath(t, htmlW.Body.String())
 	testutil.True(t, strings.HasPrefix(scriptPath, "/admin/assets/"))
 
@@ -323,6 +324,7 @@ func TestAdminPlaceholderAssetServedUnderCustomPath(t *testing.T) {
 	srv.Router().ServeHTTP(htmlW, htmlReq)
 
 	testutil.Equal(t, http.StatusOK, htmlW.Code)
+	assertAdminBaseMeta(t, htmlW.Body.String(), "/console/")
 	htmlScriptPath := mustScriptAssetPath(t, htmlW.Body.String())
 	testutil.True(t, strings.HasPrefix(htmlScriptPath, "/console/assets/"))
 
@@ -343,6 +345,32 @@ func TestAdminPlaceholderAssetServedUnderCustomPath(t *testing.T) {
 	testutil.Contains(t, w.Header().Get("Content-Type"), "javascript")
 	testutil.Equal(t, "public, max-age=1209600", w.Header().Get("Cache-Control"))
 	testutil.True(t, w.Body.Len() > 0)
+}
+
+func TestAdminPlaceholderAssetServedUnderRootPath(t *testing.T) {
+	t.Parallel()
+	cfg := config.Default()
+	cfg.Admin.Enabled = true
+	cfg.Admin.Path = "/"
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	ch := schema.NewCacheHolder(nil, logger)
+	srv := server.New(cfg, logger, ch, nil, nil, nil)
+
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	w := httptest.NewRecorder()
+	srv.Router().ServeHTTP(w, req)
+
+	testutil.Equal(t, http.StatusOK, w.Code)
+	assertAdminBaseMeta(t, w.Body.String(), "/")
+	scriptPath := mustScriptAssetPath(t, w.Body.String())
+	testutil.True(t, strings.HasPrefix(scriptPath, "/assets/"))
+}
+
+func assertAdminBaseMeta(t *testing.T, html, adminBase string) {
+	t.Helper()
+	meta := `<meta name="ayb-admin-base" content="` + adminBase + `">`
+	testutil.Equal(t, 1, strings.Count(html, meta))
+	testutil.Equal(t, 1, strings.Count(html, `name="ayb-admin-base"`))
 }
 
 func TestAdminDisabled(t *testing.T) {

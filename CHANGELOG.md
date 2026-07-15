@@ -6,13 +6,29 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+_Merged to `main` after v0.0.17-beta; not yet in a published release._
+
 ### Added
+
+- Admin capabilities endpoint (`GET /api/admin/capabilities`, admin-authed) reports
+  which subsystems are enabled (auth and its sub-flags, storage, jobs, push,
+  edge functions, billing, support), giving the dashboard console a
+  server-driven runtime capability signal instead of a build-time flag. The
+  dashboard now derives its full screen list from a single registry
+  (`ui/src/screens/registry.ts`) rather than four hand-maintained copies, so the
+  command palette lists every dashboard screen instead of a stale subset.
 
 ### Changed
 
 ### Fixed
 
-## [0.0.17-beta] - 2026-07-13
+- Dashboard hardened against cross-origin admin-token leakage: the console API
+  client now resolves every request path through the URL parser and compares on
+  origin, rejecting backslash/protocol-relative paths (e.g. `/\evil.com`) that a
+  browser would resolve to a foreign origin before the `Authorization: Bearer`
+  header is ever attached. Invalid request URLs are rejected fail-closed.
+
+## [0.0.17-beta] - 2026-07-15
 
 ### Added
 

@@ -1,59 +1,15 @@
 import type { Table } from "../types";
 import { CommandPaletteHint } from "./CommandPalette";
 import type { AdminView, View } from "./layout-types";
+import { SCREEN_REGISTRY, type AdminScreen, type ScreenRegistry } from "../screens/registry";
 import {
   Table as TableIcon,
-  Columns3,
-  Code,
   LogOut,
   Moon,
   RefreshCw,
   Sun,
-  Webhook,
-  HardDrive,
-  Users as UsersIcon,
-  Zap,
-  KeyRound,
-  Compass,
-  Shield,
   Plus,
   TableProperties,
-  MessageCircle,
-  MessageSquare,
-  Box,
-  Fingerprint,
-  CalendarClock,
-  ListTodo,
-  Layers,
-  Mail,
-  Bell,
-  Settings,
-  ShieldCheck,
-  Link,
-  GitBranch,
-  Activity,
-  ShieldAlert,
-  Gauge,
-  Archive,
-  BarChart3,
-  Server,
-  Sparkles,
-  ScrollText,
-  FileText,
-  Lock,
-  Globe,
-  Puzzle,
-  Database,
-  ArrowDownToLine,
-  LineChart,
-  ShieldPlus,
-  Anchor,
-  BellRing,
-  Cable,
-  AlertTriangle,
-  LifeBuoy,
-  Building2,
-  Search,
 } from "lucide-react";
 import { cn } from "../lib/utils";
 
@@ -64,101 +20,9 @@ const SIDEBAR_SECTION_CLASS = "mt-3 pt-3 border-t border-gray-200 dark:border-gr
 const SIDEBAR_SECTION_TITLE_CLASS = "px-1 pb-1 text-[10px] font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider";
 const SIDEBAR_ACTION_BUTTON_CLASS = "p-2 text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 rounded hover:bg-gray-100 dark:hover:bg-gray-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/60";
 
-interface SidebarNavItem {
-  view: AdminView;
-  label: string;
-  icon: typeof TableIcon;
-  testId?: string;
-}
-
-interface SidebarNavSection {
-  title: string;
-  items: SidebarNavItem[];
-}
-
 function sidebarItemClass(active: boolean) {
   return cn(SIDEBAR_ITEM_BASE_CLASS, active && SIDEBAR_ITEM_ACTIVE_CLASS);
 }
-
-const SIDEBAR_NAV_SECTIONS: SidebarNavSection[] = [
-  {
-    title: "Database",
-    items: [
-      { view: "sql-editor", label: "SQL Editor", icon: Code },
-      { view: "functions", label: "Functions", icon: Zap },
-      { view: "rls", label: "RLS Policies", icon: Shield },
-      { view: "search", label: "Search", icon: Search },
-      { view: "matviews", label: "Matviews", icon: Layers },
-      { view: "schema-designer", label: "Schema Designer", icon: Columns3, testId: "nav-schema-designer" },
-      { view: "fdw", label: "FDW", icon: Cable },
-    ],
-  },
-  {
-    title: "Services",
-    items: [
-      { view: "storage", label: "Storage", icon: HardDrive },
-      { view: "sites", label: "Sites", icon: Globe },
-      { view: "edge-functions", label: "Edge Functions", icon: Zap },
-      { view: "webhooks", label: "Webhooks", icon: Webhook },
-    ],
-  },
-  {
-    title: "Messaging",
-    items: [
-      { view: "sms-health", label: "SMS Health", icon: MessageCircle },
-      { view: "sms-messages", label: "SMS Messages", icon: MessageSquare },
-      { view: "email-templates", label: "Email Templates", icon: Mail },
-      { view: "push", label: "Push Notifications", icon: Bell },
-    ],
-  },
-  {
-    title: "Admin",
-    items: [
-      { view: "users", label: "Users", icon: UsersIcon },
-      { view: "apps", label: "Apps", icon: Box },
-      { view: "api-keys", label: "API Keys", icon: KeyRound },
-      { view: "oauth-clients", label: "OAuth Clients", icon: Fingerprint },
-      { view: "api-explorer", label: "API Explorer", icon: Compass },
-      { view: "jobs", label: "Jobs", icon: ListTodo },
-      { view: "schedules", label: "Schedules", icon: CalendarClock },
-      { view: "realtime-inspector", label: "Realtime Inspector", icon: Activity },
-      { view: "security-advisor", label: "Security Advisor", icon: ShieldAlert },
-      { view: "performance-advisor", label: "Performance Advisor", icon: Gauge },
-      { view: "backups", label: "Backups", icon: Archive },
-      { view: "analytics", label: "Analytics", icon: BarChart3 },
-      { view: "usage", label: "Usage", icon: LineChart },
-      { view: "replicas", label: "Replicas", icon: Server },
-      { view: "branches", label: "Branches", icon: GitBranch },
-      { view: "audit-logs", label: "Audit Logs", icon: ScrollText },
-      { view: "admin-logs", label: "Admin Logs", icon: FileText },
-      { view: "secrets", label: "Secrets", icon: Lock },
-      { view: "custom-domains", label: "Custom Domains", icon: Globe },
-      { view: "extensions", label: "Extensions", icon: Puzzle },
-      { view: "vector-indexes", label: "Vector Indexes", icon: Database },
-      { view: "log-drains", label: "Log Drains", icon: ArrowDownToLine },
-      { view: "stats", label: "Stats", icon: LineChart },
-      { view: "notifications", label: "Notifications", icon: BellRing },
-      { view: "incidents", label: "Incidents", icon: AlertTriangle },
-      { view: "support-tickets", label: "Support Tickets", icon: LifeBuoy },
-      { view: "tenants", label: "Tenants", icon: Building2 },
-      { view: "organizations", label: "Organizations", icon: Building2 },
-    ],
-  },
-  {
-    title: "AI",
-    items: [{ view: "ai-assistant", label: "AI Assistant", icon: Sparkles }],
-  },
-  {
-    title: "Auth",
-    items: [
-      { view: "auth-settings", label: "Auth Settings", icon: Settings },
-      { view: "mfa-management", label: "MFA Management", icon: ShieldCheck },
-      { view: "account-linking", label: "Account Linking", icon: Link },
-      { view: "saml", label: "SAML", icon: ShieldPlus },
-      { view: "auth-hooks", label: "Auth Hooks", icon: Anchor },
-    ],
-  },
-];
 
 interface SidebarProps {
   tables: Table[];
@@ -173,10 +37,11 @@ interface SidebarProps {
   onLogout: () => void;
   theme: "dark" | "light";
   themeToggleLabel: string;
+  screenRegistry?: ScreenRegistry;
 }
 
 interface SidebarAdminNavButtonProps {
-  item: SidebarNavItem;
+  item: AdminScreen;
   active: boolean;
   onSelectAdminView: (view: AdminView) => void;
 }
@@ -190,7 +55,7 @@ function SidebarAdminNavButton({
 
   return (
     <button
-      onClick={() => onSelectAdminView(item.view)}
+      onClick={() => onSelectAdminView(item.id)}
       className={sidebarItemClass(active)}
       data-testid={item.testId}
     >
@@ -213,6 +78,7 @@ export function Sidebar({
   onLogout,
   theme,
   themeToggleLabel,
+  screenRegistry = SCREEN_REGISTRY,
 }: SidebarProps) {
   return (
     <aside className="w-60 border-r border-gray-200 bg-white dark:border-gray-700 dark:bg-gray-900 flex flex-col">
@@ -280,14 +146,14 @@ export function Sidebar({
           })
         )}
 
-        {SIDEBAR_NAV_SECTIONS.map((section) => (
+        {screenRegistry.sections.map((section) => (
           <div key={section.title} className={SIDEBAR_SECTION_CLASS}>
             <p className={SIDEBAR_SECTION_TITLE_CLASS}>{section.title}</p>
-            {section.items.map((item) => (
+            {section.screens.map((item) => (
               <SidebarAdminNavButton
-                key={item.view}
+                key={item.id}
                 item={item}
-                active={view === item.view}
+                active={view === item.id}
                 onSelectAdminView={onSelectAdminView}
               />
             ))}

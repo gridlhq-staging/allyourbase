@@ -4,57 +4,10 @@ import { SchemaView } from "./SchemaView";
 import { SqlEditor } from "./SqlEditor";
 import { SearchSettingsEditor } from "./SearchSettingsEditor";
 import { SynonymsEditor } from "./SynonymsEditor";
-import { Webhooks } from "./Webhooks";
-import { StorageBrowser } from "./StorageBrowser";
-import { Users } from "./Users";
-import { FunctionBrowser } from "./FunctionBrowser";
-import { SMSHealth } from "./SMSHealth";
-import { SMSMessages } from "./SMSMessages";
-import { EdgeFunctions } from "./EdgeFunctions";
-import { ApiKeys } from "./ApiKeys";
-import { Apps } from "./Apps";
-import { OAuthClients } from "./OAuthClients";
-import { ApiExplorer } from "./ApiExplorer";
-import { RlsPolicies } from "./RlsPolicies";
-import { Jobs } from "./Jobs";
-import { Schedules } from "./Schedules";
-import { MatviewsAdmin } from "./MatviewsAdmin";
-import { EmailTemplates } from "./EmailTemplates";
-import { PushNotifications } from "./PushNotifications";
-import { AuthSettings } from "./AuthSettings";
-import { MFAEnrollment } from "./MFAEnrollment";
-import { AccountLinking } from "./AccountLinking";
-import { Branches } from "./Branches";
-import { SchemaDesigner } from "./SchemaDesigner";
-import { RealtimeInspector } from "./RealtimeInspector";
-import { SecurityAdvisor } from "./SecurityAdvisor";
-import { PerformanceAdvisor } from "./PerformanceAdvisor";
-import { Backups } from "./Backups";
-import { Analytics } from "./Analytics";
-import { UsageMetering } from "./UsageMetering";
-import { Replicas } from "./Replicas";
-import { AIAssistant } from "./AIAssistant";
-import { AuditLogs } from "./AuditLogs";
-import { AdminLogs } from "./AdminLogs";
-import { Secrets } from "./Secrets";
-import { SAMLConfig } from "./SAMLConfig";
-import { CustomDomains } from "./CustomDomains";
-import { Sites } from "./Sites";
-import { Extensions } from "./Extensions";
-import { Search } from "./Search";
-import { VectorIndexes } from "./VectorIndexes";
-import { LogDrains } from "./LogDrains";
-import { StatsOverview } from "./StatsOverview";
-import { AuthHooks } from "./AuthHooks";
-import { Notifications } from "./Notifications";
-import { FDWManagement } from "./FDWManagement";
-import { Incidents } from "./Incidents";
-import { SupportTickets } from "./SupportTickets";
-import { Tenants } from "./Tenants";
-import { Organizations } from "./Organizations";
 import type { AdminView, View } from "./layout-types";
 import { Code, Columns3, SlidersHorizontal, Tags, Table as TableIcon, TableProperties } from "lucide-react";
 import { cn } from "../lib/utils";
+import { findAdminScreen, SCREEN_REGISTRY, type ScreenProps, type ScreenRegistry } from "../screens/registry";
 
 const CONTENT_ROUTER_MAIN_CLASS = "flex-1 flex flex-col overflow-hidden bg-gray-50 dark:bg-gray-950";
 const VIEW_TOGGLE_BUTTON_CLASS = "px-3 py-1 text-xs rounded font-medium transition-colors";
@@ -69,6 +22,9 @@ interface ContentRouterProps {
   onRefresh: () => void | Promise<void>;
   onSetView: (view: View) => void;
   onSelectAdminView: (view: AdminView) => void;
+  screenRegistry?: ScreenRegistry;
+  routeFailure?: string | null;
+  onReturnToBase?: () => void;
 }
 
 interface TableViewToggleButtonProps {
@@ -100,109 +56,11 @@ function TableViewToggleButton({
 
 function renderAdminContent(
   view: View,
-  schema: SchemaCache,
-  onRefresh: () => void | Promise<void>,
+  props: ScreenProps,
+  screenRegistry: ScreenRegistry,
 ) {
-  switch (view) {
-    case "webhooks":
-      return <Webhooks />;
-    case "storage":
-      return <StorageBrowser />;
-    case "sites":
-      return <Sites />;
-    case "functions":
-      return <FunctionBrowser functions={schema.functions || {}} />;
-    case "edge-functions":
-      return <EdgeFunctions />;
-    case "apps":
-      return <Apps />;
-    case "api-keys":
-      return <ApiKeys />;
-    case "oauth-clients":
-      return <OAuthClients />;
-    case "api-explorer":
-      return <ApiExplorer schema={schema} />;
-    case "rls":
-      return <RlsPolicies schema={schema} />;
-    case "sql-editor":
-      return <SqlEditor onSchemaChange={onRefresh} />;
-    case "sms-health":
-      return <SMSHealth />;
-    case "sms-messages":
-      return <SMSMessages />;
-    case "email-templates":
-      return <EmailTemplates />;
-    case "push":
-      return <PushNotifications />;
-    case "jobs":
-      return <Jobs />;
-    case "schedules":
-      return <Schedules />;
-    case "matviews":
-      return <MatviewsAdmin schema={schema} />;
-    case "schema-designer":
-      return <SchemaDesigner schema={schema} />;
-    case "auth-settings":
-      return <AuthSettings />;
-    case "mfa-management":
-      return <MFAEnrollment />;
-    case "account-linking":
-      return <AccountLinking onLinked={() => {}} />;
-    case "branches":
-      return <Branches />;
-    case "realtime-inspector":
-      return <RealtimeInspector />;
-    case "security-advisor":
-      return <SecurityAdvisor />;
-    case "performance-advisor":
-      return <PerformanceAdvisor />;
-    case "backups":
-      return <Backups />;
-    case "analytics":
-      return <Analytics />;
-    case "usage":
-      return <UsageMetering />;
-    case "replicas":
-      return <Replicas />;
-    case "ai-assistant":
-      return <AIAssistant />;
-    case "audit-logs":
-      return <AuditLogs />;
-    case "admin-logs":
-      return <AdminLogs />;
-    case "secrets":
-      return <Secrets />;
-    case "saml":
-      return <SAMLConfig />;
-    case "custom-domains":
-      return <CustomDomains />;
-    case "extensions":
-      return <Extensions />;
-    case "search":
-      return <Search schema={schema} />;
-    case "vector-indexes":
-      return <VectorIndexes />;
-    case "log-drains":
-      return <LogDrains />;
-    case "stats":
-      return <StatsOverview />;
-    case "auth-hooks":
-      return <AuthHooks />;
-    case "notifications":
-      return <Notifications />;
-    case "fdw":
-      return <FDWManagement />;
-    case "incidents":
-      return <Incidents />;
-    case "support-tickets":
-      return <SupportTickets />;
-    case "tenants":
-      return <Tenants />;
-    case "organizations":
-      return <Organizations />;
-    default:
-      return <Users />;
-  }
+  const screen = findAdminScreen(view, screenRegistry);
+  return screen?.render(props);
 }
 
 function renderSelectedContent(
@@ -233,11 +91,32 @@ export function ContentRouter({
   selected,
   onRefresh,
   onSetView,
+  screenRegistry = SCREEN_REGISTRY,
+  routeFailure = null,
+  onReturnToBase,
 }: ContentRouterProps) {
+  if (routeFailure) {
+    return (
+      <main className={CONTENT_ROUTER_MAIN_CLASS}>
+        <div className="flex-1 flex flex-col items-center justify-center gap-3">
+          <h1 className="text-lg font-semibold">{routeFailure}</h1>
+          <button
+            type="button"
+            onClick={onReturnToBase}
+            className="rounded bg-gray-900 px-3 py-2 text-sm text-white dark:bg-gray-100 dark:text-gray-900"
+          >
+            Return to console
+          </button>
+        </div>
+      </main>
+    );
+  }
   if (isAdminView) {
     return (
       <main className={CONTENT_ROUTER_MAIN_CLASS}>
-        <div className="flex-1 overflow-auto">{renderAdminContent(view, schema, onRefresh)}</div>
+        <div className="flex-1 overflow-auto">
+          {renderAdminContent(view, { schema, onRefresh }, screenRegistry)}
+        </div>
       </main>
     );
   }

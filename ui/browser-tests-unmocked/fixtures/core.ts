@@ -1,6 +1,27 @@
 /** @module Browser-test core helpers for SQL execution, response validation, and endpoint probing. */
 import { expect, type APIRequestContext, type Page } from "@playwright/test";
 
+/** Builds a console URL path for the admin base used by the current Playwright run. */
+export function adminPath(
+  relativePath = "",
+  { trailingSlash = true }: { trailingSlash?: boolean } = {},
+): string {
+  const configuredBase = process.env.PLAYWRIGHT_ADMIN_BASE ?? "/admin";
+  if (!configuredBase.startsWith("/") || configuredBase.includes("?") || configuredBase.includes("#")) {
+    throw new Error(`PLAYWRIGHT_ADMIN_BASE must be an absolute URL path: ${configuredBase}`);
+  }
+
+  const normalizedBase = configuredBase === "/" ? "" : configuredBase.replace(/\/+$/, "");
+  const normalizedRelativePath = relativePath.replace(/^\/+/, "");
+  if (normalizedRelativePath) {
+    return `${normalizedBase}/${normalizedRelativePath}`;
+  }
+  if (!normalizedBase) {
+    return "/";
+  }
+  return trailingSlash ? `${normalizedBase}/` : normalizedBase;
+}
+
 export function sqlLiteral(value: string): string {
   return value.replaceAll("'", "''");
 }
@@ -134,17 +155,17 @@ export async function probeEndpoint(
 
 /**
  * Waits for the admin dashboard to finish booting (loading/login → ready).
- * Ready state renders the Layout with the sidebar `<aside>`. Uses a generous
- * timeout to tolerate slow schema fetches under parallel test load.
+ * Ready state renders the Layout with its unique shell controls. Uses a
+ * generous timeout to tolerate slow schema fetches under parallel test load.
  */
 export async function waitForDashboard(page: Page): Promise<void> {
-  const sidebar = page.locator("aside");
+  const shellSearchButton = page.getByRole("button", { name: "Search... K" });
   const retryButton = page.getByRole("button", { name: /^retry$/i });
   const timeoutAt = Date.now() + 30000;
 
   while (Date.now() < timeoutAt) {
     try {
-      await sidebar.waitFor({ state: "visible", timeout: 1000 });
+      await shellSearchButton.waitFor({ state: "visible", timeout: 1000 });
       return;
     } catch {
       // Boot can transiently land on a "Connection Error" screen when admin
@@ -156,7 +177,7 @@ export async function waitForDashboard(page: Page): Promise<void> {
     }
   }
 
-  await sidebar.waitFor({ state: "visible", timeout: 1000 });
+  await shellSearchButton.waitFor({ state: "visible", timeout: 1000 });
 }
 
 /** Asserts that an RLS policy card appears in the page's main aria snapshot with the expected name, command, and USING expression. */

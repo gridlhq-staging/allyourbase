@@ -1,8 +1,12 @@
 /**
- * @module ui/src/api_client.ts
+ * @module Dashboard API client helpers for token-backed requests and origin validation.
  */
 const ADMIN_TOKEN_KEY = "ayb_admin_token";
 const AUTH_TOKEN_KEY = "ayb_auth_token";
+const CROSS_ORIGIN_API_REQUEST_ERROR = "Cross-origin API requests are not allowed";
+const INVALID_API_REQUEST_URL_ERROR = "API request URL is invalid";
+
+let configuredConsoleApiOrigin: string | null = null;
 
 /**
  * Converts various header formats to a plain object record.
@@ -59,6 +63,45 @@ export function emitUnauthorized() {
   dispatchUnauthorizedEvent("ayb:unauthorized", clearToken);
 }
 
+export function resetConsoleApiOrigin(): void {
+  configuredConsoleApiOrigin = null;
+}
+
+export function configureConsoleApiOrigin(origin: unknown): void {
+  resetConsoleApiOrigin();
+  configuredConsoleApiOrigin = parseConsoleApiOrigin(origin);
+}
+
+/**
+ * Validates and normalizes a configured cross-origin console API origin.
+ * @param origin - Candidate origin supplied by runtime configuration.
+ * @returns The normalized origin string safe to compare against request URLs.
+ */
+function parseConsoleApiOrigin(origin: unknown): string {
+  if (typeof origin !== "string" || origin.length === 0 || origin.trim() !== origin) {
+    throw new Error("Console API origin must be an HTTP(S) URL origin");
+  }
+
+  let apiURL: URL;
+  try {
+    apiURL = new URL(origin);
+  } catch {
+    throw new Error("Console API origin must be an HTTP(S) URL origin");
+  }
+
+  if (apiURL.protocol !== "http:" && apiURL.protocol !== "https:") {
+    throw new Error("Console API origin must use HTTP or HTTPS");
+  }
+  if (apiURL.username || apiURL.password || apiURL.pathname !== "/" || apiURL.search || apiURL.hash) {
+    throw new Error("Console API origin must not include credentials, path, query, or fragment");
+  }
+  if (window.location.protocol === "https:" && apiURL.protocol === "http:") {
+    throw new Error("Console API origin cannot downgrade HTTPS consoles to HTTP APIs");
+  }
+
+  return apiURL.origin;
+}
+
 function authorizedHeaders(
   headersInit: HeadersInit | undefined,
   token: string | null,
@@ -71,14 +114,35 @@ function authorizedHeaders(
 }
 
 function sameOriginRequestPath(path: string): string {
-  if (/^[a-zA-Z][a-zA-Z\\d+.-]*:/.test(path) || path.startsWith("//")) {
-    const requestURL = new URL(path, window.location.href);
-    if (requestURL.origin !== window.location.origin) {
-      throw new Error("Cross-origin API requests are not allowed");
-    }
-    return `${requestURL.pathname}${requestURL.search}${requestURL.hash}`;
+  let requestURL: URL;
+  try {
+    requestURL = new URL(path, window.location.href);
+  } catch {
+    throw new Error(INVALID_API_REQUEST_URL_ERROR);
   }
-  return path;
+  if (requestURL.origin === window.location.origin) {
+    return pageOriginRequestPath(path, requestURL);
+  }
+  if (requestURL.origin === configuredConsoleApiOrigin) {
+    return requestURL.href;
+  }
+  throw new Error(CROSS_ORIGIN_API_REQUEST_ERROR);
+}
+
+function pageOriginRequestPath(path: string, requestURL: URL): string {
+  if (!path.startsWith("//") && !isAbsoluteURL(path)) {
+    return path;
+  }
+  return `${requestURL.pathname}${requestURL.search}${requestURL.hash}`;
+}
+
+function isAbsoluteURL(path: string): boolean {
+  try {
+    new URL(path);
+  } catch {
+    return false;
+  }
+  return true;
 }
 
 function fetchWithToken(path: string, init: RequestInit | undefined, token: string | null): Promise<Response> {

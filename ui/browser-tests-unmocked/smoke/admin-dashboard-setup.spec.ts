@@ -5,6 +5,7 @@ import {
   test,
   waitForDashboard,
 } from "../fixtures";
+import type { Page } from "@playwright/test";
 
 /**
  * SMOKE TEST: Admin Dashboard Setup
@@ -18,6 +19,57 @@ import {
 
 test.describe("Smoke: Admin Dashboard Setup", () => {
   const pendingCleanup: string[] = [];
+  const expectedNavigationLabels = [
+    "SQL Editor",
+    "Functions",
+    "RLS Policies",
+    "Search",
+    "Matviews",
+    "Schema Designer",
+    "FDW",
+    "Storage",
+    "Sites",
+    "Edge Functions",
+    "Webhooks",
+    "SMS Health",
+    "SMS Messages",
+    "Email Templates",
+    "Push Notifications",
+    "Users",
+    "Apps",
+    "API Keys",
+    "OAuth Clients",
+    "API Explorer",
+    "Jobs",
+    "Schedules",
+    "Realtime Inspector",
+    "Security Advisor",
+    "Performance Advisor",
+    "Backups",
+    "Analytics",
+    "Usage",
+    "Replicas",
+    "Branches",
+    "Audit Logs",
+    "Admin Logs",
+    "Secrets",
+    "Custom Domains",
+    "Extensions",
+    "Vector Indexes",
+    "Log Drains",
+    "Stats",
+    "Notifications",
+    "Incidents",
+    "Support Tickets",
+    "Tenants",
+    "Organizations",
+    "AI Assistant",
+    "Auth Settings",
+    "MFA Management",
+    "Account Linking",
+    "SAML",
+    "Auth Hooks",
+  ];
 
   test.afterEach(async ({ request, adminToken }) => {
     for (const sql of pendingCleanup) {
@@ -25,6 +77,49 @@ test.describe("Smoke: Admin Dashboard Setup", () => {
     }
     pendingCleanup.length = 0;
   });
+
+  function normalizeLabels(labels: string[]): string[] {
+    return labels.map((label) => label.trim().replace(/\s+/g, " ")).filter(Boolean);
+  }
+
+  function navigationSpan(labels: string[]): string[] {
+    const normalized = normalizeLabels(labels);
+    const firstIndex = normalized.indexOf(expectedNavigationLabels[0]);
+    const lastIndex = normalized.indexOf(expectedNavigationLabels[expectedNavigationLabels.length - 1]);
+    expect(firstIndex).toBeGreaterThanOrEqual(0);
+    expect(lastIndex).toBeGreaterThan(firstIndex);
+    return normalized.slice(firstIndex, lastIndex + 1);
+  }
+
+  async function sidebarNavigationLabels(page: Page): Promise<string[]> {
+    const sidebarButtons = await page
+      .getByRole("complementary")
+      .getByRole("button")
+      .allInnerTexts();
+    return navigationSpan(sidebarButtons);
+  }
+
+  async function commandPaletteNavigationLabels(page: Page): Promise<string[]> {
+    await page
+      .getByRole("complementary")
+      .getByRole("button", { name: "Search... K" })
+      .click();
+    const dialog = page.getByRole("dialog", { name: "Command palette" });
+    await expect(dialog).toBeVisible();
+    const paletteButtons = await dialog.getByRole("button").allInnerTexts();
+    return navigationSpan(paletteButtons);
+  }
+
+  async function expectFullNavigation(page: Page): Promise<void> {
+    expect(await sidebarNavigationLabels(page)).toEqual(expectedNavigationLabels);
+    expect(await commandPaletteNavigationLabels(page)).toEqual(expectedNavigationLabels);
+  }
+
+  async function expectDashboardWithoutCapabilityError(page: Page): Promise<void> {
+    await waitForDashboard(page);
+    await expect(page.getByTestId("login").or(page.getByText("Connection Error"))).toHaveCount(0);
+    await expectFullNavigation(page);
+  }
 
   test("dashboard loads with shell chrome and command palette entry points", async ({ page }) => {
     const commandPaletteShortcut = process.platform === "darwin" ? "Meta+K" : "Control+K";
@@ -58,7 +153,69 @@ test.describe("Smoke: Admin Dashboard Setup", () => {
     await page.keyboard.press(commandPaletteShortcut);
     await expect(page.getByRole("dialog", { name: "Command palette" })).toBeVisible();
     await page.keyboard.press("Escape");
+
+    expect(await sidebarNavigationLabels(page)).toEqual(expectedNavigationLabels);
+    expect(await commandPaletteNavigationLabels(page)).toEqual(expectedNavigationLabels);
   });
+
+  test("capability 401 keeps passwordless-compatible navigation fail-open", async ({ page }) => {
+    await page.route("**/api/admin/capabilities", async (route) => {
+      await route.fulfill({
+        status: 401,
+        contentType: "application/json",
+        body: JSON.stringify({ message: "unauthorized" }),
+      });
+    });
+
+    await page.goto("/admin/");
+
+    await expect(page.getByRole("complementary")).toBeVisible();
+    await expectDashboardWithoutCapabilityError(page);
+  });
+
+  for (const failureCase of [
+    {
+      name: "network abort",
+      install: async (page: Page) => {
+        await page.route("**/api/admin/capabilities", async (route) => {
+          await route.abort();
+        });
+      },
+    },
+    {
+      name: "non-JSON 200",
+      install: async (page: Page) => {
+        await page.route("**/api/admin/capabilities", async (route) => {
+          await route.fulfill({
+            status: 200,
+            contentType: "text/plain",
+            body: "not json",
+          });
+        });
+      },
+    },
+    {
+      name: "representative non-200",
+      install: async (page: Page) => {
+        await page.route("**/api/admin/capabilities", async (route) => {
+          await route.fulfill({
+            status: 503,
+            contentType: "application/json",
+            body: JSON.stringify({ message: "unavailable" }),
+          });
+        });
+      },
+    },
+  ]) {
+    test(`capability ${failureCase.name} keeps navigation fail-open`, async ({ page }) => {
+      await failureCase.install(page);
+
+      await page.goto("/admin/");
+
+      await expect(page.getByRole("complementary")).toBeVisible();
+      await expectDashboardWithoutCapabilityError(page);
+    });
+  }
 
   test("dashboard selects the first sorted table on load", async ({
     page,

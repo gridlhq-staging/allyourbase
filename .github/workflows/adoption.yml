@@ -1,0 +1,35 @@
+name: Adoption Signal
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "23 13 * * 1"
+
+permissions:
+  contents: read
+
+jobs:
+  collect:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - name: Collect public adoption signal
+        env:
+          ADOPTION_OUTPUT_PATH: ${{ runner.temp }}/adoption.md
+          ADOPTION_REPOSITORY: ${{ github.repository }}
+          ADOPTION_TRAFFIC_TOKEN: ${{ secrets.ADOPTION_TRAFFIC_TOKEN }}
+          GITHUB_TOKEN: ${{ github.token }}
+        run: make adoption
+
+      - name: Publish job summary
+        run: cat "$RUNNER_TEMP/adoption.md" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload adoption report
+        uses: actions/upload-artifact@v7
+        with:
+          name: adoption-signal
+          path: ${{ runner.temp }}/adoption.md
+          if-no-files-found: error

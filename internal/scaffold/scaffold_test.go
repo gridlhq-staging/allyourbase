@@ -106,6 +106,7 @@ func TestRun_Plain(t *testing.T) {
 	assertFilesExist(t, projectDir, "package.json", "tsconfig.json", "src/index.ts", "src/lib/ayb.ts", "ayb.toml")
 	assertFileContains(t, projectDir, "package.json", `"@types/node"`)
 	assertFileContains(t, projectDir, "tsconfig.json", `"rootDir": "src"`)
+	assertFileContains(t, projectDir, "src/index.ts", `import { ayb } from "./lib/ayb.js";`)
 	assertFileContains(t, projectDir, "src/index.ts", `records.list("items", { search, fuzzy: true })`)
 	assertFileContains(t, projectDir, "src/index.ts", "Search items for")
 	assertFileContains(t, projectDir, "schema.sql", "Starter search examples query the items table")

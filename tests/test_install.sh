@@ -15,6 +15,41 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 INSTALL_SCRIPT="${REPO_DIR}/install.sh"
 
+if [ "${1:-}" = "--clean-container" ]; then
+  installer_url="${2:-}"
+  expected_version="${3:-}"
+  if [ -z "$installer_url" ] || [ -z "$expected_version" ]; then
+    printf "Usage: sh tests/test_install.sh --clean-container <installer-url> <expected-version>\n" >&2
+    exit 2
+  fi
+  command -v docker >/dev/null 2>&1 || {
+    printf "docker is required for clean-container installer proof\n" >&2
+    exit 1
+  }
+  docker run --rm \
+    -e "AYB_INSTALLER_URL=$installer_url" \
+    -e "AYB_EXPECTED_VERSION=$expected_version" \
+    -e HOME=/tmp/ayb-home \
+    debian:bookworm-slim sh -eu -c '
+      export DEBIAN_FRONTEND=noninteractive
+      apt-get update >/dev/null
+      apt-get install -y --no-install-recommends ca-certificates curl tar gzip >/dev/null
+      install_dir=$(mktemp -d)
+      installer_path=$(mktemp)
+      curl -fsSL "$AYB_INSTALLER_URL" -o "$installer_path"
+      NO_MODIFY_PATH=1 AYB_INSTALL="$install_dir" sh "$installer_path" "v$AYB_EXPECTED_VERSION" >/tmp/ayb-install.log 2>&1
+      version_json=$("$install_dir/bin/ayb" version --json)
+      actual_version=$(printf "%s" "$version_json" | sed -n "s/.*\"version\"[[:space:]]*:[[:space:]]*\"\([^\"]*\)\".*/\1/p")
+      if [ "$actual_version" != "$AYB_EXPECTED_VERSION" ]; then
+        printf "expected installer version=%s actual=%s\n" "$AYB_EXPECTED_VERSION" "$actual_version" >&2
+        cat /tmp/ayb-install.log >&2
+        exit 1
+      fi
+      printf "clean-container installer version=%s\n" "$actual_version"
+    '
+  exit $?
+fi
+
 # ── Test Helpers ─────────────────────────────────────────────────────────────
 
 TESTS_RUN=0

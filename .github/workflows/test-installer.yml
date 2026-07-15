@@ -6,10 +6,18 @@ on:
   push:
     branches: [main]
     paths:
+      - "README.md"
+      - "docs-site/guide/getting-started.md"
+      - "docs-site/guide/quickstart.md"
       - "install.sh"
+      - "Makefile"
+      - "scripts/extract_doc_block.sh"
+      - "tests/quickstart_doc_blocks.tsv"
+      - "tests/test_extract_doc_block.sh"
       - "tests/test_install.sh"
       - "tests/test_quickstart_e2e.sh"
       - "tests/bash_assert_helpers.sh"
+      - "tests/port_helpers.sh"
       - ".github/workflows/test-installer.yml"
   release:
     types: [published]
@@ -31,10 +39,6 @@ jobs:
         uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
-      - name: Run installer tests
-        run: sh tests/test_install.sh
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       - name: Build AYB for quickstart probe
         if: github.event_name != 'release'
         run: |
@@ -45,6 +49,8 @@ jobs:
         run: NO_MODIFY_PATH=1 sh install.sh
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      - name: Run quickstart e2e probe
+      - name: Run quickstart contract
         timeout-minutes: 10
-        run: bash tests/test_quickstart_e2e.sh
+        run: AYB_QUICKSTART_BIN="$HOME/.ayb/bin/ayb" make test-quickstart-contract
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
