@@ -65,6 +65,15 @@ require_http() {
   fi
 }
 
+resolve_base_url() {
+  AYB_DOCKER_PORT="$($DOCKER_BIN port "$AYB_DOCKER_CONTAINER" 8090/tcp | awk -F: 'NR==1 {print $NF}')"
+  if [[ -z "$AYB_DOCKER_PORT" ]]; then
+    echo "failed to resolve mapped host port for ${AYB_DOCKER_CONTAINER}" >&2
+    return 1
+  fi
+  BASE_URL="http://127.0.0.1:${AYB_DOCKER_PORT}"
+}
+
 start_container() {
   local port_args
   "$DOCKER_BIN" rm -f "$AYB_DOCKER_CONTAINER" >/dev/null 2>&1 || true
@@ -87,14 +96,7 @@ start_container() {
     -v "${RUN_DIR}:/home/ayb/.ayb/run" \
     -v "${STORAGE_DIR}:/ayb_storage" \
     "$AYB_DOCKER_IMAGE" >/dev/null
-  if [[ -z "$AYB_DOCKER_PORT" ]]; then
-    AYB_DOCKER_PORT="$("$DOCKER_BIN" port "$AYB_DOCKER_CONTAINER" 8090/tcp | awk -F: 'NR==1 {print $NF}')"
-    if [[ -z "$AYB_DOCKER_PORT" ]]; then
-      echo "failed to resolve mapped host port for ${AYB_DOCKER_CONTAINER}" >&2
-      return 1
-    fi
-  fi
-  BASE_URL="http://127.0.0.1:${AYB_DOCKER_PORT}"
+  resolve_base_url
 }
 
 start_container
@@ -160,6 +162,7 @@ echo "storage list: ok"
 
 fetch_code="$(
   curl -sS -o "$STORAGE_FILE" -w '%{http_code}' \
+    -H "Authorization: Bearer ${login_token}" \
     "${BASE_URL}/api/storage/journey/${uploaded_name_path}"
 )"
 require_http 200 "$fetch_code" "storage fetch before restart"
@@ -167,6 +170,7 @@ require_http 200 "$fetch_code" "storage fetch before restart"
 echo "storage fetch before restart: ok"
 
 "$DOCKER_BIN" restart "$AYB_DOCKER_CONTAINER" >/dev/null
+resolve_base_url
 wait_for_health
 echo "restart health: ok"
 
@@ -183,6 +187,7 @@ echo "login after restart: ok"
 
 fetch_after_code="$(
   curl -sS -o "$STORAGE_AFTER_FILE" -w '%{http_code}' \
+    -H "Authorization: Bearer ${relogin_token}" \
     "${BASE_URL}/api/storage/journey/${uploaded_name_path}"
 )"
 require_http 200 "$fetch_after_code" "storage fetch after restart"
