@@ -78,14 +78,19 @@ func TestSign(t *testing.T) {
 
 func TestDeliverSuccess(t *testing.T) {
 	t.Parallel()
-	var received atomic.Int32
-	var body []byte
-	var sigHeader string
+	type capturedRequest struct {
+		body        []byte
+		contentType string
+		sigHeader   string
+	}
+	requests := make(chan capturedRequest, maxDeliveryAttempts)
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		received.Add(1)
-		body, _ = io.ReadAll(r.Body)
-		sigHeader = r.Header.Get("X-AYB-Signature")
-		testutil.Equal(t, "application/json", r.Header.Get("Content-Type"))
+		body, _ := io.ReadAll(r.Body)
+		requests <- capturedRequest{
+			body:        body,
+			contentType: r.Header.Get("Content-Type"),
+			sigHeader:   r.Header.Get("X-AYB-Signature"),
+		}
 		w.WriteHeader(200)
 	}))
 	defer srv.Close()
@@ -98,15 +103,26 @@ func TestDeliverSuccess(t *testing.T) {
 	event := &realtime.Event{Action: "create", Table: "posts", Record: map[string]any{"id": float64(1)}}
 	d.processEvent(event)
 
-	testutil.Equal(t, int32(1), received.Load())
+	var req capturedRequest
+	select {
+	case req = <-requests:
+	default:
+		t.Fatal("expected webhook delivery request")
+	}
+	select {
+	case <-requests:
+		t.Fatal("expected exactly one webhook delivery request")
+	default:
+	}
 
 	var got realtime.Event
-	testutil.NoError(t, json.Unmarshal(body, &got))
+	testutil.NoError(t, json.Unmarshal(req.body, &got))
 	testutil.Equal(t, "create", got.Action)
 	testutil.Equal(t, "posts", got.Table)
+	testutil.Equal(t, "application/json", req.contentType)
 
 	// No secret configured → signature header must be absent.
-	testutil.Equal(t, "", sigHeader)
+	testutil.Equal(t, "", req.sigHeader)
 }
 
 func TestDeliverWithSignature(t *testing.T) {
