@@ -39,7 +39,7 @@ jobs:
         run: |
           set -euo pipefail
           if [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
-            ayb_version="${GITHUB_REF_NAME}"
+            ayb_version="${GITHUB_REF_NAME#v}"
           else
             ayb_version="dev-${GITHUB_SHA::7}"
           fi
