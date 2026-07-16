@@ -31,12 +31,16 @@ func (s *Server) handleAdminAuthProvidersUpdate(w http.ResponseWriter, r *http.R
 		return
 	}
 
+	// Write-lock: both update paths mutate the shared cfg.Auth provider maps.
+	// Released before lookupOAuthProviderInfo, which takes the read lock.
+	s.authProvidersMu.Lock()
 	var err error
 	if auth.IsBuiltInOAuthProviderName(provider) {
 		err = s.updateBuiltInAuthProvider(provider, req)
 	} else {
 		err = s.updateOIDCAuthProvider(provider, req)
 	}
+	s.authProvidersMu.Unlock()
 	if err != nil {
 		httputil.WriteError(w, http.StatusBadRequest, err.Error())
 		return
@@ -63,12 +67,14 @@ func (s *Server) handleAdminAuthProvidersDelete(w http.ResponseWriter, r *http.R
 		return
 	}
 
+	s.authProvidersMu.Lock()
 	var err error
 	if auth.IsBuiltInOAuthProviderName(provider) {
 		err = s.deleteBuiltInAuthProvider(provider)
 	} else {
 		err = s.deleteOIDCAuthProvider(provider)
 	}
+	s.authProvidersMu.Unlock()
 	if err != nil {
 		if errors.Is(err, errAuthProviderNotFound) {
 			httputil.WriteError(w, http.StatusNotFound, err.Error())

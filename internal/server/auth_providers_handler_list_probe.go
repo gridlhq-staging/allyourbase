@@ -219,9 +219,11 @@ func (s *Server) lookupOAuthProviderInfo(provider string) (auth.OAuthProviderInf
 
 func (s *Server) listOAuthProviders() []auth.OAuthProviderInfo {
 	providers := s.authHandler.ListOAuthProviders()
+	s.authProvidersMu.RLock()
 	for i := range providers {
 		applyConfiguredProviderStatus(s.cfg, &providers[i])
 	}
+	s.authProvidersMu.RUnlock()
 	return providers
 }
 

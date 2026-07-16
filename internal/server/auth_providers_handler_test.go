@@ -2,11 +2,13 @@ package server_test
 
 import (
 	"encoding/json"
+	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -816,4 +818,62 @@ func getAuthProviderMap(t *testing.T, srv *server.Server, token string) map[stri
 		out[p.Name] = p
 	}
 	return out
+}
+
+// TestAdminAuthProvidersConcurrentUpdatesAndList drives parallel provider
+// mutations and list reads. The provider config maps are shared server state;
+// unsynchronized access kills the process with "fatal error: concurrent map
+// writes" under concurrent admin traffic.
+func TestAdminAuthProvidersConcurrentUpdatesAndList(t *testing.T) {
+	t.Parallel()
+	srv, token := authProvidersServerWithAuth(t, nil)
+
+	do := func(method, path, body string) int {
+		w := httptest.NewRecorder()
+		var reader io.Reader
+		if body != "" {
+			reader = strings.NewReader(body)
+		}
+		req := httptest.NewRequest(method, path, reader)
+		req.Header.Set("Authorization", "Bearer "+token)
+		if body != "" {
+			req.Header.Set("Content-Type", "application/json")
+		}
+		srv.Router().ServeHTTP(w, req)
+		return w.Code
+	}
+
+	const iterations = 25
+	var wg sync.WaitGroup
+	errs := make(chan string, 6*iterations)
+	for g := 0; g < 6; g++ {
+		wg.Add(1)
+		go func(g int) {
+			defer wg.Done()
+			for i := 0; i < iterations; i++ {
+				switch g % 3 {
+				case 0, 1:
+					// Two writer goroutines per provider name: same-key and
+					// cross-key map writes. Disabled providers skip discovery,
+					// so no network I/O is involved.
+					name := fmt.Sprintf("oidc-race-%d", g%2)
+					body := `{"enabled":false,"issuer_url":"https://issuer.example.com","client_id":"id","client_secret":"secret"}`
+					if code := do(http.MethodPut, "/api/admin/auth/providers/"+name, body); code != http.StatusOK {
+						errs <- fmt.Sprintf("PUT %s: got status %d, want 200", name, code)
+						return
+					}
+				default:
+					if code := do(http.MethodGet, "/api/admin/auth/providers", ""); code != http.StatusOK {
+						errs <- fmt.Sprintf("GET list: got status %d, want 200", code)
+						return
+					}
+				}
+			}
+		}(g)
+	}
+	wg.Wait()
+	close(errs)
+	for e := range errs {
+		t.Error(e)
+	}
 }

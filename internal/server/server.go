@@ -98,7 +98,8 @@ type Server struct {
 	fieldEncryptor         *api.FieldEncryptor
 	observabilityMu        sync.RWMutex
 	adminMu                sync.RWMutex
-	adminAuth              *adminAuth // nil when admin.password not set
+	authProvidersMu        sync.RWMutex // guards cfg.Auth.OAuth/cfg.Auth.OIDC maps mutated by the provider admin API
+	adminAuth              *adminAuth   // nil when admin.password not set
 	startTime              time.Time
 	drainManager           *logging.DrainManager
 	logBuffer              *LogBuffer   // nil when not using buffered logging

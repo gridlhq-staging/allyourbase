@@ -627,30 +627,41 @@ func TestLeaseRenewalExtendsLease(t *testing.T) {
 	svc.Start(ctx)
 	defer svc.Stop()
 
-	// Wait for job to be claimed.
-	time.Sleep(500 * time.Millisecond)
+	// Poll until the worker claims the job; a fixed post-Start sleep flakes on
+	// loaded runners where the claim takes longer than the sleep.
+	var firstLease time.Time
+	claimDeadline := time.Now().Add(5 * time.Second)
+	for {
+		got, err := store.Get(ctx, jobID)
+		testutil.NoError(t, err)
+		if got.State == jobs.StateRunning {
+			testutil.NotNil(t, got.LeaseUntil)
+			firstLease = *got.LeaseUntil
+			break
+		}
+		if time.Now().After(claimDeadline) {
+			t.Fatalf("timed out waiting for job claim: state=%s", got.State)
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
 
-	// Check the lease_until — it should have been extended beyond the original
-	// claim time. The original lease was 2s from claim time; if renewal worked,
-	// lease_until should be pushed further out.
-	got, err := store.Get(ctx, jobID)
-	testutil.NoError(t, err)
-	testutil.Equal(t, jobs.StateRunning, got.State)
-	testutil.NotNil(t, got.LeaseUntil)
-
-	// Save the initial lease_until for comparison.
-	firstLease := *got.LeaseUntil
-
-	// Wait for renewal to fire (half of 2s = 1s, so after another second or so).
-	time.Sleep(1500 * time.Millisecond)
-
-	got2, err := store.Get(ctx, jobID)
-	testutil.NoError(t, err)
-	testutil.Equal(t, jobs.StateRunning, got2.State)
-	testutil.NotNil(t, got2.LeaseUntil)
-	testutil.True(t, got2.LeaseUntil.After(firstLease),
-		"lease_until should have been extended: first=%v, current=%v",
-		firstLease, *got2.LeaseUntil)
+	// Renewal fires at half the 2s lease while the handler sleeps 3s; poll
+	// until lease_until moves past the first observed lease.
+	renewDeadline := time.Now().Add(4 * time.Second)
+	for {
+		got, err := store.Get(ctx, jobID)
+		testutil.NoError(t, err)
+		if got.State != jobs.StateRunning {
+			t.Fatalf("job left running state before an observed lease renewal: state=%s", got.State)
+		}
+		if got.LeaseUntil != nil && got.LeaseUntil.After(firstLease) {
+			break
+		}
+		if time.Now().After(renewDeadline) {
+			t.Fatalf("timed out waiting for lease renewal past %v", firstLease)
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
 
 	// Wait for job to complete.
 	deadline := time.After(5 * time.Second)
