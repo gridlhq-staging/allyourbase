@@ -1,43 +1,21 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AlertCircle, Search as SearchIcon, TableProperties } from "lucide-react";
-import type {
-  Column,
-  FacetBucketValue,
-  FacetCounts,
-  ListResponse,
-  SchemaCache,
-  Table,
-} from "../types";
+import type { ListResponse, SchemaCache, Table } from "../types";
 import { isSerializableFacetColumnName, listSearchPlaygroundRecords } from "../api_search";
+import {
+  SearchFacetControls,
+  isFacetEligibleColumn,
+  selectedFacetPanels,
+} from "./SearchFacets";
+import {
+  SEARCH_HIGHLIGHT_RESPONSE_FIELD,
+  SearchHighlightResults,
+  gridDataWithoutSearchHighlights,
+  searchHighlightSnippets,
+} from "./SearchHighlights";
 import { TableBrowserGrid } from "./TableBrowserGrid";
 
 const DEFAULT_PER_PAGE = 20;
-const FACETABLE_JSON_TYPES = new Set(["string", "number", "integer", "boolean"]);
-const NON_FACETABLE_TYPE_PATTERNS = ["json", "vector", "geometry", "geography", "raster"];
-const FILTER_IDENTIFIER_PATTERN = /^[A-Za-z_][A-Za-z0-9_.]*$/;
-const FILTER_IDENTIFIER_KEYWORDS = new Set(["AND", "OR", "IN", "TRUE", "FALSE", "NULL"]);
-const SEARCH_HIGHLIGHT_START = "<b>";
-const SEARCH_HIGHLIGHT_END = "</b>";
-const SEARCH_HIGHLIGHT_RESPONSE_FIELD = "_highlight";
-const SEARCH_HIGHLIGHT_ENTITY_PATTERN = /&(?:#\d+|#x[\da-fA-F]+|[a-zA-Z][\da-zA-Z]+);/g;
-const SEARCH_HIGHLIGHT_NAMED_ENTITIES: Record<string, string> = {
-  amp: "&",
-  apos: "'",
-  gt: ">",
-  lt: "<",
-  quot: '"',
-};
-const MAX_UNICODE_CODE_POINT = 0x10ffff;
-
-interface HighlightFragment {
-  text: string;
-  emphasized: boolean;
-}
-
-interface HighlightSnippet {
-  rowIndex: number;
-  fragments: HighlightFragment[];
-}
 
 function toCollectionKey(table: Pick<Table, "schema" | "name">): string {
   return table.schema === "public" ? table.name : `${table.schema}.${table.name}`;
@@ -45,212 +23,6 @@ function toCollectionKey(table: Pick<Table, "schema" | "name">): string {
 
 function toCollectionLabel(table: Pick<Table, "schema" | "name">): string {
   return toCollectionKey(table);
-}
-
-function isFacetEligibleColumn(column: Column): boolean {
-  const normalizedType = column.type.trim().toLowerCase();
-  if (normalizedType.endsWith("[]")) {
-    return false;
-  }
-  if (NON_FACETABLE_TYPE_PATTERNS.some((pattern) => normalizedType.includes(pattern))) {
-    return false;
-  }
-  if (Array.isArray(column.enumValues) && column.enumValues.length > 0) {
-    return true;
-  }
-  const normalizedJsonType = column.jsonType.trim().toLowerCase();
-  return FACETABLE_JSON_TYPES.has(normalizedJsonType);
-}
-
-function formatFacetValue(value: FacetBucketValue): string {
-  if (value === null) {
-    return "null";
-  }
-  return String(value);
-}
-
-function toFacetTestIDSegment(value: FacetBucketValue): string {
-  if (value === null) {
-    return "null";
-  }
-  const normalized = String(value)
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "_")
-    .replace(/^_+|_+$/g, "");
-  return normalized === "" ? "value" : normalized;
-}
-
-// Facet clicks must rewrite the existing filter field so the UI keeps one
-// canonical narrowing expression instead of introducing hidden extra state.
-function isFilterIdentifierCompatible(column: string): boolean {
-  return (
-    FILTER_IDENTIFIER_PATTERN.test(column) && !FILTER_IDENTIFIER_KEYWORDS.has(column.toUpperCase())
-  );
-}
-
-function escapeFilterStringLiteral(value: string): string {
-  return value.replace(/\\/g, "\\\\").replace(/'/g, "\\'");
-}
-
-function buildFacetFilterExpression(column: string, value: Exclude<FacetBucketValue, null>): string | null {
-  if (!isFilterIdentifierCompatible(column)) {
-    return null;
-  }
-  if (typeof value === "string") {
-    return `${column}='${escapeFilterStringLiteral(value)}'`;
-  }
-  return `${column}=${String(value)}`;
-}
-
-function selectedFacetPanels(
-  selectedFacetColumns: string[],
-  facets: FacetCounts | undefined,
-): Array<{ column: string; buckets: FacetCounts[string] }> {
-  if (!facets) {
-    return [];
-  }
-  return selectedFacetColumns
-    .map((column) => {
-      const buckets = facets[column];
-      return buckets ? { column, buckets } : null;
-    })
-    .filter((panel): panel is { column: string; buckets: FacetCounts[string] } => panel !== null);
-}
-
-function decodeSearchHighlightEntity(entity: string): string {
-  const body = entity.slice(1, -1);
-  if (body.startsWith("#x") || body.startsWith("#X")) {
-    const codePoint = Number.parseInt(body.slice(2), 16);
-    return decodeSearchHighlightCodePoint(codePoint, entity);
-  }
-  if (body.startsWith("#")) {
-    const codePoint = Number.parseInt(body.slice(1), 10);
-    return decodeSearchHighlightCodePoint(codePoint, entity);
-  }
-  return SEARCH_HIGHLIGHT_NAMED_ENTITIES[body] ?? entity;
-}
-
-function decodeSearchHighlightCodePoint(codePoint: number, fallback: string): string {
-  if (!Number.isFinite(codePoint) || codePoint < 0 || codePoint > MAX_UNICODE_CODE_POINT) {
-    return fallback;
-  }
-  return String.fromCodePoint(codePoint);
-}
-
-function decodeSearchHighlightText(text: string): string {
-  return text.replace(SEARCH_HIGHLIGHT_ENTITY_PATTERN, decodeSearchHighlightEntity);
-}
-
-function parseHighlightFragments(snippet: string): HighlightFragment[] {
-  const fragments: HighlightFragment[] = [];
-  let cursor = 0;
-
-  while (cursor < snippet.length) {
-    const start = snippet.indexOf(SEARCH_HIGHLIGHT_START, cursor);
-    if (start === -1) {
-      fragments.push({ text: decodeSearchHighlightText(snippet.slice(cursor)), emphasized: false });
-      break;
-    }
-
-    const end = snippet.indexOf(SEARCH_HIGHLIGHT_END, start + SEARCH_HIGHLIGHT_START.length);
-    if (end === -1) {
-      fragments.push({ text: decodeSearchHighlightText(snippet.slice(cursor)), emphasized: false });
-      break;
-    }
-
-    if (start > cursor) {
-      fragments.push({ text: decodeSearchHighlightText(snippet.slice(cursor, start)), emphasized: false });
-    }
-    fragments.push({
-      text: decodeSearchHighlightText(snippet.slice(start + SEARCH_HIGHLIGHT_START.length, end)),
-      emphasized: true,
-    });
-    cursor = end + SEARCH_HIGHLIGHT_END.length;
-  }
-
-  return fragments.filter((fragment) => fragment.text !== "");
-}
-
-function searchHighlightSnippets(data: ListResponse | null): HighlightSnippet[] {
-  if (!data) {
-    return [];
-  }
-  return data.items.flatMap((row, rowIndex) => {
-    const highlight = row[SEARCH_HIGHLIGHT_RESPONSE_FIELD];
-    if (typeof highlight !== "string" || highlight.trim() === "") {
-      return [];
-    }
-    const fragments = parseHighlightFragments(highlight);
-    if (fragments.length === 0) {
-      return [];
-    }
-    return [{ rowIndex, fragments }];
-  });
-}
-
-function removeSearchHighlightField(row: Record<string, unknown>): Record<string, unknown> {
-  const plainRow: Record<string, unknown> = {};
-  for (const [key, value] of Object.entries(row)) {
-    if (key !== SEARCH_HIGHLIGHT_RESPONSE_FIELD) {
-      plainRow[key] = value;
-    }
-  }
-  return plainRow;
-}
-
-function gridDataWithoutSearchHighlights(
-  data: ListResponse | null,
-  stripHighlights: boolean,
-): ListResponse | null {
-  if (!data || !stripHighlights) {
-    return data;
-  }
-  return {
-    ...data,
-    items: data.items.map(removeSearchHighlightField),
-  };
-}
-
-function SearchHighlightResults({ snippets }: { snippets: HighlightSnippet[] }) {
-  if (snippets.length === 0) {
-    return null;
-  }
-
-  return (
-    <section
-      aria-label="Highlighted matches"
-      data-testid="search-highlight-results"
-      className="mb-4 rounded-lg border border-yellow-200 bg-yellow-50 p-3 text-sm text-gray-800 dark:border-yellow-700/70 dark:bg-yellow-950/30 dark:text-yellow-50"
-    >
-      <h2 className="text-sm font-medium">Highlighted matches</h2>
-      <ol className="mt-2 space-y-2">
-        {snippets.map((snippet) => (
-          <li
-            key={snippet.rowIndex}
-            data-testid={`search-highlight-snippet-${snippet.rowIndex}`}
-            className="text-xs leading-5"
-          >
-            <span className="font-medium text-gray-600 dark:text-yellow-100">
-              Result {snippet.rowIndex + 1}:{" "}
-            </span>
-            {snippet.fragments.map((fragment, fragmentIndex) =>
-              fragment.emphasized ? (
-                <mark
-                  key={`${snippet.rowIndex}-${fragmentIndex}`}
-                  className="rounded bg-yellow-200 px-0.5 text-gray-950 dark:bg-yellow-300"
-                >
-                  {fragment.text}
-                </mark>
-              ) : (
-                <span key={`${snippet.rowIndex}-${fragmentIndex}`}>{fragment.text}</span>
-              ),
-            )}
-          </li>
-        ))}
-      </ol>
-    </section>
-  );
 }
 
 interface SearchProps {
@@ -355,14 +127,7 @@ export function Search({ schema }: SearchProps) {
     );
   }, []);
 
-  const handleFacetBucketClick = useCallback((column: string, value: FacetBucketValue) => {
-    if (value === null) {
-      return;
-    }
-    const expression = buildFacetFilterExpression(column, value);
-    if (!expression) {
-      return;
-    }
+  const handleFacetFilterSelected = useCallback((expression: string) => {
     setFilter(expression);
     setAppliedFilter(expression);
   }, []);
@@ -542,90 +307,13 @@ export function Search({ schema }: SearchProps) {
         </button>
       </div>
 
-      {eligibleFacetColumns.length > 0 && (
-        <div
-          className="mb-4 rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/40 p-4 space-y-4"
-          data-testid="search-facet-controls"
-        >
-          <fieldset>
-            <legend className="text-sm font-medium text-gray-800 dark:text-gray-100">
-              Facet columns
-            </legend>
-            <p className="mt-1 text-xs text-gray-500 dark:text-gray-300">
-              Choose scalar columns to return live bucket counts with the current result set.
-            </p>
-            <div className="mt-3 flex flex-wrap gap-2">
-              {eligibleFacetColumns.map((column) => {
-                const checked = selectedFacetColumns.includes(column.name);
-                return (
-                  <label
-                    key={column.name}
-                    data-testid={`search-facet-option-${column.name}`}
-                    className={`inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs ${checked ? "border-blue-500 bg-blue-50 text-blue-700 dark:border-blue-400 dark:bg-blue-950/40 dark:text-blue-200" : "border-gray-300 bg-white text-gray-700 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-200"}`}
-                  >
-                    <input
-                      type="checkbox"
-                      checked={checked}
-                      onChange={() => toggleFacetColumn(column.name)}
-                      aria-label={column.name}
-                    />
-                    <span>{column.name}</span>
-                  </label>
-                );
-              })}
-            </div>
-          </fieldset>
-
-          {facetPanels.length > 0 && (
-            <div className="space-y-3">
-              <div>
-                <h2 className="text-sm font-medium text-gray-800 dark:text-gray-100">Facet buckets</h2>
-                <p className="mt-1 text-xs text-gray-500 dark:text-gray-300">
-                  Bucket counts match the current search and filter exactly. Clicking a bucket rewrites the filter expression.
-                </p>
-              </div>
-
-              {facetPanels.map(({ column, buckets }) => (
-                <section
-                  key={column}
-                  className="rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 p-3"
-                  data-testid={`search-facet-panel-${column}`}
-                >
-                  <h3 className="text-sm font-medium text-gray-800 dark:text-gray-100">{column}</h3>
-                  {buckets.length === 0 ? (
-                    <p className="mt-2 text-xs text-gray-500 dark:text-gray-300">
-                      No facet buckets for the current result set.
-                    </p>
-                  ) : (
-                    <div className="mt-3 flex flex-wrap gap-2">
-                      {buckets.map((bucket) => {
-                        const valueLabel = formatFacetValue(bucket.value);
-                        const isClickable =
-                          bucket.value !== null && isFilterIdentifierCompatible(column);
-                        return (
-                          <button
-                            key={`${column}-${valueLabel}-${bucket.count}`}
-                            type="button"
-                            disabled={!isClickable}
-                            onClick={() => handleFacetBucketClick(column, bucket.value)}
-                            data-testid={`search-facet-bucket-${column}-${toFacetTestIDSegment(bucket.value)}`}
-                            className={`inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs ${isClickable ? "border-gray-300 bg-white text-gray-700 hover:border-blue-400 hover:text-blue-700 dark:border-gray-600 dark:bg-gray-950 dark:text-gray-200 dark:hover:border-blue-400 dark:hover:text-blue-200" : "cursor-not-allowed border-gray-200 bg-gray-100 text-gray-500 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-400"}`}
-                          >
-                            <span>{valueLabel}</span>
-                            <span className="rounded-full bg-gray-100 px-2 py-0.5 text-[11px] text-gray-600 dark:bg-gray-800 dark:text-gray-300">
-                              {bucket.count}
-                            </span>
-                          </button>
-                        );
-                      })}
-                    </div>
-                  )}
-                </section>
-              ))}
-            </div>
-          )}
-        </div>
-      )}
+      <SearchFacetControls
+        eligibleFacetColumns={eligibleFacetColumns}
+        selectedFacetColumns={selectedFacetColumns}
+        facetPanels={facetPanels}
+        onToggleFacetColumn={toggleFacetColumn}
+        onFilterSelected={handleFacetFilterSelected}
+      />
 
       {error && !data && (
         <div className="m-1 mb-4 p-3 bg-red-50 border border-red-200 rounded-lg flex items-start gap-2">

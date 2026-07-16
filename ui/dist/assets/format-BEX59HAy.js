@@ -1,0 +1,1 @@
+function e(t){if(t===0)return"0 B";const o=1024,a=["B","KB","MB","GB"],r=Math.floor(Math.log(t)/Math.log(o));return`${(t/Math.pow(o,r)).toFixed(1)} ${a[r]}`}function n(t){if(!t)return"-";const o=new Date(t);return Number.isNaN(o.getTime())?"-":o.toLocaleString()}export{e as a,n as f};

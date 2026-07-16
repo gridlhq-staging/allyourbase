@@ -1,7 +1,6 @@
 import type { SchemaCache, Table } from "../types";
 import { TableBrowser } from "./TableBrowser";
 import { SchemaView } from "./SchemaView";
-import { SqlEditor } from "./SqlEditor";
 import { SearchSettingsEditor } from "./SearchSettingsEditor";
 import { SynonymsEditor } from "./SynonymsEditor";
 import type { AdminView, View } from "./layout-types";
@@ -68,12 +67,13 @@ function renderSelectedContent(
   selected: Table,
   schema: SchemaCache,
   onRefresh: () => void | Promise<void>,
+  screenRegistry: ScreenRegistry,
 ) {
   switch (view) {
     case "schema":
       return <SchemaView table={selected} />;
     case "sql":
-      return <SqlEditor onSchemaChange={onRefresh} />;
+      return findAdminScreen("sql-editor", screenRegistry)?.render({ schema, onRefresh });
     case "synonyms":
       return <SynonymsEditor selected={selected} schema={schema} />;
     case "search-settings":
@@ -169,7 +169,9 @@ export function ContentRouter({
           </div>
         </header>
 
-        <div className="flex-1 overflow-auto">{renderSelectedContent(view, selected, schema, onRefresh)}</div>
+        <div className="flex-1 overflow-auto">
+          {renderSelectedContent(view, selected, schema, onRefresh, screenRegistry)}
+        </div>
       </main>
     );
   }

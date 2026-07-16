@@ -281,3 +281,23 @@ describe("browser-unmocked test hygiene", () => {
     expect(lifecycle).not.toContain("test (passed|failed)|test request failed");
   });
 });
+
+describe("vitest config concurrency contract", () => {
+  it("bounds the Vitest worker pool with a CI-gated top-level maxWorkers", () => {
+    const viteConfig = readProjectFile("vite.config.ts");
+
+    // The CI runner memory envelope requires a bounded worker pool: an
+    // unbounded fork worker stayed alive and exhausted ~4 GiB on the public CI
+    // run. The bound must be top-level `maxWorkers`, gated on CI so local
+    // developer runs stay unbounded, with an optional VITEST_MAX_WORKERS
+    // override parsed in this same config file.
+    expect(viteConfig).toMatch(/maxWorkers/);
+    expect(viteConfig).toContain("process.env.CI");
+    expect(viteConfig).toContain("VITEST_MAX_WORKERS");
+  });
+
+  it("does not reintroduce removed Vitest 4 poolOptions wiring", () => {
+    const viteConfig = readProjectFile("vite.config.ts");
+    expect(viteConfig).not.toContain("poolOptions");
+  });
+});

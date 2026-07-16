@@ -6,6 +6,7 @@ import type { View } from "../layout-types";
 import { ContentRouter } from "../ContentRouter";
 import {
   filterScreenRegistry,
+  type AdminScreen,
   type ScreenRegistry,
 } from "../../screens/registry";
 
@@ -73,22 +74,27 @@ function makeSchema(selected = makeTable()): SchemaCache {
   };
 }
 
-function renderSelectedRouter(view: View = "data") {
+function renderSelectedRouter(
+  view: View = "data",
+  screenRegistry?: ScreenRegistry,
+) {
   const selected = makeTable();
   const onSetView = vi.fn();
   const onRefresh = vi.fn();
+  const schema = makeSchema(selected);
   render(
     <ContentRouter
-      schema={makeSchema(selected)}
+      schema={schema}
       view={view}
       isAdminView={false}
       selected={selected}
       onRefresh={onRefresh}
       onSetView={onSetView}
       onSelectAdminView={vi.fn()}
+      screenRegistry={screenRegistry}
     />,
   );
-  return { onSetView, onRefresh };
+  return { onSetView, onRefresh, schema, selected };
 }
 
 function renderAdminRouter(view: View) {
@@ -128,10 +134,21 @@ const gatedRegistry = {
   ],
 } satisfies ScreenRegistry;
 
+function registryWithSqlScreen(sqlScreen: AdminScreen): ScreenRegistry {
+  return {
+    sections: [
+      {
+        title: "Database",
+        screens: [sqlScreen],
+      },
+    ],
+  };
+}
+
 describe("ContentRouter admin views", () => {
-  it("routes known owners without a silent fallback", () => {
+  it("routes known owners without a silent fallback", async () => {
     const { rerender } = renderAdminRouter("sql-editor");
-    expect(screen.getByTestId("sql-editor")).toBeInTheDocument();
+    expect(await screen.findByTestId("sql-editor")).toBeInTheDocument();
 
     for (const [view, ownerTestId] of [
       ["schema-designer", "schema-designer"],
@@ -150,7 +167,7 @@ describe("ContentRouter admin views", () => {
           onSelectAdminView={vi.fn()}
         />,
       );
-      expect(screen.getByTestId(ownerTestId)).toBeInTheDocument();
+      expect(await screen.findByTestId(ownerTestId)).toBeInTheDocument();
     }
   });
 
@@ -248,7 +265,7 @@ describe("ContentRouter selected table views", () => {
     ).toBeInTheDocument();
   });
 
-  it("keeps Data, Schema, and SQL routed to their existing owners", () => {
+  it("keeps Data, Schema, and SQL routed to their existing owners", async () => {
     renderSelectedRouter("data");
     expect(screen.getByTestId("table-browser")).toHaveTextContent("books");
 
@@ -256,6 +273,33 @@ describe("ContentRouter selected table views", () => {
     expect(screen.getByTestId("schema-view")).toHaveTextContent("books");
 
     renderSelectedRouter("sql");
-    expect(screen.getByTestId("sql-editor")).toBeInTheDocument();
+    expect(await screen.findByTestId("sql-editor")).toBeInTheDocument();
+  });
+
+  it("routes the selected-table SQL view through the registry sql-editor screen", async () => {
+    const sqlRender = vi.fn(({ onRefresh }) => (
+      <button data-testid="registry-sql-editor" onClick={onRefresh}>
+        Registry SQL Editor
+      </button>
+    ));
+    const sqlScreen = {
+      id: "sql-editor",
+      label: "SQL Editor",
+      icon: {} as never,
+      render: sqlRender,
+    } satisfies AdminScreen;
+    const user = userEvent.setup();
+
+    const { onRefresh, schema } = renderSelectedRouter(
+      "sql",
+      registryWithSqlScreen(sqlScreen),
+    );
+
+    expect(await screen.findByTestId("registry-sql-editor")).toBeInTheDocument();
+    expect(screen.queryByTestId("sql-editor")).not.toBeInTheDocument();
+    expect(sqlRender).toHaveBeenCalledWith({ schema, onRefresh });
+
+    await user.click(screen.getByTestId("registry-sql-editor"));
+    expect(onRefresh).toHaveBeenCalledTimes(1);
   });
 });

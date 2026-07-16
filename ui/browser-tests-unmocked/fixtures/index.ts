@@ -25,6 +25,7 @@ export * from "./realtime";
 export * from "./usage";
 export * from "./tenants";
 export * from "./orgs";
+export * from "./chunks";
 
 const browserSkipReason = getBrowserUnmockedSkipReason();
 const SAFE_SQL_IDENTIFIER = /^[A-Za-z_][A-Za-z0-9_]*$/;

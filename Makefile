@@ -1,7 +1,4 @@
-.PHONY: build dev test test-sdk test-sdk-go test-sdk-python test-sdk-dart test-sdk-swift test-sdk-kotlin test-sdk-react test-sdk-ssr test-sdk-all test-sdk-integration test-ui test-quickstart-contract test-integration test-multinode test-cell test-demo-smoke test-demo-e2e test-demo-launch test-demo-cross-smoke test-e2e test-smoke test-browser-full test-full test-all test-everything test-api-smoke test-api-journey lint check hygiene check-hygiene check-sizes check-ui-lint check-browser-tests-lint check-func-sizes check-installer check-sdk-build launch-check adoption release-candidate-check clean ui demos release docker docker-runtime-smoke help sync-openapi build-postgres load-admin-status load-admin-status-local load-auth-request-path load-auth-request-path-local load-data-path load-data-path-local load-data-pool-pressure load-data-pool-pressure-local load-http-100 load-http-100-local load-http-500 load-http-500-local load-http-1000 load-http-1000-local load-realtime-ws load-realtime-ws-local load-realtime-ws-1000 load-realtime-ws-1000-local load-realtime-ws-5000 load-realtime-ws-5000-local load-realtime-ws-10000 load-realtime-ws-10000-local load-sustained-soak load-sustained-soak-local
-
-.PHONY: check-screen-specs
-.PHONY: check-followups
+.PHONY: build dev test test-sdk test-sdk-go test-sdk-python test-sdk-dart test-sdk-swift test-sdk-kotlin test-sdk-react test-sdk-ssr test-sdk-all test-sdk-integration test-ui test-quickstart-contract test-integration test-multinode test-cell test-demo-smoke test-demo-e2e test-demo-launch test-demo-cross-smoke test-e2e test-smoke test-browser-full test-full test-all test-everything test-api-smoke test-api-journey lint check hygiene check-hygiene check-sizes check-screen-specs check-followups check-ui-bundle-size check-ui-lint check-browser-tests-lint check-func-sizes check-installer check-sdk-build launch-check adoption release-candidate-check clean ui demos release docker docker-runtime-smoke help sync-openapi build-postgres load-admin-status load-admin-status-local load-auth-request-path load-auth-request-path-local load-data-path load-data-path-local load-data-pool-pressure load-data-pool-pressure-local load-http-100 load-http-100-local load-http-500 load-http-500-local load-http-1000 load-http-1000-local load-realtime-ws load-realtime-ws-local load-realtime-ws-1000 load-realtime-ws-1000-local load-realtime-ws-5000 load-realtime-ws-5000-local load-realtime-ws-10000 load-realtime-ws-10000-local load-sustained-soak load-sustained-soak-local
 
 # Build variables
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
@@ -377,7 +374,7 @@ test-everything: build ## Run absolutely everything: unit + integration + SDK + 
 lint: ## Run linters (requires golangci-lint)
 	golangci-lint run ./...
 
-check-sizes: ## Run Go file-size guardrail
+check-sizes: ## Run source-size guardrail
 	bash scripts/check-file-sizes.sh
 
 check-screen-specs: ## Run screen-spec format guard
@@ -388,6 +385,10 @@ check-followups: ## Report follow-up ledger pollution without blocking aggregate
 	if ! git show HEAD:chats/icg/_followups.md | bash scripts/check_followups.sh HEAD=-; then status=1; fi; \
 	if ! bash scripts/check_followups.sh worktree=chats/icg/_followups.md; then status=1; fi; \
 	exit $$status
+
+check-ui-bundle-size: ## Build UI and run entry bundle-size guardrail
+	$(MAKE) ui
+	bash scripts/check_ui_bundle_size.sh
 
 check-hygiene: ## Run leaked worktree path guard
 	go test ./internal/codehealth -run TestNoLeakedWorktreePaths -count=1
@@ -405,7 +406,7 @@ check-browser-tests-lint: ## Lint browser test specs
 check-func-sizes: ## Run Go function-size guardrail test
 	go test ./internal/codehealth -run TestFunctionSizeAllowlist -count=1
 
-check: hygiene fmt lint check-sizes check-screen-specs check-ui-lint check-func-sizes ## Run local CI-equivalent quality checks
+check: hygiene fmt lint check-sizes check-screen-specs check-ui-bundle-size check-ui-lint check-func-sizes ## Run local CI-equivalent quality checks
 
 check-installer: ## Run installer validation suite
 	sh tests/test_install.sh
@@ -419,7 +420,7 @@ adoption: ## Collect live public adoption signal
 check-sdk-build: ## Build the JavaScript SDK
 	cd sdk && npm run build
 
-release-candidate-check: check check-browser-tests-lint test-all test-multinode ui check-sdk-build check-installer test-demo-launch test-demo-e2e test-smoke test-browser-full ## Run the trusted public release candidate gate
+release-candidate-check: check check-browser-tests-lint test-all test-multinode test-sdk-integration test-cell test-quickstart-contract ui check-sdk-build check-installer test-demo-launch test-demo-e2e test-smoke test-browser-full ## Run the trusted public release candidate gate
 
 ui: ## Build the admin dashboard SPA
 	cd ui && pnpm install && pnpm build

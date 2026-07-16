@@ -1,10 +1,8 @@
-/**
- * @module ui/browser-tests-unmocked/auth.setup.ts
- */
+import { chmodSync, mkdirSync } from "node:fs";
 import { test as setup, expect } from "@playwright/test";
 import { getBrowserUnmockedSkipReason } from "./browser-preflight";
 import { resolveAdminBootstrapCredential } from "./admin-bootstrap";
-import { adminPath } from "./fixtures";
+import { adminURL } from "./fixtures/chunks";
 
 /**
  * AUTH SETUP: Log into the admin dashboard and save auth state.
@@ -18,7 +16,8 @@ import { adminPath } from "./fixtures";
  * 2. ~/.ayb/admin-token file (written by `ayb start`, usually a bearer token)
  */
 
-const authFile = "browser-tests-unmocked/.auth/admin.json";
+const authDir = "browser-tests-unmocked/.auth";
+const authFile = `${authDir}/admin.json`;
 const browserSkipReason = getBrowserUnmockedSkipReason();
 
 if (browserSkipReason) {
@@ -26,11 +25,11 @@ if (browserSkipReason) {
 }
 
 async function bootstrapWithSavedToken(page: import("@playwright/test").Page, token: string): Promise<boolean> {
-  await page.goto(adminPath(), { waitUntil: "domcontentloaded" });
+  await page.goto(adminURL("/"), { waitUntil: "domcontentloaded" });
   await page.evaluate((savedToken: string) => {
     window.localStorage.setItem("ayb_admin_token", savedToken);
   }, token);
-  await page.goto(adminPath(), { waitUntil: "domcontentloaded" });
+  await page.goto(adminURL("/"), { waitUntil: "domcontentloaded" });
   try {
     await expect(page.getByRole("navigation")).toBeVisible({ timeout: 5000 });
     return true;
@@ -45,7 +44,7 @@ async function bootstrapWithSavedToken(page: import("@playwright/test").Page, to
 }
 
 async function loginWithPassword(page: import("@playwright/test").Page, password: string): Promise<void> {
-  await page.goto(adminPath(), { waitUntil: "domcontentloaded" });
+  await page.goto(adminURL("/"), { waitUntil: "domcontentloaded" });
 
   // Wait for login form
   await expect(page.getByText("Enter the admin password")).toBeVisible({
@@ -90,6 +89,9 @@ setup("authenticate as admin", async ({ page }) => {
     await loginWithPassword(page, credential.value);
   }
 
+  mkdirSync(authDir, { recursive: true, mode: 0o700 });
   // Save auth state (localStorage with JWT token)
   await page.context().storageState({ path: authFile });
+  chmodSync(authDir, 0o700);
+  chmodSync(authFile, 0o600);
 });

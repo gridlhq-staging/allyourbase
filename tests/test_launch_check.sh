@@ -36,14 +36,14 @@ case "$1 $2" in
     esac
     ;;
   "release view")
-    [ "$4" = "-R" ] && [ "$5" = "$repo" ] || exit 64
+    [ "$3" = "v0.0.17-beta" ] && [ "$4" = "-R" ] && [ "$5" = "$repo" ] || exit 64
     case "$scenario" in
       missing_asset)
-        printf '%s\n' '{"assets":[{"name":"ayb_0.0.17-beta_darwin_amd64.tar.gz"},{"name":"ayb_0.0.17-beta_darwin_arm64.tar.gz"},{"name":"ayb_0.0.17-beta_linux_amd64.tar.gz"},{"name":"ayb_0.0.17-beta_linux_arm64.tar.gz"},{"name":"ayb_0.0.17-beta_windows_amd64.tar.gz"},{"name":"checksums.txt"}]}'
+        printf '%s\n' '{"assets":[{"name":"ayb_0.0.17-beta_darwin_amd64.tar.gz"},{"name":"ayb_0.0.17-beta_darwin_arm64.tar.gz"},{"name":"ayb_0.0.17-beta_linux_amd64.tar.gz"},{"name":"ayb_0.0.17-beta_linux_arm64.tar.gz"},{"name":"ayb_0.0.17-beta_windows_amd64.zip"},{"name":"checksums.txt"}]}'
         ;;
       malformed_release_view) printf '%s\n' '{"assets":' ;;
       *)
-        printf '%s\n' '{"assets":[{"name":"ayb_0.0.17-beta_darwin_amd64.tar.gz"},{"name":"ayb_0.0.17-beta_darwin_arm64.tar.gz"},{"name":"ayb_0.0.17-beta_linux_amd64.tar.gz"},{"name":"ayb_0.0.17-beta_linux_arm64.tar.gz"},{"name":"ayb_0.0.17-beta_windows_amd64.tar.gz"},{"name":"ayb_0.0.17-beta_windows_arm64.tar.gz"},{"name":"checksums.txt"},{"name":"extra.txt"}]}'
+        printf '%s\n' '{"assets":[{"name":"ayb_0.0.17-beta_darwin_amd64.tar.gz"},{"name":"ayb_0.0.17-beta_darwin_arm64.tar.gz"},{"name":"ayb_0.0.17-beta_linux_amd64.tar.gz"},{"name":"ayb_0.0.17-beta_linux_arm64.tar.gz"},{"name":"ayb_0.0.17-beta_windows_amd64.zip"},{"name":"ayb_0.0.17-beta_windows_arm64.zip"},{"name":"checksums.txt"}]}'
         ;;
     esac
     ;;
@@ -115,13 +115,13 @@ printf 'docker %s DOCKER_CONFIG=%s DOCKER_HOST=%s\n' "$*" "${DOCKER_CONFIG:-}" "
 scenario="${LAUNCH_CHECK_SCENARIO:-success}"
 case "$1" in
   pull)
-    [ "$2" = "ghcr.io/allyourbasehq/allyourbase:v0.0.17-beta" ] || exit 65
+    [ "$2" = "ghcr.io/allyourbasehq/allyourbase:0.0.17-beta" ] || exit 65
     if [ "$scenario" = "docker_pull" ]; then
       exit 66
     fi
     ;;
   run)
-    if [ "$2" = "--rm" ] && [ "$3" = "ghcr.io/allyourbasehq/allyourbase:v0.0.17-beta" ]; then
+    if [ "$2" = "--rm" ] && [ "$3" = "ghcr.io/allyourbasehq/allyourbase:0.0.17-beta" ]; then
       if [ "$scenario" = "docker_version_bad" ]; then
         printf '%s\n' '{"version":"0.0.16-beta"}'
         exit 0
@@ -181,15 +181,16 @@ write_fake_commands
 
 run_case success pass
 success_out="$TEST_DIR/success.out"
-assert_contains "$success_out" 'release tag=v0.0.17-beta'
-assert_contains "$success_out" 'image=ghcr.io/allyourbasehq/allyourbase:v0.0.17-beta version=0.0.17-beta'
+assert_contains "$success_out" 'release tag=v0.0.17-beta version=0.0.17-beta'
+assert_contains "$success_out" 'image=ghcr.io/allyourbasehq/allyourbase:0.0.17-beta version=0.0.17-beta'
 assert_contains "$success_out" 'installer version=0.0.17-beta'
 assert_contains "$success_out" 'url=https://allyourbase.io status=200'
 assert_contains "$success_out" 'health json={"status":"ok","database":"ok"}'
 assert_contains "$success_out" 'sha=0123456789abcdef0123456789abcdef01234567'
 assert_contains "$success_out" 'run id=602 status=completed conclusion=success'
-assert_contains "$LOG_FILE" 'docker pull ghcr.io/allyourbasehq/allyourbase:v0.0.17-beta'
-assert_contains "$LOG_FILE" 'docker run --rm ghcr.io/allyourbasehq/allyourbase:v0.0.17-beta ayb version --json'
+assert_contains "$LOG_FILE" 'gh release view v0.0.17-beta -R AllyourbaseHQ/allyourbase --json assets'
+assert_contains "$LOG_FILE" 'docker pull ghcr.io/allyourbasehq/allyourbase:0.0.17-beta'
+assert_contains "$LOG_FILE" 'docker run --rm ghcr.io/allyourbasehq/allyourbase:0.0.17-beta ayb version --json'
 
 for case_name in \
   no_app_release release_row_not_object release_trailing_row_not_object release_missing_tag release_missing_is_draft \
@@ -211,6 +212,7 @@ assert_contains "$TEST_DIR/release_trailing_row_not_object.out" 'arm=release'
 assert_contains "$TEST_DIR/release_missing_tag.out" 'arm=release'
 assert_contains "$TEST_DIR/release_missing_is_draft.out" 'arm=release'
 assert_contains "$TEST_DIR/missing_asset.out" 'arm=release-assets'
+assert_contains "$TEST_DIR/missing_asset.out" 'ayb_0.0.17-beta_windows_arm64.zip'
 assert_contains "$TEST_DIR/docker_pull.out" 'arm=image'
 assert_contains "$TEST_DIR/docker_version_bad.out" 'arm=image-version'
 assert_contains "$TEST_DIR/install_fail.out" 'arm=installer'

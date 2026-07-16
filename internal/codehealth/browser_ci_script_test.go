@@ -13,8 +13,27 @@ import (
 const checkCoverageMatrixScript = "scripts/check-coverage-matrix.sh"
 const checkPlaywrightExecutedScript = "scripts/check-playwright-executed.sh"
 const coverageMatrixLayoutTypesPath = "ui/src/components/layout-types.ts"
+const coverageMatrixAdminViewsPath = "ui/src/screens/registry.ts"
 
 var viewLiteralPattern = regexp.MustCompile(`"([^"]+)"`)
+
+func TestCoverageMatrixViewsReadsAdminViewsFromRegistrySource(t *testing.T) {
+	t.Parallel()
+
+	layoutSource := `
+type DataView = "records" | "schema";
+const ADMIN_VIEWS = ["wrong-layout-admin"] as const
+`
+	adminViewsSource := `
+export const ADMIN_VIEWS = ["users", "settings"] as const
+`
+
+	views := coverageMatrixViewsFromSources(t, layoutSource, adminViewsSource)
+	want := []string{"records", "schema", "users", "settings"}
+	if strings.Join(views, ",") != strings.Join(want, ",") {
+		t.Fatalf("coverage matrix views = %v, want %v", views, want)
+	}
+}
 
 func TestCheckCoverageMatrixScriptPassesForZeroGateCounts(t *testing.T) {
 	t.Parallel()
@@ -173,15 +192,24 @@ func gapSummaryMarkdown(t *testing.T, repoRoot string, smokeNone, smokeHeadingOn
 func coverageMatrixViews(t *testing.T, repoRoot string) []string {
 	t.Helper()
 
-	source, err := os.ReadFile(filepath.Join(repoRoot, coverageMatrixLayoutTypesPath))
+	layoutSource, err := os.ReadFile(filepath.Join(repoRoot, coverageMatrixLayoutTypesPath))
 	if err != nil {
 		t.Fatalf("read layout types: %v", err)
 	}
+	adminViewsSource, err := os.ReadFile(filepath.Join(repoRoot, coverageMatrixAdminViewsPath))
+	if err != nil {
+		t.Fatalf("read admin views registry: %v", err)
+	}
 
-	layoutSource := string(source)
+	return coverageMatrixViewsFromSources(t, string(layoutSource), string(adminViewsSource))
+}
+
+func coverageMatrixViewsFromSources(t *testing.T, layoutSource, adminViewsSource string) []string {
+	t.Helper()
+
 	return append(
 		parseStringLiteralArrayOrUnion(t, layoutSource, "DATA_VIEWS", "DataView"),
-		parseStringLiteralArray(t, layoutSource, "ADMIN_VIEWS")...,
+		parseStringLiteralArray(t, adminViewsSource, "ADMIN_VIEWS", "admin views registry")...,
 	)
 }
 
@@ -199,12 +227,12 @@ func parseStringLiteralArrayOrUnion(t *testing.T, layoutSource, constName, typeN
 	return nil
 }
 
-func parseStringLiteralArray(t *testing.T, layoutSource, constName string) []string {
+func parseStringLiteralArray(t *testing.T, source, constName, sourceDescription string) []string {
 	t.Helper()
 
-	values := parseStringLiteralArrayMatch(layoutSource, constName)
+	values := parseStringLiteralArrayMatch(source, constName)
 	if len(values) == 0 {
-		t.Fatalf("parse %s from layout types", constName)
+		t.Fatalf("parse %s from %s", constName, sourceDescription)
 	}
 	return values
 }

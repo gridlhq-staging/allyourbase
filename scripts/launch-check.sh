@@ -67,8 +67,8 @@ required = {
     f"ayb_{version}_darwin_arm64.tar.gz",
     f"ayb_{version}_linux_amd64.tar.gz",
     f"ayb_{version}_linux_arm64.tar.gz",
-    f"ayb_{version}_windows_amd64.tar.gz",
-    f"ayb_{version}_windows_arm64.tar.gz",
+    f"ayb_{version}_windows_amd64.zip",
+    f"ayb_{version}_windows_arm64.zip",
     "checksums.txt",
 }
 try:
@@ -87,7 +87,7 @@ if missing:
 check_image() {
   TEMP_DIR=$(mktemp -d)
   mkdir -p "$TEMP_DIR/docker-config"
-  image_ref="$IMAGE_REPO:$tag"
+  image_ref="$IMAGE_REPO:$version"
   DOCKER_CONFIG="$TEMP_DIR/docker-config" docker pull "$image_ref" >/dev/null \
     || fail_arm image "pull failed image=$image_ref"
   version_json=$(DOCKER_CONFIG="$TEMP_DIR/docker-config" docker run --rm "$image_ref" ayb version --json) \

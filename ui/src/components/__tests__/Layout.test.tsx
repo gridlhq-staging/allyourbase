@@ -3,6 +3,9 @@ import userEvent from "@testing-library/user-event";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { Layout } from "../Layout";
 import { ThemeProvider } from "../ThemeProvider";
+import { CapabilityProvider } from "../../capabilities";
+import type { AdminCapabilities } from "../../api_capabilities";
+import { SCREEN_REGISTRY, type ScreenRegistry } from "../../screens/registry";
 import type { SchemaCache } from "../../types";
 import type { ReactElement } from "react";
 
@@ -147,6 +150,7 @@ describe("Layout", () => {
     document.head.innerHTML = '<meta name="ayb-admin-base" content="/admin/">';
     window.history.replaceState(null, "", "/admin/");
     document.documentElement.classList.remove("dark");
+    window.history.replaceState(null, "", "/admin/");
   });
 
   it("restores an exact table from a deep link", () => {
@@ -170,7 +174,7 @@ describe("Layout", () => {
     expect(window.location.pathname).toBe("/admin/screens/webhooks");
     expect(window.location.search).toBe("?perfRange=24h");
     expect(window.location.hash).toBe("#slow");
-    expect(screen.getByTestId("webhooks-view")).toBeInTheDocument();
+    expect(await screen.findByTestId("webhooks-view")).toBeInTheDocument();
   });
 
   it("applies popstate without pushing a history entry", async () => {
@@ -259,6 +263,29 @@ describe("Layout", () => {
     expect(sqlTabClasses).not.toContain("text-gray-500");
   });
 
+  it("lands on an admin screen from a custom-path hard refresh before showing the default table", async () => {
+    document.head.innerHTML = '<meta name="ayb-admin-base" content="/dashboard/">';
+    window.history.replaceState(null, "", "/dashboard/screens/users");
+
+    renderWithTheme(
+      <Layout schema={twoTableSchema} onLogout={onLogout} onRefresh={onRefresh} />,
+    );
+
+    expect(await screen.findByTestId("users-view")).toBeInTheDocument();
+    expect(screen.queryByTestId("table-browser")).not.toBeInTheDocument();
+  });
+
+  it("lands on the requested table from a custom-path data hard refresh", () => {
+    document.head.innerHTML = '<meta name="ayb-admin-base" content="/dashboard/">';
+    window.history.replaceState(null, "", "/dashboard/tables/public/users");
+
+    renderWithTheme(
+      <Layout schema={twoTableSchema} onLogout={onLogout} onRefresh={onRefresh} />,
+    );
+
+    expect(screen.getByTestId("table-browser")).toHaveTextContent("users");
+  });
+
   it("shows empty state when no tables", () => {
     renderWithTheme(
       <Layout schema={makeSchema()} onLogout={onLogout} onRefresh={onRefresh} />,
@@ -316,7 +343,7 @@ describe("Layout", () => {
     );
     const user = userEvent.setup();
     await user.click(screen.getByText("SQL"));
-    expect(screen.getByTestId("sql-editor")).toBeInTheDocument();
+    expect(await screen.findByTestId("sql-editor")).toBeInTheDocument();
   });
 
   it("switches to Search Settings view", async () => {
@@ -455,7 +482,7 @@ describe("Layout", () => {
     );
     const user = userEvent.setup();
     await user.click(screen.getByText("Webhooks"));
-    expect(screen.getByTestId("webhooks-view")).toBeInTheDocument();
+    expect(await screen.findByTestId("webhooks-view")).toBeInTheDocument();
     // Tab bar should not be visible in admin views.
     expect(screen.queryByText("Data")).not.toBeInTheDocument();
   });
@@ -466,7 +493,7 @@ describe("Layout", () => {
     );
     const user = userEvent.setup();
     await user.click(screen.getByText("Storage"));
-    expect(screen.getByTestId("storage-view")).toBeInTheDocument();
+    expect(await screen.findByTestId("storage-view")).toBeInTheDocument();
   });
 
   it("clicking a table from admin view switches back to data view", async () => {
@@ -477,7 +504,7 @@ describe("Layout", () => {
 
     // Go to admin view first.
     await user.click(screen.getByText("Webhooks"));
-    expect(screen.getByTestId("webhooks-view")).toBeInTheDocument();
+    expect(await screen.findByTestId("webhooks-view")).toBeInTheDocument();
 
     // Click a table — should return to data view.
     await user.click(screen.getByText("posts"));
@@ -490,7 +517,7 @@ describe("Layout", () => {
     );
     const user = userEvent.setup();
     await user.click(screen.getByText("Functions"));
-    expect(screen.getByTestId("functions-view")).toBeInTheDocument();
+    expect(await screen.findByTestId("functions-view")).toBeInTheDocument();
   });
 
   it("deselects table when switching to admin view", async () => {
@@ -520,7 +547,7 @@ describe("Layout", () => {
     );
     const user = userEvent.setup();
     await user.click(screen.getByText("SMS Health"));
-    expect(screen.getByTestId("sms-health-view")).toBeInTheDocument();
+    expect(await screen.findByTestId("sms-health-view")).toBeInTheDocument();
     // Tab bar should not be visible in admin views.
     expect(screen.queryByText("Data")).not.toBeInTheDocument();
   });
@@ -531,7 +558,7 @@ describe("Layout", () => {
     );
     const user = userEvent.setup();
     await user.click(screen.getByText("SMS Messages"));
-    expect(screen.getByTestId("sms-messages-view")).toBeInTheDocument();
+    expect(await screen.findByTestId("sms-messages-view")).toBeInTheDocument();
     // Tab bar should not be visible in admin views.
     expect(screen.queryByText("Data")).not.toBeInTheDocument();
   });
@@ -543,7 +570,7 @@ describe("Layout", () => {
     const user = userEvent.setup();
     // Go to SMS Health first.
     await user.click(screen.getByText("SMS Health"));
-    expect(screen.getByTestId("sms-health-view")).toBeInTheDocument();
+    expect(await screen.findByTestId("sms-health-view")).toBeInTheDocument();
     // Click a table — should return to data view.
     await user.click(screen.getByText("posts"));
     expect(screen.getByTestId("table-browser")).toBeInTheDocument();
@@ -555,7 +582,7 @@ describe("Layout", () => {
     );
     const user = userEvent.setup();
     await user.click(screen.getByText("Jobs"));
-    expect(screen.getByTestId("jobs-view")).toBeInTheDocument();
+    expect(await screen.findByTestId("jobs-view")).toBeInTheDocument();
     expect(screen.queryByText("Data")).not.toBeInTheDocument();
   });
 
@@ -565,7 +592,7 @@ describe("Layout", () => {
     );
     const user = userEvent.setup();
     await user.click(screen.getByText("Schedules"));
-    expect(screen.getByTestId("schedules-view")).toBeInTheDocument();
+    expect(await screen.findByTestId("schedules-view")).toBeInTheDocument();
     expect(screen.queryByText("Data")).not.toBeInTheDocument();
   });
 
@@ -575,7 +602,7 @@ describe("Layout", () => {
     );
     const user = userEvent.setup();
     await user.click(screen.getByText("Email Templates"));
-    expect(screen.getByTestId("email-templates-view")).toBeInTheDocument();
+    expect(await screen.findByTestId("email-templates-view")).toBeInTheDocument();
     expect(screen.queryByText("Data")).not.toBeInTheDocument();
   });
 
@@ -585,7 +612,7 @@ describe("Layout", () => {
     );
     const user = userEvent.setup();
     await user.click(screen.getByText("Push Notifications"));
-    expect(screen.getByTestId("push-view")).toBeInTheDocument();
+    expect(await screen.findByTestId("push-view")).toBeInTheDocument();
     expect(screen.queryByText("Data")).not.toBeInTheDocument();
   });
 
@@ -605,7 +632,7 @@ describe("Layout", () => {
     );
     const user = userEvent.setup();
     await user.click(screen.getByText("MFA Management"));
-    expect(screen.getByTestId("mfa-enrollment-view")).toBeInTheDocument();
+    expect(await screen.findByTestId("mfa-enrollment-view")).toBeInTheDocument();
     expect(screen.queryByText("Data")).not.toBeInTheDocument();
   });
 
@@ -615,7 +642,7 @@ describe("Layout", () => {
     );
     const user = userEvent.setup();
     await user.click(screen.getByText("Account Linking"));
-    expect(screen.getByTestId("account-linking-view")).toBeInTheDocument();
+    expect(await screen.findByTestId("account-linking-view")).toBeInTheDocument();
     expect(screen.queryByText("Data")).not.toBeInTheDocument();
   });
 
@@ -625,7 +652,7 @@ describe("Layout", () => {
     );
     const user = userEvent.setup();
     await user.click(screen.getByText("Realtime Inspector"));
-    expect(screen.getByTestId("realtime-inspector-view")).toBeInTheDocument();
+    expect(await screen.findByTestId("realtime-inspector-view")).toBeInTheDocument();
     expect(screen.queryByText("Data")).not.toBeInTheDocument();
   });
 
@@ -635,7 +662,7 @@ describe("Layout", () => {
     );
     const user = userEvent.setup();
     await user.click(screen.getByText("Admin Logs"));
-    expect(screen.getByTestId("admin-logs-view")).toBeInTheDocument();
+    expect(await screen.findByTestId("admin-logs-view")).toBeInTheDocument();
     expect(screen.queryByText("Data")).not.toBeInTheDocument();
   });
 
@@ -645,7 +672,7 @@ describe("Layout", () => {
     );
     const user = userEvent.setup();
     await user.click(screen.getByText("Usage"));
-    expect(screen.getByTestId("usage-metering-view")).toBeInTheDocument();
+    expect(await screen.findByTestId("usage-metering-view")).toBeInTheDocument();
     expect(screen.queryByText("Data")).not.toBeInTheDocument();
   });
 
@@ -655,7 +682,7 @@ describe("Layout", () => {
     );
     const user = userEvent.setup();
     await user.click(screen.getByText("Tenants"));
-    expect(screen.getByTestId("tenants-view")).toBeInTheDocument();
+    expect(await screen.findByTestId("tenants-view")).toBeInTheDocument();
     expect(screen.queryByText("Data")).not.toBeInTheDocument();
   });
 
@@ -665,75 +692,77 @@ describe("Layout", () => {
     );
     const user = userEvent.setup();
     await user.click(screen.getByText("Organizations"));
-    expect(screen.getByTestId("organizations-view")).toBeInTheDocument();
+    expect(await screen.findByTestId("organizations-view")).toBeInTheDocument();
     expect(screen.queryByText("Data")).not.toBeInTheDocument();
   });
 
   it("applies one capability-filtered registry to sidebar and command palette", async () => {
-    vi.resetModules();
     const Icon = () => null;
-    const mockedCapability = { kind: "known" as const, capabilities: { storage: false } };
-    vi.doMock("../../capabilities", () => ({
-      useCapability: () => ({
-        state: mockedCapability,
-        canUse: (capability: string) => capability !== "storage",
-      }),
-    }));
-    vi.doMock("../../screens/registry", async () => {
-      const actual =
-        await vi.importActual<typeof import("../../screens/registry")>("../../screens/registry");
-      return {
-        ...actual,
-        SCREEN_REGISTRY: {
-          sections: [
-            {
-              title: "Services",
-              screens: [
-                {
-                  id: "storage",
-                  label: "Gated Storage",
-                  icon: Icon,
-                  requires: "storage",
-                  render: () => <div data-testid="gated-storage" />,
-                },
-              ],
-            },
-            {
-              title: "Admin",
-              screens: [
-                {
-                  id: "users",
-                  label: "Users",
-                  icon: Icon,
-                  render: () => <div data-testid="fixture-users" />,
-                },
-              ],
-            },
-          ],
-        },
-      };
-    });
-    const [{ Layout: MockedLayout }, { ThemeProvider: MockedThemeProvider }] =
-      await Promise.all([
-        import("../Layout"),
-        import("../ThemeProvider"),
-      ]);
+    const capabilities: AdminCapabilities = {
+      auth: true,
+      auth_anonymous: true,
+      auth_email_mfa: true,
+      auth_magic_link: true,
+      auth_oauth_provider: true,
+      auth_sms: true,
+      auth_totp: true,
+      auth_webauthn: true,
+      billing: true,
+      edge_functions: true,
+      jobs: true,
+      push: true,
+      status: true,
+      storage: false,
+      support: true,
+    };
+    const mutableRegistry = SCREEN_REGISTRY as unknown as {
+      sections: ScreenRegistry["sections"];
+    };
+    const originalSections = mutableRegistry.sections;
+    mutableRegistry.sections = [
+      {
+        title: "Services",
+        screens: [
+          {
+            id: "storage",
+            label: "Gated Storage",
+            icon: Icon as never,
+            requires: "storage",
+            render: () => <div data-testid="gated-storage" />,
+          },
+        ],
+      },
+      {
+        title: "Admin",
+        screens: [
+          {
+            id: "users",
+            label: "Users",
+            icon: Icon as never,
+            render: () => <div data-testid="fixture-users" />,
+          },
+        ],
+      },
+    ];
 
-    render(
-      <MockedThemeProvider>
-        <MockedLayout schema={makeSchema()} onLogout={onLogout} onRefresh={onRefresh} />
-      </MockedThemeProvider>,
-    );
+    try {
+      render(
+        <ThemeProvider>
+          <CapabilityProvider state={{ kind: "known", capabilities }}>
+            <Layout schema={makeSchema()} onLogout={onLogout} onRefresh={onRefresh} />
+          </CapabilityProvider>
+        </ThemeProvider>,
+      );
 
-    expect(screen.queryByRole("button", { name: "Gated Storage" })).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Users" })).toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: "Gated Storage" })).not.toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Users" })).toBeInTheDocument();
 
-    await userEvent.setup().click(screen.getByRole("button", { name: /Search/ }));
+      await userEvent.setup().click(screen.getByRole("button", { name: /Search/ }));
 
-    expect(screen.queryByText("Gated Storage")).not.toBeInTheDocument();
-    expect(screen.getAllByText("Users").length).toBeGreaterThanOrEqual(2);
-
-    vi.doUnmock("../../capabilities");
-    vi.doUnmock("../../screens/registry");
+      expect(screen.queryByText("Gated Storage")).not.toBeInTheDocument();
+      expect(screen.getAllByText("Users").length).toBeGreaterThanOrEqual(2);
+    } finally {
+      mutableRegistry.sections = originalSections;
+    }
   });
 });
