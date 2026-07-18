@@ -33,6 +33,7 @@ if [ -z "${AYB_BIN:-}" ]; then
         AYB_BIN="ayb"
     fi
 fi
+SHARED_AYB_DIR="${HOME}/.ayb"
 # Disable both auth-route and generic anonymous API rate limits for E2E tests.
 # Login/register-heavy suites can otherwise exhaust the 30/min anonymous API
 # cap before all Playwright workers finish.
@@ -51,6 +52,8 @@ TOTAL=0
 # be globally free, because those collide with unrelated dev servers on a shared
 # host. These are the ports ensure_stopped verifies between runs.
 DEMO_APP_PORTS=()
+SERVER_PORT=""
+DATABASE_PORT=""
 
 # ── Helpers ──────────────────────────────────────────────────────
 
@@ -91,17 +94,32 @@ wait_for_url() {
 }
 
 ensure_stopped() {
-    "$AYB_BIN" stop > /dev/null 2>&1 || true
     sleep 1
-    # 8090 is AYB's own server port; DEMO_APP_PORTS are the isolated app ports
-    # this run selected. We never require the universal Vite defaults free.
+    # Every managed port is selected at preflight. Never inspect or stop the
+    # universal defaults, which may belong to another worktree on a shared host.
     # ${arr[@]+...} keeps empty-array expansion safe under `set -u` on bash 3.2.
-    for port in 8090 ${DEMO_APP_PORTS[@]+"${DEMO_APP_PORTS[@]}"}; do
+    for port in "$SERVER_PORT" "$DATABASE_PORT" ${DEMO_APP_PORTS[@]+"${DEMO_APP_PORTS[@]}"}; do
+        if [ -z "$port" ]; then
+            continue
+        fi
         if ! require_free_port "$port" "port ${port} is still occupied after ayb stop" "kill"; then
             return 1
         fi
     done
     sleep 1
+}
+
+prepare_isolated_home() {
+    local runtime_home="$1"
+    local cache_name
+    mkdir -p "$runtime_home/.ayb"
+    # Runtime state stays isolated, while immutable/downloaded Postgres assets
+    # reuse the normal cache so each demo does not download or extract binaries.
+    for cache_name in pg pgbin; do
+        if [ -d "$SHARED_AYB_DIR/$cache_name" ]; then
+            ln -s "$SHARED_AYB_DIR/$cache_name" "$runtime_home/.ayb/$cache_name"
+        fi
+    done
 }
 
 cleanup_demo_e2e_resources() {
@@ -110,6 +128,7 @@ cleanup_demo_e2e_resources() {
     local log="${3:-}"
     local fake_ollama_log="${4:-}"
     local data_dir="${5:-}"
+    local runtime_home="${6:-}"
     local demo_child_pids=""
 
     if [ -n "$demo_pid" ]; then
@@ -131,7 +150,7 @@ cleanup_demo_e2e_resources() {
         done
     fi
     if [ -n "$data_dir" ]; then
-        AYB_DATABASE_EMBEDDED_DATA_DIR="$data_dir" "$AYB_BIN" stop > /dev/null 2>&1 || true
+        HOME="$runtime_home" "$AYB_BIN" stop --port "$SERVER_PORT" > /dev/null 2>&1 || true
     fi
     if [ -n "$fake_ollama_pid" ]; then
         kill -9 "$fake_ollama_pid" 2>/dev/null || true
@@ -139,6 +158,9 @@ cleanup_demo_e2e_resources() {
     rm -f "$fake_ollama_log" "$log"
     if [ -n "$data_dir" ]; then
         rm -rf "$data_dir"
+    fi
+    if [ -n "$runtime_home" ]; then
+        rm -rf "$runtime_home"
     fi
 }
 
@@ -149,26 +171,30 @@ run_demo_e2e() {
     local port="$2"
     local example_dir="$3"
     local data_dir
+    local runtime_home
     local log
     local demo_pid=""
     local fake_ollama_log=""
     local fake_ollama_pid=""
     log=$(mktemp /tmp/ayb-demo-e2e-${name}.XXXXXX)
-    # Isolate only embedded Postgres data for hermetic demo runs. The shared
-    # ~/.ayb/pgbin binary cache stays warm, and /tmp keeps Postgres sockets short.
+    # Isolate mutable runtime and Postgres data. The shared binary cache stays
+    # warm, and /tmp keeps Postgres sockets short.
     data_dir=$(mktemp -d /tmp/ayb-demoe2e.XXXXXX)
+    runtime_home=$(mktemp -d /tmp/ayb-demohome.XXXXXX)
+    prepare_isolated_home "$runtime_home"
 
     # Serve this demo on the isolated port and point Playwright's config at the
     # same port (live-polls/movies reuse the running server; kanban runs its own
-    # vite and ignores this). Keeps the gate off the universal Vite defaults.
+    # Vite instance). Keep both Vite and its API proxy off universal defaults.
     export AYB_DEMO_APP_PORT="$port"
+    export AYB_SERVER_URL="http://127.0.0.1:${SERVER_PORT}"
 
     echo -e "\n${CYAN}── E2E: ${name} (port ${port}) ──${NC}\n"
 
     if [ "$name" = "movies" ]; then
         if ! require_free_port 11434 "movies fake ollama port 11434 is already occupied"; then
             fail "${name}: fake ollama port 11434 is not available"
-            cleanup_demo_e2e_resources "$demo_pid" "$fake_ollama_pid" "$log" "$fake_ollama_log" "$data_dir"
+            cleanup_demo_e2e_resources "$demo_pid" "$fake_ollama_pid" "$log" "$fake_ollama_log" "$data_dir" "$runtime_home"
             return 1
         fi
         fake_ollama_log=$(mktemp /tmp/ayb-fake-ollama-${name}.XXXXXX)
@@ -176,21 +202,26 @@ run_demo_e2e() {
         fake_ollama_pid=$!
         if ! wait_for_url "http://127.0.0.1:11434/health" 20; then
             fail "${name}: fake ollama did not become healthy"
-            cleanup_demo_e2e_resources "$demo_pid" "$fake_ollama_pid" "$log" "$fake_ollama_log" "$data_dir"
+            cleanup_demo_e2e_resources "$demo_pid" "$fake_ollama_pid" "$log" "$fake_ollama_log" "$data_dir" "$runtime_home"
             return 1
         fi
     fi
 
     # ── Start the demo ──
-    (cd "$example_dir" && AYB_DATABASE_EMBEDDED_DATA_DIR="$data_dir" exec "$AYB_BIN" demo "$name") > "$log" 2>&1 &
+    (cd "$example_dir" && \
+        HOME="$runtime_home" \
+        AYB_SERVER_PORT="$SERVER_PORT" \
+        AYB_DATABASE_EMBEDDED_PORT="$DATABASE_PORT" \
+        AYB_DATABASE_EMBEDDED_DATA_DIR="$data_dir" \
+        exec "$AYB_BIN" demo "$name") > "$log" 2>&1 &
     demo_pid=$!
 
     # Wait for AYB server
-    if ! wait_for_url "http://127.0.0.1:8090/health" 60; then
+    if ! wait_for_url "http://127.0.0.1:${SERVER_PORT}/health" 60; then
         fail "${name}: AYB server did not become healthy"
         echo "    Log tail:"
         tail -20 "$log" | sed 's/^/    /'
-        cleanup_demo_e2e_resources "$demo_pid" "$fake_ollama_pid" "$log" "$fake_ollama_log" "$data_dir"
+        cleanup_demo_e2e_resources "$demo_pid" "$fake_ollama_pid" "$log" "$fake_ollama_log" "$data_dir" "$runtime_home"
         if ! ensure_stopped; then
             return 1
         fi
@@ -202,7 +233,7 @@ run_demo_e2e() {
         fail "${name}: demo app not responding on port ${port}"
         echo "    Log tail:"
         tail -20 "$log" | sed 's/^/    /'
-        cleanup_demo_e2e_resources "$demo_pid" "$fake_ollama_pid" "$log" "$fake_ollama_log" "$data_dir"
+        cleanup_demo_e2e_resources "$demo_pid" "$fake_ollama_pid" "$log" "$fake_ollama_log" "$data_dir" "$runtime_home"
         if ! ensure_stopped; then
             return 1
         fi
@@ -215,7 +246,7 @@ run_demo_e2e() {
     echo -e "  ${CYAN}…${NC} Installing dependencies (npm ci)..."
     if ! (cd "$example_dir" && npm ci --prefer-offline --no-audit 2>&1 | tail -1); then
         fail "${name}: npm ci failed"
-        cleanup_demo_e2e_resources "$demo_pid" "$fake_ollama_pid" "$log" "$fake_ollama_log" "$data_dir"
+        cleanup_demo_e2e_resources "$demo_pid" "$fake_ollama_pid" "$log" "$fake_ollama_log" "$data_dir" "$runtime_home"
         if ! ensure_stopped; then
             return 1
         fi
@@ -242,7 +273,7 @@ run_demo_e2e() {
     rm -f "$pw_log"
 
     # ── Tear down ──
-    cleanup_demo_e2e_resources "$demo_pid" "$fake_ollama_pid" "$log" "$fake_ollama_log" "$data_dir"
+    cleanup_demo_e2e_resources "$demo_pid" "$fake_ollama_pid" "$log" "$fake_ollama_log" "$data_dir" "$runtime_home"
     if ! ensure_stopped; then
         fail "${name}: cleanup left occupied ports"
         echo ""
@@ -276,6 +307,8 @@ echo ""
 # Select isolated, currently-free app ports before any ensure_stopped call so
 # the gate never depends on the universal Vite defaults (5173/5175/5177) being
 # globally free on a shared host. Candidates stay in the high-port range.
+SERVER_PORT=$(pick_free_port 48090 49090 50090 51090 52090) || { echo -e "${RED}ERROR: no free port for AYB demo server${NC}"; exit 1; }
+DATABASE_PORT=$(pick_free_port 45432 46432 47432 48432 49432) || { echo -e "${RED}ERROR: no free port for embedded Postgres${NC}"; exit 1; }
 KANBAN_PORT=$(pick_free_port 45173 46173 47173 48173 49173) || { echo -e "${RED}ERROR: no free port for kanban demo${NC}"; exit 1; }
 POLLS_PORT=$(pick_free_port 45175 46175 47175 48175 49175) || { echo -e "${RED}ERROR: no free port for live-polls demo${NC}"; exit 1; }
 MOVIES_PORT=$(pick_free_port 45177 46177 47177 48177 49177) || { echo -e "${RED}ERROR: no free port for movies demo${NC}"; exit 1; }

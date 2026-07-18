@@ -2,6 +2,10 @@
 set -euo pipefail
 
 TMP_DIR="$(mktemp -d)"
+export HOME="${TMP_DIR}/home"
+mkdir -p "$HOME"
+unset AYB_ADMIN_TOKEN AYB_ADMIN_TOKEN_PATH AYB_BASE_URL AYB_HEALTH_URL AYB_SERVER_PORT
+unset AYB_DATABASE_URL AYB_DATABASE_EMBEDDED_PORT PLAYWRIGHT_BASE_URL
 HTTP_PID=""
 
 cleanup() {
@@ -52,7 +56,7 @@ fi
 
 STDOUT_PATH="${TMP_DIR}/stdout.log"
 STDERR_PATH="${TMP_DIR}/stderr.log"
-if AYB_START_COMMAND='bash -lc "exit 1"' \
+if AYB_START_COMMAND='bash -lc "sleep 1; exit 1"' \
   AYB_HEALTH_URL="http://127.0.0.1:${HEALTH_PORT}/health" \
   AYB_ADMIN_PASSWORD='unused-for-test' \
   bash scripts/run-with-ayb.sh 'printf "unexpected success\n"' > "$STDOUT_PATH" 2> "$STDERR_PATH"; then
@@ -106,3 +110,33 @@ if curl -fsS "http://127.0.0.1:${SUCCESS_PORT}/health" > /dev/null 2>&1; then
 fi
 
 echo "PASS: scripts/run-with-ayb.sh runs post-health commands and cleans up the started server"
+
+ISOLATED_DIR="${TMP_DIR}/isolated"
+ISOLATED_BIN_DIR="${ISOLATED_DIR}/bin"
+ISOLATED_CAPTURE_PATH="${ISOLATED_DIR}/runtime_ports"
+mkdir -p "$ISOLATED_BIN_DIR" "${ISOLATED_DIR}/www"
+printf 'ok\n' > "${ISOLATED_DIR}/www/health"
+cat > "${ISOLATED_BIN_DIR}/lsof" <<'SH'
+#!/usr/bin/env bash
+case "${*: -1}" in
+  :48092|:45434) exit 0 ;;
+  *) exit 1 ;;
+esac
+SH
+chmod +x "${ISOLATED_BIN_DIR}/lsof"
+
+if ! PATH="${ISOLATED_BIN_DIR}:$PATH" \
+  AYB_START_COMMAND="python3 -m http.server \"\$AYB_SERVER_PORT\" --bind 127.0.0.1 --directory \"${ISOLATED_DIR}/www\"" \
+  AYB_ADMIN_PASSWORD='unused-for-test' \
+  AYB_TEST_RUNTIME_CAPTURE="$ISOLATED_CAPTURE_PATH" \
+  bash scripts/run-with-ayb.sh 'printf "%s %s %s\n" "$AYB_SERVER_PORT" "$AYB_DATABASE_EMBEDDED_PORT" "$PLAYWRIGHT_BASE_URL" > "$AYB_TEST_RUNTIME_CAPTURE"'; then
+  echo "FAIL: scripts/run-with-ayb.sh did not select isolated runtime ports"
+  exit 1
+fi
+
+if [[ "$(cat "$ISOLATED_CAPTURE_PATH")" != "49092 46434 http://localhost:49092" ]]; then
+  echo "FAIL: expected isolated fallback ports and matching Playwright URL, got $(cat "$ISOLATED_CAPTURE_PATH")"
+  exit 1
+fi
+
+echo "PASS: scripts/run-with-ayb.sh isolates default AYB and managed Postgres ports"

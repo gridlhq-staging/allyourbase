@@ -3,6 +3,7 @@ package cli
 import (
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -21,6 +22,25 @@ func TestDemoServerStartEnvPinsServerPort(t *testing.T) {
 	testutil.Equal(t, "true", values["AYB_AUTH_ANONYMOUS_AUTH_ENABLED"])
 	testutil.Equal(t, demoServerPort(baseURL), values["AYB_SERVER_PORT"])
 	testutil.Equal(t, "http://localhost:5177", values["AYB_SERVER_SITE_URL"])
+}
+
+func TestServerURLUsesConfiguredPortBeforePIDFile(t *testing.T) {
+	homeDir := t.TempDir()
+	aybDir := filepath.Join(homeDir, ".ayb")
+	testutil.NoError(t, os.MkdirAll(aybDir, 0o755))
+	testutil.NoError(t, os.WriteFile(filepath.Join(aybDir, "ayb.pid"), []byte("12345\n3000\n"), 0o600))
+	t.Setenv("HOME", homeDir)
+	t.Setenv("AYB_SERVER_PORT", "49152")
+
+	testutil.Equal(t, "http://127.0.0.1:49152", serverURL())
+}
+
+func TestServerURLIgnoresInvalidConfiguredPort(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	for _, invalid := range []string{"0", "65536", "not-a-port"} {
+		t.Setenv("AYB_SERVER_PORT", invalid)
+		testutil.Equal(t, "http://127.0.0.1:8090", serverURL())
+	}
 }
 
 func TestStartAuthEnabledDemoServerPinsPortForMovies(t *testing.T) {

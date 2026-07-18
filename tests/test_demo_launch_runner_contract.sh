@@ -25,7 +25,9 @@ case "${1:-}" in
       printf 'unknown demo: nonexistent\n' >&2
       exit 1
     fi
-    printf 'demo %s data_dir=%s\n' "${2:-}" "${AYB_DATABASE_EMBEDDED_DATA_DIR:-}" >> "${AYB_TEST_LOG:?}"
+    printf 'demo %s data_dir=%s server_port=%s pg_port=%s home=%s\n' \
+      "${2:-}" "${AYB_DATABASE_EMBEDDED_DATA_DIR:-}" "${AYB_SERVER_PORT:-}" \
+      "${AYB_DATABASE_EMBEDDED_PORT:-}" "${HOME:-}" >> "${AYB_TEST_LOG:?}"
     printf 'Allyourbase Demo\nAccounts:\nCtrl+C\n'
     sleep 0.2
     ;;
@@ -72,6 +74,12 @@ SH
 
 cat > "$commands_dir/lsof" <<'SH'
 #!/usr/bin/env bash
+for arg in "$@"; do
+  if [ "$arg" = ":8090" ]; then
+    printf '4242\n'
+    exit 0
+  fi
+done
 exit 1
 SH
 
@@ -84,7 +92,11 @@ if ! PATH="$commands_dir:$PATH" AYB_BIN="$commands_dir/ayb" AYB_TEST_LOG="$ayb_l
 fi
 
 for demo in kanban live-polls movies; do
-  data_dir="$(awk -v demo="$demo" -F'data_dir=' '$0 ~ "^demo " demo " data_dir=" {print $2; exit}' "$ayb_log")"
+  demo_line="$(awk -v demo="$demo" '$0 ~ "^demo " demo " " {print; exit}' "$ayb_log")"
+  data_dir="$(printf '%s\n' "$demo_line" | sed -E 's/^.* data_dir=([^ ]+) .*$/\1/')"
+  server_port="$(printf '%s\n' "$demo_line" | sed -E 's/^.* server_port=([^ ]+) .*$/\1/')"
+  pg_port="$(printf '%s\n' "$demo_line" | sed -E 's/^.* pg_port=([^ ]+) .*$/\1/')"
+  runtime_home="$(printf '%s\n' "$demo_line" | sed -E 's/^.* home=([^ ]+)$/\1/')"
   case "$data_dir" in
     /tmp/ayb-demoe2e.*) ;;
     *) fail "demo launch runner should launch $demo with a short isolated embedded data dir, got '$data_dir'" ;;
@@ -92,6 +104,23 @@ for demo in kanban live-polls movies; do
   if [ -e "$data_dir" ]; then
     fail "demo launch runner should remove $demo isolated embedded data dir during cleanup"
   fi
+  case "$server_port" in
+    48090|49090|50090|51090|52090) ;;
+    *) fail "demo launch runner should isolate $demo AYB server port, got '$server_port'" ;;
+  esac
+  case "$pg_port" in
+    45432|46432|47432|48432|49432) ;;
+    *) fail "demo launch runner should isolate $demo embedded Postgres port, got '$pg_port'" ;;
+  esac
+  case "$runtime_home" in
+    /tmp/ayb-demohome.*) ;;
+    *) fail "demo launch runner should isolate $demo runtime home, got '$runtime_home'" ;;
+  esac
+  if [ -e "$runtime_home" ]; then
+    fail "demo launch runner should remove $demo isolated runtime home during cleanup"
+  fi
 done
 
-echo "PASS: demo launch runner isolates embedded data dirs"
+assert_not_contains "$output" "port 8090 is still occupied" "foreign port 8090 should not block the demo launch runner"
+
+echo "PASS: demo launch runner isolates server, database, app, and runtime state"

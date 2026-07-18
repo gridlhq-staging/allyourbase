@@ -6,10 +6,30 @@ if [[ $# -ne 1 ]]; then
   exit 1
 fi
 
+readonly RUNNER_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$RUNNER_DIR/../tests/port_helpers.sh"
+
 readonly POST_HEALTH_COMMAND="$1"
 readonly AYB_DEFAULT_START_COMMAND="./ayb start --foreground"
 readonly AYB_DEFAULT_SERVER_HOST="localhost"
 readonly AYB_DEFAULT_SERVER_PORT="8090"
+
+if [[ -z "${AYB_BASE_URL:-}" && -z "${AYB_HEALTH_URL:-}" && -z "${AYB_SERVER_PORT:-}" ]]; then
+  AYB_SERVER_PORT="$(pick_free_port 48092 49092 50092 51092 52092)" || {
+    echo "No free isolated AYB server port available for the local test runtime" >&2
+    exit 1
+  }
+  export AYB_SERVER_PORT
+fi
+
+if [[ -z "${AYB_DATABASE_URL:-}" && -z "${AYB_DATABASE_EMBEDDED_PORT:-}" ]]; then
+  AYB_DATABASE_EMBEDDED_PORT="$(pick_free_port 45434 46434 47434 48434 49434)" || {
+    echo "No free isolated embedded Postgres port available for the local test runtime" >&2
+    exit 1
+  }
+  export AYB_DATABASE_EMBEDDED_PORT
+fi
+
 readonly AYB_START_COMMAND="${AYB_START_COMMAND:-$AYB_DEFAULT_START_COMMAND}"
 readonly AYB_START_LOG="${AYB_START_LOG:-/tmp/ayb-e2e.log}"
 readonly AYB_HEALTH_TIMEOUT_SECONDS="${AYB_HEALTH_TIMEOUT_SECONDS:-60}"
@@ -19,6 +39,7 @@ readonly AYB_ADMIN_TOKEN_PATH="${AYB_ADMIN_TOKEN_PATH:-$AYB_CANONICAL_ADMIN_TOKE
 CANONICAL_ADMIN_TOKEN_BACKUP_PATH=""
 CANONICAL_ADMIN_TOKEN_HAD_ORIGINAL=0
 OWNED_EMBEDDED_DATA_DIR=""
+HEALTH_ENDPOINT_WAS_READY_BEFORE_START=0
 
 derive_ayb_base_url() {
   if [[ -n "${AYB_BASE_URL:-}" ]]; then
@@ -49,6 +70,9 @@ readonly AYB_HEALTH_URL="$(derive_ayb_health_url)"
 if [[ -z "${AYB_BASE_URL:-}" ]]; then
   export AYB_BASE_URL
   AYB_BASE_URL="$(base_url_from_health_url "$AYB_HEALTH_URL")"
+fi
+if [[ -z "${PLAYWRIGHT_BASE_URL:-}" ]]; then
+  export PLAYWRIGHT_BASE_URL="$AYB_BASE_URL"
 fi
 
 # Rate-limit overrides prevent load/browser tests from being throttled.
@@ -191,13 +215,21 @@ ayb_process_running() {
 wait_for_ayb_readiness() {
   local ayb_pid="$1"
   local deadline=$((SECONDS + AYB_HEALTH_TIMEOUT_SECONDS))
+  local observed_health_transition=1
+  if (( HEALTH_ENDPOINT_WAS_READY_BEFORE_START )); then
+    observed_health_transition=0
+  fi
 
   while true; do
     if ! ayb_process_running "$ayb_pid"; then
       report_startup_failure
     fi
 
-    if curl -fsS "$AYB_HEALTH_URL" > /dev/null 2>&1 && admin_token_ready; then
+    if (( ! observed_health_transition )); then
+      if ! curl -fsS "$AYB_HEALTH_URL" > /dev/null 2>&1; then
+        observed_health_transition=1
+      fi
+    elif curl -fsS "$AYB_HEALTH_URL" > /dev/null 2>&1 && admin_token_ready; then
       if ! ayb_process_running "$ayb_pid"; then
         report_startup_failure
       fi
@@ -257,6 +289,9 @@ if existing_ayb_ready; then
   exit $?
 fi
 
+if curl -fsS "$AYB_HEALTH_URL" > /dev/null 2>&1; then
+  HEALTH_ENDPOINT_WAS_READY_BEFORE_START=1
+fi
 prepare_canonical_admin_token_file
 if [[ -z "${AYB_ADMIN_PASSWORD:-}" ]]; then
   remove_canonical_admin_token_file

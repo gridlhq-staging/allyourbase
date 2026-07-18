@@ -833,6 +833,7 @@ func TestServerURLDefault(t *testing.T) {
 	// With no PID file, serverURL should return default.
 	tmpDir := t.TempDir()
 	t.Setenv("HOME", tmpDir)
+	t.Setenv("AYB_SERVER_PORT", "")
 
 	got := serverURL()
 	if got != "http://127.0.0.1:8090" {
@@ -843,6 +844,7 @@ func TestServerURLDefault(t *testing.T) {
 func TestServerURLFromPID(t *testing.T) {
 	tmpDir := t.TempDir()
 	t.Setenv("HOME", tmpDir)
+	t.Setenv("AYB_SERVER_PORT", "")
 	aybDir := filepath.Join(tmpDir, ".ayb")
 	if err := os.MkdirAll(aybDir, 0o755); err != nil {
 		t.Fatalf("creating .ayb dir: %v", err)

@@ -231,7 +231,7 @@ git clone https://github.com/gridlhq-staging/allyourbase.git && cd allyourbase &
 
 # Specific version
 curl -fsSLo /tmp/ayb-install.sh https://staging.allyourbase.io/install.sh
-sh /tmp/ayb-install.sh v0.0.17-beta
+sh /tmp/ayb-install.sh v0.0.18-beta
 ```
 
 ## vs. PocketBase vs. Supabase

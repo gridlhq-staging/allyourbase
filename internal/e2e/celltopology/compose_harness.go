@@ -51,11 +51,20 @@ func bootCell(t *testing.T) *cell {
 
 	// Always tear down, even if boot or a later proof fails.
 	t.Cleanup(func() {
-		downArgs := append(append([]string{}, baseArgs...), "down", "-v", "--remove-orphans")
+		downArgs := composeDownArgs(baseArgs)
 		out, err := runCompose(context.Background(), composeEnv, 120*time.Second, downArgs...)
 		if err != nil {
 			t.Logf("compose down failed for %s: %v\n%s", projectName, err, out)
 		}
+	})
+	t.Cleanup(func() {
+		if !t.Failed() {
+			return
+		}
+		logArgs := append(append([]string{}, baseArgs...), "logs", "--no-color", "--tail", "200",
+			"ayb1", "ayb2", "minio", "postgres")
+		out, err := runCompose(context.Background(), composeEnv, 30*time.Second, logArgs...)
+		t.Logf("compose service logs for failed project %s (error=%v):\n%s", projectName, err, out)
 	})
 
 	upCtx, cancel := context.WithTimeout(context.Background(), 8*time.Minute)
@@ -70,6 +79,11 @@ func bootCell(t *testing.T) *cell {
 	pgURL := discoverPostgresURL(t, composeEnv, baseArgs)
 
 	return &cell{lbURL: lbURL, pgURL: pgURL, projectName: projectName}
+}
+
+func composeDownArgs(baseArgs []string) []string {
+	downArgs := append([]string{}, baseArgs...)
+	return append(downArgs, "down", "-v", "--rmi", "local", "--remove-orphans")
 }
 
 // composeBaseArgs returns the shared "-f <compose> -f <override> -p <project>"

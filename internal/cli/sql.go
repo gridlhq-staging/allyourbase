@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"strconv"
 	"strings"
 	"text/tabwriter"
 
@@ -253,6 +254,9 @@ func isLoopbackAdminURL(baseURL string) bool {
 
 // serverURL returns the base URL for the running AYB server.
 func serverURL() string {
+	if port, err := strconv.Atoi(strings.TrimSpace(os.Getenv("AYB_SERVER_PORT"))); err == nil && port > 0 && port <= 65535 {
+		return fmt.Sprintf("http://127.0.0.1:%d", port)
+	}
 	_, port, err := readAYBPID()
 	if err == nil && port > 0 {
 		return fmt.Sprintf("http://127.0.0.1:%d", port)

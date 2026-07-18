@@ -22,6 +22,7 @@ CYAN='\033[0;36m'
 NC='\033[0m'
 
 AYB_BIN="${AYB_BIN:-ayb}"
+SHARED_AYB_DIR="${HOME}/.ayb"
 PASSED=0
 FAILED=0
 TOTAL=0
@@ -31,6 +32,8 @@ TOTAL=0
 # be globally free, because those collide with unrelated dev servers on a shared
 # host. These are the ports ensure_stopped verifies between runs.
 DEMO_APP_PORTS=()
+SERVER_PORT=""
+DATABASE_PORT=""
 
 # ── Helpers ──────────────────────────────────────────────────────
 
@@ -96,12 +99,14 @@ require_free_port() {
 }
 
 ensure_stopped() {
-    "$AYB_BIN" stop > /dev/null 2>&1 || true
     sleep 1
-    # 8090 is AYB's own server port; DEMO_APP_PORTS are the isolated app ports
-    # this run selected. We never require the universal Vite defaults free.
+    # Every managed port is selected at preflight. Never inspect or stop the
+    # universal defaults, which may belong to another worktree on a shared host.
     # ${arr[@]+...} keeps empty-array expansion safe under `set -u` on bash 3.2.
-    for port in 8090 ${DEMO_APP_PORTS[@]+"${DEMO_APP_PORTS[@]}"}; do
+    for port in "$SERVER_PORT" "$DATABASE_PORT" ${DEMO_APP_PORTS[@]+"${DEMO_APP_PORTS[@]}"}; do
+        if [ -z "$port" ]; then
+            continue
+        fi
         if ! require_free_port "$port" "port ${port} is still occupied after ayb stop" "kill"; then
             return 1
         fi
@@ -109,10 +114,24 @@ ensure_stopped() {
     sleep 1
 }
 
+prepare_isolated_home() {
+    local runtime_home="$1"
+    local cache_name
+    mkdir -p "$runtime_home/.ayb"
+    # Runtime state stays isolated, while immutable/downloaded Postgres assets
+    # reuse the normal cache so each demo does not download or extract binaries.
+    for cache_name in pg pgbin; do
+        if [ -d "$SHARED_AYB_DIR/$cache_name" ]; then
+            ln -s "$SHARED_AYB_DIR/$cache_name" "$runtime_home/.ayb/$cache_name"
+        fi
+    done
+}
+
 cleanup_demo_launch_resources() {
     local demo_pid="${1:-}"
     local log="${2:-}"
     local data_dir="${3:-}"
+    local runtime_home="${4:-}"
 
     if [ -n "$demo_pid" ]; then
         kill -INT "$demo_pid" 2>/dev/null || true
@@ -123,9 +142,15 @@ cleanup_demo_launch_resources() {
         done
         kill -9 "$demo_pid" 2>/dev/null || true
     fi
+    if [ -n "$runtime_home" ]; then
+        HOME="$runtime_home" "$AYB_BIN" stop --port "$SERVER_PORT" > /dev/null 2>&1 || true
+    fi
     rm -f "$log"
     if [ -n "$data_dir" ]; then
         rm -rf "$data_dir"
+    fi
+    if [ -n "$runtime_home" ]; then
+        rm -rf "$runtime_home"
     fi
 }
 
@@ -136,28 +161,36 @@ test_demo_launch() {
     local name="$1"
     local port="$2"
     local data_dir
+    local runtime_home
     local demo_pid=""
     local log
     log=$(mktemp /tmp/ayb-demo-test-${name}.XXXXXX)
-    # Isolate only embedded Postgres data for hermetic demo runs. The shared
-    # ~/.ayb/pgbin binary cache stays warm, and /tmp keeps Postgres sockets short.
+    # Isolate mutable runtime and Postgres data. The shared binary cache stays
+    # warm, and /tmp keeps Postgres sockets short.
     data_dir=$(mktemp -d /tmp/ayb-demoe2e.XXXXXX)
+    runtime_home=$(mktemp -d /tmp/ayb-demohome.XXXXXX)
+    prepare_isolated_home "$runtime_home"
 
     echo -e "${CYAN}── Demo: ${name} (port ${port}) ──${NC}"
 
     # Start demo in background on an isolated port so the gate does not require
     # the universal Vite default for this demo to be globally free.
-    AYB_DATABASE_EMBEDDED_DATA_DIR="$data_dir" AYB_DEMO_APP_PORT="$port" "$AYB_BIN" demo "$name" > "$log" 2>&1 &
+    HOME="$runtime_home" \
+        AYB_SERVER_PORT="$SERVER_PORT" \
+        AYB_DATABASE_EMBEDDED_PORT="$DATABASE_PORT" \
+        AYB_DATABASE_EMBEDDED_DATA_DIR="$data_dir" \
+        AYB_DEMO_APP_PORT="$port" \
+        "$AYB_BIN" demo "$name" > "$log" 2>&1 &
     demo_pid=$!
 
-    # Wait for the AYB server (port 8090) to come up
-    if wait_for_health 8090 60; then
+    # Wait for this run's isolated AYB server to come up.
+    if wait_for_health "$SERVER_PORT" 60; then
         pass "${name}: AYB server became healthy"
     else
         fail "${name}: AYB server did not become healthy"
         echo "    Log output:"
         head -30 "$log" | sed 's/^/    /'
-        cleanup_demo_launch_resources "$demo_pid" "$log" "$data_dir"
+        cleanup_demo_launch_resources "$demo_pid" "$log" "$data_dir" "$runtime_home"
         if ! ensure_stopped; then
             return 1
         fi
@@ -183,7 +216,7 @@ test_demo_launch() {
         fail "${name}: demo app not responding on port ${port}"
         echo "    Log output:"
         head -30 "$log" | sed 's/^/    /'
-        cleanup_demo_launch_resources "$demo_pid" "$log" "$data_dir"
+        cleanup_demo_launch_resources "$demo_pid" "$log" "$data_dir" "$runtime_home"
         if ! ensure_stopped; then
             return 1
         fi
@@ -235,7 +268,7 @@ test_demo_launch() {
         kill -9 "$demo_pid" 2>/dev/null || true
     fi
 
-    cleanup_demo_launch_resources "" "$log" "$data_dir"
+    cleanup_demo_launch_resources "" "$log" "$data_dir" "$runtime_home"
     echo ""
     return 0
 }
@@ -258,6 +291,8 @@ echo ""
 # the gate never depends on the universal Vite defaults (5173/5175/5177) being
 # globally free on a shared host. Candidates stay in the high-port range to
 # avoid clashing with common dev servers.
+SERVER_PORT=$(pick_free_port 48090 49090 50090 51090 52090) || { echo -e "${RED}ERROR: no free port for AYB demo server${NC}"; exit 1; }
+DATABASE_PORT=$(pick_free_port 45432 46432 47432 48432 49432) || { echo -e "${RED}ERROR: no free port for embedded Postgres${NC}"; exit 1; }
 KANBAN_PORT=$(pick_free_port 45173 46173 47173 48173 49173) || { echo -e "${RED}ERROR: no free port for kanban demo${NC}"; exit 1; }
 POLLS_PORT=$(pick_free_port 45175 46175 47175 48175 49175) || { echo -e "${RED}ERROR: no free port for live-polls demo${NC}"; exit 1; }
 MOVIES_PORT=$(pick_free_port 45177 46177 47177 48177 49177) || { echo -e "${RED}ERROR: no free port for movies demo${NC}"; exit 1; }

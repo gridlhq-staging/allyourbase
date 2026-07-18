@@ -6,7 +6,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
-_Merged to `main` after v0.0.17-beta; not yet in a published release._
+### Added
+
+### Changed
+
+### Fixed
+
+## [0.0.18-beta] - 2026-07-17
 
 ### Added
 
@@ -38,8 +44,8 @@ _Merged to `main` after v0.0.17-beta; not yet in a published release._
   the compiled `dist/` layout, so `node dist/index.js` failed with
   `ERR_MODULE_NOT_FOUND` on the documented first-run path. The scaffold
   template now emits the correct import, and the quickstart E2E contract
-  covers the scaffold build-and-run step. (v0.0.17-beta ships the broken
-  template; this fix is unreleased until the next tag.)
+  covers the scaffold build-and-run step. (v0.0.17-beta shipped the broken
+  template.)
 
 ## [0.0.17-beta] - 2026-07-15
 

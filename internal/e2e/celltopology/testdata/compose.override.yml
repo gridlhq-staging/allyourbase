@@ -10,3 +10,18 @@ services:
   postgres:
     ports:
       - "127.0.0.1::5432"
+
+# Cell data is disposable. Keep MinIO and Postgres off the shared Docker
+# filesystem so unrelated VM disk usage cannot break their startup or storage
+# proofs.
+volumes:
+  minio-data:
+    driver_opts:
+      type: tmpfs
+      device: tmpfs
+      o: "size=256m"
+  postgres-data:
+    driver_opts:
+      type: tmpfs
+      device: tmpfs
+      o: "size=512m"

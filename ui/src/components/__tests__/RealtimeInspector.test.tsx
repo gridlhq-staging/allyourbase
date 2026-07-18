@@ -34,9 +34,13 @@ describe("RealtimeInspector", () => {
   });
 
   it("renders connection cards with SSE/WS/Total breakdown", async () => {
+    mockedGet.mockImplementationOnce(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 25));
+      return makeSnapshot();
+    });
     render(<RealtimeInspector />);
 
-    await expect(screen.findByTestId("realtime-total-metric-value")).resolves.toHaveTextContent("10");
+    await waitFor(() => expect(screen.getByTestId("realtime-total-metric-value")).toHaveTextContent("10"));
     expect(screen.getByTestId("realtime-sse-metric-value")).toHaveTextContent("3");
     expect(screen.getByTestId("realtime-ws-metric-value")).toHaveTextContent("7");
   });
@@ -44,7 +48,7 @@ describe("RealtimeInspector", () => {
   it("renders counter metrics (dropped messages, heartbeat failures)", async () => {
     render(<RealtimeInspector />);
 
-    await expect(screen.findByTestId("realtime-dropped-metric-value")).resolves.toHaveTextContent("5");
+    await waitFor(() => expect(screen.getByTestId("realtime-dropped-metric-value")).toHaveTextContent("5"));
     expect(screen.getByTestId("realtime-heartbeat-failures-metric-value")).toHaveTextContent("1");
   });
 
@@ -60,7 +64,7 @@ describe("RealtimeInspector", () => {
   it("does not render dead mock-only UI (range selector, throughput, auth/anon)", async () => {
     render(<RealtimeInspector />);
 
-    await expect(screen.findByTestId("realtime-total-metric-value")).resolves.toHaveTextContent("10");
+    await waitFor(() => expect(screen.getByTestId("realtime-total-metric-value")).toHaveTextContent("10"));
     // No time-range selector
     expect(screen.queryByLabelText("Window")).not.toBeInTheDocument();
     expect(screen.queryByText("15m")).not.toBeInTheDocument();
@@ -97,7 +101,7 @@ describe("RealtimeInspector", () => {
     expect(screen.queryByText(/No active subscriptions/i)).not.toBeInTheDocument();
 
     resolveSnapshot?.(makeSnapshot());
-    await expect(screen.findByTestId("realtime-total-metric-value")).resolves.toHaveTextContent("10");
+    await waitFor(() => expect(screen.getByTestId("realtime-total-metric-value")).toHaveTextContent("10"));
   });
 
   it("filters subscription rows by name", async () => {

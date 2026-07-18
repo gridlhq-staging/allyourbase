@@ -422,20 +422,6 @@ func waitForNodeHealth(t *testing.T, node *harnessNode, timeout time.Duration) {
 		node.name, healthURL, lastErr, nodeOutput(node))
 }
 
-func buildAYBBinary(t *testing.T) string {
-	t.Helper()
-
-	binPath := filepath.Join(t.TempDir(), "ayb")
-	cmd := exec.Command("go", "build", "-o", binPath, "./cmd/ayb") //nolint:gosec
-	cmd.Dir = moduleRoot(t)
-	cmd.Env = os.Environ()
-	out, err := cmd.CombinedOutput()
-	if err != nil {
-		t.Fatalf("build ayb binary: %v\n%s", err, strings.TrimSpace(string(out)))
-	}
-	return binPath
-}
-
 func moduleRoot(t *testing.T) string {
 	t.Helper()
 
