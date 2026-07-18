@@ -53,4 +53,5 @@ jobs:
         timeout-minutes: 10
         run: AYB_QUICKSTART_BIN="$HOME/.ayb/bin/ayb" make test-quickstart-contract
         env:
+          AYB_QUICKSTART_EXPECTED_INSTALL_URL: https://staging.allyourbase.io/install.sh
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

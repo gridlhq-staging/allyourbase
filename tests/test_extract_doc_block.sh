@@ -6,6 +6,7 @@ REPO_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 EXTRACTOR="$REPO_DIR/scripts/extract_doc_block.sh"
 DOC_ROOT="${AYB_QUICKSTART_DOC_ROOT:-$REPO_DIR}"
 INVENTORY="${AYB_QUICKSTART_INVENTORY:-$REPO_DIR/tests/quickstart_doc_blocks.tsv}"
+EXPECTED_INSTALL_URL="${AYB_QUICKSTART_EXPECTED_INSTALL_URL:-https://install.allyourbase.io/install.sh}"
 CORPUS_FILES=(
   "README.md"
   "docs-site/guide/getting-started.md"
@@ -39,10 +40,10 @@ assert_fails_with() {
   rm -f "$stderr_file"
 }
 
-readme_quickstart_expected='curl -fsSLo /tmp/ayb-install.sh https://install.allyourbase.io/install.sh
+readme_quickstart_expected="curl -fsSLo /tmp/ayb-install.sh $EXPECTED_INSTALL_URL
 sh /tmp/ayb-install.sh
 ~/.ayb/bin/ayb start
-~/.ayb/bin/ayb demo live-polls'
+~/.ayb/bin/ayb demo live-polls"
 
 quickstart_create_expected='ayb sql "CREATE TABLE todos (
   id SERIAL PRIMARY KEY,

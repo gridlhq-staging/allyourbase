@@ -13,7 +13,7 @@ readme_config_sample	README.md	## Config	toml	1	fence	not_runnable	excluded	conf
 readme_cli_reference	README.md	## CLI		1	fence	not_runnable	excluded	command-reference listing is not a copy-paste command sequence
 readme_migrate_fastest_path	README.md	## Migrate from PocketBase, Supabase, or Algolia	bash	1	fence	not_executed	allowlisted	migration execution needs source fixtures or remote database credentials and belongs to migration integration suites
 readme_migrate_explicit_control	README.md	## Migrate from PocketBase, Supabase, or Algolia	bash	2	fence	not_executed	allowlisted	migration execution needs source fixtures plus target database provisioning and belongs to migration integration suites
-readme_install_commands	README.md	## Install	bash	1	fence	tests/test_install.sh	covered	installer behavior and documented first-run hints are covered by the canonical installer owner
+readme_install_commands	README.md	## Install (Staging)	bash	1	fence	tests/test_install.sh	covered	installer behavior and documented first-run hints are covered by the canonical installer owner
 getting_started_curl_install	docs-site/guide/getting-started.md	### curl (macOS / Linux)	bash	1	fence	tests/test_install.sh	covered	installer behavior and documented first-run hints are covered by the canonical installer owner
 getting_started_from_source	docs-site/guide/getting-started.md	### From source	bash	1	fence	tests/test_install.sh	covered	source-build and installer guidance are covered by the specialized installer owner
 getting_started_managed_start	docs-site/guide/getting-started.md	### Managed PostgreSQL (zero config)	bash	1	fence	tests/test_quickstart_e2e.sh	covered	the probe starts managed PostgreSQL with the selected AYB_QUICKSTART_BIN and validates readiness
