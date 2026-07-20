@@ -38,6 +38,7 @@ func (c *Config) MaskedCopy() *Config {
 		cp.Auth.OAuth = make(map[string]OAuthProvider, len(c.Auth.OAuth))
 		for name, p := range c.Auth.OAuth {
 			p.ClientSecret = maskSecret(p.ClientSecret)
+			p.PrivateKey = maskSecret(p.PrivateKey)
 			cp.Auth.OAuth[name] = p
 		}
 	}
@@ -56,9 +57,47 @@ func (c *Config) MaskedCopy() *Config {
 	cp.Email.Webhook.Secret = maskSecret(c.Email.Webhook.Secret)
 	cp.Support.WebhookSecret = maskSecret(c.Support.WebhookSecret)
 
+	// Logging secrets.
+	if len(c.Logging.Drains) > 0 {
+		cp.Logging.Drains = make([]LogDrainConfig, len(c.Logging.Drains))
+		for i, drain := range c.Logging.Drains {
+			headers := drain.Headers
+			if len(headers) > 0 {
+				drain.Headers = make(map[string]string, len(headers))
+				for key, value := range headers {
+					drain.Headers[key] = maskSecret(value)
+				}
+			}
+			cp.Logging.Drains[i] = drain
+		}
+	}
+
+	// Billing secrets.
+	cp.Billing.StripeSecretKey = maskSecret(c.Billing.StripeSecretKey)
+	cp.Billing.StripeWebhookSecret = maskSecret(c.Billing.StripeWebhookSecret)
+
 	// Storage secrets.
 	cp.Storage.S3AccessKey = maskSecret(c.Storage.S3AccessKey)
 	cp.Storage.S3SecretKey = maskSecret(c.Storage.S3SecretKey)
+	cp.Storage.CDN.Cloudflare.APIToken = maskSecret(c.Storage.CDN.Cloudflare.APIToken)
+	cp.Storage.CDN.Webhook.SigningSecret = maskSecret(c.Storage.CDN.Webhook.SigningSecret)
+
+	// Metrics secrets.
+	cp.Metrics.AuthToken = maskSecret(c.Metrics.AuthToken)
+
+	// AI secrets.
+	if len(c.AI.Providers) > 0 {
+		cp.AI.Providers = make(map[string]ProviderConfig, len(c.AI.Providers))
+		for name, p := range c.AI.Providers {
+			// Copying each provider preserves the original config while redacting the display copy.
+			p.APIKey = maskSecret(p.APIKey)
+			cp.AI.Providers[name] = p
+		}
+	}
+
+	// Backup secrets.
+	cp.Backup.AccessKey = maskSecret(c.Backup.AccessKey)
+	cp.Backup.SecretKey = maskSecret(c.Backup.SecretKey)
 
 	// Database URL may contain credentials.
 	cp.Database.URL = urlutil.RedactURL(c.Database.URL)

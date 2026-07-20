@@ -30,7 +30,7 @@ func (h *Handler) HandleBucketCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if req.Name == "" {
-		httputil.WriteError(w, http.StatusBadRequest, "name is required")
+		httputil.WriteErrorWithDocURL(w, http.StatusBadRequest, "name is required", httputil.DocURL("/guide/file-storage"))
 		return
 	}
 
@@ -83,7 +83,7 @@ func (h *Handler) HandleBucketDelete(w http.ResponseWriter, r *http.Request) {
 		var err error
 		force, err = strconv.ParseBool(forceParam)
 		if err != nil {
-			httputil.WriteError(w, http.StatusBadRequest, "invalid force value")
+			httputil.WriteErrorWithDocURL(w, http.StatusBadRequest, "invalid force value", httputil.DocURL("/guide/file-storage"))
 			return
 		}
 	}
@@ -109,7 +109,7 @@ func (h *Handler) writeBucketError(w http.ResponseWriter, err error) {
 		httputil.WriteError(w, http.StatusNotFound, err.Error())
 		return
 	case errors.Is(err, ErrBucketNotEmpty):
-		httputil.WriteError(w, http.StatusConflict, "bucket has objects; use force=true to delete")
+		httputil.WriteErrorWithDocURL(w, http.StatusConflict, "bucket has objects; use force=true to delete", httputil.DocURL("/guide/file-storage"))
 		return
 	}
 

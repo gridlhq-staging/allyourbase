@@ -20,10 +20,13 @@ type Config struct {
 	PITR           PITRConfig
 }
 
-// PITRConfig configures WAL archiving and point-in-time recovery.
-// When Enabled is true, WAL segments are archived and physical base backups are taken.
-// ShadowMode (default true) archives WAL but refuses restore cutover requests — set
-// to false to allow PITR restores in production.
+// PITRConfig configures point-in-time recovery and the WAL archival settings AYB
+// expects operators or future managed-Postgres wiring to supply.
+// When Enabled is true, AYB takes physical base backups and exposes the WAL
+// archiving/shadow-mode configuration used by the PITR pipeline.
+// ShadowMode (default true) refuses restore cutover requests; base backups still
+// run, and WAL shipping continues only if Postgres is configured to invoke the
+// archive command.
 type PITRConfig struct {
 	Enabled                  bool
 	ArchiveBucket            string

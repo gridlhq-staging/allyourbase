@@ -1,6 +1,3 @@
-/**
- * @module Root AYB client wiring.
- */
 import { AYBError } from "./errors";
 import { AuthClient } from "./auth";
 import { RecordsClient } from "./records";
@@ -125,6 +122,24 @@ export class AYBClient {
     path: string,
     init?: RequestInit & { skipAuth?: boolean },
   ): Promise<T> {
+    const res = await this.requestResponse(path, init);
+    if (res.status === 204) return undefined as T;
+    return res.json();
+  }
+
+  /** @internal */
+  async requestBlob(
+    path: string,
+    init?: RequestInit & { skipAuth?: boolean },
+  ): Promise<Blob> {
+    const res = await this.requestResponse(path, init);
+    return res.blob();
+  }
+
+  private async requestResponse(
+    path: string,
+    init?: RequestInit & { skipAuth?: boolean },
+  ): Promise<Response> {
     const headers: Record<string, string> = {
       ...(init?.headers as Record<string, string>),
     };
@@ -144,8 +159,7 @@ export class AYBClient {
         body.doc_url ?? body.docUrl,
       );
     }
-    if (res.status === 204) return undefined as T;
-    return res.json();
+    return res;
   }
 
   /** Check server and database health without requiring auth. */

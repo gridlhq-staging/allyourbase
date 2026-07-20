@@ -49,7 +49,7 @@ type publicEmailSendInput struct {
 // handlePublicEmailSend handles POST /api/email/send.
 func (s *Server) handlePublicEmailSend(w http.ResponseWriter, r *http.Request) {
 	if s.mailer == nil {
-		httputil.WriteError(w, http.StatusNotImplemented, "email sending is not configured")
+		httputil.WriteErrorWithDocURL(w, http.StatusNotImplemented, "email sending is not configured", httputil.DocURL("/guide/email"))
 		return
 	}
 

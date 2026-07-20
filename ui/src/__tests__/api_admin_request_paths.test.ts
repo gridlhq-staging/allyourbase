@@ -1,7 +1,8 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   callRpc,
   executeApiExplorer,
+  executeGraphql,
   getCollectionSearchSettings,
   getCollectionSearchSynonyms,
   getRealtimeInspectorSnapshot,
@@ -17,6 +18,10 @@ describe("admin API request helpers", () => {
     localStorage.clear();
     localStorage.setItem("ayb_admin_token", "admin-token");
     vi.stubGlobal("fetch", fetchMock);
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
   });
 
   it("uses the shared admin request path for callRpc while preserving 204 responses", async () => {
@@ -87,6 +92,133 @@ describe("admin API request helpers", () => {
       body: '{"query":"select 1"}',
     });
     nowSpy.mockRestore();
+  });
+
+  it("executes GraphQL through the shared admin path and preserves the response envelope", async () => {
+    const query = "query CurrentUser { currentUser { id } }";
+    const responseBody = {
+      data: { currentUser: { id: "user-1" } },
+      errors: [{ message: "profile field unavailable" }],
+    };
+    vi.spyOn(performance, "now")
+      .mockReturnValueOnce(100.25)
+      .mockReturnValueOnce(145.75);
+    fetchMock.mockResolvedValueOnce(
+      new Response(JSON.stringify(responseBody), {
+        status: 200,
+        statusText: "OK",
+        headers: { "Content-Type": "application/json" },
+      }),
+    );
+
+    await expect(executeGraphql(query)).resolves.toEqual({
+      status: 200,
+      statusText: "OK",
+      body: responseBody,
+      durationMs: 46,
+    });
+
+    expect(fetchMock).toHaveBeenCalledWith("/api/graphql", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: "Bearer admin-token",
+      },
+      body: JSON.stringify({ query }),
+    });
+  });
+
+  it("passes GraphQL variables and operation name through unchanged", async () => {
+    const query = "query UserById($id: ID!) { user(id: $id) { id } }";
+    const variables = { id: "user-42", options: { includeDisabled: false } };
+    const operationName = "UserById";
+    fetchMock.mockResolvedValueOnce(
+      new Response(JSON.stringify({ data: { user: { id: "user-42" } } }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      }),
+    );
+
+    await executeGraphql(query, variables, operationName);
+
+    expect(fetchMock).toHaveBeenCalledWith("/api/graphql", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: "Bearer admin-token",
+      },
+      body: JSON.stringify({ query, variables, operationName }),
+    });
+  });
+
+  it.each([
+    { status: 400, statusText: "Bad Request", message: "query is invalid" },
+    { status: 403, statusText: "Forbidden", message: "introspection requires admin access" },
+    { status: 404, statusText: "Not Found", message: "GraphQL is disabled" },
+  ])(
+    "preserves the GraphQL error envelope for HTTP $status",
+    async ({ status, statusText, message }) => {
+      const responseBody = {
+        errors: [{ message, extensions: { status } }],
+      };
+      fetchMock.mockResolvedValueOnce(
+        new Response(JSON.stringify(responseBody), {
+          status,
+          statusText,
+          headers: { "Content-Type": "application/json" },
+        }),
+      );
+
+      await expect(executeGraphql("query Schema { __schema { queryType { name } } }")).resolves
+        .toEqual({
+          status,
+          statusText,
+          body: responseBody,
+          durationMs: expect.any(Number),
+        });
+    },
+  );
+
+  it("returns a GraphQL-shaped fallback for a non-JSON response", async () => {
+    fetchMock.mockResolvedValueOnce(
+      new Response("GraphQL endpoint not found", {
+        status: 404,
+        statusText: "Not Found",
+        headers: { "Content-Type": "text/plain" },
+      }),
+    );
+
+    await expect(executeGraphql("query Health { health }")).resolves.toEqual({
+      status: 404,
+      statusText: "Not Found",
+      body: {
+        errors: [{ message: "GraphQL response was not valid JSON" }],
+      },
+      durationMs: expect.any(Number),
+    });
+  });
+
+  it("delegates GraphQL 401 responses to the canonical unauthorized handler", async () => {
+    const unauthorizedListener = vi.fn();
+    window.addEventListener("ayb:unauthorized", unauthorizedListener);
+    fetchMock.mockResolvedValueOnce(
+      new Response(JSON.stringify({ message: "admin token expired" }), {
+        status: 401,
+        statusText: "Unauthorized",
+        headers: { "Content-Type": "application/json" },
+      }),
+    );
+
+    try {
+      await expect(executeGraphql("query CurrentUser { currentUser { id } }")).rejects.toThrow(
+        "admin token expired",
+      );
+
+      expect(localStorage.getItem("ayb_admin_token")).toBeNull();
+      expect(unauthorizedListener).toHaveBeenCalledTimes(1);
+    } finally {
+      window.removeEventListener("ayb:unauthorized", unauthorizedListener);
+    }
   });
 
   it("calls /api/admin/realtime/stats and normalizes the live snapshot", async () => {

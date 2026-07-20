@@ -115,10 +115,10 @@ describe("screen registry", () => {
     const registryScreens = SCREEN_REGISTRY.sections.flatMap((section) => section.screens);
     const registryIds = registryScreens.map((screen) => screen.id);
 
-    expect(ADMIN_VIEWS).toHaveLength(49);
-    expect(new Set(ADMIN_VIEWS)).toHaveLength(49);
-    expect(registryIds).toHaveLength(49);
-    expect(new Set(registryIds)).toHaveLength(49);
+    expect(ADMIN_VIEWS).toHaveLength(50);
+    expect(new Set(ADMIN_VIEWS)).toHaveLength(50);
+    expect(registryIds).toHaveLength(50);
+    expect(new Set(registryIds)).toHaveLength(50);
     expect(new Set(registryIds)).toEqual(new Set(ADMIN_VIEWS));
   });
 
@@ -146,6 +146,22 @@ describe("screen registry", () => {
 
     expect(usersEntries).toHaveLength(1);
     expect(usersEntries[0].label).toBe("Users");
+  });
+
+  it("registers GraphQL once immediately after SQL Editor in Database", () => {
+    const adminGraphqlEntries = ADMIN_VIEWS.filter((view) => view === "graphql");
+    const registryGraphqlEntries = SCREEN_REGISTRY.sections
+      .flatMap((section) => section.screens)
+      .filter((screen) => screen.id === "graphql");
+    const databaseScreens = SCREEN_REGISTRY.sections.find(
+      (section) => section.title === "Database",
+    )?.screens;
+    const databaseIds = databaseScreens?.map((screen) => screen.id);
+
+    expect(adminGraphqlEntries).toHaveLength(1);
+    expect(registryGraphqlEntries).toHaveLength(1);
+    expect(registryGraphqlEntries[0].label).toBe("GraphQL");
+    expect(databaseIds?.slice(0, 2)).toEqual(["sql-editor", "graphql"]);
   });
 
   it("filters opt-in capability screens without reordering survivors", () => {

@@ -158,6 +158,40 @@ func TestIntegrationWALSegmentListRange(t *testing.T) {
 	}
 }
 
+func TestIntegrationWALSegmentListRangeIncludesOverlappingStart(t *testing.T) {
+	dbURL := testDBURL(t)
+	ctx := context.Background()
+
+	pool, err := pgxpool.New(ctx, dbURL)
+	if err != nil {
+		t.Fatalf("connecting to DB: %v", err)
+	}
+	defer pool.Close()
+	setupWALSegmentTable(t, pool)
+
+	repo := NewPgWALSegmentRepo(pool)
+	segs := []WALSegment{
+		makeTestSegment("proj-overlap", "db-overlap", 1, "000000010000000000000001", "0/1000000", "0/2000000"),
+		makeTestSegment("proj-overlap", "db-overlap", 1, "000000010000000000000002", "0/2000000", "0/3000000"),
+	}
+	for _, s := range segs {
+		if err := repo.Record(ctx, s); err != nil {
+			t.Fatalf("Record %q: %v", s.SegmentName, err)
+		}
+	}
+
+	got, err := repo.ListRange(ctx, "proj-overlap", "db-overlap", "0/1800000", "0/2800000")
+	if err != nil {
+		t.Fatalf("ListRange: %v", err)
+	}
+	if len(got) != 2 {
+		t.Fatalf("ListRange returned %d segments; want 2", len(got))
+	}
+	if got[0].SegmentName != "000000010000000000000001" {
+		t.Fatalf("first segment = %q; want overlapping start segment", got[0].SegmentName)
+	}
+}
+
 func TestIntegrationWALSegmentLatestByProject(t *testing.T) {
 	dbURL := testDBURL(t)
 	ctx := context.Background()

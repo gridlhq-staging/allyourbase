@@ -155,6 +155,19 @@ func TestEnsureBinaryReportsLegacyFallbackUsage(t *testing.T) {
 	})
 	testutil.NoError(t, err)
 	testutil.True(t, usedLegacyFallback, "missing managed release assets should report legacy fallback usage")
+	_, err = os.Stat(filepath.Join(binDir, legacyBinaryMarkerFilename))
+	testutil.NoError(t, err)
+
+	cachedLegacyFallback, err := ensureBinary(context.Background(), ensureBinaryOpts{
+		version:       "16",
+		platform:      "darwin-arm64",
+		cacheDir:      cacheDir,
+		binDir:        binDir,
+		sha256URL:     srv.URL + "/SHA256SUMS",
+		legacyBaseURL: srv.URL,
+	})
+	testutil.NoError(t, err)
+	testutil.True(t, cachedLegacyFallback, "cached legacy binaries should preserve fallback provenance")
 }
 
 func TestEnsureBinaryFallsBackWhenManagedReleaseBinaryCannotRun(t *testing.T) {

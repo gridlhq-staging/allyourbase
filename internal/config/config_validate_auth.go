@@ -3,6 +3,7 @@ package config
 import (
 	"fmt"
 	"regexp"
+	"strings"
 )
 
 var textSearchConfigPattern = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*(\.[A-Za-z_][A-Za-z0-9_]*)?$`)
@@ -53,7 +54,103 @@ func validateAuthConfig(c *Config) error {
 	if c.Auth.JWTSecret != "" && len(c.Auth.JWTSecret) < 32 {
 		return fmt.Errorf("auth.jwt_secret must be at least 32 characters, got %d", len(c.Auth.JWTSecret))
 	}
+	if c.Auth.Enabled {
+		if err := validateJWTSecretStrength(c.Auth.JWTSecret); err != nil {
+			return err
+		}
+	}
 	return nil
+}
+
+// knownDefaultJWTSecrets are the exact secrets published in this repo's compose
+// files and docs before this hardening. They are stored normalized (trimmed,
+// lowercased) so a copy-pasted value with stray whitespace or case changes is
+// still recognized as the shipped default rather than slipping through.
+var knownDefaultJWTSecrets = []string{
+	"change-me-to-a-secure-random-string-at-least-32-chars",
+	"your-secret-key-at-least-32-characters-long",
+	"replace-with-a-random-secret-at-least-32-chars-long",
+	"replace-with-a-long-random-secret",
+}
+
+// placeholderJWTSecretMarkers are substrings that only appear in fill-me-in
+// placeholder values, never in a real random secret. Each was collision-checked
+// against in-tree JWT secret literals so accepted fixtures are not rejected.
+var placeholderJWTSecretMarkers = []string{
+	"change-me",
+	"changeme",
+	"replace-with",
+	"replace-this",
+	"your-secret",
+	"placeholder",
+	"insecure",
+}
+
+// validateJWTSecretStrength rejects published defaults and structurally weak
+// signing keys using one ordered rule set. The caller guarantees the secret is
+// non-empty and at least 32 characters (required/length checks run first), so
+// this focuses solely on entropy quality. Order matters: a published default
+// also contains a marker substring, so the known-default branch runs first and
+// owns that error; the marker branch runs before the entropy branch so a varied
+// placeholder reports the actionable "replace the placeholder" message.
+func validateJWTSecretStrength(secret string) error {
+	normalized := strings.ToLower(strings.TrimSpace(secret))
+	for _, known := range knownDefaultJWTSecrets {
+		if normalized == known {
+			return fmt.Errorf("auth.jwt_secret is a well-known published default and is not secure; generate a private secret with: openssl rand -hex 32")
+		}
+	}
+	for _, marker := range placeholderJWTSecretMarkers {
+		if strings.Contains(normalized, marker) {
+			return fmt.Errorf("auth.jwt_secret contains a placeholder marker and must be replaced with a real secret; generate one with: openssl rand -hex 32")
+		}
+	}
+	if hasLowJWTSecretEntropy(secret) {
+		return fmt.Errorf("auth.jwt_secret has insufficient entropy (too few distinct characters or a repeated pattern); generate a strong secret with: openssl rand -hex 32")
+	}
+	return nil
+}
+
+// hasLowJWTSecretEntropy flags secrets that are trivially guessable despite
+// meeting the length floor: fewer than eight distinct runes, or the whole value
+// being a shorter unit repeated end to end. Eight distinct runes is a deliberate
+// margin below the ~16 symbols of hex and ~40+ of base64, so real random 32-byte
+// secrets and the in-tree fixture table clear it while padded constants do not.
+func hasLowJWTSecretEntropy(secret string) bool {
+	runes := []rune(secret)
+	distinct := make(map[rune]struct{}, len(runes))
+	for _, r := range runes {
+		distinct[r] = struct{}{}
+	}
+	if len(distinct) < 8 {
+		return true
+	}
+	return isRepeatedRuneSequence(runes)
+}
+
+// isRepeatedRuneSequence reports whether runes is a proper-prefix unit repeated
+// two or more times (e.g. "0123456789" cycled four times), which a distinct-rune
+// count alone would miss.
+func isRepeatedRuneSequence(runes []rune) bool {
+	n := len(runes)
+	for unit := 1; unit <= n/2; unit++ {
+		if n%unit != 0 {
+			continue
+		}
+		if isBuiltFromRepeatedUnit(runes, unit) {
+			return true
+		}
+	}
+	return false
+}
+
+func isBuiltFromRepeatedUnit(runes []rune, unit int) bool {
+	for i := unit; i < len(runes); i++ {
+		if runes[i] != runes[i-unit] {
+			return false
+		}
+	}
+	return true
 }
 
 func validateAuthFeatureConfig(c *Config) error {

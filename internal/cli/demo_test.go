@@ -8,7 +8,6 @@ import (
 	"os"
 	"strings"
 	"testing"
-	"testing/fstest"
 
 	"github.com/allyourbase/ayb/examples"
 	"github.com/allyourbase/ayb/internal/config"
@@ -89,6 +88,63 @@ func TestEmbeddedDemoFSContainsSchemas(t *testing.T) {
 		if !strings.Contains(string(data), "CREATE TABLE") {
 			t.Errorf("embedded %s/schema.sql doesn't contain CREATE TABLE", name)
 		}
+	}
+}
+
+func TestEmbeddedKanbanAttachmentSchema(t *testing.T) {
+	data, err := fs.ReadFile(examples.FS, "kanban/schema.sql")
+	if err != nil {
+		t.Fatalf("reading embedded kanban/schema.sql: %v", err)
+	}
+	content := string(data)
+	if got := strings.Count(content, "CREATE TABLE IF NOT EXISTS attachments"); got != 1 {
+		t.Fatalf("attachments table owner count = %d, want 1", got)
+	}
+
+	tableStart := strings.Index(content, "CREATE TABLE IF NOT EXISTS attachments")
+	if tableStart < 0 {
+		t.Fatal("kanban/schema.sql missing attachments table")
+	}
+	tableEnd := strings.Index(content[tableStart:], "\n);")
+	if tableEnd < 0 {
+		t.Fatal("kanban/schema.sql missing attachments table terminator")
+	}
+	attachmentsTable := content[tableStart : tableStart+tableEnd]
+
+	requiredTableClauses := []string{
+		"id UUID PRIMARY KEY DEFAULT gen_random_uuid()",
+		"card_id UUID NOT NULL REFERENCES cards(id) ON DELETE CASCADE",
+		"bucket TEXT NOT NULL",
+		"object_name TEXT NOT NULL",
+		"file_name TEXT NOT NULL",
+		"content_type TEXT NOT NULL",
+		"size BIGINT NOT NULL",
+		"user_id UUID NOT NULL REFERENCES _ayb_users(id)",
+		"created_at TIMESTAMPTZ DEFAULT now()",
+	}
+	for _, clause := range requiredTableClauses {
+		if !strings.Contains(attachmentsTable, clause) {
+			t.Errorf("kanban/schema.sql attachments table missing clause %q", clause)
+		}
+	}
+
+	requiredSchemaClauses := []string{
+		"DROP POLICY IF EXISTS attachments_select ON attachments",
+		"DROP POLICY IF EXISTS attachments_insert ON attachments",
+		"DROP POLICY IF EXISTS attachments_update ON attachments",
+		"DROP POLICY IF EXISTS attachments_delete ON attachments",
+		"ALTER TABLE attachments ENABLE ROW LEVEL SECURITY",
+		"CREATE POLICY attachments_select ON attachments FOR SELECT USING (true)",
+		"CREATE POLICY attachments_insert ON attachments FOR INSERT WITH CHECK (\n  user_id::text = current_setting('ayb.user_id', true)\n)",
+		"CREATE POLICY attachments_delete ON attachments FOR DELETE USING (true)",
+	}
+	for _, clause := range requiredSchemaClauses {
+		if !strings.Contains(content, clause) {
+			t.Errorf("kanban/schema.sql missing attachment clause %q", clause)
+		}
+	}
+	if strings.Contains(content, "CREATE POLICY attachments_update") {
+		t.Error("kanban/schema.sql must not allow attachment metadata updates")
 	}
 }
 
@@ -346,182 +402,6 @@ func TestDemoDistContainsAssets(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// demoFileHandler / serveDemoFile unit tests
-//
-// These test the Go HTTP server that replaced Vite dev. The handler serves
-// pre-built static files from an fs.FS and falls back to index.html for
-// client-side routing (SPA behavior).
-// ---------------------------------------------------------------------------
-
-// testDistFS creates an in-memory filesystem mimicking a Vite build output.
-func testDistFS() fstest.MapFS {
-	return fstest.MapFS{
-		"index.html":              {Data: []byte("<html><body>SPA</body></html>")},
-		"assets/index-abc123.js":  {Data: []byte("console.log('app')")},
-		"assets/index-abc123.css": {Data: []byte("body{margin:0}")},
-		"assets/logo.svg":         {Data: []byte("<svg></svg>")},
-		"favicon.ico":             {Data: []byte("icon")},
-	}
-}
-
-func TestDemoFileHandler_RootServesIndexHTML(t *testing.T) {
-	handler := demoFileHandler(testDistFS())
-	req := httptest.NewRequest("GET", "/", nil)
-	w := httptest.NewRecorder()
-	handler(w, req)
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d", w.Code)
-	}
-	if !strings.Contains(w.Body.String(), "SPA") {
-		t.Error("root path did not serve index.html content")
-	}
-}
-
-func TestDemoFileHandler_ExactFileServed(t *testing.T) {
-	handler := demoFileHandler(testDistFS())
-	req := httptest.NewRequest("GET", "/assets/index-abc123.js", nil)
-	w := httptest.NewRecorder()
-	handler(w, req)
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d", w.Code)
-	}
-	if !strings.Contains(w.Body.String(), "console.log") {
-		t.Error("JS file content not served")
-	}
-}
-
-func TestDemoFileHandler_SPAFallbackForUnknownPath(t *testing.T) {
-	handler := demoFileHandler(testDistFS())
-	// Client-side route like /polls/123 should fall back to index.html.
-	req := httptest.NewRequest("GET", "/polls/123", nil)
-	w := httptest.NewRecorder()
-	handler(w, req)
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d", w.Code)
-	}
-	if !strings.Contains(w.Body.String(), "SPA") {
-		t.Error("SPA fallback did not serve index.html for unknown path")
-	}
-}
-
-func TestDemoFileHandler_CSSServedWithCorrectType(t *testing.T) {
-	handler := demoFileHandler(testDistFS())
-	req := httptest.NewRequest("GET", "/assets/index-abc123.css", nil)
-	w := httptest.NewRecorder()
-	handler(w, req)
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d", w.Code)
-	}
-	ct := w.Header().Get("Content-Type")
-	if !strings.Contains(ct, "text/css") {
-		t.Errorf("expected Content-Type to contain text/css, got %q", ct)
-	}
-}
-
-func TestDemoFileHandler_JSServedWithCorrectType(t *testing.T) {
-	handler := demoFileHandler(testDistFS())
-	req := httptest.NewRequest("GET", "/assets/index-abc123.js", nil)
-	w := httptest.NewRecorder()
-	handler(w, req)
-
-	ct := w.Header().Get("Content-Type")
-	if ct == "" {
-		t.Error("expected Content-Type header for .js file, got empty")
-	}
-}
-
-func TestDemoFileHandler_StaticAssetsCached(t *testing.T) {
-	handler := demoFileHandler(testDistFS())
-	req := httptest.NewRequest("GET", "/assets/index-abc123.js", nil)
-	w := httptest.NewRecorder()
-	handler(w, req)
-
-	cc := w.Header().Get("Cache-Control")
-	if !strings.Contains(cc, "max-age=") {
-		t.Errorf("expected Cache-Control with max-age for static asset, got %q", cc)
-	}
-}
-
-func TestDemoFileHandler_IndexHTMLNotCached(t *testing.T) {
-	handler := demoFileHandler(testDistFS())
-	req := httptest.NewRequest("GET", "/", nil)
-	w := httptest.NewRecorder()
-	handler(w, req)
-
-	cc := w.Header().Get("Cache-Control")
-	if cc != "" {
-		t.Errorf("index.html should not have Cache-Control, got %q", cc)
-	}
-}
-
-func TestServeDemoFile_ReturnsFalseForMissingFile(t *testing.T) {
-	w := httptest.NewRecorder()
-	ok := serveDemoFile(w, testDistFS(), "nonexistent.txt")
-	if ok {
-		t.Error("expected false for missing file")
-	}
-}
-
-func TestServeDemoFile_ReturnsFalseForDirectory(t *testing.T) {
-	w := httptest.NewRecorder()
-	ok := serveDemoFile(w, testDistFS(), "assets")
-	if ok {
-		t.Error("expected false for directory path")
-	}
-}
-
-func TestDemoFileHandler_FaviconServed(t *testing.T) {
-	handler := demoFileHandler(testDistFS())
-	req := httptest.NewRequest("GET", "/favicon.ico", nil)
-	w := httptest.NewRecorder()
-	handler(w, req)
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200 for favicon, got %d", w.Code)
-	}
-	if w.Body.String() != "icon" {
-		t.Error("favicon content not served correctly")
-	}
-}
-
-// TestDemoFileHandler_WithRealDemoDist verifies the handler works with the
-// actual embedded demo dist/ filesystem, not just the test fixture.
-func TestDemoFileHandler_WithRealDemoDist(t *testing.T) {
-	for _, name := range []string{"kanban", "live-polls", "movies"} {
-		t.Run(name, func(t *testing.T) {
-			distFS, err := examples.DemoDist(name)
-			if err != nil {
-				t.Fatalf("DemoDist(%q): %v", name, err)
-			}
-			handler := demoFileHandler(distFS)
-
-			// Root should serve index.html.
-			req := httptest.NewRequest("GET", "/", nil)
-			w := httptest.NewRecorder()
-			handler(w, req)
-			if w.Code != http.StatusOK {
-				t.Errorf("root: expected 200, got %d", w.Code)
-			}
-			if !strings.Contains(w.Body.String(), "<html") && !strings.Contains(w.Body.String(), "<!doctype") && !strings.Contains(w.Body.String(), "<!DOCTYPE") {
-				t.Errorf("root: response doesn't look like HTML: %s", w.Body.String()[:min(100, w.Body.Len())])
-			}
-
-			// SPA fallback for unknown route.
-			req2 := httptest.NewRequest("GET", "/some/deep/route", nil)
-			w2 := httptest.NewRecorder()
-			handler(w2, req2)
-			if w2.Code != http.StatusOK {
-				t.Errorf("SPA fallback: expected 200, got %d", w2.Code)
-			}
-		})
-	}
-}
-
 // TestEmbeddedSchemasHaveCHECKConstraints verifies every demo schema has CHECK
 // constraints on critical columns to prevent invalid data at the database level.
 // Since there is no manual QA, CHECK constraints are the last line of defense.
@@ -646,66 +526,6 @@ func TestRequireDemoAuthEnabledReturnsActionableError(t *testing.T) {
 	}
 }
 
-func TestDemoAdminAuthProxyInjection(t *testing.T) {
-	var gotAdminPath, gotNonAdminPath string
-	var gotAdminAuth, gotNonAdminAuth string
-
-	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if strings.HasPrefix(r.URL.Path, "/api/admin/") {
-			gotAdminPath = r.URL.Path
-			gotAdminAuth = r.Header.Get("Authorization")
-		} else {
-			gotNonAdminPath = r.URL.Path
-			gotNonAdminAuth = r.Header.Get("Authorization")
-		}
-		w.WriteHeader(http.StatusOK)
-	}))
-	defer backend.Close()
-
-	mux := buildDemoMux(testDistFS(), backend.URL, "test-admin-token-123")
-
-	// Admin path should get Authorization injected.
-	req1 := httptest.NewRequest("GET", "/api/admin/movies/search", nil)
-	w1 := httptest.NewRecorder()
-	mux.ServeHTTP(w1, req1)
-	if gotAdminPath != "/api/admin/movies/search" {
-		t.Errorf("admin path not proxied, got %q", gotAdminPath)
-	}
-	if gotAdminAuth != "Bearer test-admin-token-123" {
-		t.Errorf("admin auth not injected, got %q", gotAdminAuth)
-	}
-
-	// Non-admin path should NOT get Authorization injected.
-	req2 := httptest.NewRequest("GET", "/api/auth/me", nil)
-	w2 := httptest.NewRecorder()
-	mux.ServeHTTP(w2, req2)
-	if gotNonAdminPath != "/api/auth/me" {
-		t.Errorf("non-admin path not proxied, got %q", gotNonAdminPath)
-	}
-	if gotNonAdminAuth != "" {
-		t.Errorf("non-admin path should not have auth injected, got %q", gotNonAdminAuth)
-	}
-}
-
-func TestDemoAdminAuthProxyNoTokenNoInjection(t *testing.T) {
-	var gotAuth string
-
-	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		gotAuth = r.Header.Get("Authorization")
-		w.WriteHeader(http.StatusOK)
-	}))
-	defer backend.Close()
-
-	mux := buildDemoMux(testDistFS(), backend.URL, "")
-
-	req := httptest.NewRequest("GET", "/api/admin/movies/search", nil)
-	w := httptest.NewRecorder()
-	mux.ServeHTTP(w, req)
-	if gotAuth != "" {
-		t.Errorf("empty admin token should not inject auth, got %q", gotAuth)
-	}
-}
-
 // TestDemoAppPortDefaultsToRegistry proves that without the override env,
 // effectiveDemoPort returns each demo's documented default so `ayb demo <name>`
 // keeps its user-facing port.
@@ -758,5 +578,38 @@ func TestDemoServerStartEnvUsesOverridePort(t *testing.T) {
 	}
 	if !found {
 		t.Errorf("expected env to contain %q, got %v", want, env)
+	}
+}
+
+func TestDemoServerStartEnvStorageOverride(t *testing.T) {
+	t.Setenv("AYB_STORAGE_ENABLED", "false")
+	tests := []struct {
+		demoName  string
+		wantTrue  int
+		wantFalse int
+	}{
+		{demoName: "kanban", wantTrue: 1, wantFalse: 0},
+		{demoName: "live-polls", wantTrue: 0, wantFalse: 1},
+		{demoName: "movies", wantTrue: 0, wantFalse: 1},
+	}
+	for _, tt := range tests {
+		t.Run(tt.demoName, func(t *testing.T) {
+			env := demoServerStartEnv("secret", tt.demoName, "8090")
+			var trueCount, falseCount int
+			for _, entry := range env {
+				switch entry {
+				case "AYB_STORAGE_ENABLED=true":
+					trueCount++
+				case "AYB_STORAGE_ENABLED=false":
+					falseCount++
+				}
+			}
+			if trueCount != tt.wantTrue {
+				t.Errorf("AYB_STORAGE_ENABLED=true count = %d, want %d in %v", trueCount, tt.wantTrue, env)
+			}
+			if falseCount != tt.wantFalse {
+				t.Errorf("AYB_STORAGE_ENABLED=false count = %d, want %d in %v", falseCount, tt.wantFalse, env)
+			}
+		})
 	}
 }

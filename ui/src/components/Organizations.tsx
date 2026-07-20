@@ -7,6 +7,7 @@ import { useOrgDetailState, useOrgListState, type OrgDetailState } from "./organ
 import { OrgInfoSection, OrgMembersSection, OrgTenantsSection } from "./OrganizationManagementSections";
 import { OrgTeamsSection } from "./OrganizationTeamSections";
 import { OrgAuditSection, OrgDetailHeader, OrgListPanel, OrgUsageSection } from "./OrganizationsSections";
+import { ConfirmDialog } from "./shared/ConfirmDialog";
 
 const DEFAULT_AUDIT_FILTERS = {
   from: "",
@@ -324,6 +325,8 @@ function OrganizationDetailPane({
   management,
   filters,
 }: OrganizationDetailPaneProps) {
+  const [deleteConfirmationOrgId, setDeleteConfirmationOrgId] = useState<string | null>(null);
+
   if (!detail.org) {
     if (selectedId && detail.isLoading) {
       return (
@@ -355,8 +358,21 @@ function OrganizationDetailPane({
         org={detail.org}
         activeTab={activeTab}
         onTabChange={onTabChange}
-        onDelete={management.handleDeleteOrg}
+        onDelete={() => setDeleteConfirmationOrgId(selectedId)}
         isDeleting={management.isDeletingOrg}
+      />
+      <ConfirmDialog
+        open={deleteConfirmationOrgId === selectedId}
+        title="Delete organization"
+        message={`Delete organization "${detail.org.name}"? This action cannot be undone.`}
+        confirmLabel="Delete organization"
+        onConfirm={() => {
+          setDeleteConfirmationOrgId(null);
+          void management.handleDeleteOrg();
+        }}
+        onCancel={() => setDeleteConfirmationOrgId(null)}
+        destructive
+        loading={management.isDeletingOrg}
       />
       {detail.isLoading ? (
         <div className="flex items-center justify-center py-8">

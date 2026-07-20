@@ -23,6 +23,7 @@ func TestWritePostgresConf(t *testing.T) {
 	s := string(content)
 	testutil.Contains(t, s, "listen_addresses = '127.0.0.1'")
 	testutil.Contains(t, s, "port = 25432")
+	testutil.Contains(t, s, "wal_keep_size = '512MB'")
 	testutil.Contains(t, s, "shared_preload_libraries = 'pg_stat_statements,pg_cron'")
 	testutil.Contains(t, s, "cron.database_name = 'ayb'")
 	testutil.Contains(t, s, "logging_collector = off")

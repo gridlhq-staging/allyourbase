@@ -28,6 +28,18 @@ CREATE TABLE IF NOT EXISTS cards (
   updated_at TIMESTAMPTZ DEFAULT now()
 );
 
+CREATE TABLE IF NOT EXISTS attachments (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  card_id UUID NOT NULL REFERENCES cards(id) ON DELETE CASCADE,
+  bucket TEXT NOT NULL,
+  object_name TEXT NOT NULL,
+  file_name TEXT NOT NULL,
+  content_type TEXT NOT NULL,
+  size BIGINT NOT NULL,
+  user_id UUID NOT NULL REFERENCES _ayb_users(id),
+  created_at TIMESTAMPTZ DEFAULT now()
+);
+
 -- Row-Level Security: collaborative boards — all authenticated users can
 -- read and contribute, but only the board owner can modify/delete the board itself.
 
@@ -47,6 +59,10 @@ DROP POLICY IF EXISTS cards_select ON cards;
 DROP POLICY IF EXISTS cards_insert ON cards;
 DROP POLICY IF EXISTS cards_update ON cards;
 DROP POLICY IF EXISTS cards_delete ON cards;
+DROP POLICY IF EXISTS attachments_select ON attachments;
+DROP POLICY IF EXISTS attachments_insert ON attachments;
+DROP POLICY IF EXISTS attachments_update ON attachments;
+DROP POLICY IF EXISTS attachments_delete ON attachments;
 
 ALTER TABLE boards ENABLE ROW LEVEL SECURITY;
 CREATE POLICY boards_select ON boards FOR SELECT USING (true);
@@ -71,3 +87,10 @@ CREATE POLICY cards_select ON cards FOR SELECT USING (true);
 CREATE POLICY cards_insert ON cards FOR INSERT WITH CHECK (true);
 CREATE POLICY cards_update ON cards FOR UPDATE USING (true);
 CREATE POLICY cards_delete ON cards FOR DELETE USING (true);
+
+ALTER TABLE attachments ENABLE ROW LEVEL SECURITY;
+CREATE POLICY attachments_select ON attachments FOR SELECT USING (true);
+CREATE POLICY attachments_insert ON attachments FOR INSERT WITH CHECK (
+  user_id::text = current_setting('ayb.user_id', true)
+);
+CREATE POLICY attachments_delete ON attachments FOR DELETE USING (true);

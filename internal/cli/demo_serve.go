@@ -67,6 +67,7 @@ func buildDemoMux(distFS fs.FS, aybServerURL string, adminToken string) *http.Se
 	proxy := &httputil.ReverseProxy{
 		Rewrite: func(r *httputil.ProxyRequest) {
 			r.SetURL(target)
+			r.Out.Host = r.In.Host
 			r.SetXForwarded()
 			if adminToken != "" && strings.HasPrefix(r.In.URL.Path, "/api/admin/") {
 				r.Out.Header.Set("Authorization", "Bearer "+adminToken)

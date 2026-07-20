@@ -307,16 +307,22 @@ func (h *Handler) canSeeRecord(ctx context.Context, claims *auth.Claims, activeS
 // RLS SELECT policy needed to prove the row visible — a table without that
 // proof path would otherwise fail open and leak it across tenants.
 //
+// Authenticated clients need a database pool to prove row visibility; without
+// one, realtime visibility fails closed. Unauthenticated clients keep the
+// no-RLS path because there are no user claims to scope.
+//
 // Returns true when:
-//   - no pool is available (RLS filtering disabled)
-//   - no claims (unauthenticated client, no RLS applies)
+//   - no claims are present (unauthenticated client, no RLS applies)
 //   - schema metadata or primary-key values are missing AND the candidate is not
 //     tagged for a foreign tenant
-//   - delete events lack OldRecord or SELECT-applicable RLS policies
+//   - delete events lack SELECT-applicable RLS policies
 //   - the RLS-scoped SELECT finds the row
 func CanSeeRecord(ctx context.Context, pool *pgxpool.Pool, schemaCache *schema.CacheHolder, logger *slog.Logger, claims *auth.Claims, activeSchema string, event *Event) bool {
-	if pool == nil || claims == nil {
+	if claims == nil {
 		return true
+	}
+	if pool == nil {
+		return false
 	}
 
 	sc := schemaCache.Get()
@@ -370,14 +376,19 @@ func realtimeTableExistsInActiveSchema(sc *schema.SchemaCache, activeSchema, nam
 	return activeSchema == "" || activeSchema == "public" || tbl.Schema == activeSchema
 }
 
-// canSeeDeletedRecord applies the delete-visibility truth table. It fails open
-// for nil pool, nil claims, nil schema cache, missing table/PK metadata except
-// _ayb_notifications, nil OldRecord, missing OldRecord PK values, and tables
-// without RLS SELECT/ALL policies. Otherwise it evaluates OldRecord against the
-// table's SELECT-applicable UsingExpr policies under the request user's RLS
-// context and delivers only when the deleted row would have been visible.
+// canSeeDeletedRecord applies the delete-visibility truth table. Delete
+// filtering needs OldRecord because transports serialize Event.Record to clients
+// while keeping OldRecord internal; without OldRecord, the handler cannot prove
+// the deleted row was visible and fails closed. Missing OldRecord PK values and
+// tables without RLS SELECT/ALL policies retain the established fail-open
+// behavior. Otherwise it evaluates OldRecord against the table's
+// SELECT-applicable UsingExpr policies under the request user's RLS context and
+// delivers only when the deleted row would have been visible.
 func canSeeDeletedRecord(ctx context.Context, pool *pgxpool.Pool, logger *slog.Logger, tbl *schema.Table, oldRecord map[string]any, claims *auth.Claims) bool {
-	if oldRecord == nil || !recordHasPrimaryKeyValues(tbl, oldRecord) {
+	if oldRecord == nil {
+		return false
+	}
+	if !recordHasPrimaryKeyValues(tbl, oldRecord) {
 		return true
 	}
 

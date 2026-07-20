@@ -358,6 +358,9 @@ jobs:
       - name: Build demo apps
         run: make demos
 
+      - name: Verify demo build artifacts are current
+        run: git diff --exit-code -- examples/kanban/dist examples/live-polls/dist examples/movies/dist
+
       - uses: actions/setup-go@v6
         with:
           go-version: "1.25"
@@ -406,6 +409,111 @@ jobs:
           # 18_demo_e2e.test.sh starts the fake Ollama server itself for the
           # movies suite, so this job does not need separate service wiring.
           make test-demo-e2e
+
+  demo-instantsearch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6
+        with:
+          node-version: "22"
+
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+        with:
+          go-version: "1.25"
+
+      - name: Install SDK dependencies
+        working-directory: sdk
+        run: npm ci
+
+      - name: Build SDK
+        working-directory: sdk
+        run: npm run build
+
+      - name: Install InstantSearch dependencies
+        working-directory: examples/instantsearch_demo
+        run: npm ci
+
+      - name: Build AYB binary
+        run: go build -o ayb ./cmd/ayb
+
+      - name: Install Playwright Chromium and system deps
+        working-directory: examples/instantsearch_demo
+        run: npx playwright install --with-deps chromium
+
+      - name: InstantSearch demo runtime suite
+        run: make test-demo-instantsearch
+
+  demo-movies-real-provider:
+    runs-on: ubuntu-latest
+    # Sized from the locally measured pull + smoke runtime with headroom for a
+    # cold model download on a fresh runner.
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+        with:
+          go-version: "1.25"
+
+      - name: Install smoke prerequisites
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends lsof zstd
+
+      - name: Install Ollama
+        run: |
+          # 19_movies_real_provider.test.sh owns the validated Ollama version;
+          # read it from the script rather than pinning a second literal here.
+          bash _dev/manual_smoke_tests/19_movies_real_provider.test.sh --print-ollama-install-version > "$RUNNER_TEMP/ollama_version"
+          version="$(cat "$RUNNER_TEMP/ollama_version")"
+          archive="ollama-linux-amd64.tar.zst"
+          release_dir="$RUNNER_TEMP/ollama-release"
+          mkdir -p "$release_dir"
+          curl --proto '=https' --tlsv1.2 -fsSLo "$release_dir/$archive" \
+            "https://github.com/ollama/ollama/releases/download/v${version}/${archive}"
+          curl --proto '=https' --tlsv1.2 -fsSLo "$release_dir/sha256sum.txt" \
+            "https://github.com/ollama/ollama/releases/download/v${version}/sha256sum.txt"
+          (
+            cd "$release_dir"
+            grep -F "./$archive" sha256sum.txt | sha256sum -c -
+          )
+          sudo tar --zstd -xf "$release_dir/$archive" -C /usr/local
+          command -v ollama
+          ollama --version
+
+      - name: Movies real-provider smoke
+        run: make test-demo-movies-real-provider
+
+  demo-unit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6
+        with:
+          node-version: "22"
+
+      - name: Enable pnpm
+        run: corepack enable pnpm
+
+      - name: Demo unit tests
+        run: make test-demos-unit
+
+      - name: Browser test lint
+        run: make check-browser-tests-lint
 
   # test-cli-e2e runs the 29 CLI end-to-end integration tests as a dedicated
   # signal, in parallel with the broader test-integration suite. The same tests

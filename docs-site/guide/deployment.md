@@ -46,7 +46,7 @@ mkdir -p ./ayb-pgdata ./ayb-storage
 docker run --rm -p 8090:8090 \
   -e AYB_ADMIN_PASSWORD="change-me-to-a-strong-random-password" \
   -e AYB_AUTH_ENABLED=true \
-  -e AYB_AUTH_JWT_SECRET="replace-with-a-long-random-secret" \
+  -e AYB_AUTH_JWT_SECRET="$(openssl rand -hex 32)" \
   -e AYB_STORAGE_ENABLED=true \
   -e AYB_DATABASE_EMBEDDED_DATA_DIR=/ayb_pgdata \
   -e AYB_STORAGE_LOCAL_PATH=/ayb_storage \
@@ -91,7 +91,6 @@ services:
       - "8090:8090"
     environment:
       AYB_AUTH_ENABLED: "true"
-      AYB_AUTH_JWT_SECRET: "${AYB_AUTH_JWT_SECRET}"
       AYB_STORAGE_ENABLED: "true"
       AYB_DATABASE_URL: "${AYB_DATABASE_URL}"
       AYB_ADMIN_PASSWORD: "${AYB_ADMIN_PASSWORD}"
@@ -101,6 +100,10 @@ services:
         condition: service_healthy
     volumes:
       - ayb_storage:/ayb_storage
+      # Lets the entrypoint generate one private JWT signing key and keep it
+      # across container recreation. Set AYB_AUTH_JWT_SECRET only if you want
+      # to supply your own secret instead.
+      - ayb_jwt_secret:/home/ayb/.ayb/secrets
 
   postgres:
     image: postgres:16-alpine
@@ -119,11 +122,15 @@ services:
 volumes:
   pgdata:
   ayb_storage:
+  ayb_jwt_secret:
 ```
 
-Populate `AYB_DATABASE_URL`, `AYB_ADMIN_PASSWORD`, and `AYB_AUTH_JWT_SECRET`
-from an uncommitted `.env` file or your platform secret manager instead of
-hardcoding secrets in `compose.yaml`.
+Populate `AYB_DATABASE_URL` and `AYB_ADMIN_PASSWORD` from an uncommitted `.env`
+file or your platform secret manager instead of hardcoding them in
+`compose.yaml`. For auth, either:
+
+- mount `ayb_jwt_secret` and let the image entrypoint generate and persist a private signing key
+- set `AYB_AUTH_JWT_SECRET` from your secret manager if you prefer to manage the signing key yourself
 
 ## Bare metal / VPS
 
@@ -181,7 +188,7 @@ sudo systemctl start ayb
 
 - Required for external PostgreSQL: `AYB_DATABASE_URL`
 - Strongly recommended: `AYB_ADMIN_PASSWORD`
-- Required for public auth flows: `AYB_AUTH_ENABLED=true` and `AYB_AUTH_JWT_SECRET`
+- Required for public auth flows: `AYB_AUTH_ENABLED=true` plus either `AYB_AUTH_JWT_SECRET` or, in the container image, a mounted JWT secret volume for the entrypoint-managed key
 - Required for storage API flows: `AYB_STORAGE_ENABLED=true`
 - Often required on managed platforms: `AYB_SERVER_PORT`
 

@@ -179,3 +179,47 @@ func TestPhysicalEngineRunWithRecord(t *testing.T) {
 		t.Fatalf("Status = %q; want completed", got.Status)
 	}
 }
+
+func TestPhysicalEngineWritesManifestWithQueriedTimeline(t *testing.T) {
+	repo := newFakeRepo()
+	store := newFakeStore()
+	manifestRepo := newFakeManifestRepo()
+	writer := NewManifestWriter(store, manifestRepo, newFakeWALRepo(), PITRConfig{ArchivePrefix: "pitr"})
+
+	rec, err := repo.CreatePhysical(context.Background(), "proj1", "db1", "manual")
+	if err != nil {
+		t.Fatalf("CreatePhysical: %v", err)
+	}
+
+	engine := NewPhysicalEngine(
+		PITRConfig{ArchivePrefix: "pitr"},
+		store,
+		repo,
+		&BaseBackupRunner{DBURL: "postgres://unused"},
+		NoopNotifier{},
+		"proj1",
+		"db1",
+		writer,
+	)
+	lsns := []string{"0/3000000", "0/4000000"}
+	engine.lsnFn = func(context.Context) (string, error) {
+		v := lsns[0]
+		lsns = lsns[1:]
+		return v, nil
+	}
+	engine.timelineFn = func(context.Context) (int, error) { return 7, nil }
+	engine.runBackup = func(context.Context) (io.ReadCloser, error) {
+		return io.NopCloser(strings.NewReader("tar bytes")), nil
+	}
+
+	if err := engine.RunWithRecord(context.Background(), rec); err != nil {
+		t.Fatalf("RunWithRecord: %v", err)
+	}
+	manifest := manifestRepo.manifests[rec.ID]
+	if manifest == nil {
+		t.Fatalf("manifest for backup %s was not written", rec.ID)
+	}
+	if manifest.Timeline != 7 {
+		t.Fatalf("manifest timeline = %d; want 7", manifest.Timeline)
+	}
+}

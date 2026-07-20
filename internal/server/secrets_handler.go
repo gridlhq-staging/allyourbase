@@ -53,7 +53,7 @@ func (s *Server) handleGetSecret(w http.ResponseWriter, r *http.Request) {
 
 	name, err := vault.NormalizeSecretName(chi.URLParam(r, "name"))
 	if err != nil {
-		httputil.WriteError(w, http.StatusBadRequest, "invalid secret name")
+		httputil.WriteErrorWithDocURL(w, http.StatusBadRequest, "invalid secret name", httputil.DocURL("/guide/security"))
 		return
 	}
 

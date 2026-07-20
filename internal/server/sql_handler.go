@@ -60,7 +60,7 @@ func handleAdminSQL(pool *pgxpool.Pool, sc *schema.CacheHolder) http.HandlerFunc
 			return
 		}
 		if strings.TrimSpace(req.Query) == "" {
-			httputil.WriteError(w, http.StatusBadRequest, "query is required")
+			httputil.WriteErrorWithDocURL(w, http.StatusBadRequest, "query is required", httputil.DocURL("/guide/database-rpc"))
 			return
 		}
 
@@ -71,7 +71,7 @@ func handleAdminSQL(pool *pgxpool.Pool, sc *schema.CacheHolder) http.HandlerFunc
 			querier = pool
 		}
 		if querier == nil {
-			httputil.WriteError(w, http.StatusServiceUnavailable, "database not available")
+			httputil.WriteErrorWithDocURL(w, http.StatusServiceUnavailable, "database not available", httputil.DocURL("/guide/database-rpc"))
 			return
 		}
 

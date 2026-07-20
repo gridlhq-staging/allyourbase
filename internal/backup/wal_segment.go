@@ -3,9 +3,11 @@ package backup
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -33,7 +35,7 @@ type WALSegmentRepo interface {
 	// GetByName retrieves a single segment by its identifying coordinates.
 	GetByName(ctx context.Context, projectID, databaseID string, timeline int, segmentName string) (*WALSegment, error)
 
-	// ListRange returns all segments whose start_lsn falls within [startLSN, endLSN].
+	// ListRange returns all segments whose WAL interval overlaps [startLSN, endLSN].
 	ListRange(ctx context.Context, projectID, databaseID string, startLSN, endLSN string) ([]WALSegment, error)
 
 	// ListOlderThan returns all segments archived before the provided cutoff.
@@ -97,12 +99,12 @@ func (r *PgWALSegmentRepo) GetByName(ctx context.Context, projectID, databaseID 
 	return scanWALSegment(row)
 }
 
-// ListRange returns segments whose start_lsn falls within [startLSN, endLSN].
+// ListRange returns segments whose WAL interval overlaps [startLSN, endLSN].
 func (r *PgWALSegmentRepo) ListRange(ctx context.Context, projectID, databaseID string, startLSN, endLSN string) ([]WALSegment, error) {
 	rows, err := r.pool.Query(ctx,
 		"SELECT "+walSegmentColumns+" FROM _ayb_wal_segments"+
 			" WHERE project_id = $1 AND database_id = $2"+
-			" AND start_lsn >= $3::pg_lsn AND start_lsn <= $4::pg_lsn"+
+			" AND start_lsn <= $4::pg_lsn AND end_lsn > $3::pg_lsn"+
 			" ORDER BY start_lsn ASC",
 		projectID, databaseID, startLSN, endLSN,
 	)
@@ -205,6 +207,9 @@ func scanWALSegment(row interface {
 		&seg.StartLSN, &seg.EndLSN, &seg.Checksum, &seg.SizeBytes, &seg.ArchivedAt,
 	)
 	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, nil
+		}
 		return nil, fmt.Errorf("scanning WAL segment: %w", err)
 	}
 	return &seg, nil

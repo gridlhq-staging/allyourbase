@@ -252,6 +252,9 @@ func (o *RestoreOrchestrator) runRestoreExecutionPhase(
 	}
 
 	state.recoveryInstance = o.newRecoveryInstanceFn(state.dataDir, port, o.logger)
+	if err := state.recoveryInstance.UsePrimaryConnectionURL(o.primaryDBURL); err != nil {
+		return fmt.Errorf("configuring recovery connection URL: %w", err)
+	}
 	if err := state.recoveryInstance.Start(ctx); err != nil {
 		return fmt.Errorf("starting recovery instance: %w", err)
 	}

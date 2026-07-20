@@ -55,7 +55,7 @@ func (h *Handler) handleWebAuthnCredentialRename(w http.ResponseWriter, r *http.
 	}
 	displayName := strings.TrimSpace(req.DisplayName)
 	if displayName == "" {
-		httputil.WriteError(w, http.StatusBadRequest, "display_name is required")
+		httputil.WriteErrorWithDocURL(w, http.StatusBadRequest, "display_name is required", httputil.DocURL("/guide/authentication"))
 		return
 	}
 	if blocked := h.blockSelfServiceWebAuthnCredentialWrite(w, r, claims, credentialID); blocked {
@@ -158,7 +158,7 @@ func (h *Handler) writeWebAuthnCredentialManagementError(w http.ResponseWriter, 
 	case errors.Is(err, ErrWebAuthnCredentialNotFound):
 		httputil.WriteError(w, http.StatusNotFound, "WebAuthn credential not found")
 	case errors.Is(err, ErrWebAuthnLastCredential):
-		httputil.WriteError(w, http.StatusForbidden, "cannot delete final WebAuthn credential")
+		httputil.WriteErrorWithDocURL(w, http.StatusForbidden, "cannot delete final WebAuthn credential", httputil.DocURL("/guide/authentication"))
 	default:
 		h.logger.Error(logMessage, "error", err)
 		httputil.WriteError(w, http.StatusInternalServerError, "internal error")

@@ -268,21 +268,18 @@ func initWebhookDispatcher(cfg *config.Config, pool *pgxpool.Pool, logger *slog.
 
 // initStatusSystem creates the status history, incident store, and status
 // checker when status monitoring is enabled.
-func initStatusSystem(cfg *config.Config, pool *pgxpool.Pool) (*status.StatusHistory, status.IncidentStore, *status.Checker) {
+func initStatusSystem(cfg *config.Config, pool *pgxpool.Pool, storageSvc *storage.Service) (*status.StatusHistory, status.IncidentStore, *status.Checker) {
 	if !cfg.Status.Enabled {
 		return nil, nil, nil
 	}
 	statusHistory := status.NewStatusHistory(cfg.Status.HistorySize)
-	probes := []status.Probe{
-		status.NewStorageProbe(),
-		status.NewAuthProbe(),
-		status.NewRealtimeProbe(),
-		status.NewFunctionsProbe(),
+	probes := []status.Probe{status.NewDatabaseProbe(pool)}
+	if cfg.Storage.Enabled {
+		probes = append(probes, status.NewStorageProbe(storageSvc))
 	}
 	var statusIncidentStore status.IncidentStore
 	if pool != nil {
 		statusIncidentStore = status.NewPgIncidentStore(pool)
-		probes = append([]status.Probe{status.NewDatabaseProbe(pool)}, probes...)
 	}
 	statusChecker := status.NewChecker(
 		probes,

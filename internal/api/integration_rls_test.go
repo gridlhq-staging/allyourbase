@@ -7,6 +7,9 @@ import (
 	"encoding/csv"
 	"encoding/json"
 	"net/http"
+	"net/http/httptest"
+	"reflect"
+	"sort"
 	"strconv"
 	"strings"
 	"testing"
@@ -428,14 +431,16 @@ func TestImport_EnforcesRLS(t *testing.T) {
 	}
 }
 
-// TestExport_NoClaimsNoRLSContext verifies export without claims still works (no RLS context).
+// TestExport_NoClaimsNoRLSContext verifies exports without caller claims still
+// enter the RLS path for RLS-enabled tables.
 func TestExport_NoClaimsNoRLSContext(t *testing.T) {
 	ctx := context.Background()
 	srv := setupRLSTestServer(t, ctx)
 
-	// Without claims, withRLS returns the pool (no SET LOCAL ROLE).
-	// FORCE ROW LEVEL SECURITY is on and the policy targets ayb_authenticated,
-	// so the pool owner has no matching policy → default deny → 0 rows.
+	// exportRLSRequest injects empty claims, withRLS starts a transaction, and
+	// auth.SetRLSContext switches to ayb_authenticated. This fixture's hand-added
+	// FORCE is stricter than production emitters, but the non-owner role already
+	// obeys enabled RLS; empty owner settings match no seeded row.
 	w := doRequest(t, srv, "GET", "/api/collections/rls_test_docs/export.json", nil)
 	testutil.StatusCode(t, http.StatusOK, w.Code)
 
@@ -445,6 +450,197 @@ func TestExport_NoClaimsNoRLSContext(t *testing.T) {
 	}
 	if len(items) != 0 {
 		t.Fatalf("expected 0 items without RLS claims context, got %d", len(items))
+	}
+}
+
+func nilClaimsDocIdentitiesFromItems(t *testing.T, items []map[string]any) []string {
+	t.Helper()
+
+	identities := make([]string, 0, len(items))
+	for _, item := range items {
+		identities = append(identities, strings.Join([]string{
+			jsonStr(t, item["tenant_id"]),
+			jsonStr(t, item["owner_id"]),
+			jsonStr(t, item["content"]),
+		}, "|"))
+	}
+	sort.Strings(identities)
+	return identities
+}
+
+type nilClaimsDocRows interface {
+	Close()
+	Err() error
+	Next() bool
+	Scan(dest ...any) error
+}
+
+func rowsToNilClaimsDocIdentities(rows nilClaimsDocRows) ([]string, error) {
+	defer rows.Close()
+
+	var identities []string
+	for rows.Next() {
+		var tenantID, ownerID, content string
+		if err := rows.Scan(&tenantID, &ownerID, &content); err != nil {
+			return nil, err
+		}
+		identities = append(identities, strings.Join([]string{tenantID, ownerID, content}, "|"))
+	}
+	sort.Strings(identities)
+	return identities, rows.Err()
+}
+
+func assertNilClaimsDocIdentities(t *testing.T, want, got []string) {
+	t.Helper()
+
+	sort.Strings(want)
+	sort.Strings(got)
+	if !reflect.DeepEqual(want, got) {
+		t.Fatalf("identity mismatch\nwant: %#v\ngot:  %#v", want, got)
+	}
+}
+
+func requireNilClaimsHarnessRoleBypassesRLS(t *testing.T, ctx context.Context) {
+	t.Helper()
+
+	var currentUser string
+	var roleSuper, roleBypassRLS bool
+	err := sharedPG.Pool.QueryRow(ctx, `
+		SELECT current_user, rolsuper, rolbypassrls
+		FROM pg_roles
+		WHERE rolname = current_user
+	`).Scan(&currentUser, &roleSuper, &roleBypassRLS)
+	if err != nil {
+		t.Fatalf("querying current role RLS privileges: %v", err)
+	}
+	if !roleSuper || !roleBypassRLS {
+		t.Fatalf("testpg role %q must have rolsuper=true and rolbypassrls=true, got rolsuper=%t rolbypassrls=%t", currentUser, roleSuper, roleBypassRLS)
+	}
+}
+
+func setAndAssertNilClaimsForceRLS(t *testing.T, ctx context.Context, forceRLS bool) {
+	t.Helper()
+
+	alter := "ALTER TABLE rls_nil_claims_docs NO FORCE ROW LEVEL SECURITY"
+	if forceRLS {
+		alter = "ALTER TABLE rls_nil_claims_docs FORCE ROW LEVEL SECURITY"
+	}
+	if _, err := sharedPG.Pool.Exec(ctx, alter); err != nil {
+		t.Fatalf("setting nil-claims FORCE RLS state to %t: %v", forceRLS, err)
+	}
+
+	var enabled, forced bool
+	err := sharedPG.Pool.QueryRow(ctx, `
+		SELECT relrowsecurity, relforcerowsecurity
+		FROM pg_class
+		WHERE oid = 'rls_nil_claims_docs'::regclass
+	`).Scan(&enabled, &forced)
+	if err != nil {
+		t.Fatalf("querying nil-claims RLS state: %v", err)
+	}
+	if !enabled || forced != forceRLS {
+		t.Fatalf("unexpected nil-claims RLS state: relrowsecurity=%t relforcerowsecurity=%t, want relrowsecurity=true relforcerowsecurity=%t", enabled, forced, forceRLS)
+	}
+}
+
+func assertNilClaimsListIdentities(t *testing.T, w *httptest.ResponseRecorder, want []string) []string {
+	t.Helper()
+
+	testutil.StatusCode(t, http.StatusOK, w.Code)
+	body := parseJSON(t, w)
+	identities := nilClaimsDocIdentitiesFromItems(t, jsonItems(t, body))
+	assertNilClaimsDocIdentities(t, want, identities)
+	return identities
+}
+
+// TestNilClaimsPathWithoutForceRLS characterizes the real managed testpg role:
+// current_user has rolsuper=true and rolbypassrls=true, so table-owner FORCE
+// cannot constrain this nil-claims pool path. Claimed requests still run through
+// auth.SetRLSContext, which switches to non-owner ayb_authenticated and is
+// already subject to enabled RLS. This is a runtime characterization, not proof
+// that a hardened hosted pool role would behave the same way or that one SQL
+// emitter can fix the category.
+func TestNilClaimsPathWithoutForceRLS(t *testing.T) {
+	ctx := context.Background()
+	resetAndSeedDB(t, ctx)
+
+	_, err := sharedPG.Pool.Exec(ctx, `
+		DO $$ BEGIN CREATE ROLE ayb_authenticated NOLOGIN;
+		EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+		GRANT USAGE ON SCHEMA public TO ayb_authenticated;
+		CREATE TABLE rls_nil_claims_docs (
+			id SERIAL PRIMARY KEY,
+			tenant_id TEXT NOT NULL,
+			owner_id TEXT NOT NULL,
+			content TEXT NOT NULL
+		);
+		ALTER TABLE rls_nil_claims_docs ENABLE ROW LEVEL SECURITY;
+		GRANT ALL ON rls_nil_claims_docs TO ayb_authenticated;
+		GRANT USAGE, SELECT ON SEQUENCE rls_nil_claims_docs_id_seq TO ayb_authenticated;
+		CREATE POLICY tenant_owner_isolation ON rls_nil_claims_docs
+			FOR ALL TO ayb_authenticated
+			USING (tenant_id = current_setting('ayb.tenant_id', true) AND owner_id = current_setting('ayb.user_id', true))
+			WITH CHECK (tenant_id = current_setting('ayb.tenant_id', true) AND owner_id = current_setting('ayb.user_id', true));
+		INSERT INTO rls_nil_claims_docs (tenant_id, owner_id, content) VALUES
+			('tenant-a', 'user-alice', 'Alice tenant A doc'),
+			('tenant-b', 'user-bob', 'Bob tenant B doc');
+	`)
+	if err != nil {
+		t.Fatalf("creating nil-claims RLS probe fixture: %v", err)
+	}
+
+	rows, err := sharedPG.Pool.Query(ctx, "SELECT tenant_id, owner_id, content FROM rls_nil_claims_docs ORDER BY id")
+	if err != nil {
+		t.Fatalf("querying seeded nil-claims identities as owner: %v", err)
+	}
+	seeded, err := rowsToNilClaimsDocIdentities(rows)
+	if err != nil {
+		t.Fatalf("reading seeded nil-claims identities as owner: %v", err)
+	}
+	assertNilClaimsDocIdentities(t, []string{
+		"tenant-a|user-alice|Alice tenant A doc",
+		"tenant-b|user-bob|Bob tenant B doc",
+	}, seeded)
+	t.Logf("owner seeded identities: %#v", seeded)
+	requireNilClaimsHarnessRoleBypassesRLS(t, ctx)
+
+	logger := testutil.DiscardLogger()
+	ch := schema.NewCacheHolder(sharedPG.Pool, logger)
+	if err := ch.Load(ctx); err != nil {
+		t.Fatalf("loading schema cache: %v", err)
+	}
+	srv := server.New(config.Default(), logger, ch, sharedPG.Pool, nil, nil)
+
+	const route = "/api/collections/rls_nil_claims_docs/?sort=id&skipTotal=true"
+	allIdentities := []string{
+		"tenant-a|user-alice|Alice tenant A doc",
+		"tenant-b|user-bob|Bob tenant B doc",
+	}
+	aliceIdentity := []string{"tenant-a|user-alice|Alice tenant A doc"}
+	cases := []struct {
+		name     string
+		forceRLS bool
+	}{
+		{name: "unforced", forceRLS: false},
+		{name: "forced", forceRLS: true},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			setAndAssertNilClaimsForceRLS(t, ctx, tc.forceRLS)
+
+			w := doRequest(t, srv, "GET", route, nil)
+			identities := assertNilClaimsListIdentities(t, w, allIdentities)
+			t.Logf("%s nil-claims owner identities: %#v", tc.name, identities)
+
+			claims := &auth.Claims{
+				RegisteredClaims: jwt.RegisteredClaims{Subject: "user-alice"},
+				TenantID:         "tenant-a",
+			}
+			w = doRequestWithClaims(t, srv, "GET", route, nil, claims)
+			identities = assertNilClaimsListIdentities(t, w, aliceIdentity)
+			t.Logf("%s authenticated tenant identities: %#v", tc.name, identities)
+		})
 	}
 }
 

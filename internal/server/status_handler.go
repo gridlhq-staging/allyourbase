@@ -40,7 +40,7 @@ type addIncidentUpdateRequest struct {
 func handlePublicStatus(history *statuspkg.StatusHistory, store statuspkg.IncidentStore) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		snapshot := statuspkg.StatusSnapshot{
-			Status:    statuspkg.Operational,
+			Status:    statuspkg.MajorOutage,
 			Services:  []statuspkg.ProbeResult{},
 			CheckedAt: time.Now().UTC(),
 		}

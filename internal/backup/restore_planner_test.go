@@ -67,6 +67,7 @@ func completedPhysical(id string, completed time.Time, endLSN string) BackupReco
 		BackupType:  "physical",
 		Status:      StatusCompleted,
 		CompletedAt: &completedCopy,
+		StartLSN:    ptrLSN(endLSN),
 		EndLSN:      ptrLSN(endLSN),
 	}
 }
@@ -113,6 +114,61 @@ func TestRestorePlannerValidateWindowSingleBackup(t *testing.T) {
 	}
 	if got, want := plan.EstimatedWALBytes, int64(36); got != want {
 		t.Fatalf("EstimatedWALBytes = %d; want %d", got, want)
+	}
+}
+
+func TestRestorePlannerValidateWindowAcceptsSegmentCoveringBaseEndLSN(t *testing.T) {
+	t.Parallel()
+
+	t0 := time.Date(2026, 1, 2, 10, 0, 0, 0, time.UTC)
+	target := t0.Add(20 * time.Minute)
+	latestAt := t0.Add(30 * time.Minute)
+
+	repo := &fakePlannerRepo{backups: []BackupRecord{completedPhysical("b1", t0, "0/2800000")}}
+	walRepo := newFakeWALRepo()
+	walRepo.listRangeResult = []WALSegment{
+		walSeg("000000010000000000000002", "0/2000000", "0/3000000", t0.Add(10*time.Minute), 16),
+		walSeg("000000010000000000000003", "0/3000000", "0/4000000", latestAt, 20),
+	}
+	manifestRepo := newFakeManifestRepo()
+	manifestRepo.manifests["b1"] = &BackupManifest{BackupID: "b1"}
+
+	planner := NewRestorePlanner(repo, walRepo, manifestRepo)
+	plan, err := planner.ValidateWindow(context.Background(), "proj1", "db1", target)
+	if err != nil {
+		t.Fatalf("ValidateWindow: %v", err)
+	}
+	if len(plan.WALSegments) != 2 {
+		t.Fatalf("WALSegments len = %d; want 2", len(plan.WALSegments))
+	}
+	if got := plan.WALSegments[0].SegmentName; got != "000000010000000000000002" {
+		t.Fatalf("first WAL segment = %q; want overlapping segment", got)
+	}
+}
+
+func TestRestorePlannerValidateWindowReplaysFromManifestStartLSN(t *testing.T) {
+	t.Parallel()
+
+	t0 := time.Date(2026, 1, 2, 10, 0, 0, 0, time.UTC)
+	target := t0.Add(20 * time.Minute)
+	latestAt := t0.Add(30 * time.Minute)
+
+	repo := &fakePlannerRepo{backups: []BackupRecord{completedPhysical("b1", t0, "0/2800000")}}
+	walRepo := newFakeWALRepo()
+	walRepo.listRangeResult = []WALSegment{
+		walSeg("000000010000000000000001", "0/1000000", "0/2000000", t0.Add(5*time.Minute), 16),
+		walSeg("000000010000000000000002", "0/2000000", "0/3000000", latestAt, 20),
+	}
+	manifestRepo := newFakeManifestRepo()
+	manifestRepo.manifests["b1"] = &BackupManifest{BackupID: "b1", StartLSN: "0/1800000", EndLSN: "0/2800000"}
+
+	planner := NewRestorePlanner(repo, walRepo, manifestRepo)
+	plan, err := planner.ValidateWindow(context.Background(), "proj1", "db1", target)
+	if err != nil {
+		t.Fatalf("ValidateWindow: %v", err)
+	}
+	if got := plan.WALSegments[0].SegmentName; got != "000000010000000000000001" {
+		t.Fatalf("first WAL segment = %q; want segment covering manifest start_lsn", got)
 	}
 }
 

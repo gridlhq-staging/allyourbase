@@ -21,6 +21,7 @@ test.describe("Smoke: Admin Dashboard Setup", () => {
   const pendingCleanup: string[] = [];
   const expectedNavigationLabels = [
     "SQL Editor",
+    "GraphQL",
     "Functions",
     "RLS Policies",
     "Search",

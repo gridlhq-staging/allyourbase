@@ -37,7 +37,7 @@ type adminSAMLUpsertRequest struct {
 
 func (s *Server) requireSAMLAdminDeps(w http.ResponseWriter) bool {
 	if s.authHandler == nil || s.samlSvc == nil {
-		httputil.WriteError(w, http.StatusNotFound, "auth SAML is not enabled")
+		httputil.WriteErrorWithDocURL(w, http.StatusNotFound, "auth SAML is not enabled", httputil.DocURL("/guide/saml"))
 		return false
 	}
 	if s.pool == nil {

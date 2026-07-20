@@ -684,7 +684,7 @@ func TestUpdateAllUnknownColumns(t *testing.T) {
 
 func TestViewReadOnly(t *testing.T) {
 	ctx := context.Background()
-	srv, pg := setupTestServer(t, ctx)
+	_, pg := setupTestServer(t, ctx)
 
 	// Create a view.
 	_, err := pg.Pool.Exec(ctx, `CREATE VIEW active_posts AS SELECT * FROM posts WHERE status = 'published'`)
@@ -699,7 +699,7 @@ func TestViewReadOnly(t *testing.T) {
 		t.Fatalf("reloading schema: %v", err)
 	}
 	cfg := config.Default()
-	srv = server.New(cfg, logger, ch, pg.Pool, nil, nil)
+	srv := server.New(cfg, logger, ch, pg.Pool, nil, nil)
 
 	// GET should work.
 	w := doRequest(t, srv, "GET", "/api/collections/active_posts/", nil)
@@ -1025,7 +1025,7 @@ func TestSchemaReloadHookFailureKeepsPreviousCache(t *testing.T) {
 
 func TestSearchNoTextColumnsTable(t *testing.T) {
 	ctx := context.Background()
-	srv, pg := setupTestServer(t, ctx)
+	_, pg := setupTestServer(t, ctx)
 
 	// Create a table with no text columns.
 	_, err := pg.Pool.Exec(ctx, `CREATE TABLE counters (id SERIAL PRIMARY KEY, count INTEGER)`)
@@ -1040,7 +1040,7 @@ func TestSearchNoTextColumnsTable(t *testing.T) {
 		t.Fatalf("reloading schema: %v", err)
 	}
 	cfg := config.Default()
-	srv = server.New(cfg, logger, ch, pg.Pool, nil, nil)
+	srv := server.New(cfg, logger, ch, pg.Pool, nil, nil)
 
 	w := doRequest(t, srv, "GET", "/api/collections/counters/?search=test", nil)
 	testutil.StatusCode(t, http.StatusBadRequest, w.Code)
@@ -1413,7 +1413,7 @@ func TestCombinedFilterSortPagination(t *testing.T) {
 
 func TestExpandCircularReferenceSelfReferential(t *testing.T) {
 	ctx := context.Background()
-	srv, pg := setupTestServer(t, ctx)
+	_, pg := setupTestServer(t, ctx)
 
 	// Create a table with self-referential FK (e.g., users.manager_id -> users.id).
 	_, err := pg.Pool.Exec(ctx, `
@@ -1434,7 +1434,7 @@ func TestExpandCircularReferenceSelfReferential(t *testing.T) {
 	ch := schema.NewCacheHolder(pg.Pool, logger)
 	testutil.NoError(t, ch.Load(ctx))
 	cfg := config.Default()
-	srv = server.New(cfg, logger, ch, pg.Pool, nil, nil)
+	srv := server.New(cfg, logger, ch, pg.Pool, nil, nil)
 
 	// Expand manager.manager (two levels deep).
 	w := doRequest(t, srv, "GET", "/api/collections/users/3?expand=manager.manager", nil)
@@ -1456,7 +1456,7 @@ func TestExpandCircularReferenceSelfReferential(t *testing.T) {
 
 func TestExpandMaxDepthEnforced(t *testing.T) {
 	ctx := context.Background()
-	srv, pg := setupTestServer(t, ctx)
+	_, pg := setupTestServer(t, ctx)
 
 	// Create self-referential table.
 	_, err := pg.Pool.Exec(ctx, `
@@ -1478,7 +1478,7 @@ func TestExpandMaxDepthEnforced(t *testing.T) {
 	ch := schema.NewCacheHolder(pg.Pool, logger)
 	testutil.NoError(t, ch.Load(ctx))
 	cfg := config.Default()
-	srv = server.New(cfg, logger, ch, pg.Pool, nil, nil)
+	srv := server.New(cfg, logger, ch, pg.Pool, nil, nil)
 
 	// Try to expand 3 levels (parent.parent.parent), but maxExpandDepth is 2.
 	w := doRequest(t, srv, "GET", "/api/collections/categories/4?expand=parent.parent.parent", nil)
@@ -1532,7 +1532,7 @@ func TestExpandMissingRelation(t *testing.T) {
 
 func TestBatchCreatePartialFailureRollback(t *testing.T) {
 	ctx := context.Background()
-	srv, pg := setupTestServer(t, ctx)
+	_, pg := setupTestServer(t, ctx)
 
 	// Create a table with a unique constraint.
 	_, err := pg.Pool.Exec(ctx, `
@@ -1548,7 +1548,7 @@ func TestBatchCreatePartialFailureRollback(t *testing.T) {
 	ch := schema.NewCacheHolder(pg.Pool, logger)
 	testutil.NoError(t, ch.Load(ctx))
 	cfg := config.Default()
-	srv = server.New(cfg, logger, ch, pg.Pool, nil, nil)
+	srv := server.New(cfg, logger, ch, pg.Pool, nil, nil)
 
 	// Batch insert: third record duplicates first, triggering unique constraint violation.
 	batch := map[string]any{
@@ -1610,7 +1610,7 @@ func TestBatchUpdatePartialFailureRollback(t *testing.T) {
 
 func TestRPCFunctionWithVARIADICArgs(t *testing.T) {
 	ctx := context.Background()
-	srv, pg := setupTestServer(t, ctx)
+	_, pg := setupTestServer(t, ctx)
 
 	// Create a function with VARIADIC args.
 	_, err := pg.Pool.Exec(ctx, `
@@ -1625,7 +1625,7 @@ func TestRPCFunctionWithVARIADICArgs(t *testing.T) {
 	ch := schema.NewCacheHolder(pg.Pool, logger)
 	testutil.NoError(t, ch.Load(ctx))
 	cfg := config.Default()
-	srv = server.New(cfg, logger, ch, pg.Pool, nil, nil)
+	srv := server.New(cfg, logger, ch, pg.Pool, nil, nil)
 
 	// Call with array of values.
 	body := map[string]any{
@@ -1642,7 +1642,7 @@ func TestRPCFunctionWithVARIADICArgs(t *testing.T) {
 
 func TestRPCFunctionWithOUTParameters(t *testing.T) {
 	ctx := context.Background()
-	srv, pg := setupTestServer(t, ctx)
+	_, pg := setupTestServer(t, ctx)
 
 	// Create a function with OUT parameters.
 	_, err := pg.Pool.Exec(ctx, `
@@ -1659,7 +1659,7 @@ func TestRPCFunctionWithOUTParameters(t *testing.T) {
 	ch := schema.NewCacheHolder(pg.Pool, logger)
 	testutil.NoError(t, ch.Load(ctx))
 	cfg := config.Default()
-	srv = server.New(cfg, logger, ch, pg.Pool, nil, nil)
+	srv := server.New(cfg, logger, ch, pg.Pool, nil, nil)
 
 	// Call the function.
 	w := doRequest(t, srv, "POST", "/api/rpc/get_stats", nil)
@@ -1673,7 +1673,7 @@ func TestRPCFunctionWithOUTParameters(t *testing.T) {
 
 func TestRPCFunctionReturningSetOf(t *testing.T) {
 	ctx := context.Background()
-	srv, pg := setupTestServer(t, ctx)
+	_, pg := setupTestServer(t, ctx)
 
 	// Create a function returning SETOF.
 	_, err := pg.Pool.Exec(ctx, `
@@ -1688,7 +1688,7 @@ func TestRPCFunctionReturningSetOf(t *testing.T) {
 	ch := schema.NewCacheHolder(pg.Pool, logger)
 	testutil.NoError(t, ch.Load(ctx))
 	cfg := config.Default()
-	srv = server.New(cfg, logger, ch, pg.Pool, nil, nil)
+	srv := server.New(cfg, logger, ch, pg.Pool, nil, nil)
 
 	w := doRequest(t, srv, "POST", "/api/rpc/get_all_author_names", nil)
 	testutil.StatusCode(t, http.StatusOK, w.Code)
@@ -1712,7 +1712,7 @@ func TestRPCFunctionReturningSetOf(t *testing.T) {
 
 func TestRPCFunctionThatRaisesException(t *testing.T) {
 	ctx := context.Background()
-	srv, pg := setupTestServer(t, ctx)
+	_, pg := setupTestServer(t, ctx)
 
 	// Create a function that raises an exception.
 	_, err := pg.Pool.Exec(ctx, `
@@ -1729,7 +1729,7 @@ func TestRPCFunctionThatRaisesException(t *testing.T) {
 	ch := schema.NewCacheHolder(pg.Pool, logger)
 	testutil.NoError(t, ch.Load(ctx))
 	cfg := config.Default()
-	srv = server.New(cfg, logger, ch, pg.Pool, nil, nil)
+	srv := server.New(cfg, logger, ch, pg.Pool, nil, nil)
 
 	w := doRequest(t, srv, "POST", "/api/rpc/raise_error", nil)
 	// P0001 (RAISE EXCEPTION) is mapped to 400 Bad Request by mapPGError.
@@ -1741,7 +1741,7 @@ func TestRPCFunctionThatRaisesException(t *testing.T) {
 
 func TestRPCFunctionWithNULLHandling(t *testing.T) {
 	ctx := context.Background()
-	srv, pg := setupTestServer(t, ctx)
+	_, pg := setupTestServer(t, ctx)
 
 	// Create a function that handles NULL.
 	_, err := pg.Pool.Exec(ctx, `
@@ -1756,7 +1756,7 @@ func TestRPCFunctionWithNULLHandling(t *testing.T) {
 	ch := schema.NewCacheHolder(pg.Pool, logger)
 	testutil.NoError(t, ch.Load(ctx))
 	cfg := config.Default()
-	srv = server.New(cfg, logger, ch, pg.Pool, nil, nil)
+	srv := server.New(cfg, logger, ch, pg.Pool, nil, nil)
 
 	// Call with NULL value.
 	body := map[string]any{
@@ -1776,7 +1776,7 @@ func TestRPCFunctionWithNULLHandling(t *testing.T) {
 
 func TestCheckConstraintViolation(t *testing.T) {
 	ctx := context.Background()
-	srv, pg := setupTestServer(t, ctx)
+	_, pg := setupTestServer(t, ctx)
 
 	// Create a table with a CHECK constraint.
 	_, err := pg.Pool.Exec(ctx, `
@@ -1793,7 +1793,7 @@ func TestCheckConstraintViolation(t *testing.T) {
 	ch := schema.NewCacheHolder(pg.Pool, logger)
 	testutil.NoError(t, ch.Load(ctx))
 	cfg := config.Default()
-	srv = server.New(cfg, logger, ch, pg.Pool, nil, nil)
+	srv := server.New(cfg, logger, ch, pg.Pool, nil, nil)
 
 	// Insert with price = -1 to trigger CHECK violation.
 	body := map[string]any{"name": "Widget", "price": -1}
@@ -1887,7 +1887,7 @@ func TestBatchNotFoundRollsBack(t *testing.T) {
 
 func TestRPCFunctionReturningNULL(t *testing.T) {
 	ctx := context.Background()
-	srv, pg := setupTestServer(t, ctx)
+	_, pg := setupTestServer(t, ctx)
 
 	// Create a function that returns NULL.
 	_, err := pg.Pool.Exec(ctx, `
@@ -1902,7 +1902,7 @@ func TestRPCFunctionReturningNULL(t *testing.T) {
 	ch := schema.NewCacheHolder(pg.Pool, logger)
 	testutil.NoError(t, ch.Load(ctx))
 	cfg := config.Default()
-	srv = server.New(cfg, logger, ch, pg.Pool, nil, nil)
+	srv := server.New(cfg, logger, ch, pg.Pool, nil, nil)
 
 	w := doRequest(t, srv, "POST", "/api/rpc/always_null", nil)
 	testutil.StatusCode(t, http.StatusOK, w.Code)

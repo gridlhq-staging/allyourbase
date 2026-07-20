@@ -127,7 +127,7 @@ func (f *fakeIncidentStore) AddIncidentUpdate(ctx context.Context, incidentID st
 }
 
 func TestHandlePublicStatus(t *testing.T) {
-	t.Run("no snapshots returns operational", func(t *testing.T) {
+	t.Run("no snapshots returns major outage", func(t *testing.T) {
 		store := newFakeIncidentStore()
 		h := handlePublicStatus(statuspkg.NewStatusHistory(10), store)
 
@@ -142,11 +142,14 @@ func TestHandlePublicStatus(t *testing.T) {
 		if err := json.NewDecoder(w.Body).Decode(&got); err != nil {
 			t.Fatalf("decode response: %v", err)
 		}
-		if got.Status != statuspkg.Operational {
-			t.Fatalf("status = %q, want %q", got.Status, statuspkg.Operational)
+		if got.Status != statuspkg.MajorOutage {
+			t.Fatalf("status = %q, want %q", got.Status, statuspkg.MajorOutage)
 		}
 		if len(got.Services) != 0 {
 			t.Fatalf("services len = %d, want 0", len(got.Services))
+		}
+		if got.Services == nil {
+			t.Fatal("services = nil, want empty non-nil array")
 		}
 	})
 
@@ -241,6 +244,75 @@ func TestHealthAndStatusRouteContract(t *testing.T) {
 	}
 	if got := w.Header().Get("Content-Type"); got != "application/json" {
 		t.Fatalf("enabled /api/status content-type = %q, want application/json", got)
+	}
+	var got statusResponse
+	if err := json.NewDecoder(w.Body).Decode(&got); err != nil {
+		t.Fatalf("decode enabled /api/status response: %v", err)
+	}
+	if got.Status != statuspkg.MajorOutage {
+		t.Fatalf("enabled /api/status fallback status = %q, want %q", got.Status, statuspkg.MajorOutage)
+	}
+	if len(got.Services) != 0 {
+		t.Fatalf("enabled /api/status services len = %d, want 0", len(got.Services))
+	}
+	if got.Services == nil {
+		t.Fatal("enabled /api/status services = nil, want empty non-nil array")
+	}
+}
+
+func TestInitStatusSystemProbeWiring(t *testing.T) {
+	t.Run("storage disabled includes database only", func(t *testing.T) {
+		cfg := config.Default()
+		cfg.Status.Enabled = true
+		cfg.Storage.Enabled = false
+
+		_, _, checker := initStatusSystem(cfg, nil, nil)
+		snapshot := checker.RunOnce(context.Background())
+		assertServiceNames(t, snapshot.Services, []statuspkg.ServiceName{statuspkg.Database})
+		if snapshot.Services[0].Healthy {
+			t.Fatal("database probe healthy with nil pool, want unhealthy")
+		}
+	})
+
+	t.Run("storage enabled nil service includes unhealthy storage", func(t *testing.T) {
+		cfg := config.Default()
+		cfg.Status.Enabled = true
+		cfg.Storage.Enabled = true
+
+		_, _, checker := initStatusSystem(cfg, nil, nil)
+		snapshot := checker.RunOnce(context.Background())
+		assertServiceNames(t, snapshot.Services, []statuspkg.ServiceName{statuspkg.Database, statuspkg.Storage})
+		if snapshot.Services[1].Healthy || snapshot.Services[1].Error == "" {
+			t.Fatalf("storage result = {Healthy:%v Error:%q}, want unhealthy configured-storage error",
+				snapshot.Services[1].Healthy, snapshot.Services[1].Error)
+		}
+	})
+
+	t.Run("nil pool fails closed", func(t *testing.T) {
+		cfg := config.Default()
+		cfg.Status.Enabled = true
+
+		_, store, checker := initStatusSystem(cfg, nil, nil)
+		if store != nil {
+			t.Fatal("incident store with nil pool = non-nil, want nil")
+		}
+		snapshot := checker.RunOnce(context.Background())
+		assertServiceNames(t, snapshot.Services, []statuspkg.ServiceName{statuspkg.Database})
+		if snapshot.Status != statuspkg.MajorOutage {
+			t.Fatalf("snapshot status with nil pool = %q, want %q", snapshot.Status, statuspkg.MajorOutage)
+		}
+	})
+}
+
+func assertServiceNames(t *testing.T, got []statuspkg.ProbeResult, want []statuspkg.ServiceName) {
+	t.Helper()
+	if len(got) != len(want) {
+		t.Fatalf("services len = %d, want %d: %#v", len(got), len(want), got)
+	}
+	for i, name := range want {
+		if got[i].Service != name {
+			t.Fatalf("service[%d] = %q, want %q", i, got[i].Service, name)
+		}
 	}
 }
 

@@ -16,6 +16,7 @@ import {
   Bell,
   BellRing,
   Box,
+  Braces,
   Building2,
   Cable,
   CalendarClock,
@@ -70,6 +71,7 @@ export const ADMIN_VIEWS = [
   "api-explorer",
   "rls",
   "sql-editor",
+  "graphql",
   "schema-designer",
   "sms-health",
   "sms-messages",
@@ -304,6 +306,7 @@ export const SCREEN_REGISTRY: ScreenRegistry = {
       title: "Database",
       screens: [
         { id: "sql-editor", label: "SQL Editor", icon: Code, render: createNamedLazyScreenRender(() => import("../components/SqlEditor"), "SqlEditor", ({ onRefresh }) => ({ onSchemaChange: onRefresh })) },
+        { id: "graphql", label: "GraphQL", icon: Braces, render: createNamedLazyScreenRender(() => import("../components/GraphqlExplorer"), "GraphqlExplorer") },
         { id: "functions", label: "Functions", icon: Zap, render: createNamedLazyScreenRender(() => import("../components/FunctionBrowser"), "FunctionBrowser", ({ schema }) => ({ functions: schema.functions || {} })) },
         { id: "rls", label: "RLS Policies", icon: Shield, render: createNamedLazyScreenRender(() => import("../components/RlsPolicies"), "RlsPolicies", ({ schema }) => ({ schema })) },
         { id: "search", label: "Search", icon: Search, render: createNamedLazyScreenRender(() => import("../components/Search"), "Search", ({ schema }) => ({ schema })) },

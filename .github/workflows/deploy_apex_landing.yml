@@ -1,0 +1,52 @@
+name: Deploy Apex Landing
+
+on:
+  workflow_dispatch: {}
+  push:
+    branches: [main]
+    paths:
+      - "examples/apex_landing/**"
+      - ".github/workflows/deploy_apex_landing.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  test-apex:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+        with:
+          go-version: "1.25"
+
+      - name: Test apex landing
+        run: go test ./internal/codehealth -run '^TestApexLanding' -count=1
+
+  deploy-apex:
+    runs-on: ubuntu-latest
+    needs: test-apex
+    permissions:
+      contents: read
+      deployments: write
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          persist-credentials: false
+
+      - name: Prepare apex artifact
+        run: |
+          mkdir -p dist
+          cp index.html dist/index.html
+        working-directory: examples/apex_landing
+
+      - name: Deploy to Cloudflare Pages
+        uses: cloudflare/wrangler-action@9acf94ace14e7dc412b076f2c5c20b8ce93c79cd # v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          command: pages deploy dist --project-name=ayb-demo-apex
+          workingDirectory: examples/apex_landing

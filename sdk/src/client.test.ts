@@ -1000,6 +1000,41 @@ describe("auth passkey credential management", () => {
 });
 
 describe("storage", () => {
+  it("download returns exact bytes through the authenticated storage request", async () => {
+    const expectedBytes = new Uint8Array([0x00, 0x89, 0x50, 0x4e, 0x47, 0xff]);
+    const fetchFn = vi.fn().mockResolvedValue(
+      new Response(expectedBytes, {
+        status: 200,
+        headers: { "Content-Type": "image/png" },
+      }),
+    );
+    const client = new AYBClient("http://localhost:8090", { fetch: fetchFn });
+    client.setTokens("session-token", "session-refresh");
+
+    const downloaded = await client.storage.download(
+      "avatars/../private",
+      "nested/path to/image?.png",
+    );
+    const call = fetchFn.mock.calls[0];
+
+    expect(call[0]).toBe(
+      "http://localhost:8090/api/storage/avatars%2F..%2Fprivate/nested/path%20to/image%3F.png",
+    );
+    expect(call[1].headers.Authorization).toBe("Bearer session-token");
+    expect(downloaded.type).toBe("image/png");
+    expect(new Uint8Array(await downloaded.arrayBuffer())).toEqual(expectedBytes);
+  });
+
+  it("download rejects URL dot segments before sending an authenticated request", async () => {
+    const fetchFn = vi.fn();
+    const client = new AYBClient("http://localhost:8090", { fetch: fetchFn });
+    client.setTokens("session-token", "session-refresh");
+
+    await expect(client.storage.download("avatars", "public/../private/file.txt"))
+      .rejects.toThrow("Storage object names must not contain '.' or '..' path segments");
+    expect(fetchFn).not.toHaveBeenCalled();
+  });
+
   it("downloadURL builds correct URL with bucket and name", () => {
     const client = new AYBClient("http://localhost:8090");
     expect(client.storage.downloadURL("avatars", "photo.jpg")).toBe(

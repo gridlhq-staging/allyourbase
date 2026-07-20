@@ -11,6 +11,7 @@ import {
 
 interface StorageClientRuntime {
   request<T>(path: string, init?: RequestInit & { skipAuth?: boolean }): Promise<T>;
+  requestBlob(path: string, init?: RequestInit & { skipAuth?: boolean }): Promise<Blob>;
   getBaseURL(): string;
 }
 
@@ -25,6 +26,9 @@ export class StorageClient {
   }
 
   private objectPath(bucket: string, name: string): string {
+    if (name.split("/").some((segment) => segment === "." || segment === "..")) {
+      throw new TypeError("Storage object names must not contain '.' or '..' path segments");
+    }
     return `${this.bucketPath(bucket)}/${encodePathWithSlashes(name)}`;
   }
 
@@ -52,6 +56,11 @@ export class StorageClient {
   /** Get a download URL for a file. */
   downloadURL(bucket: string, name: string): string {
     return `${this.client.getBaseURL()}${this.objectPath(bucket, name)}`;
+  }
+
+  /** Download a file through the authenticated client. */
+  async download(bucket: string, name: string): Promise<Blob> {
+    return this.client.requestBlob(this.objectPath(bucket, name));
   }
 
   /** Delete a file from a bucket. */

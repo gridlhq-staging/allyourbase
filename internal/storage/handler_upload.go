@@ -43,7 +43,7 @@ func (h *Handler) HandleUpload(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			if errors.Is(err, ErrQuotaExceeded) {
 				h.emitTenantStorageQuotaViolation(r, tenantID, currentUsage, limit)
-				httputil.WriteError(w, http.StatusRequestEntityTooLarge, "tenant storage quota exceeded")
+				httputil.WriteErrorWithDocURL(w, http.StatusRequestEntityTooLarge, "tenant storage quota exceeded", httputil.DocURL("/guide/file-storage"))
 			} else {
 				h.logger.Error("tenant storage quota check failed", "tenant_id", tenantID, "error", err)
 				httputil.WriteError(w, http.StatusInternalServerError, "tenant storage quota check is temporarily unavailable")
@@ -63,7 +63,7 @@ func (h *Handler) HandleUpload(w http.ResponseWriter, r *http.Request) {
 				if tenantID != "" {
 					message = "tenant storage quota exceeded"
 				}
-				httputil.WriteError(w, http.StatusRequestEntityTooLarge, message)
+				httputil.WriteErrorWithDocURL(w, http.StatusRequestEntityTooLarge, message, httputil.DocURL("/guide/file-storage"))
 				return
 			}
 			h.logger.Error("quota reservation error", "error", err)
@@ -140,7 +140,7 @@ func (h *Handler) parseUploadRequest(w http.ResponseWriter, r *http.Request) (*u
 	}
 	if name == "" {
 		file.Close()
-		httputil.WriteError(w, http.StatusBadRequest, "file name is required")
+		httputil.WriteErrorWithDocURL(w, http.StatusBadRequest, "file name is required", httputil.DocURL("/guide/file-storage"))
 		return nil, false
 	}
 

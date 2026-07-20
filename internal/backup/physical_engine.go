@@ -1,4 +1,3 @@
-// Package backup PhysicalEngine orchestrates physical backups via pg_basebackup, compression, and object storage.
 package backup
 
 import (
@@ -28,8 +27,9 @@ type PhysicalEngine struct {
 	mu      sync.Mutex
 	running bool
 
-	runBackup func(ctx context.Context) (io.ReadCloser, error)
-	lsnFn     func(ctx context.Context) (string, error)
+	runBackup  func(ctx context.Context) (io.ReadCloser, error)
+	lsnFn      func(ctx context.Context) (string, error)
+	timelineFn func(ctx context.Context) (int, error)
 }
 
 // NewPhysicalEngine wires a new physical backup engine.
@@ -61,6 +61,9 @@ func NewPhysicalEngine(
 	engine.runBackup = runner.Run
 	engine.lsnFn = func(ctx context.Context) (string, error) {
 		return queryCurrentWALLSN(ctx, runner.DBURL)
+	}
+	engine.timelineFn = func(ctx context.Context) (int, error) {
+		return queryCurrentWALTimeline(ctx, runner.DBURL)
 	}
 	return engine
 }
@@ -162,7 +165,11 @@ func (e *PhysicalEngine) runWithRecord(ctx context.Context, rec *BackupRecord) e
 		rec.StartLSN = &startLSN
 		rec.EndLSN = &endLSN
 		rec.Checksum = compressResult.Checksum
-		if err := e.manifestWriter.WriteForBackup(ctx, rec); err != nil {
+		timeline, err := e.timelineFn(ctx)
+		if err != nil {
+			return e.failRecord(ctx, rec, "manifest_write", fmt.Errorf("resolving WAL timeline for manifest: %w", err))
+		}
+		if err := e.manifestWriter.WriteForBackupWithTimeline(ctx, rec, timeline); err != nil {
 			return e.failRecord(ctx, rec, "manifest_write", fmt.Errorf("writing manifest: %w", err))
 		}
 	}
@@ -215,4 +222,21 @@ func queryCurrentWALLSN(ctx context.Context, dbURL string) (string, error) {
 		return "", fmt.Errorf("querying current WAL LSN: %w", err)
 	}
 	return lsn, nil
+}
+
+func queryCurrentWALTimeline(ctx context.Context, dbURL string) (int, error) {
+	if strings.TrimSpace(dbURL) == "" {
+		return 0, fmt.Errorf("database URL is required to query WAL timeline")
+	}
+	conn, err := pgx.Connect(ctx, dbURL)
+	if err != nil {
+		return 0, fmt.Errorf("connecting for WAL timeline query: %w", err)
+	}
+	defer conn.Close(ctx)
+
+	var timeline int
+	if err := conn.QueryRow(ctx, "SELECT timeline_id FROM pg_control_checkpoint()").Scan(&timeline); err != nil {
+		return 0, fmt.Errorf("querying current WAL timeline: %w", err)
+	}
+	return timeline, nil
 }

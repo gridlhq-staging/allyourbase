@@ -16,6 +16,7 @@ import {
 import { Loader2, AlertCircle, Shield, Mail, Key } from "lucide-react";
 import { Passkeys } from "./Passkeys";
 import { readAALFromAuthToken, readIsAnonymousFromAuthToken } from "../webauthn";
+import { useCapability } from "../capabilities";
 
 type EnrollStep =
   | { kind: "idle" }
@@ -38,6 +39,14 @@ function buildMFABootstrapCredentials(): { email: string; password: string } {
 }
 
 export function MFAEnrollment() {
+  const { canUse } = useCapability();
+  const anonymousBootstrapEnabled = canUse("auth_anonymous");
+  const passkeysEnabled = canUse("auth_webauthn");
+  const currentAuthToken = getAuthToken();
+  const hasReusableUserSession = Boolean(
+    currentAuthToken && readIsAnonymousFromAuthToken(currentAuthToken) !== true,
+  );
+  const canManageMFA = anonymousBootstrapEnabled || hasReusableUserSession;
   const [factors, setFactors] = useState<MFAFactor[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -46,7 +55,7 @@ export function MFAEnrollment() {
   const [backupCount, setBackupCount] = useState<number | null>(null);
   const [totpCode, setTotpCode] = useState("");
   const [emailCode, setEmailCode] = useState("");
-  const [currentAAL, setCurrentAAL] = useState<string | null>(() => readAALFromAuthToken(getAuthToken()));
+  const [currentAAL, setCurrentAAL] = useState<string | null>(() => readAALFromAuthToken(currentAuthToken));
   const bootstrapPromiseRef = useRef<Promise<string | null> | null>(null);
 
   const ensureAuthSession = useCallback(async (): Promise<string | null> => {
@@ -60,6 +69,10 @@ export function MFAEnrollment() {
 
       if (authToken && isAnonymousToken !== true) {
         return authToken;
+      }
+
+      if (!anonymousBootstrapEnabled) {
+        return null;
       }
 
       // Reuse an in-flight anonymous session when present; otherwise mint a
@@ -87,7 +100,7 @@ export function MFAEnrollment() {
     } finally {
       bootstrapPromiseRef.current = null;
     }
-  }, []);
+  }, [anonymousBootstrapEnabled]);
 
   const fetchData = useCallback(async (options?: { background?: boolean }) => {
     const background = options?.background === true;
@@ -97,6 +110,9 @@ export function MFAEnrollment() {
         setLoading(true);
       }
       const authToken = await ensureAuthSession();
+      if (!authToken) {
+        return;
+      }
       const tokenAAL = readAALFromAuthToken(authToken);
       setCurrentAAL((previousAAL) => (previousAAL === "aal2" ? previousAAL : tokenAAL));
       const [factorsRes, countRes] = await Promise.all([
@@ -117,8 +133,10 @@ export function MFAEnrollment() {
   }, [ensureAuthSession]);
 
   useEffect(() => {
-    fetchData();
-  }, [fetchData]);
+    if (canManageMFA) {
+      void fetchData();
+    }
+  }, [canManageMFA, fetchData]);
 
   const handleTOTPEnroll = async () => {
     setError(null);
@@ -218,7 +236,11 @@ export function MFAEnrollment() {
         </div>
       )}
 
-      {loading ? (
+      {!canManageMFA ? (
+        <div className="flex items-center justify-center h-64 text-gray-500 dark:text-gray-400">
+          MFA management requires an authenticated user session
+        </div>
+      ) : loading ? (
         <div className="flex items-center justify-center h-64 text-gray-400 dark:text-gray-500">
           <Loader2 className="w-5 h-5 animate-spin mr-2" />
           Loading...
@@ -296,7 +318,7 @@ export function MFAEnrollment() {
             </div>
           )}
 
-          {step.kind === "idle" && (
+          {step.kind === "idle" && passkeysEnabled && (
             <Passkeys
               factors={factors}
               onChanged={() => fetchData({ background: true })}

@@ -57,7 +57,7 @@ func newPITRValidateResponse(plan *backup.RestorePlan) pitrValidateResponse {
 // handlePITRValidate handles HTTP requests to validate a point-in-time recovery window for a database. It extracts the project ID from the URL and expects a JSON body with target_time and database_id. It returns details about the recoverable window including the base backup, earliest and latest recoverable times, estimated WAL bytes, and WAL segment count. Returns StatusServiceUnavailable if PITR is not configured, StatusBadRequest if required parameters are missing or invalid, and StatusOK with recovery plan details on success.
 func (s *Server) handlePITRValidate(w http.ResponseWriter, r *http.Request) {
 	if s.pitrService == nil {
-		httputil.WriteError(w, http.StatusServiceUnavailable, "PITR not configured")
+		httputil.WriteErrorWithDocURL(w, http.StatusServiceUnavailable, "PITR not configured", httputil.DocURL("/guide/backups"))
 		return
 	}
 
@@ -73,12 +73,12 @@ func (s *Server) handlePITRValidate(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if req.TargetTime.IsZero() {
-		httputil.WriteError(w, http.StatusBadRequest, "target_time is required")
+		httputil.WriteErrorWithDocURL(w, http.StatusBadRequest, "target_time is required", httputil.DocURL("/guide/backups"))
 		return
 	}
 
 	if req.DatabaseID == "" {
-		httputil.WriteError(w, http.StatusBadRequest, "database_id is required")
+		httputil.WriteErrorWithDocURL(w, http.StatusBadRequest, "database_id is required", httputil.DocURL("/guide/backups"))
 		return
 	}
 
@@ -134,7 +134,7 @@ func (s *Server) handlePITRRestore(w http.ResponseWriter, r *http.Request) {
 	job, err := s.pitrService.Restore(r.Context(), projectID, req.DatabaseID, req.TargetTime, requestedBy)
 	if err != nil {
 		if strings.Contains(err.Error(), "shadow mode") {
-			httputil.WriteError(w, http.StatusConflict, err.Error())
+			httputil.WriteErrorWithDocURL(w, http.StatusConflict, err.Error(), httputil.DocURL("/guide/backups"))
 			return
 		}
 		httputil.WriteError(w, http.StatusBadRequest, err.Error())

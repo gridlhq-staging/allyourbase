@@ -1,5 +1,5 @@
 /** @module Browser-test fixtures for organization seeding and slug-based cleanup. */
-import type { APIRequestContext } from "@playwright/test";
+import type { APIRequestContext, Page } from "@playwright/test";
 import { validateResponse } from "./core";
 
 export interface SeededOrganizationDashboardOrg {
@@ -78,4 +78,12 @@ export async function getOrganizationById(
   });
   const body = res.ok() ? await res.json().catch(() => null) : null;
   return { status: res.status(), body };
+}
+
+export async function waitForOrganizationDeleteStatus(page: Page, orgId: string): Promise<number> {
+  const response = await page.waitForResponse((candidate) => {
+    const request = candidate.request();
+    return request.method() === "DELETE" && candidate.url().includes(`/api/admin/orgs/${orgId}?confirm=true`);
+  });
+  return response.status();
 }

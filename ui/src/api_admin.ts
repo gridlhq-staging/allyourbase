@@ -1,6 +1,3 @@
-/**
- * @module ui/src/api_admin.ts
- */
 import type {
   UserListResponse,
   AppResponse,
@@ -37,6 +34,7 @@ import {
   request,
   requestNoBody,
   fetchAdmin,
+  throwApiError,
 } from "./api_client";
 
 // --- Admin Users ---
@@ -494,6 +492,23 @@ export async function deleteBranch(name: string): Promise<void> {
 
 // --- API Explorer ---
 
+export interface GraphqlError {
+  message: string;
+  [key: string]: unknown;
+}
+
+export interface GraphqlResponseEnvelope {
+  data?: unknown;
+  errors?: GraphqlError[];
+}
+
+export interface GraphqlTransportResult {
+  status: number;
+  statusText: string;
+  body: GraphqlResponseEnvelope;
+  durationMs: number;
+}
+
 /**
  * Executes an HTTP request via the API explorer endpoint, measuring duration and capturing response metadata. @param method - HTTP method (GET, POST, PUT, PATCH, DELETE, etc.). @param path - Request path. @param body - Optional JSON request body; sent only for POST, PATCH, PUT methods. @returns Response data including status code, status text, response headers map, body as text, and request duration in milliseconds.
  */
@@ -526,6 +541,36 @@ export async function executeApiExplorer(
     statusText: res.statusText,
     headers: responseHeaders,
     body: responseBody,
+    durationMs,
+  };
+}
+
+export async function executeGraphql(
+  query: string,
+  variables?: Record<string, unknown>,
+  operationName?: string,
+): Promise<GraphqlTransportResult> {
+  const requestBody = { query, variables, operationName };
+  const start = performance.now();
+  const res = await fetchAdmin("/api/graphql", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(requestBody),
+  });
+  const durationMs = Math.round(performance.now() - start);
+
+  if (res.status === 401) {
+    await throwApiError(res);
+  }
+
+  const body = await res.json().catch((): GraphqlResponseEnvelope => ({
+    errors: [{ message: "GraphQL response was not valid JSON" }],
+  }));
+
+  return {
+    status: res.status,
+    statusText: res.statusText,
+    body,
     durationMs,
   };
 }

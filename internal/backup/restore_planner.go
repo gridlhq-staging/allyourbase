@@ -80,13 +80,20 @@ func (p *RestorePlanner) ValidateWindow(ctx context.Context, projectID, database
 	if manifest == nil {
 		return nil, fmt.Errorf("manifest for base backup %s not found", baseBackup.ID)
 	}
+	replayStartLSN := *baseBackup.EndLSN
+	if baseBackup.StartLSN != nil && *baseBackup.StartLSN != "" {
+		replayStartLSN = *baseBackup.StartLSN
+	}
+	if manifest.StartLSN != "" {
+		replayStartLSN = manifest.StartLSN
+	}
 
-	segments, err := p.walRepo.ListRange(ctx, projectID, databaseID, *baseBackup.EndLSN, latestSegment.EndLSN)
+	segments, err := p.walRepo.ListRange(ctx, projectID, databaseID, replayStartLSN, latestSegment.EndLSN)
 	if err != nil {
 		return nil, fmt.Errorf("listing WAL segments for replay range: %w", err)
 	}
 	if len(segments) == 0 {
-		return nil, fmt.Errorf("no WAL segments found between base backup end_lsn %s and latest end_lsn %s", *baseBackup.EndLSN, latestSegment.EndLSN)
+		return nil, fmt.Errorf("no WAL segments found between replay start_lsn %s and latest end_lsn %s", replayStartLSN, latestSegment.EndLSN)
 	}
 
 	sort.Slice(segments, func(i, j int) bool {
@@ -95,7 +102,7 @@ func (p *RestorePlanner) ValidateWindow(ctx context.Context, projectID, database
 		return iLSN < jLSN
 	})
 
-	if err := ensureContiguous(*baseBackup.EndLSN, segments); err != nil {
+	if err := ensureContiguous(replayStartLSN, *baseBackup.EndLSN, segments); err != nil {
 		return nil, err
 	}
 
@@ -150,17 +157,34 @@ func earliestCompletedAt(backups []BackupRecord) (time.Time, error) {
 	return *earliest, nil
 }
 
-func ensureContiguous(expectedStartLSN string, segments []WALSegment) error {
-	expected := expectedStartLSN
-	for _, seg := range segments {
-		eq, err := lsnEqual(seg.StartLSN, expected)
+func ensureContiguous(expectedStartLSN, allowedFirstStartThroughLSN string, segments []WALSegment) error {
+	expected, err := lsnUint64(expectedStartLSN)
+	if err != nil {
+		return fmt.Errorf("parsing WAL LSN for contiguity check: %w", err)
+	}
+	allowedFirstStartThrough, err := lsnUint64(allowedFirstStartThroughLSN)
+	if err != nil {
+		return fmt.Errorf("parsing WAL LSN for contiguity check: %w", err)
+	}
+	for i, seg := range segments {
+		start, err := lsnUint64(seg.StartLSN)
 		if err != nil {
 			return fmt.Errorf("parsing WAL LSN for contiguity check: %w", err)
 		}
-		if !eq {
-			return fmt.Errorf("WAL gap detected: expected start_lsn %s but got %s in segment %s", expected, seg.StartLSN, seg.SegmentName)
+		end, err := lsnUint64(seg.EndLSN)
+		if err != nil {
+			return fmt.Errorf("parsing WAL LSN for contiguity check: %w", err)
 		}
-		expected = seg.EndLSN
+		if i == 0 {
+			if end <= expected || (start > expected && start > allowedFirstStartThrough) {
+				return fmt.Errorf("WAL gap detected: expected coverage for lsn %s but got segment %s [%s, %s)",
+					expectedStartLSN, seg.SegmentName, seg.StartLSN, seg.EndLSN)
+			}
+		} else if start != expected {
+			return fmt.Errorf("WAL gap detected: expected start_lsn %s but got %s in segment %s",
+				formatLSN(expected), seg.StartLSN, seg.SegmentName)
+		}
+		expected = end
 	}
 	return nil
 }

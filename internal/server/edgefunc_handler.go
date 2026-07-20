@@ -40,7 +40,7 @@ func handleEdgeFuncInvoke(svc edgeFuncInvoker, maxBodyBytes int64, validateToken
 
 		name := chi.URLParam(r, "name")
 		if name == "" {
-			httputil.WriteError(w, http.StatusBadRequest, "function name is required")
+			httputil.WriteErrorWithDocURL(w, http.StatusBadRequest, "function name is required", httputil.DocURL("/guide/edge-functions"))
 			return
 		}
 

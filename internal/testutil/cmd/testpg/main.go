@@ -16,6 +16,7 @@ import (
 	"os/exec"
 	"os/signal"
 	"path/filepath"
+	"strings"
 	"syscall"
 
 	"github.com/allyourbase/ayb/internal/pgmanager"
@@ -57,12 +58,19 @@ func run() int {
 
 	logger := slog.New(slog.NewTextHandler(logWriter, &slog.HandlerOptions{Level: slog.LevelDebug}))
 
-	mgr := pgmanager.New(newTestPGConfig(tempRoot, port, logger))
+	binRoot, err := persistentPGBinRoot()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "testpg: resolve managed postgres binary root: %v\n", err)
+		return 1
+	}
+
+	cfg := newTestPGConfig(tempRoot, binRoot, port, logger)
+	mgr := pgmanager.New(cfg)
 
 	ctx := context.Background()
 
 	fmt.Fprintf(os.Stderr, "testpg: starting managed postgres on port %d (logs: %s)\n", port, pgLogFile.Name())
-	connURL, err := mgr.Start(ctx)
+	connURL, err := startManagedPostgres(ctx, mgr, binRoot)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "testpg: start postgres: %v\n", err)
 		return 1
@@ -87,7 +95,7 @@ func run() int {
 
 	fmt.Fprintf(os.Stderr, "testpg: TEST_DATABASE_URL=%s\n", testDBURL)
 
-	cmd := newChildCommand(args, testDBURL)
+	cmd := newChildCommand(args, testDBURL, filepath.Join(cfg.BinDir, "bin"))
 	if err := cmd.Start(); err != nil {
 		fmt.Fprintf(os.Stderr, "testpg: %v\n", err)
 		return 1
@@ -159,23 +167,81 @@ func openPostgresLog() (*os.File, io.Writer, error) {
 	return pgLogFile, logWriter, nil
 }
 
-func newChildCommand(args []string, connURL string) *exec.Cmd {
+func startManagedPostgres(ctx context.Context, mgr *pgmanager.Manager, binRoot string) (string, error) {
+	var connURL string
+	err := withSharedPGBinaryLock(binRoot, func() error {
+		var startErr error
+		connURL, startErr = mgr.Start(ctx)
+		return startErr
+	})
+	if err != nil {
+		return "", err
+	}
+	return connURL, nil
+}
+
+func newChildCommand(args []string, connURL, pgBinDir string) *exec.Cmd {
 	cmd := exec.Command(args[0], args[1:]...) //nolint:gosec
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
-	cmd.Env = append(os.Environ(), "TEST_DATABASE_URL="+connURL)
+	cmd.Env = append(os.Environ(), "TEST_DATABASE_URL="+connURL, "TEST_PG_BIN_DIR="+pgBinDir)
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	return cmd
 }
 
-func newTestPGConfig(root string, port int, logger *slog.Logger) pgmanager.Config {
+// persistentPGBinRoot returns the directory that holds the downloaded archive
+// cache and the extracted managed-Postgres binaries. It deliberately lives
+// outside the per-invocation temp root so repeated integration runs reuse one
+// download instead of re-fetching and re-extracting a Postgres distribution
+// every time. TESTPG_PG_HOME overrides it for sandboxes without a writable
+// home directory; the default mirrors pgmanager's own ~/.ayb layout.
+func persistentPGBinRoot() (string, error) {
+	if override := strings.TrimSpace(os.Getenv("TESTPG_PG_HOME")); override != "" {
+		return override, nil
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(home, ".ayb"), nil
+}
+
+// withSharedPGBinaryLock serializes setup of the shared managed-Postgres
+// binary tree so concurrent testpg processes cannot delete and replace one
+// another's reused install during first download or PG-version changes.
+func withSharedPGBinaryLock(binRoot string, fn func() error) error {
+	if err := os.MkdirAll(binRoot, 0o755); err != nil {
+		return fmt.Errorf("create shared managed postgres root: %w", err)
+	}
+
+	lockFile, err := os.OpenFile(filepath.Join(binRoot, ".testpg-pgbin.lock"), os.O_CREATE|os.O_RDWR, 0o600)
+	if err != nil {
+		return fmt.Errorf("open shared managed postgres lock: %w", err)
+	}
+	defer lockFile.Close()
+
+	if err := syscall.Flock(int(lockFile.Fd()), syscall.LOCK_EX); err != nil {
+		return fmt.Errorf("lock shared managed postgres binaries: %w", err)
+	}
+	defer func() { _ = syscall.Flock(int(lockFile.Fd()), syscall.LOCK_UN) }()
+
+	return fn()
+}
+
+// newTestPGConfig keeps mutable per-run state (data dir, runtime dir, PID file)
+// under the disposable root while pinning the binary cache and extracted
+// binaries to the shared, persistent binRoot.
+func newTestPGConfig(root, binRoot string, port int, logger *slog.Logger) pgmanager.Config {
 	return pgmanager.Config{
-		Port:       uint32(port),
-		DataDir:    filepath.Join(root, "data"),
-		RuntimeDir: filepath.Join(root, "run"),
-		PIDFile:    filepath.Join(root, "pg.pid"),
-		Logger:     logger,
+		BaseDir:     root,
+		Port:        uint32(port),
+		DataDir:     filepath.Join(root, "data"),
+		RuntimeDir:  filepath.Join(root, "run"),
+		PIDFile:     filepath.Join(root, "pg.pid"),
+		BinCacheDir: filepath.Join(binRoot, "pg"),
+		BinDir:      filepath.Join(binRoot, "pgbin"),
+		Logger:      logger,
 	}
 }
 

@@ -192,7 +192,7 @@ func TestRestoreOrchestratorExecuteHappyPath(t *testing.T) {
 	store := newFakeStore()
 	cfg := PITRConfig{ShadowMode: false, EnvironmentClass: "prod", ArchivePrefix: "archive"}
 
-	orch := NewRestoreOrchestrator(planner, jobs, store, notify, cfg, "postgres://primary", "archive", slog.Default())
+	orch := NewRestoreOrchestrator(planner, jobs, store, notify, cfg, "postgresql://ayb:ayb@primary.example:5432/app?sslmode=disable", "archive", slog.Default())
 	orch.extractBaseBackupFn = func(context.Context, Store, string, string) error { return nil }
 	orch.downloadWALSegmentsFn = func(context.Context, Store, []WALSegment, string, string, string, string) error { return nil }
 	orch.writeRecoveryConfigFn = func(string, time.Time, string) error { return nil }
@@ -206,9 +206,12 @@ func TestRestoreOrchestratorExecuteHappyPath(t *testing.T) {
 		inst.port = port
 		return inst
 	}
+	var gotRecoveryDBURL string
 	orch.newVerifierFn = func(primaryDBURL, recoveryDBURL string) restoreVerifier {
-		_ = primaryDBURL
-		_ = recoveryDBURL
+		if primaryDBURL != "postgresql://ayb:ayb@primary.example:5432/app?sslmode=disable" {
+			t.Fatalf("primaryDBURL = %q", primaryDBURL)
+		}
+		gotRecoveryDBURL = recoveryDBURL
 		return &fakeRestoreVerifier{result: &RestoreVerification{Passed: true}}
 	}
 
@@ -227,6 +230,9 @@ func TestRestoreOrchestratorExecuteHappyPath(t *testing.T) {
 	}
 	if len(notify.events) != 0 {
 		t.Fatalf("unexpected failure notifications: %+v", notify.events)
+	}
+	if gotRecoveryDBURL != "postgresql://ayb:ayb@127.0.0.1:55432/app?sslmode=disable" {
+		t.Fatalf("recoveryDBURL = %q", gotRecoveryDBURL)
 	}
 }
 

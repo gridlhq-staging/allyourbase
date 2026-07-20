@@ -166,7 +166,9 @@ func TestCacheHitSkipsDownload(t *testing.T) {
 
 	// Pre-populate binDir with extracted content.
 	testutil.NoError(t, os.MkdirAll(filepath.Join(binDir, "bin"), 0o755))
+	testutil.NoError(t, os.MkdirAll(filepath.Join(binDir, "lib"), 0o755))
 	testutil.NoError(t, os.WriteFile(filepath.Join(binDir, "bin", "postgres"), []byte(fakePostgresVersionScript("16.9")), 0o755))
+	testutil.NoError(t, os.WriteFile(filepath.Join(binDir, "lib", "pg_cron.so"), nil, 0o644))
 	testutil.NoError(t, os.WriteFile(filepath.Join(binDir, "PG_VERSION"), []byte("16"), 0o644))
 
 	usedLegacyFallback, err := ensureBinary(context.Background(), ensureBinaryOpts{
@@ -184,11 +186,33 @@ func TestCacheHitSkipsDownload(t *testing.T) {
 	testutil.Equal(t, 0, requestCount)
 }
 
+func TestCacheHitDetectsMarkerlessLegacyBinary(t *testing.T) {
+	t.Parallel()
+
+	binDir := t.TempDir()
+	testutil.NoError(t, os.MkdirAll(filepath.Join(binDir, "bin"), 0o755))
+	testutil.NoError(t, os.WriteFile(
+		filepath.Join(binDir, "bin", "postgres"),
+		[]byte(fakePostgresVersionScript("16.13")),
+		0o755,
+	))
+	testutil.NoError(t, os.WriteFile(filepath.Join(binDir, "PG_VERSION"), []byte("16"), 0o644))
+
+	usedLegacyFallback, err := ensureBinary(context.Background(), ensureBinaryOpts{
+		version:  "16",
+		platform: "darwin-arm64",
+		binDir:   binDir,
+	})
+	testutil.NoError(t, err)
+	testutil.True(t, usedLegacyFallback, "markerless legacy cache should be detected by its missing pg_cron library")
+}
+
 func TestCacheMissTriggersDownload(t *testing.T) {
 	t.Parallel()
 	archive := makeTarXZ(t, map[string]string{
-		"ayb-postgres-16/bin/postgres": fakePostgresVersionScript("16.9"),
-		"ayb-postgres-16/PG_VERSION":   "16",
+		"ayb-postgres-16/bin/postgres":   fakePostgresVersionScript("16.9"),
+		"ayb-postgres-16/lib/pg_cron.so": "pg-cron-library",
+		"ayb-postgres-16/PG_VERSION":     "16",
 	})
 
 	h := sha256.Sum256(archive)
@@ -224,6 +248,17 @@ func TestCacheMissTriggersDownload(t *testing.T) {
 	// Binary should exist after download+extract.
 	_, err = os.Stat(filepath.Join(binDir, "bin", "postgres"))
 	testutil.NoError(t, err)
+
+	usedLegacyFallback, err = ensureBinary(context.Background(), ensureBinaryOpts{
+		version:   "16",
+		platform:  "darwin-arm64",
+		cacheDir:  cacheDir,
+		binDir:    binDir,
+		baseURL:   srv.URL + "/{version}/{platform}.tar.xz",
+		sha256URL: srv.URL + "/SHA256SUMS",
+	})
+	testutil.NoError(t, err)
+	testutil.False(t, usedLegacyFallback, "cached managed release should preserve managed provenance")
 }
 
 func TestVersionMismatchTriggersReExtraction(t *testing.T) {

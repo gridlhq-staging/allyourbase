@@ -89,6 +89,15 @@ func (s *Service) RegisterEventHandler(h StorageEventHandler) {
 	s.eventHandlers = append(s.eventHandlers, h)
 }
 
+// BackendExists reports whether the configured backend can answer an object
+// existence check without exposing the full backend surface to other packages.
+func (s *Service) BackendExists(ctx context.Context, tenantID, bucket, name string) (bool, error) {
+	if s == nil || s.backend == nil {
+		return false, fmt.Errorf("storage backend not configured")
+	}
+	return s.backend.Exists(ctx, tenantID, bucket, name)
+}
+
 // dispatchEvent notifies all registered handlers of a storage event.
 // Handler errors are logged but not propagated to the caller.
 func (s *Service) dispatchEvent(ctx context.Context, event StorageEvent) {

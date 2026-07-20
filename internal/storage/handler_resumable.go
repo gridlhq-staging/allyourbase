@@ -45,7 +45,7 @@ func (h *Handler) HandleResumableCreate(w http.ResponseWriter, r *http.Request) 
 		name = metadata["name"]
 	}
 	if bucket == "" || name == "" {
-		httputil.WriteError(w, http.StatusBadRequest, "bucket and name query params are required")
+		httputil.WriteErrorWithDocURL(w, http.StatusBadRequest, "bucket and name query params are required", httputil.DocURL("/guide/file-storage"))
 		return
 	}
 
@@ -54,7 +54,7 @@ func (h *Handler) HandleResumableCreate(w http.ResponseWriter, r *http.Request) 
 		contentType = "application/octet-stream"
 	}
 	if length > h.maxFileSize {
-		httputil.WriteError(w, http.StatusRequestEntityTooLarge, "upload exceeds maximum file size")
+		httputil.WriteErrorWithDocURL(w, http.StatusRequestEntityTooLarge, "upload exceeds maximum file size", httputil.DocURL("/guide/file-storage"))
 		return
 	}
 
@@ -112,7 +112,7 @@ func (h *Handler) HandleResumablePatch(w http.ResponseWriter, r *http.Request) {
 
 	mediaType, _, err := mime.ParseMediaType(r.Header.Get("Content-Type"))
 	if err != nil || mediaType != tusOffsetContentType {
-		httputil.WriteError(w, http.StatusBadRequest, "Content-Type must be application/offset+octet-stream")
+		httputil.WriteErrorWithDocURL(w, http.StatusBadRequest, "Content-Type must be application/offset+octet-stream", httputil.DocURL("/guide/file-storage"))
 		return
 	}
 
@@ -180,7 +180,7 @@ func setTusHeaders(w http.ResponseWriter) {
 
 func requireTusVersion(w http.ResponseWriter, r *http.Request) bool {
 	if r.Header.Get(tusResumableHeader) != tusResumableVersion {
-		httputil.WriteError(w, http.StatusPreconditionFailed, "invalid Tus-Resumable header")
+		httputil.WriteErrorWithDocURL(w, http.StatusPreconditionFailed, "invalid Tus-Resumable header", httputil.DocURL("/guide/file-storage"))
 		return false
 	}
 	return true

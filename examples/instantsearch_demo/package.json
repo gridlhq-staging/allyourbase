@@ -12,7 +12,7 @@
     "test:watch": "vitest",
     "lint:browser-tests": "eslint browser-tests-unmocked/**/*.spec.ts --config browser-tests-unmocked/eslint.config.mjs",
     "test:node-probe": "npm run build:local-sdk && node node_probe.mjs",
-    "test:browser-tests": "npm run build:local-sdk && playwright test --config=playwright.config.ts --reporter=line"
+    "test:browser-tests": "npm run build:local-sdk && playwright test --config=playwright.config.ts"
   },
   "dependencies": {
     "@allyourbase/js": "file:../../sdk",

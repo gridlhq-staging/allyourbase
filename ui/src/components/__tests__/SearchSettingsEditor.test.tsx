@@ -90,7 +90,7 @@ async function renderLoadedEditor(
   schema = makeSchema([table]),
 ) {
   renderEditor(response, table, schema);
-  await screen.findByRole("heading", { name: "Search settings for books" });
+  await screen.findByRole("button", { name: "Add attribute" });
 }
 
 function setFieldValue(field: HTMLElement, value: string) {
@@ -122,7 +122,7 @@ describe("SearchSettingsEditor", () => {
     });
 
     expect(
-      await screen.findByRole("heading", { name: "Search settings for books" }),
+      await screen.findByRole("button", { name: "Add attribute" }),
     ).toBeInTheDocument();
     expect(screen.getByRole("combobox", { name: "Weight for title" })).toHaveValue("high");
     expect(screen.getByRole("combobox", { name: "Weight for summary" })).toHaveValue("medium");

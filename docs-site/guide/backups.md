@@ -14,7 +14,22 @@ Both strategies store artifacts in S3-compatible object storage with optional se
 
 ### WAL archival
 
-When PITR is enabled, AYB continuously archives PostgreSQL write-ahead log (WAL) segments to a dedicated S3 bucket. Combined with periodic physical base backups, WAL archival enables recovery to any point within the configured retention window.
+WAL archiving is operator-managed. Enabling `[backup.pitr]` requires an `archive_bucket` and ships the `ayb wal-ship` command, but it **does not configure Postgres to invoke `ayb wal-ship`**. Until you wire the archive command yourself, no WAL segments are shipped.
+
+Add the following to your `postgresql.conf`:
+
+```ini
+archive_mode = on
+archive_command = '/absolute/path/to/ayb wal-ship --config /absolute/path/to/ayb.toml %p %f'
+```
+
+Both paths must be absolute. Postgres runs `archive_command` through `/bin/sh` from the data directory with a minimal environment, so a relative path or a bare `ayb` will not resolve.
+
+For externally managed Postgres, put those settings in `postgresql.conf`. On AYB-managed Postgres, do **not** hand-edit the generated `postgresql.conf`: AYB rewrites that file on every start. Persist the same settings with `ALTER SYSTEM` or `postgresql.auto.conf` instead, then restart Postgres so `archive_mode` takes effect.
+
+`archive_mode` is a `postmaster`-level setting, so turning it on requires a **full Postgres restart**, not `pg_ctl reload` or `SELECT pg_reload_conf()`. Once `archive_mode` is already enabled, `archive_command` itself can be updated with a reload.
+
+Without this setup, the only recovery points that exist are the physical base backups. That makes your effective recovery-point interval `base_backup_schedule` — daily at the default `0 3 * * *` — not `rpo_minutes`. Once the archive command is active, WAL archival combined with periodic base backups enables recovery to any point within the configured retention window.
 
 ## Configuration
 
@@ -49,7 +64,7 @@ Backup and PITR settings live in your `ayb.toml` config file.
 | `environment_class` | string | `"non-prod"` | Environment label (e.g. `"prod"`, `"staging"`) |
 | `kms_key_id` | string | `""` | KMS key ID for WAL encryption |
 | `retention_schedule` | string | `"0 4 * * *"` | Cron expression for retention cleanup |
-| `rpo_minutes` | int | `5` | Target recovery point objective in minutes (must be > 0) |
+| `rpo_minutes` | int | `5` | Alerting threshold only (must be > 0). `WALLagChecker.Check` raises a `wal_archive_lag` alert when the newest archived WAL segment is older than this. It does not configure, guarantee, or influence the achievable recovery point. |
 | `storage_budget_bytes` | int64 | `0` | Maximum storage for WAL archives (0 = unlimited) |
 | `shadow_mode` | bool | `true` | See [Shadow mode](#shadow-mode) below |
 | `base_backup_schedule` | string | `"0 3 * * *"` | Cron expression for physical base backups |
@@ -58,7 +73,7 @@ Backup and PITR settings live in your `ayb.toml` config file.
 ### Shadow mode
 
 ::: warning
-`shadow_mode` defaults to **`true`**. In shadow mode, AYB archives WAL segments and takes base backups normally, but **refuses actual restore cutover requests** with a `409 Conflict` error. This lets you validate that archival works before enabling real restores.
+`shadow_mode` defaults to **`true`**. In shadow mode, AYB still takes base backups normally, and if Postgres is already configured to run the archive command, WAL shipping continues, but AYB **refuses actual restore cutover requests** with a `409 Conflict` error. This lets you validate that PITR inputs are being produced before enabling real restores.
 
 Set `shadow_mode = false` in your `[backup.pitr]` config to enable actual point-in-time restores.
 :::
@@ -212,12 +227,14 @@ All backup endpoints require admin authentication and are mounted under `/api`.
 
 ## Fire drill testing
 
-Automated fire drills validate that your backup and recovery pipeline works end-to-end. A fire drill attempts a PITR restore to a target 5 minutes in the past and reports whether the restore plan is viable.
+A fire drill **validates only that a restore plan is viable** for a target 5 minutes in the past. It asks the restore planner whether a suitable base backup exists and whether the archived WAL segments form a contiguous chain up to that target.
+
+A fire drill does **not** restore data, does not launch a recovery Postgres instance, and does not verify any recovered row. A passing drill means the inputs for a restore are present, not that a restore has been proven to succeed.
 
 The `FireDrillResult` includes:
-- Whether the drill `Passed`
-- The `RestorePlan` (base backup + WAL segments) that would be used
-- Any error encountered
+- Whether the drill `Passed` — that is, whether a viable plan was found
+- The `RestorePlan` (base backup + WAL segments) that *would* be used
+- Any error encountered during planning
 
 Fire drills run on the schedule configured by `verify_schedule` (default: every 6 hours).
 

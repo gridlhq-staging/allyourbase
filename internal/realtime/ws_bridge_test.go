@@ -2,6 +2,7 @@ package realtime_test
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"net/http/httptest"
@@ -194,9 +195,8 @@ func TestBridgeDisconnectCleansUpHub(t *testing.T) {
 	testutil.Equal(t, 0, hub.ClientCount())
 }
 
-func TestBridgeNoPoolAllEventsPass(t *testing.T) {
+func TestBridgeUnauthenticatedNoPoolAllEventsPass(t *testing.T) {
 	t.Parallel()
-	// Bridge with nil pool — all events should pass RLS filtering.
 	hub, srv := setupBridgeServer(t) // already uses nil pool
 
 	conn := wsConnect(t, srv.URL)
@@ -337,11 +337,10 @@ func wsConnectWithToken(t *testing.T, url, token string) *websocket.Conn {
 	return conn
 }
 
-// TestBridgeTenantScopedDeliveryFromClaims proves the WebSocket bridge scopes a
-// hub client to the tenant taken from its authenticated claims, so a tenant-a
-// event reaches the tenant-a connection and is suppressed for the tenant-b
-// connection subscribed to the same table.
-func TestBridgeTenantScopedDeliveryFromClaims(t *testing.T) {
+// TestBridgeAuthenticatedNilPoolFailsClosed proves authenticated realtime
+// clients do not receive table events when no database pool is available to
+// evaluate RLS visibility.
+func TestBridgeAuthenticatedNilPoolFailsClosed(t *testing.T) {
 	t.Parallel()
 	hub, srv := setupAuthedBridgeServer(t, map[string]string{
 		"token-a": "tenant-a",
@@ -365,18 +364,20 @@ func TestBridgeTenantScopedDeliveryFromClaims(t *testing.T) {
 		Record:   map[string]any{"id": 1},
 	})
 
-	// tenant-a connection receives it.
-	msg := wsReadEvent(t, connA, time.Second)
-	testutil.Equal(t, "create", msg.Action)
-	testutil.Equal(t, "posts", msg.Table)
+	_ = connA.SetReadDeadline(time.Now().Add(100 * time.Millisecond))
+	var hidden ws.ServerMessage
+	err := connA.ReadJSON(&hidden)
+	testutil.True(t, err != nil, "authenticated tenant-a connection must not receive events without an RLS pool")
 
-	// tenant-b connection must not.
 	_ = connB.SetReadDeadline(time.Now().Add(100 * time.Millisecond))
 	var leaked ws.ServerMessage
-	err := connB.ReadJSON(&leaked)
+	err = connB.ReadJSON(&leaked)
 	testutil.True(t, err != nil, "tenant-b connection must not receive a tenant-a event")
 }
 
+// TestBridgeForwardingUsesConnectionActiveSchema exercises WSBridge.forwardEvents
+// with a non-public active schema that must fail closed when only peer-schema
+// metadata exists for the subscribed table.
 func TestBridgeForwardingUsesConnectionActiveSchema(t *testing.T) {
 	t.Parallel()
 
@@ -414,6 +415,67 @@ func TestBridgeForwardingUsesConnectionActiveSchema(t *testing.T) {
 	var leaked ws.ServerMessage
 	err := conn.ReadJSON(&leaked)
 	testutil.True(t, err != nil, "active schema tenant_a must fail closed for tenant_b-only metadata")
+}
+
+func TestBridgeWSRLSFiltersBeforeSubscriptionFilter(t *testing.T) {
+	t.Parallel()
+
+	hub := realtime.NewHub(testutil.DiscardLogger())
+	wsHandler := ws.NewHandler(&tenantTokenValidator{tokens: map[string]string{"token-a": "tenant-a"}}, testutil.DiscardLogger())
+	cache := schema.NewCacheHolder(nil, testutil.DiscardLogger())
+	cache.SetForTesting(&schema.SchemaCache{Tables: map[string]*schema.Table{
+		"public.orders": {Schema: "public", Name: "orders", Kind: "table"},
+	}})
+	bridge := realtime.NewWSBridge(hub, &pgxpool.Pool{}, cache, testutil.DiscardLogger())
+	bridge.SetupHandler(wsHandler)
+	srv := httptest.NewServer(wsHandler)
+	t.Cleanup(func() {
+		wsHandler.Shutdown()
+		hub.Close()
+		srv.Close()
+	})
+
+	conn := wsConnectWithToken(t, srv.URL, "token-a")
+	defer conn.Close()
+	wsSendJSON(t, conn, map[string]any{
+		"type":   "subscribe",
+		"tables": []string{"orders"},
+		"filter": "status=eq.pending",
+	})
+	wsReadReply(t, conn)
+
+	hub.Publish(&realtime.Event{
+		Action:   "create",
+		Table:    "orders",
+		TenantID: "tenant-b",
+		Record: map[string]any{
+			"id":     301,
+			"status": "pending",
+			"title":  "denied-tenant-b-ws",
+		},
+	})
+	hub.Publish(&realtime.Event{
+		Action:   "create",
+		Table:    "orders",
+		TenantID: "tenant-a",
+		Record: map[string]any{
+			"id":     302,
+			"status": "pending",
+			"title":  "allowed-tenant-a-ws",
+		},
+	})
+
+	msg := wsReadEvent(t, conn, time.Second)
+	testutil.Equal(t, "create", msg.Action)
+	testutil.Equal(t, "orders", msg.Table)
+	id, ok := msg.Record["id"].(float64)
+	testutil.True(t, ok, "record id should decode as a JSON number")
+	testutil.Equal(t, float64(302), id)
+	testutil.Equal(t, "pending", msg.Record["status"])
+	testutil.Equal(t, "allowed-tenant-a-ws", msg.Record["title"])
+	payload, err := json.Marshal(msg)
+	testutil.NoError(t, err)
+	testutil.False(t, strings.Contains(string(payload), "denied-tenant-b-ws"), "denied tenant-b WS payload must be absent")
 }
 
 func TestBridgeInvalidFilterRejected(t *testing.T) {

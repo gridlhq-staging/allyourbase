@@ -34,7 +34,7 @@ func validateScheduleCronExpr(w http.ResponseWriter, cronExpr string) bool {
 	if gronx.New().IsValid(cronExpr) {
 		return true
 	}
-	httputil.WriteError(w, http.StatusBadRequest, "invalid cron expression")
+	httputil.WriteErrorWithDocURL(w, http.StatusBadRequest, "invalid cron expression", httputil.DocURL("/guide/job-queue"))
 	return false
 }
 
@@ -42,7 +42,7 @@ func validateScheduleTimezone(w http.ResponseWriter, timezone string) bool {
 	if _, err := time.LoadLocation(timezone); err == nil {
 		return true
 	}
-	httputil.WriteError(w, http.StatusBadRequest, "invalid timezone")
+	httputil.WriteErrorWithDocURL(w, http.StatusBadRequest, "invalid timezone", httputil.DocURL("/guide/job-queue"))
 	return false
 }
 
@@ -77,7 +77,7 @@ func handleAdminCreateSchedule(svc jobAdmin) http.HandlerFunc {
 			return
 		}
 		if req.Name == "" {
-			httputil.WriteError(w, http.StatusBadRequest, "name is required")
+			httputil.WriteErrorWithDocURL(w, http.StatusBadRequest, "name is required", httputil.DocURL("/guide/job-queue"))
 			return
 		}
 		if len(req.Name) > 100 {
@@ -93,7 +93,7 @@ func handleAdminCreateSchedule(svc jobAdmin) http.HandlerFunc {
 			return
 		}
 		if req.CronExpr == "" {
-			httputil.WriteError(w, http.StatusBadRequest, "cronExpr is required")
+			httputil.WriteErrorWithDocURL(w, http.StatusBadRequest, "cronExpr is required", httputil.DocURL("/guide/job-queue"))
 			return
 		}
 		if !validateScheduleCronExpr(w, req.CronExpr) {

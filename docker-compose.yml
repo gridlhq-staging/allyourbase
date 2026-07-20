@@ -6,13 +6,15 @@ services:
     environment:
       AYB_DATABASE_URL: "postgresql://ayb:ayb@postgres:5432/ayb?sslmode=disable"
       AYB_AUTH_ENABLED: "true"
-      AYB_AUTH_JWT_SECRET: "change-me-to-a-secure-random-string-at-least-32-chars"
       AYB_STORAGE_ENABLED: "true"
+      AYB_STORAGE_LOCAL_PATH: "/app/ayb_storage"
     depends_on:
       postgres:
         condition: service_healthy
     volumes:
       - ayb_storage:/app/ayb_storage
+      # Persists the JWT signing secret the entrypoint generates on first boot.
+      - ayb_jwt_secret:/home/ayb/.ayb/secrets
 
   postgres:
     image: postgres:16-alpine
@@ -33,3 +35,4 @@ services:
 volumes:
   pgdata:
   ayb_storage:
+  ayb_jwt_secret:

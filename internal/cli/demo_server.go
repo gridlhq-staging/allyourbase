@@ -209,8 +209,19 @@ func demoServerStartEnv(jwtSecret, demoName, serverPort string) []string {
 		// stays consistent between the served app and the advertised origin.
 		siteURL = fmt.Sprintf("http://localhost:%d", effectiveDemoPort(demo))
 	}
+	env := os.Environ()
+	if demoName == "kanban" {
+		filtered := make([]string, 0, len(env)+1)
+		for _, entry := range env {
+			if strings.HasPrefix(entry, "AYB_STORAGE_ENABLED=") {
+				continue
+			}
+			filtered = append(filtered, entry)
+		}
+		env = append(filtered, "AYB_STORAGE_ENABLED=true")
+	}
 	return append(
-		os.Environ(),
+		env,
 		"AYB_AUTH_ENABLED=true",
 		"AYB_AUTH_JWT_SECRET="+jwtSecret,
 		"AYB_AUTH_ANONYMOUS_AUTH_ENABLED=true",

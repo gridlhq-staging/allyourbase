@@ -58,27 +58,31 @@ func TestBuildVisibilityCheckMissingPK(t *testing.T) {
 }
 
 func TestCanSeeRecordNilPool(t *testing.T) {
-	// When pool is nil, RLS filtering is disabled — all events pass through.
 	t.Parallel()
 
-	h := &Handler{pool: nil}
+	claims := &auth.Claims{Email: "user@example.com"}
+	claims.Subject = "user-1"
 	event := &Event{Action: "create", Table: "posts", Record: map[string]any{"id": 1}}
-	testutil.True(t, h.canSeeRecord(context.TODO(), nil, "public", event), "nil pool should allow all events")
+
+	got := CanSeeRecord(context.TODO(), nil, nil, testutil.DiscardLogger(), claims, "public", event)
+	testutil.Equal(t, false, got)
 }
 
 func TestCanSeeRecordNilPoolAllActions(t *testing.T) {
-	// Verify nil pool allows all event types.
 	t.Parallel()
 
-	h := &Handler{pool: nil}
+	claims := &auth.Claims{Email: "user@example.com"}
+	claims.Subject = "user-1"
 	for _, action := range []string{"create", "update", "delete"} {
-		event := &Event{Action: action, Table: "posts", Record: map[string]any{"id": 1}}
-		testutil.True(t, h.canSeeRecord(context.TODO(), nil, "public", event),
-			"nil pool should allow %s events", action)
+		t.Run(action, func(t *testing.T) {
+			event := &Event{Action: action, Table: "posts", Record: map[string]any{"id": 1}}
+			got := CanSeeRecord(context.TODO(), nil, nil, testutil.DiscardLogger(), claims, "public", event)
+			testutil.Equal(t, false, got)
+		})
 	}
 }
 
-func TestCanSeeRecordDeleteOldRecordNilFailsOpen(t *testing.T) {
+func TestCanSeeRecordDeleteOldRecordNilFailsClosed(t *testing.T) {
 	t.Parallel()
 
 	event := &Event{
@@ -87,7 +91,8 @@ func TestCanSeeRecordDeleteOldRecordNilFailsOpen(t *testing.T) {
 		Record: map[string]any{"id": 1},
 	}
 
-	testutil.True(t, canSeeRecordWithCache(event, "public", rlsEnabledPostTable()), "nil OldRecord should fail open")
+	got := canSeeRecordWithCache(event, "public", rlsEnabledPostTable())
+	testutil.Equal(t, false, got)
 }
 
 func TestCanSeeRecordDeleteMissingPrimaryKeyFailsOpen(t *testing.T) {

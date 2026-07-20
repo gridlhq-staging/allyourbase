@@ -5,6 +5,8 @@ import (
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/base64"
+	"errors"
+	"io"
 	"net/url"
 	"testing"
 	"time"
@@ -158,4 +160,85 @@ func legacySignedURLSignature(signKey []byte, payload string) string {
 	mac := hmac.New(sha256.New, signKey)
 	mac.Write([]byte(payload))
 	return base64.RawURLEncoding.EncodeToString(mac.Sum(nil))
+}
+
+type recordingBackend struct {
+	exists   bool
+	err      error
+	tenantID string
+	bucket   string
+	name     string
+}
+
+func (b *recordingBackend) Put(context.Context, string, string, string, io.Reader) (int64, error) {
+	return 0, errors.New("not implemented")
+}
+
+func (b *recordingBackend) Get(context.Context, string, string, string) (io.ReadCloser, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (b *recordingBackend) Delete(context.Context, string, string, string) error {
+	return errors.New("not implemented")
+}
+
+func (b *recordingBackend) Exists(_ context.Context, tenantID, bucket, name string) (bool, error) {
+	b.tenantID = tenantID
+	b.bucket = bucket
+	b.name = name
+	return b.exists, b.err
+}
+
+func TestServiceBackendExists(t *testing.T) {
+	t.Run("nil receiver returns error", func(t *testing.T) {
+		var svc *Service
+		exists, err := svc.BackendExists(context.Background(), "tenant-a", "bucket", "key")
+		if err == nil {
+			t.Fatal("expected error for nil receiver")
+		}
+		if exists {
+			t.Fatal("exists = true, want false for nil receiver")
+		}
+	})
+
+	t.Run("nil backend returns error", func(t *testing.T) {
+		svc := &Service{}
+		exists, err := svc.BackendExists(context.Background(), "tenant-a", "bucket", "key")
+		if err == nil {
+			t.Fatal("expected error for nil backend")
+		}
+		if exists {
+			t.Fatal("exists = true, want false for nil backend")
+		}
+	})
+
+	t.Run("preserves false nil", func(t *testing.T) {
+		backend := &recordingBackend{exists: false}
+		svc := &Service{backend: backend}
+
+		exists, err := svc.BackendExists(context.Background(), "tenant-a", "bucket", "key")
+		if err != nil {
+			t.Fatalf("BackendExists error = %v, want nil", err)
+		}
+		if exists {
+			t.Fatal("exists = true, want false")
+		}
+		if backend.tenantID != "tenant-a" || backend.bucket != "bucket" || backend.name != "key" {
+			t.Fatalf("backend args = tenantID:%q bucket:%q name:%q, want tenantID:%q bucket:%q name:%q",
+				backend.tenantID, backend.bucket, backend.name, "tenant-a", "bucket", "key")
+		}
+	})
+
+	t.Run("preserves backend error", func(t *testing.T) {
+		wantErr := errors.New("backend unavailable")
+		svc := &Service{backend: &recordingBackend{err: wantErr}}
+
+		exists, err := svc.BackendExists(context.Background(), "tenant-a", "bucket", "key")
+		if !errors.Is(err, wantErr) {
+			t.Fatalf("BackendExists error = %v, want %v", err, wantErr)
+		}
+		if exists {
+			t.Fatal("exists = true, want false when backend errors")
+		}
+	})
 }

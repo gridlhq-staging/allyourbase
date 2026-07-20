@@ -1,6 +1,6 @@
 import { defineConfig } from "@playwright/test";
 
-const testPort = 4173;
+const testPort = Number(process.env.AYB_DEMO_APP_PORT) || 4173;
 export const kanbanPlaywrightDefaults = {
   testDir: "./tests",
   timeout: 30000,
@@ -18,10 +18,17 @@ export default defineConfig({
     ...kanbanPlaywrightDefaults.use,
     baseURL: `http://127.0.0.1:${testPort}`,
   },
+  projects: [
+    {
+      name: "kanban",
+      use: { browserName: "chromium" },
+    },
+  ],
+  reporter: [["list"], ["json", { outputFile: "playwright-report/results.json" }]],
   webServer: {
     command: `npm run dev -- --host 127.0.0.1 --port ${testPort} --strictPort`,
     port: testPort,
-    reuseExistingServer: false,
+    reuseExistingServer: true,
     timeout: 10000,
   },
 });

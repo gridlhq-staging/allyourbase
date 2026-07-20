@@ -64,7 +64,7 @@ func buildBaseBackupArgs(dbURL string) []string {
 		"--dbname=" + dbURL,
 		"--format=tar",
 		"--checkpoint=fast",
-		"--wal-method=none",
+		"--wal-method=fetch",
 		"-D",
 		"-",
 	}

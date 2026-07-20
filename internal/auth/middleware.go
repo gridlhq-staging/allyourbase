@@ -31,7 +31,7 @@ func RequireAuth(svc *Service) func(http.Handler) http.Handler {
 			}
 
 			if claims.MFAPending {
-				httputil.WriteError(w, http.StatusUnauthorized, "MFA verification required")
+				httputil.WriteErrorWithDocURL(w, http.StatusUnauthorized, "MFA verification required", httputil.DocURL("/guide/authentication"))
 				return
 			}
 
@@ -68,13 +68,13 @@ func RequireMFAPending(svc *Service) func(http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			token, ok := extractBearerToken(r)
 			if !ok {
-				httputil.WriteError(w, http.StatusUnauthorized, "no MFA challenge pending")
+				httputil.WriteErrorWithDocURL(w, http.StatusUnauthorized, "no MFA challenge pending", httputil.DocURL("/guide/authentication"))
 				return
 			}
 
 			claims, err := svc.ValidateToken(token)
 			if err != nil || !claims.MFAPending {
-				httputil.WriteError(w, http.StatusUnauthorized, "no MFA challenge pending")
+				httputil.WriteErrorWithDocURL(w, http.StatusUnauthorized, "no MFA challenge pending", httputil.DocURL("/guide/authentication"))
 				return
 			}
 

@@ -15,6 +15,13 @@ export default defineConfig({
     locale: "en-US",
     screenshot: "only-on-failure",
   },
+  projects: [
+    {
+      name: "live-polls",
+      use: { browserName: "chromium" },
+    },
+  ],
+  reporter: [["list"], ["json", { outputFile: "playwright-report/results.json" }]],
   webServer: {
     command: "npm run dev",
     port,

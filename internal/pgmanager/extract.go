@@ -167,7 +167,7 @@ type ensureBinaryOpts struct {
 func ensureBinary(ctx context.Context, opts ensureBinaryOpts) (bool, error) {
 	// Check if binaries are already extracted with correct version.
 	if binariesReady(opts.binDir, opts.version) {
-		return false, nil
+		return installedBinaryUsesLegacyFallback(opts.binDir)
 	}
 
 	primaryErr := ensureBinaryFromManagedRelease(ctx, opts)
@@ -184,6 +184,26 @@ func ensureBinary(ctx context.Context, opts ensureBinaryOpts) (bool, error) {
 	}
 
 	return false, fmt.Errorf("%w; legacy fallback also failed: %v", primaryErr, fallbackErr)
+}
+
+// installedBinaryUsesLegacyFallback returns the persisted source for a ready
+// binary tree. Trees installed before source markers existed are identified by
+// the pg_cron library guaranteed by AYB-managed archives and absent from the
+// legacy archive.
+func installedBinaryUsesLegacyFallback(binDir string) (bool, error) {
+	markerPath := filepath.Join(binDir, legacyBinaryMarkerFilename)
+	if _, err := os.Stat(markerPath); err == nil {
+		return true, nil
+	} else if !os.IsNotExist(err) {
+		return false, fmt.Errorf("checking legacy binary source marker: %w", err)
+	}
+
+	if _, err := os.Stat(filepath.Join(binDir, "lib", "pg_cron.so")); err == nil {
+		return false, nil
+	} else if !os.IsNotExist(err) {
+		return false, fmt.Errorf("checking managed pg_cron library: %w", err)
+	}
+	return true, nil
 }
 
 func ensureBinaryFromManagedRelease(ctx context.Context, opts ensureBinaryOpts) error {

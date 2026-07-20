@@ -20,6 +20,7 @@ import {
 import { cn } from "../lib/utils";
 import { formatDate } from "./shared/format";
 import { useAppToast } from "./ToastProvider";
+import { useCapability } from "../capabilities";
 
 type ModalState =
   | { kind: "none" }
@@ -50,6 +51,8 @@ function isCronValid(expr: string): boolean {
 }
 
 export function Schedules() {
+  const { canUse } = useCapability();
+  const jobsEnabled = canUse("jobs");
   const [data, setData] = useState<ScheduleListResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -78,8 +81,11 @@ export function Schedules() {
   }, []);
 
   useEffect(() => {
+    if (!jobsEnabled) {
+      return;
+    }
     load();
-  }, [load]);
+  }, [load, jobsEnabled]);
 
   const openCreate = () => {
     setCronError(null);
@@ -184,6 +190,14 @@ export function Schedules() {
       setSubmitting(false);
     }
   };
+
+  if (!jobsEnabled) {
+    return (
+      <div className="flex items-center justify-center h-64 text-gray-500 dark:text-gray-400">
+        Job queue is disabled
+      </div>
+    );
+  }
 
   if (loading && !data) {
     return (

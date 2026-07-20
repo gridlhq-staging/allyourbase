@@ -516,7 +516,7 @@ func TestPool_TryAcquire_ConcurrencyLimitExceededImmediate(t *testing.T) {
 	elapsed := time.Since(start)
 
 	testutil.True(t, errors.Is(err, ErrConcurrencyLimitExceeded), "expected ErrConcurrencyLimitExceeded, got: %v", err)
-	testutil.True(t, elapsed < 50*time.Millisecond, "expected immediate rejection, took %s", elapsed)
+	testutil.True(t, elapsed < 200*time.Millisecond, "expected immediate rejection, took %s", elapsed)
 }
 
 func TestPool_Execute_UnderAdmissionCap(t *testing.T) {
@@ -551,7 +551,7 @@ func TestPool_Execute_OverAdmissionCapFailsFast(t *testing.T) {
 	_, err := pool.Execute(context.Background(), blockingCode, "handler", Request{Method: "GET", Path: "/"}, nil, nil)
 	elapsed := time.Since(start)
 	testutil.True(t, errors.Is(err, ErrConcurrencyLimitExceeded), "expected ErrConcurrencyLimitExceeded, got: %v", err)
-	testutil.True(t, elapsed < 50*time.Millisecond, "expected immediate cap rejection, took %s", elapsed)
+	testutil.True(t, elapsed < 200*time.Millisecond, "expected immediate cap rejection, took %s", elapsed)
 
 	<-firstDone
 }

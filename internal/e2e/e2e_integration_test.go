@@ -768,7 +768,9 @@ func TestE2E_Storage(t *testing.T) {
 	})
 
 	t.Run("download", func(t *testing.T) {
-		resp, err := http.Get(ts.URL + "/api/storage/testbucket/" + uploadedName)
+		req, _ := http.NewRequest("GET", ts.URL+"/api/storage/testbucket/"+uploadedName, nil)
+		req.Header.Set("Authorization", "Bearer "+token)
+		resp, err := http.DefaultClient.Do(req)
 		testutil.NoError(t, err)
 		data, _ := io.ReadAll(resp.Body)
 		resp.Body.Close()

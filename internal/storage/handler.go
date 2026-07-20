@@ -196,7 +196,7 @@ func (h *Handler) HandleServe(w http.ResponseWriter, r *http.Request) {
 	if !isPublic {
 		claims := auth.ClaimsFromContext(r.Context())
 		if claims == nil && !h.isAdminToken(r) {
-			httputil.WriteError(w, http.StatusUnauthorized, "missing auth token")
+			httputil.WriteErrorWithDocURL(w, http.StatusUnauthorized, "missing auth token", httputil.DocURL("/guide/file-storage"))
 			return
 		}
 	} else if h.rejectUnresolvedPublicRead(r.Context(), isPublic) {

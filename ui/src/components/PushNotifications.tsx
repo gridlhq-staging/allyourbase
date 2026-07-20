@@ -27,8 +27,11 @@ import {
   type SendFormState,
 } from "./push-notifications/models";
 import { parsePushDataJSON } from "./push-notifications/helpers";
+import { useCapability } from "../capabilities";
 
 export function PushNotifications() {
+  const { canUse } = useCapability();
+  const pushEnabled = canUse("push");
   const [tab, setTab] = useState<PushNotificationsTab>("devices");
 
   const [devices, setDevices] = useState<PushDeviceToken[] | null>(null);
@@ -87,15 +90,18 @@ export function PushNotifications() {
   }, []);
 
   useEffect(() => {
+    if (!pushEnabled) {
+      return;
+    }
     void loadDevices(EMPTY_DEVICE_FILTERS);
-  }, [loadDevices]);
+  }, [loadDevices, pushEnabled]);
 
   useEffect(() => {
-    if (tab !== "deliveries" || deliveries !== null) {
+    if (!pushEnabled || tab !== "deliveries" || deliveries !== null) {
       return;
     }
     void loadDeliveries(appliedDeliveryFilters);
-  }, [tab, deliveries, loadDeliveries, appliedDeliveryFilters]);
+  }, [tab, deliveries, loadDeliveries, appliedDeliveryFilters, pushEnabled]);
 
   const handleApplyDeviceFilters = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -227,6 +233,14 @@ export function PushNotifications() {
       setSending(false);
     }
   };
+
+  if (!pushEnabled) {
+    return (
+      <div className="flex items-center justify-center h-64 text-gray-500 dark:text-gray-400">
+        Push notifications are disabled
+      </div>
+    );
+  }
 
   if (loadingDevices && devices === null) {
     return (

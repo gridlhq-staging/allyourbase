@@ -1,6 +1,7 @@
 import { vi, describe, it, expect, beforeEach } from "vitest";
 import { screen, waitFor } from "@testing-library/react";
-import { renderWithProviders } from "../../test-utils";
+import { knownCapabilityState, renderWithProviders } from "../../test-utils";
+import { CapabilityProvider } from "../../capabilities";
 import userEvent from "@testing-library/user-event";
 import { Jobs } from "../Jobs";
 import {
@@ -112,6 +113,19 @@ describe("Jobs", () => {
     mockGetQueueStats.mockResolvedValue(makeStats());
     mockRetryJob.mockResolvedValue(makeJob({ state: "queued" }));
     mockCancelJob.mockResolvedValue(makeJob({ state: "canceled" }));
+  });
+
+  it("shows the configured-disabled state without probing the job queue", () => {
+    renderWithProviders(
+      <CapabilityProvider state={knownCapabilityState({ jobs: false })}>
+        <Jobs />
+      </CapabilityProvider>,
+    );
+
+    expect(screen.getByText("Job queue is disabled")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Retry" })).not.toBeInTheDocument();
+    expect(mockListJobs).not.toHaveBeenCalled();
+    expect(mockGetQueueStats).not.toHaveBeenCalled();
   });
 
   it("shows loading state", () => {

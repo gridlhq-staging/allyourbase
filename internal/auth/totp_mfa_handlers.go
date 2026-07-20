@@ -86,7 +86,7 @@ func (h *Handler) handleTOTPEnrollConfirm(w http.ResponseWriter, r *http.Request
 		return
 	}
 	if req.Code == "" {
-		httputil.WriteError(w, http.StatusBadRequest, "code is required")
+		httputil.WriteErrorWithDocURL(w, http.StatusBadRequest, "code is required", httputil.DocURL("/guide/authentication"))
 		return
 	}
 
@@ -95,7 +95,7 @@ func (h *Handler) handleTOTPEnrollConfirm(w http.ResponseWriter, r *http.Request
 		case errors.Is(err, ErrTOTPNotEnrolled):
 			httputil.WriteError(w, http.StatusNotFound, "no pending TOTP enrollment found")
 		case errors.Is(err, ErrTOTPInvalidCode):
-			httputil.WriteError(w, http.StatusUnauthorized, "invalid TOTP code")
+			httputil.WriteErrorWithDocURL(w, http.StatusUnauthorized, "invalid TOTP code", httputil.DocURL("/guide/authentication"))
 		default:
 			h.logger.Error("TOTP enroll confirm error", "error", err)
 			httputil.WriteError(w, http.StatusInternalServerError, "internal error")

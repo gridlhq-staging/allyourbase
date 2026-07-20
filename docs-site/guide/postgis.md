@@ -56,10 +56,13 @@ services:
     environment:
       AYB_DATABASE_URL: "postgresql://ayb:ayb@postgres:5432/ayb?sslmode=disable"
       AYB_AUTH_ENABLED: "true"
-      AYB_AUTH_JWT_SECRET: "change-me-to-a-secure-random-string-at-least-32-chars"
+      # No JWT secret here: the entrypoint generates a private one on first
+      # boot and persists it. Set AYB_AUTH_JWT_SECRET only to supply your own.
     depends_on:
       postgres:
         condition: service_healthy
+    volumes:
+      - ayb_jwt_secret:/home/ayb/.ayb/secrets
 
   postgres:
     image: postgis/postgis:16-3.4
@@ -77,6 +80,7 @@ services:
 
 volumes:
   pgdata:
+  ayb_jwt_secret:
 ```
 
 ### Cloud PostgreSQL

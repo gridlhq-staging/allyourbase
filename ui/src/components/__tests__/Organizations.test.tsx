@@ -734,7 +734,7 @@ describe("Organizations", () => {
     );
   });
 
-  it("deletes org with confirm=true", async () => {
+  it("confirms the selected organization before deleting it", async () => {
     renderWithProviders(<Organizations />);
     const user = userEvent.setup();
     await screen.findByText("Acme Inc");
@@ -742,7 +742,22 @@ describe("Organizations", () => {
     await screen.findByTestId("org-info-section");
     await user.click(screen.getByRole("button", { name: "Delete" }));
 
-    await waitFor(() => expect(mockDeleteOrg).toHaveBeenCalledWith("org-1"));
+    const firstDialog = screen.getByRole("dialog", { name: "Delete organization" });
+    expect(within(firstDialog).getByText(/Acme Inc/)).toBeInTheDocument();
+    expect(mockDeleteOrg).not.toHaveBeenCalled();
+
+    await user.click(within(firstDialog).getByRole("button", { name: "Cancel" }));
+
+    expect(screen.queryByRole("dialog", { name: "Delete organization" })).not.toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Acme Inc" })).toBeInTheDocument();
+    expect(mockDeleteOrg).not.toHaveBeenCalled();
+
+    await user.click(screen.getByRole("button", { name: "Delete" }));
+    const secondDialog = screen.getByRole("dialog", { name: "Delete organization" });
+    await user.click(within(secondDialog).getByRole("button", { name: "Delete organization" }));
+
+    await waitFor(() => expect(mockDeleteOrg).toHaveBeenCalledTimes(1));
+    expect(mockDeleteOrg).toHaveBeenCalledWith("org-1");
   });
 
   it("surfaces delete failures without clearing the selected org", async () => {
@@ -754,6 +769,8 @@ describe("Organizations", () => {
     await screen.findByTestId("org-info-section");
 
     await user.click(screen.getByRole("button", { name: "Delete" }));
+    const dialog = screen.getByRole("dialog", { name: "Delete organization" });
+    await user.click(within(dialog).getByRole("button", { name: "Delete organization" }));
 
     await expect(screen.findByText(/org still has assigned tenants/i)).resolves.toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Acme Inc" })).toBeInTheDocument();

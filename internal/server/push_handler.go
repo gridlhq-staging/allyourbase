@@ -56,7 +56,7 @@ func handleUserPushRegister(svc pushAdmin) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		claims := auth.ClaimsFromContext(r.Context())
 		if claims == nil {
-			httputil.WriteError(w, http.StatusUnauthorized, "authentication required")
+			httputil.WriteErrorWithDocURL(w, http.StatusUnauthorized, "authentication required", httputil.DocURL("/guide/push-notifications"))
 			return
 		}
 
@@ -65,11 +65,11 @@ func handleUserPushRegister(svc pushAdmin) http.HandlerFunc {
 			return
 		}
 		if req.AppID == "" {
-			httputil.WriteError(w, http.StatusBadRequest, "app_id is required")
+			httputil.WriteErrorWithDocURL(w, http.StatusBadRequest, "app_id is required", httputil.DocURL("/guide/push-notifications"))
 			return
 		}
 		if req.Token == "" {
-			httputil.WriteError(w, http.StatusBadRequest, "token is required")
+			httputil.WriteErrorWithDocURL(w, http.StatusBadRequest, "token is required", httputil.DocURL("/guide/push-notifications"))
 			return
 		}
 
@@ -236,7 +236,7 @@ func handleAdminPushSend(svc pushAdmin) http.HandlerFunc {
 			return
 		}
 		if req.Title == "" {
-			httputil.WriteError(w, http.StatusBadRequest, "title is required")
+			httputil.WriteErrorWithDocURL(w, http.StatusBadRequest, "title is required", httputil.DocURL("/guide/push-notifications"))
 			return
 		}
 		if req.Body == "" {

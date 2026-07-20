@@ -1,6 +1,7 @@
 import { vi, describe, it, expect, beforeEach } from "vitest";
 import { screen, waitFor } from "@testing-library/react";
-import { renderWithProviders } from "../../test-utils";
+import { knownCapabilityState, renderWithProviders } from "../../test-utils";
+import { CapabilityProvider } from "../../capabilities";
 import userEvent from "@testing-library/user-event";
 import { Schedules } from "../Schedules";
 import {
@@ -69,6 +70,18 @@ describe("Schedules", () => {
     mockEnableSchedule.mockResolvedValue(makeSchedule({ enabled: true }));
     mockDisableSchedule.mockResolvedValue(makeSchedule({ enabled: false }));
     mockDeleteSchedule.mockResolvedValue();
+  });
+
+  it("shows the configured-disabled state without probing schedules", () => {
+    renderWithProviders(
+      <CapabilityProvider state={knownCapabilityState({ jobs: false })}>
+        <Schedules />
+      </CapabilityProvider>,
+    );
+
+    expect(screen.getByText("Job queue is disabled")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Retry" })).not.toBeInTheDocument();
+    expect(mockListSchedules).not.toHaveBeenCalled();
   });
 
   it("renders schedules table", async () => {

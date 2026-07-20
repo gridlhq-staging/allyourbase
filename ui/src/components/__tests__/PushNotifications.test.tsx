@@ -1,6 +1,7 @@
 import { vi, describe, it, expect, beforeEach } from "vitest";
 import { fireEvent, screen, waitFor } from "@testing-library/react";
-import { renderWithProviders } from "../../test-utils";
+import { knownCapabilityState, renderWithProviders } from "../../test-utils";
+import { CapabilityProvider } from "../../capabilities";
 import userEvent from "@testing-library/user-event";
 import { PushNotifications } from "../PushNotifications";
 import {
@@ -106,6 +107,18 @@ describe("PushNotifications", () => {
     mockListAdminPushDeliveries.mockResolvedValue(makeDeliveryList([makeDelivery()]));
     mockGetAdminPushDelivery.mockResolvedValue(makeDelivery());
     mockAdminSendPush.mockResolvedValue(makeSendResponse([makeDelivery()]));
+  });
+
+  it("shows the configured-disabled state without probing push devices", () => {
+    renderWithProviders(
+      <CapabilityProvider state={knownCapabilityState({ push: false })}>
+        <PushNotifications />
+      </CapabilityProvider>,
+    );
+
+    expect(screen.getByText("Push notifications are disabled")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Retry" })).not.toBeInTheDocument();
+    expect(mockListAdminPushDevices).not.toHaveBeenCalled();
   });
 
   it("renders devices tab and revokes a device", async () => {

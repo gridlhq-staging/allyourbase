@@ -1,4 +1,3 @@
-// Package graphql Provides WebSocket subscription lifecycle management for GraphQL subscriptions, including request parsing, table validation, real-time event forwarding, and field projection filtering.
 package graphql
 
 import (
@@ -15,6 +14,7 @@ type gqlwsSubscriptionState struct {
 	hubClientID  string
 	cancel       context.CancelFunc
 	table        string
+	tenantID     string
 	activeSchema string
 	fieldName    string
 	where        map[string]any
@@ -64,6 +64,7 @@ func (h *Handler) onWSSubscribe(ctx context.Context, conn *GQLWSConn, id string,
 		hubClientID:  hubClient.ID,
 		cancel:       cancel,
 		table:        sub.table,
+		tenantID:     tenantID,
 		activeSchema: activeSchema,
 		fieldName:    sub.fieldName,
 		where:        sub.where,
@@ -279,7 +280,11 @@ func (h *Handler) canDeliverEvent(ctx context.Context, conn *GQLWSConn, event *r
 	if event == nil {
 		return false
 	}
-	if !realtime.CanSeeRecord(ctx, h.pool, h.cacheHolder, h.logger, conn.Claims(), state.activeSchema, event) {
+	if h.pool == nil {
+		if event.TenantID != "" && event.TenantID != state.tenantID {
+			return false
+		}
+	} else if !realtime.CanSeeRecord(ctx, h.pool, h.cacheHolder, h.logger, conn.Claims(), state.activeSchema, event) {
 		return false
 	}
 	row := eventRecordForDelivery(event)

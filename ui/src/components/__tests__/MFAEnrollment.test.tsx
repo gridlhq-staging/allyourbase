@@ -16,6 +16,15 @@ import {
   getAuthToken,
 } from "../../api";
 import type { TOTPEnrollment, MFAFactor } from "../../types";
+import {
+  beginPasskeyEnroll,
+  confirmPasskeyEnroll,
+  deletePasskey,
+  listPasskeys,
+  renamePasskey,
+} from "../../api_passkeys";
+import { CapabilityProvider } from "../../capabilities";
+import { knownCapabilityState } from "../../test-utils";
 
 vi.mock("../../api", () => ({
   createAnonymousSession: vi.fn(),
@@ -31,6 +40,14 @@ vi.mock("../../api", () => ({
   getAuthToken: vi.fn(),
 }));
 
+vi.mock("../../api_passkeys", () => ({
+  beginPasskeyEnroll: vi.fn(),
+  confirmPasskeyEnroll: vi.fn(),
+  deletePasskey: vi.fn(),
+  listPasskeys: vi.fn(),
+  renamePasskey: vi.fn(),
+}));
+
 const mockEnrollTOTP = vi.mocked(enrollTOTP);
 const mockCreateAnonymousSession = vi.mocked(createAnonymousSession);
 const mockLinkEmail = vi.mocked(linkEmail);
@@ -42,6 +59,11 @@ const mockRegenerateBackupCodes = vi.mocked(regenerateBackupCodes);
 const mockGetBackupCodeCount = vi.mocked(getBackupCodeCount);
 const mockGetMFAFactors = vi.mocked(getMFAFactors);
 const mockGetAuthToken = vi.mocked(getAuthToken);
+const mockBeginPasskeyEnroll = vi.mocked(beginPasskeyEnroll);
+const mockConfirmPasskeyEnroll = vi.mocked(confirmPasskeyEnroll);
+const mockDeletePasskey = vi.mocked(deletePasskey);
+const mockListPasskeys = vi.mocked(listPasskeys);
+const mockRenamePasskey = vi.mocked(renamePasskey);
 
 const TOTP_ENROLLMENT: TOTPEnrollment = {
   factor_id: "factor-123",
@@ -81,6 +103,73 @@ describe("MFAEnrollment", () => {
     mockGetMFAFactors.mockResolvedValue({ factors: [] });
     mockGetBackupCodeCount.mockResolvedValue({ remaining: 0 });
     mockGetAuthToken.mockReturnValue(null);
+    mockListPasskeys.mockResolvedValue([]);
+  });
+
+  it("requires a user session without probing when anonymous auth is disabled", () => {
+    mockCreateAnonymousSession.mockRejectedValue(
+      new Error("missing or invalid authorization header"),
+    );
+
+    render(
+      <CapabilityProvider state={knownCapabilityState({ auth_anonymous: false })}>
+        <MFAEnrollment />
+      </CapabilityProvider>,
+    );
+
+    expect(
+      screen.getByText("MFA management requires an authenticated user session"),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByText("missing or invalid authorization header"),
+    ).not.toBeInTheDocument();
+    expect(mockCreateAnonymousSession).not.toHaveBeenCalled();
+    expect(mockLinkEmail).not.toHaveBeenCalled();
+    expect(mockGetMFAFactors).not.toHaveBeenCalled();
+    expect(mockGetBackupCodeCount).not.toHaveBeenCalled();
+    expect(mockBeginPasskeyEnroll).not.toHaveBeenCalled();
+    expect(mockConfirmPasskeyEnroll).not.toHaveBeenCalled();
+    expect(mockDeletePasskey).not.toHaveBeenCalled();
+    expect(mockListPasskeys).not.toHaveBeenCalled();
+    expect(mockRenamePasskey).not.toHaveBeenCalled();
+  });
+
+  it("loads MFA data from a reusable user session when anonymous auth is disabled", async () => {
+    mockGetAuthToken.mockReturnValue(buildAuthToken({ sub: "linked-user", aal: "aal1" }));
+
+    render(
+      <CapabilityProvider state={knownCapabilityState({ auth_anonymous: false })}>
+        <MFAEnrollment />
+      </CapabilityProvider>,
+    );
+
+    await waitFor(() => {
+      expect(mockGetMFAFactors).toHaveBeenCalledTimes(1);
+      expect(mockGetBackupCodeCount).toHaveBeenCalledTimes(1);
+    });
+    expect(mockCreateAnonymousSession).not.toHaveBeenCalled();
+    expect(mockLinkEmail).not.toHaveBeenCalled();
+  });
+
+  it("keeps TOTP and email MFA while suppressing disabled WebAuthn", async () => {
+    mockGetAuthToken.mockReturnValue(buildAuthToken({ sub: "linked-user", aal: "aal1" }));
+
+    render(
+      <CapabilityProvider state={knownCapabilityState({ auth_webauthn: false })}>
+        <MFAEnrollment />
+      </CapabilityProvider>,
+    );
+
+    expect(
+      await screen.findByRole("button", { name: "Set Up Authenticator" }),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Set Up Email MFA" })).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Passkeys" })).not.toBeInTheDocument();
+    expect(mockBeginPasskeyEnroll).not.toHaveBeenCalled();
+    expect(mockConfirmPasskeyEnroll).not.toHaveBeenCalled();
+    expect(mockDeletePasskey).not.toHaveBeenCalled();
+    expect(mockListPasskeys).not.toHaveBeenCalled();
+    expect(mockRenamePasskey).not.toHaveBeenCalled();
   });
 
   it("renders heading and shows no enrolled factors initially", async () => {

@@ -10,7 +10,7 @@ const (
 // DeriveStatus rolls up per-service probe results into one overall service status.
 func DeriveStatus(results []ProbeResult) ServiceStatus {
 	if len(results) == 0 {
-		return Operational
+		return MajorOutage
 	}
 
 	unhealthy := 0
@@ -18,6 +18,11 @@ func DeriveStatus(results []ProbeResult) ServiceStatus {
 	hasSlow := false
 	for _, r := range results {
 		if !r.Healthy {
+			// Database reachability is platform-wide, so headcount cannot
+			// downgrade a database outage to a partial service incident.
+			if r.Service == Database {
+				return MajorOutage
+			}
 			unhealthy++
 			allHealthy = false
 		}

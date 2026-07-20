@@ -59,6 +59,7 @@ func runWALShip(cmd *cobra.Command, args []string) error {
 		AccessKey:  cfg.Backup.AccessKey,
 		SecretKey:  cfg.Backup.SecretKey,
 		Encryption: cfg.Backup.Encryption,
+		KMSKeyID:   cfg.Backup.PITR.KMSKeyID,
 		UseSSL:     cfg.Backup.UseSSL,
 	})
 	if err != nil {

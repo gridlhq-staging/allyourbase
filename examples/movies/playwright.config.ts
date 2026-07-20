@@ -15,6 +15,13 @@ export default defineConfig({
     locale: "en-US",
     screenshot: "only-on-failure",
   },
+  projects: [
+    {
+      name: "movies",
+      use: { browserName: "chromium" },
+    },
+  ],
+  reporter: [["list"], ["json", { outputFile: "playwright-report/results.json" }]],
   webServer: {
     command:
       "AYB_AUTH_RATE_LIMIT=10000 AYB_AUTH_RATE_LIMIT_AUTH=10000/min AYB_AUTH_ANONYMOUS_RATE_LIMIT=10000 AYB_RATE_LIMIT_API_ANONYMOUS=10000/min AYB_RATE_LIMIT_API=10000/min bash ./e2e/run_demo_with_fake_ollama.sh",

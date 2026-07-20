@@ -181,7 +181,7 @@ func newServer(cfg *config.Config, logger *slog.Logger, schemaCache *schema.Cach
 	httpMetrics, infraMetrics, tenantMetrics := initObservability(cfg, pool, poolRouter, healthChecker, logger)
 	hub, wsHandler, connManager, realtimeInspector := initRealtimeHub(cfg, pool, schemaCache, authSvc, logger, httpMetrics)
 	webhookDispatcher := initWebhookDispatcher(cfg, pool, logger, outboundTransport)
-	statusHistory, statusIncidentStore, statusChecker := initStatusSystem(cfg, pool)
+	statusHistory, statusIncidentStore, statusChecker := initStatusSystem(cfg, pool, storageSvc)
 
 	// Global middleware.
 	if httpMetrics != nil {

@@ -19,29 +19,27 @@ func TestDeriveStatus(t *testing.T) {
 		}
 	})
 
-	t.Run("one unhealthy out of five partial outage", func(t *testing.T) {
-		results := []ProbeResult{
-			{Service: Database, Healthy: true, CheckedAt: now},
-			{Service: Storage, Healthy: true, CheckedAt: now},
-			{Service: Auth, Healthy: false, CheckedAt: now},
-			{Service: Realtime, Healthy: true, CheckedAt: now},
-			{Service: Functions, Healthy: true, CheckedAt: now},
-		}
-		if got := DeriveStatus(results); got != PartialOutage {
-			t.Fatalf("DeriveStatus() = %q, want %q", got, PartialOutage)
-		}
-	})
-
-	t.Run("three unhealthy major outage", func(t *testing.T) {
+	t.Run("unhealthy database is major outage regardless of denominator", func(t *testing.T) {
 		results := []ProbeResult{
 			{Service: Database, Healthy: false, CheckedAt: now},
-			{Service: Storage, Healthy: false, CheckedAt: now},
+			{Service: Storage, Healthy: true, CheckedAt: now},
 			{Service: Auth, Healthy: true, CheckedAt: now},
-			{Service: Realtime, Healthy: false, CheckedAt: now},
+			{Service: Realtime, Healthy: true, CheckedAt: now},
 			{Service: Functions, Healthy: true, CheckedAt: now},
 		}
 		if got := DeriveStatus(results); got != MajorOutage {
 			t.Fatalf("DeriveStatus() = %q, want %q", got, MajorOutage)
+		}
+	})
+
+	t.Run("healthy database plus unhealthy storage is partial outage", func(t *testing.T) {
+		results := []ProbeResult{
+			{Service: Database, Healthy: true, CheckedAt: now},
+			{Service: Storage, Healthy: false, CheckedAt: now},
+			{Service: Auth, Healthy: true, CheckedAt: now},
+		}
+		if got := DeriveStatus(results); got != PartialOutage {
+			t.Fatalf("DeriveStatus() = %q, want %q", got, PartialOutage)
 		}
 	})
 
@@ -55,9 +53,9 @@ func TestDeriveStatus(t *testing.T) {
 		}
 	})
 
-	t.Run("empty safe default operational", func(t *testing.T) {
-		if got := DeriveStatus(nil); got != Operational {
-			t.Fatalf("DeriveStatus() = %q, want %q", got, Operational)
+	t.Run("empty results are major outage", func(t *testing.T) {
+		if got := DeriveStatus(nil); got != MajorOutage {
+			t.Fatalf("DeriveStatus() = %q, want %q", got, MajorOutage)
 		}
 	})
 
@@ -72,9 +70,7 @@ func TestDeriveStatus(t *testing.T) {
 		}
 	})
 
-	t.Run("equal split is partial outage", func(t *testing.T) {
-		// When unhealthy == healthy (e.g., 2 unhealthy, 2 healthy), the code checks
-		// unhealthy > healthy. With equality, it falls through to PartialOutage.
+	t.Run("equal split without database failure is partial outage", func(t *testing.T) {
 		results := []ProbeResult{
 			{Service: Database, Healthy: true},
 			{Service: Storage, Healthy: true},

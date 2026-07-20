@@ -47,6 +47,14 @@ describe("parseDashboardRoute", () => {
     });
   });
 
+  it("resolves the GraphQL screen route without rewriting the location", () => {
+    expect(parse("/admin/screens/graphql")).toEqual({
+      route: { kind: "screen", screen: findAdminScreen("graphql") },
+      location: { pathname: "/admin/screens/graphql", ...location },
+      historyAction: "none",
+    });
+  });
+
   it("returns every closed failure without changing the entered location", () => {
     const capabilityRegistry: ScreenRegistry = {
       sections: SCREEN_REGISTRY.sections.map((section) => ({

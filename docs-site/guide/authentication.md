@@ -9,14 +9,15 @@ AYB provides built-in email/password authentication with JWT sessions, [magic li
 # ayb.toml
 [auth]
 enabled = true
-jwt_secret = "your-secret-key-at-least-32-characters-long"
+# Required. Generate a private value with: openssl rand -hex 32
+# Then set jwt_secret to the 64-hex-character output before starting AYB.
 ```
 
 Or via environment variables:
 
 ```bash
 AYB_AUTH_ENABLED=true
-AYB_AUTH_JWT_SECRET="your-secret-key-at-least-32-characters-long"
+AYB_AUTH_JWT_SECRET="$(openssl rand -hex 32)"
 ```
 
 ## Endpoints

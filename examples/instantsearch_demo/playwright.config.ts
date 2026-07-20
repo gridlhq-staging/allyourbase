@@ -13,4 +13,11 @@ export default defineConfig({
     locale: "en-US",
     screenshot: "only-on-failure",
   },
+  projects: [
+    {
+      name: "instantsearch_demo",
+      use: { browserName: "chromium" },
+    },
+  ],
+  reporter: [["list"], ["json", { outputFile: "playwright-report/results.json" }]],
 });

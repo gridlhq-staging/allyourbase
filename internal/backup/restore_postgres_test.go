@@ -45,6 +45,35 @@ func TestRecoveryInstanceStartStopLifecycle(t *testing.T) {
 	}
 }
 
+func TestRecoveryInstanceUsePrimaryConnectionURL(t *testing.T) {
+	t.Parallel()
+
+	inst := NewRecoveryInstance("/tmp/restore-data", 55432, slog.Default())
+	err := inst.UsePrimaryConnectionURL("postgresql://ayb:secret@db.internal:6432/app?sslmode=disable&application_name=restore")
+	if err != nil {
+		t.Fatalf("UsePrimaryConnectionURL: %v", err)
+	}
+
+	want := "postgresql://ayb:secret@127.0.0.1:55432/app?sslmode=disable&application_name=restore"
+	if got := inst.ConnURL(); got != want {
+		t.Fatalf("ConnURL = %q; want %q", got, want)
+	}
+}
+
+func TestRecoveryInstanceUsePrimaryConnectionURLDefaultsDatabase(t *testing.T) {
+	t.Parallel()
+
+	inst := NewRecoveryInstance("/tmp/restore-data", 55432, slog.Default())
+	if err := inst.UsePrimaryConnectionURL("postgresql://ayb:secret@db.internal:6432"); err != nil {
+		t.Fatalf("UsePrimaryConnectionURL: %v", err)
+	}
+
+	want := "postgresql://ayb:secret@127.0.0.1:55432/postgres"
+	if got := inst.ConnURL(); got != want {
+		t.Fatalf("ConnURL = %q; want %q", got, want)
+	}
+}
+
 func TestRecoveryInstanceWaitForRecoveryTimeout(t *testing.T) {
 	t.Parallel()
 

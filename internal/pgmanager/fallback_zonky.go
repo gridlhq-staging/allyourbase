@@ -12,7 +12,10 @@ import (
 	"strings"
 )
 
-const legacyBinaryBaseURL = "https://repo.maven.apache.org/maven2/io/zonky/test/postgres"
+const (
+	legacyBinaryBaseURL        = "https://repo.maven.apache.org/maven2/io/zonky/test/postgres"
+	legacyBinaryMarkerFilename = "AYB_LEGACY_FALLBACK"
+)
 
 type legacyArchiveSource struct {
 	jarFilename string
@@ -60,6 +63,9 @@ func ensureBinaryFromLegacyArchive(ctx context.Context, opts ensureBinaryOpts) e
 	return installBinaryTree(opts.binDir, opts.version, func(stageDir string) error {
 		if err := extractLegacyJarArchive(cachePath, stageDir); err != nil {
 			return fmt.Errorf("extracting legacy embedded-postgres archive: %w", err)
+		}
+		if err := os.WriteFile(filepath.Join(stageDir, legacyBinaryMarkerFilename), nil, 0o644); err != nil {
+			return fmt.Errorf("recording legacy binary source: %w", err)
 		}
 		return nil
 	})

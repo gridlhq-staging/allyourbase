@@ -10,7 +10,7 @@ func TestBuildBaseBackupArgs(t *testing.T) {
 		"--dbname=" + dbURL,
 		"--format=tar",
 		"--checkpoint=fast",
-		"--wal-method=none",
+		"--wal-method=fetch",
 		"-D",
 		"-",
 	}

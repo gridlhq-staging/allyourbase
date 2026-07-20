@@ -54,12 +54,19 @@ func testAuthService() *auth.Service {
 }
 
 func validToken() string {
+	return validTokenForTenant("")
+}
+
+func validTokenForTenant(tenantID string) string {
 	now := time.Now()
 	claims := jwt.MapClaims{
 		"sub":   "user-123",
 		"email": "test@example.com",
 		"iat":   jwt.NewNumericDate(now),
 		"exp":   jwt.NewNumericDate(now.Add(time.Hour)),
+	}
+	if tenantID != "" {
+		claims["tenantId"] = tenantID
 	}
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
 	signed, _ := token.SignedString([]byte(testJWTSecret))
@@ -77,6 +84,21 @@ func expiredToken() string {
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
 	signed, _ := token.SignedString([]byte(testJWTSecret))
 	return signed
+}
+
+func readNextSSEData(t *testing.T, scanner *bufio.Scanner) map[string]any {
+	t.Helper()
+	for scanner.Scan() {
+		line := scanner.Text()
+		if strings.HasPrefix(line, "data: ") {
+			return parseSSEData(t, line)
+		}
+	}
+	if err := scanner.Err(); err != nil {
+		t.Fatalf("reading SSE data frame: %v", err)
+	}
+	t.Fatal("SSE stream ended before a data frame arrived")
+	return nil
 }
 
 // TestSSEMissingTablesParam tests that the handler returns 400 when tables param is missing.

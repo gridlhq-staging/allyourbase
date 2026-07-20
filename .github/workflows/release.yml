@@ -45,6 +45,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+      actions: write
     steps:
       - uses: actions/checkout@v6
         with:
@@ -80,5 +81,11 @@ jobs:
         with:
           version: latest
           args: release --clean
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Docker publishes from the pushed tag
+        if: github.event_name == 'workflow_dispatch'
+        run: echo "docker.yml runs from push.tags on the v-tag pushed above; no manual dispatch here."
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

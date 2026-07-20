@@ -69,30 +69,6 @@ fail() {
     echo -e "  ${RED}✗${NC} $1"
 }
 
-require_free_port() {
-    local port="$1"
-    local reason="$2"
-    local action="${3:-use}"
-    if lsof -ti :"$port" >/dev/null 2>&1; then
-        echo -e "${RED}ERROR: ${reason}; refusing to ${action} an unknown process.${NC}" >&2
-        return 1
-    fi
-}
-
-wait_for_url() {
-    local url="$1"
-    local timeout="${2:-30}"
-    local elapsed=0
-    while [ $elapsed -lt $timeout ]; do
-        if curl -sf "$url" > /dev/null 2>&1; then
-            return 0
-        fi
-        sleep 0.5
-        elapsed=$((elapsed + 1))
-    done
-    return 1
-}
-
 ensure_stopped() {
     sleep 1
     # Every managed port is selected at preflight. Never inspect or stop the
@@ -184,8 +160,8 @@ run_demo_e2e() {
     prepare_isolated_home "$runtime_home"
 
     # Serve this demo on the isolated port and point Playwright's config at the
-    # same port (live-polls/movies reuse the running server; kanban runs its own
-    # Vite instance). Keep both Vite and its API proxy off universal defaults.
+    # same port. Keep both the launched demo surface and any Playwright-managed
+    # fallback dev server off universal defaults.
     export AYB_DEMO_APP_PORT="$port"
     export AYB_SERVER_URL="http://127.0.0.1:${SERVER_PORT}"
 
@@ -260,15 +236,33 @@ run_demo_e2e() {
     # ── Run the Playwright suite ──
     echo -e "  ${CYAN}…${NC} Running Playwright tests..."
     local pw_log
+    local playwright_status=0
+    local previous_dir
+    local guard_status=0
     pw_log=$(mktemp /tmp/ayb-pw-${name}.XXXXXX)
 
-    if (cd "$example_dir" && npx playwright test --reporter=list 2>&1) | tee "$pw_log"; then
+    (cd "$example_dir" && npx playwright test 2>&1) | tee "$pw_log"
+    playwright_status=${PIPESTATUS[0]}
+
+    previous_dir="$(pwd)"
+    cd "$REPO_ROOT" || return 1
+    bash scripts/check-playwright-executed.sh "$example_dir/playwright-report/results.json" "$name"
+    guard_status=$?
+    cd "$previous_dir" || return 1
+
+    if [ "$playwright_status" -eq 0 ] && [ "$guard_status" -eq 0 ]; then
         pass "${name}: Playwright suite passed"
     else
-        fail "${name}: Playwright suite FAILED"
-        echo ""
-        echo "    Last 30 lines of Playwright output:"
-        tail -30 "$pw_log" | sed 's/^/    /'
+        if [ "$playwright_status" -ne 0 ]; then
+            fail "${name}: Playwright suite FAILED"
+            echo ""
+            echo "    Last 30 lines of Playwright output:"
+            tail -30 "$pw_log" | sed 's/^/    /'
+        fi
+        if [ "$guard_status" -ne 0 ]; then
+            fail "${name}: Playwright execution guard FAILED"
+        fi
+        playwright_status=1
     fi
     rm -f "$pw_log"
 
@@ -281,6 +275,7 @@ run_demo_e2e() {
     fi
 
     echo ""
+    return "$playwright_status"
 }
 
 # ── Pre-flight ───────────────────────────────────────────────────

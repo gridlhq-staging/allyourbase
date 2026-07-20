@@ -9,6 +9,11 @@ import { render } from "@testing-library/react";
 import { expect } from "vitest";
 import { ThemeProvider } from "./components/ThemeProvider";
 import { ToastProvider } from "./components/ToastProvider";
+import {
+  ADMIN_CAPABILITY_NAMES,
+  type AdminCapabilities,
+  type AdminCapabilityState,
+} from "./api_capabilities";
 
 export class MockApiError extends Error {
   status: number;
@@ -18,6 +23,19 @@ export class MockApiError extends Error {
     this.status = status;
     this.retryAfterSeconds = retryAfterSeconds;
   }
+}
+
+export function knownCapabilityState(
+  overrides: Partial<AdminCapabilities> = {},
+): AdminCapabilityState {
+  const capabilities = Object.fromEntries(
+    ADMIN_CAPABILITY_NAMES.map((name) => [name, true]),
+  ) as AdminCapabilities;
+
+  return {
+    kind: "known",
+    capabilities: { ...capabilities, ...overrides },
+  };
 }
 
 export function renderWithProviders(ui: ReactElement) {

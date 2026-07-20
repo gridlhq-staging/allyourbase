@@ -40,6 +40,23 @@ func (m *ManifestWriter) WriteForBackup(ctx context.Context, record *BackupRecor
 		return fmt.Errorf("no WAL segment covering start_lsn %s for timeline resolution", *record.StartLSN)
 	}
 
+	return m.writeValidatedManifest(ctx, record, seg.Timeline)
+}
+
+// WriteForBackupWithTimeline writes a manifest with a caller-provided timeline.
+// Physical backup execution can read the active timeline directly from
+// PostgreSQL before any WAL segment has been archived.
+func (m *ManifestWriter) WriteForBackupWithTimeline(ctx context.Context, record *BackupRecord, timeline int) error {
+	if err := m.validateRecord(record); err != nil {
+		return fmt.Errorf("validating backup record: %w", err)
+	}
+	if timeline <= 0 {
+		return fmt.Errorf("timeline must be positive")
+	}
+	return m.writeValidatedManifest(ctx, record, timeline)
+}
+
+func (m *ManifestWriter) writeValidatedManifest(ctx context.Context, record *BackupRecord, timeline int) error {
 	createdAt := time.Now().UTC()
 	manifest := BackupManifest{
 		BackupID:   record.ID,
@@ -49,7 +66,7 @@ func (m *ManifestWriter) WriteForBackup(ctx context.Context, record *BackupRecor
 		StartLSN:   *record.StartLSN,
 		EndLSN:     *record.EndLSN,
 		Checksum:   record.Checksum,
-		Timeline:   seg.Timeline,
+		Timeline:   timeline,
 		CreatedAt:  createdAt,
 	}
 

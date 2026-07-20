@@ -1,4 +1,4 @@
-import { type Page, expect } from "@playwright/test";
+import { type Page, type Route, expect } from "@playwright/test";
 import {
   installRealtimeReadinessProbe,
   waitForRealtimeTables,
@@ -27,6 +27,11 @@ type OwnedBoardProjection = "count" | "first-id";
 type BlockedRequestGate = {
   wasBlocked: () => boolean;
   release: () => void;
+};
+
+type FailingAttachmentDeleteRoute = {
+  interceptedObjectName: () => string | null;
+  uninstall: () => Promise<void>;
 };
 
 /** Demo account credentials. */
@@ -261,6 +266,78 @@ export async function ownedBoardId(page: Page): Promise<string | null> {
     throw new Error(`ownedBoardId: expected string or null, got ${typeof ownedBoardId}`);
   }
   return ownedBoardId;
+}
+
+/** Return the authenticated storage bucket route status for reachability checks. */
+export async function storageBucketStatus(page: Page): Promise<number> {
+  return page.evaluate(async () => {
+    const token = sessionStorage.getItem("ayb_token");
+    if (!token) {
+      throw new Error("storageBucketStatus: no auth token in sessionStorage");
+    }
+    const res = await fetch("/api/storage/card-attachments", {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    return res.status;
+  });
+}
+
+/** Delete a storage object through the authenticated demo session, tolerating prior cleanup. */
+export async function deleteStorageObject(
+  page: Page,
+  bucket: string,
+  objectName: string,
+): Promise<void> {
+  await page.evaluate(async ({ bucketName, objectPath }) => {
+    const token = sessionStorage.getItem("ayb_token");
+    if (!token) {
+      throw new Error("deleteStorageObject: no auth token in sessionStorage");
+    }
+    const encodedBucket = encodeURIComponent(bucketName);
+    const encodedObjectPath = objectPath.split("/").map(encodeURIComponent).join("/");
+    const res = await fetch(`/api/storage/${encodedBucket}/${encodedObjectPath}`, {
+      method: "DELETE",
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (!res.ok && res.status !== 404) {
+      throw new Error(`deleteStorageObject: delete failed (${res.status})`);
+    }
+  }, {
+    bucketName: bucket,
+    objectPath: objectName,
+  });
+}
+
+/** Fail storage-object DELETE once so tests can exercise metadata-first attachment cleanup. */
+export async function installFailingAttachmentDeleteRoute(
+  page: Page,
+): Promise<FailingAttachmentDeleteRoute> {
+  let objectName: string | null = null;
+  const routePattern = "**/api/storage/card-attachments/**";
+  const handler = async (route: Route) => {
+    const request = route.request();
+    if (request.method() !== "DELETE") {
+      await route.continue();
+      return;
+    }
+    const path = new URL(request.url()).pathname;
+    const prefix = "/api/storage/card-attachments/";
+    if (!path.startsWith(prefix)) {
+      await route.continue();
+      return;
+    }
+    objectName = decodeURIComponent(path.slice(prefix.length));
+    await route.fulfill({
+      status: 500,
+      contentType: "application/json",
+      body: JSON.stringify({ message: "storage cleanup failed" }),
+    });
+  };
+  await page.route(routePattern, handler);
+  return {
+    interceptedObjectName: () => objectName,
+    uninstall: () => page.unroute(routePattern, handler),
+  };
 }
 
 /** Simulate a partial starter-board seed by keeping the marker and deleting the Done starter card. */

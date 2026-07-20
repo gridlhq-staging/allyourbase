@@ -19,7 +19,8 @@ OAuth provider mode adds:
 # ayb.toml
 [auth]
 enabled = true
-jwt_secret = "your-secret-key-at-least-32-characters-long"
+# Required. Generate a private value with: openssl rand -hex 32
+# Then set jwt_secret to the 64-hex-character output before starting AYB.
 
 [auth.oauth_provider]
 enabled = true

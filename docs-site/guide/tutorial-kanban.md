@@ -52,7 +52,8 @@ cors_allowed_origins = ["http://localhost:5173"]
 
 [auth]
 enabled = true
-jwt_secret = "replace-with-a-random-secret-at-least-32-chars-long"
+# Required. Generate a private value with: openssl rand -hex 32
+# Then set jwt_secret to the 64-hex-character output before starting AYB.
 ```
 
 Only widen `host` or `cors_allowed_origins` if you intentionally need LAN access.

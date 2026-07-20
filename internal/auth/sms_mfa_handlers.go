@@ -54,14 +54,14 @@ func (h *Handler) handleMFAEnroll(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if req.Phone == "" {
-		httputil.WriteError(w, http.StatusBadRequest, "phone is required")
+		httputil.WriteErrorWithDocURL(w, http.StatusBadRequest, "phone is required", httputil.DocURL("/guide/authentication"))
 		return
 	}
 
 	if err := h.auth.EnrollSMSMFA(r.Context(), claims.Subject, req.Phone); err != nil {
 		switch {
 		case errors.Is(err, ErrInvalidPhoneNumber):
-			httputil.WriteError(w, http.StatusBadRequest, "invalid phone number format")
+			httputil.WriteErrorWithDocURL(w, http.StatusBadRequest, "invalid phone number format", httputil.DocURL("/guide/authentication"))
 		case errors.Is(err, ErrMFAAlreadyEnrolled):
 			httputil.WriteError(w, http.StatusConflict, "SMS MFA already enrolled")
 		default:
@@ -109,7 +109,7 @@ func (h *Handler) handleMFAEnrollConfirm(w http.ResponseWriter, r *http.Request)
 
 	if err := h.auth.ConfirmSMSMFAEnrollment(r.Context(), claims.Subject, req.Phone, req.Code); err != nil {
 		if errors.Is(err, ErrInvalidSMSCode) {
-			httputil.WriteError(w, http.StatusUnauthorized, "invalid or expired code")
+			httputil.WriteErrorWithDocURL(w, http.StatusUnauthorized, "invalid or expired code", httputil.DocURL("/guide/authentication"))
 			return
 		}
 		h.logger.Error("MFA enroll confirm error", "error", err)
@@ -172,7 +172,7 @@ func (h *Handler) handleMFAVerify(w http.ResponseWriter, r *http.Request) {
 
 	// Check cumulative lockout before attempting verification.
 	if h.auth.IsMFALocked(claims.Subject) {
-		httputil.WriteError(w, http.StatusTooManyRequests, "too many failed attempts, try again later")
+		httputil.WriteErrorWithDocURL(w, http.StatusTooManyRequests, "too many failed attempts, try again later", httputil.DocURL("/guide/authentication"))
 		return
 	}
 

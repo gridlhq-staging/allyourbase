@@ -58,7 +58,7 @@ func (s *Server) handleAdminBackupList(w http.ResponseWriter, r *http.Request) {
 // handleAdminBackupTrigger handles requests to initiate a backup operation, returning the backup ID and status with a 202 Accepted response, or an error if the backup service is not configured.
 func (s *Server) handleAdminBackupTrigger(w http.ResponseWriter, r *http.Request) {
 	if s.backupService == nil {
-		httputil.WriteError(w, http.StatusServiceUnavailable, "backup service not configured")
+		httputil.WriteErrorWithDocURL(w, http.StatusServiceUnavailable, "backup service not configured", httputil.DocURL("/guide/backups"))
 		return
 	}
 

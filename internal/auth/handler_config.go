@@ -180,7 +180,7 @@ func (h *Handler) enforceAAL2ForExistingMFA(w http.ResponseWriter, r *http.Reque
 		}
 	}
 	if hasMFA {
-		httputil.WriteError(w, http.StatusForbidden, "AAL2 session required to enroll additional MFA factors")
+		httputil.WriteErrorWithDocURL(w, http.StatusForbidden, "AAL2 session required to enroll additional MFA factors", httputil.DocURL("/guide/authentication"))
 		return true
 	}
 	return false

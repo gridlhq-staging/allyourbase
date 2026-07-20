@@ -321,7 +321,7 @@ func (h *Handler) handleRefresh(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if req.RefreshToken == "" {
-		httputil.WriteError(w, http.StatusBadRequest, "refreshToken is required")
+		httputil.WriteErrorWithDocURL(w, http.StatusBadRequest, "refreshToken is required", httputil.DocURL("/guide/authentication"))
 		return
 	}
 
@@ -389,11 +389,11 @@ func (h *Handler) handleDeleteSession(w http.ResponseWriter, r *http.Request) {
 
 	sessionID := chi.URLParam(r, "id")
 	if sessionID == "" {
-		httputil.WriteError(w, http.StatusBadRequest, "session id is required")
+		httputil.WriteErrorWithDocURL(w, http.StatusBadRequest, "session id is required", httputil.DocURL("/guide/authentication"))
 		return
 	}
 	if !httputil.IsValidUUID(sessionID) {
-		httputil.WriteError(w, http.StatusBadRequest, "invalid session id format")
+		httputil.WriteErrorWithDocURL(w, http.StatusBadRequest, "invalid session id format", httputil.DocURL("/guide/authentication"))
 		return
 	}
 

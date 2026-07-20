@@ -1,12 +1,15 @@
-// Package backup provides utilities for managing temporary Postgres instances during point-in-time recovery operations.
 package backup
 
 import (
 	"context"
 	"fmt"
+	"io"
 	"log/slog"
 	"net"
+	"net/url"
+	"os"
 	"os/exec"
+	"strconv"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -17,6 +20,7 @@ type RecoveryInstance struct {
 	dataDir string
 	port    int
 	logger  *slog.Logger
+	connURL string
 
 	runCommand      func(ctx context.Context, name string, args ...string) error
 	queryRecoveryFn func(ctx context.Context, connURL string) (bool, error)
@@ -35,9 +39,16 @@ func NewRecoveryInstance(dataDir string, port int, logger *slog.Logger) *Recover
 		logger:  logger,
 		runCommand: func(ctx context.Context, name string, args ...string) error {
 			cmd := exec.CommandContext(ctx, name, args...)
-			out, err := cmd.CombinedOutput()
+			output, cleanup, err := commandOutputFile(cmd)
 			if err != nil {
-				return fmt.Errorf("command %s %v failed: %w (output: %s)", name, args, err, string(out))
+				return err
+			}
+			defer cleanup()
+
+			err = cmd.Run()
+			if err != nil {
+				out := output()
+				return fmt.Errorf("command %s %v failed: %w (output: %s)", name, args, err, out)
 			}
 			return nil
 		},
@@ -45,6 +56,31 @@ func NewRecoveryInstance(dataDir string, port int, logger *slog.Logger) *Recover
 		waitTimeout:     5 * time.Minute,
 		pollInterval:    time.Second,
 	}
+}
+
+func commandOutputFile(cmd *exec.Cmd) (func() string, func(), error) {
+	file, err := os.CreateTemp("", "ayb-pg-command-*.log")
+	if err != nil {
+		return nil, nil, fmt.Errorf("creating command output file: %w", err)
+	}
+	cmd.Stdout = file
+	cmd.Stderr = file
+	cleanup := func() {
+		_ = file.Close()
+		_ = os.Remove(file.Name())
+	}
+	readOutput := func() string {
+		_ = file.Sync()
+		if _, err := file.Seek(0, io.SeekStart); err != nil {
+			return ""
+		}
+		data, err := io.ReadAll(io.LimitReader(file, 64*1024))
+		if err != nil {
+			return ""
+		}
+		return string(data)
+	}
+	return readOutput, cleanup, nil
 }
 
 func (r *RecoveryInstance) Start(ctx context.Context) error {
@@ -95,7 +131,34 @@ func (r *RecoveryInstance) WaitForRecovery(ctx context.Context) error {
 }
 
 func (r *RecoveryInstance) ConnURL() string {
+	if r.connURL != "" {
+		return r.connURL
+	}
 	return fmt.Sprintf("postgresql://localhost:%d/postgres", r.port)
+}
+
+func (r *RecoveryInstance) UsePrimaryConnectionURL(primaryDBURL string) error {
+	connURL, err := recoveryConnURL(primaryDBURL, r.port)
+	if err != nil {
+		return err
+	}
+	r.connURL = connURL
+	return nil
+}
+
+func recoveryConnURL(primaryDBURL string, port int) (string, error) {
+	parsed, err := url.Parse(primaryDBURL)
+	if err != nil {
+		return "", fmt.Errorf("parsing primary database URL: %w", err)
+	}
+	if parsed.Scheme == "" {
+		return "", fmt.Errorf("primary database URL is missing a scheme")
+	}
+	if parsed.Path == "" {
+		parsed.Path = "/postgres"
+	}
+	parsed.Host = net.JoinHostPort("127.0.0.1", strconv.Itoa(port))
+	return parsed.String(), nil
 }
 
 func queryPGIsInRecovery(ctx context.Context, connURL string) (bool, error) {
