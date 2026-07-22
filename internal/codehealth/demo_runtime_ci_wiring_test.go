@@ -88,7 +88,7 @@ func TestDemoRunnerInvocationHasSingleAppServerOwner(t *testing.T) {
 	t.Run("no app server ownership is rejected", func(t *testing.T) {
 		noOwnerBody := strings.ReplaceAll(runDemoE2E, demoExternalServerEnv+"=1 ", "")
 		noOwnerBody = strings.Replace(noOwnerBody, "npx playwright test", demoExternalServerEnv+"=1 npx playwright test", 1)
-		noOwnerBody = strings.Replace(noOwnerBody, `exec "$AYB_BIN" demo "$name"`, "exec true", 1)
+		noOwnerBody = strings.ReplaceAll(noOwnerBody, `exec "$AYB_BIN" demo "$name"`, "exec true")
 		requireDemoAppServerOwnerCountRejected(t, runDemoRunnerHarness(t, repoRoot, noOwnerBody, false), 0)
 	})
 }
