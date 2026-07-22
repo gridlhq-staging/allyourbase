@@ -22,10 +22,10 @@ export default defineConfig({
     },
   ],
   reporter: [["list"], ["json", { outputFile: "playwright-report/results.json" }]],
-  webServer: {
+  webServer: process.env.AYB_DEMO_EXTERNAL_SERVER ? undefined : {
     command: "npm run dev",
     port,
-    reuseExistingServer: true,
+    reuseExistingServer: false,
     timeout: 10000,
   },
 });

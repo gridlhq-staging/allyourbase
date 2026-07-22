@@ -218,7 +218,7 @@ func parseDebbieSyncScope(content string) debbieSyncScope {
 
 	scanner := bufio.NewScanner(strings.NewReader(content))
 	for scanner.Scan() {
-		trimmed := strings.TrimSpace(scanner.Text())
+		trimmed := strings.TrimSpace(stripDebbieTOMLComment(scanner.Text()))
 		if arrayTarget != "" {
 			applyDebbieArrayValues(&scope, currentDir, arrayTarget, trimmed)
 			if strings.Contains(trimmed, "]") {
@@ -240,6 +240,29 @@ func parseDebbieSyncScope(content string) debbieSyncScope {
 		}
 	}
 	return scope
+}
+
+func stripDebbieTOMLComment(line string) string {
+	inString := false
+	escaped := false
+	for index, char := range line {
+		if escaped {
+			escaped = false
+			continue
+		}
+		if inString && char == '\\' {
+			escaped = true
+			continue
+		}
+		if char == '"' {
+			inString = !inString
+			continue
+		}
+		if char == '#' && !inString {
+			return line[:index]
+		}
+	}
+	return line
 }
 
 func updateDebbieSection(trimmed string, section *string, currentDir *int, scope *debbieSyncScope) bool {

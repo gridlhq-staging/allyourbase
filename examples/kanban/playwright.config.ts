@@ -25,7 +25,7 @@ export default defineConfig({
     },
   ],
   reporter: [["list"], ["json", { outputFile: "playwright-report/results.json" }]],
-  webServer: {
+  webServer: process.env.AYB_DEMO_EXTERNAL_SERVER ? undefined : {
     command:
       `bash -lc 'set -euo pipefail; ` +
       `source ../../tests/port_helpers.sh; ` +

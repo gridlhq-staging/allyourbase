@@ -1,6 +1,9 @@
 package codehealth
 
 import (
+	"errors"
+	"io/fs"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -84,6 +87,59 @@ func TestPushSmokeWorkflowJobIsBlockingAndMinimal(t *testing.T) {
 	requireJobUsesAction(t, job, "actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16")
 	if !pushSmokeJobInstallsPrerequisites(job) {
 		t.Fatalf("%s must install jq and lsof explicitly before running %s", pushSmokeJob, pushSmokeTarget)
+	}
+}
+
+func TestPushSmokeScriptIsProjectedWhenCIInvokesIt(t *testing.T) {
+	t.Parallel()
+
+	repoRoot := findRepoRoot(t)
+	makefile := readRepoText(t, filepath.Join(repoRoot, "Makefile"))
+	workflowPath := filepath.Join(repoRoot, ".github", "workflows", "ci.yml")
+	var workflow githubActionsWorkflow
+	if err := yaml.Unmarshal([]byte(readRepoText(t, workflowPath)), &workflow); err != nil {
+		t.Fatalf("decode %s failed: %v", workflowPath, err)
+	}
+
+	if !workflowJobHasRunStep(workflow, pushSmokeJob, "make "+pushSmokeTarget) {
+		t.Fatalf("%s must run make %s unconditionally from the repository root", pushSmokeJob, pushSmokeTarget)
+	}
+	if !recipeContainsCommandWithArgs(extractMakeTargetRecipe(makefile, pushSmokeTarget), []string{pushSmokeScript}) {
+		t.Fatalf("%s must execute exact script %s", pushSmokeTarget, pushSmokeScript)
+	}
+	if _, err := os.Stat(filepath.Join(repoRoot, pushSmokeScript)); err != nil {
+		t.Fatalf("source script %s must exist: %v", pushSmokeScript, err)
+	}
+
+	syncScope, err := loadDebbieSyncScope(repoRoot)
+	if errors.Is(err, fs.ErrNotExist) {
+		t.Skip(".debbie.toml absent; public mirror topology may omit dev-source projection checks")
+	}
+	if err != nil {
+		t.Fatalf("load .debbie.toml sync scope failed: %v", err)
+	}
+	if _, ok := syncScope.files[pushSmokeScript]; !ok {
+		t.Fatalf(".debbie.toml [sync].files must contain exact %q because CI %s runs make %s and that target executes it",
+			pushSmokeScript, pushSmokeJob, pushSmokeTarget)
+	}
+}
+
+func TestPushSmokeScriptProjectionRejectsCommentedDebbieEntry(t *testing.T) {
+	t.Parallel()
+
+	scope := parseDebbieSyncScope(strings.Join([]string{
+		"[sync]",
+		"files = [",
+		`  "README.md",`,
+		`  # "_dev/manual_smoke_tests/20_push_smoke.test.sh",`,
+		"]",
+		"",
+	}, "\n"))
+	if _, ok := scope.files[pushSmokeScript]; ok {
+		t.Fatalf("commented .debbie.toml [sync].files entry %q must not count as public projection", pushSmokeScript)
+	}
+	if _, ok := scope.files["README.md"]; !ok {
+		t.Fatal("active .debbie.toml [sync].files entries must still be parsed")
 	}
 }
 

@@ -23,12 +23,12 @@ export default defineConfig({
     },
   ],
   reporter: [["list"], ["json", { outputFile: "playwright-report/results.json" }]],
-  webServer: {
+  webServer: process.env.AYB_DEMO_EXTERNAL_SERVER ? undefined : {
     command:
       "AYB_AUTH_ANONYMOUS_AUTH_ENABLED=true AYB_AUTH_MAGIC_LINK_ENABLED=true AYB_AUTH_RATE_LIMIT=10000 AYB_AUTH_RATE_LIMIT_AUTH=10000/min AYB_AUTH_ANONYMOUS_RATE_LIMIT=10000 AYB_RATE_LIMIT_API_ANONYMOUS=10000/min AYB_RATE_LIMIT_API=10000/min bash ./e2e/run_demo_with_fake_ollama.sh",
     gracefulShutdown: { signal: "SIGINT", timeout: 10000 },
     port,
-    reuseExistingServer: true,
+    reuseExistingServer: false,
     timeout: 60000,
   },
 });

@@ -184,12 +184,18 @@ run_demo_e2e() {
     fi
 
     # ── Start the demo ──
-    (cd "$example_dir" && \
-        HOME="$runtime_home" \
-        AYB_SERVER_PORT="$SERVER_PORT" \
-        AYB_DATABASE_EMBEDDED_PORT="$DATABASE_PORT" \
-        AYB_DATABASE_EMBEDDED_DATA_DIR="$data_dir" \
-        exec "$AYB_BIN" demo "$name") > "$log" 2>&1 &
+    (
+        cd "$example_dir" || exit 1
+        export HOME="$runtime_home"
+        export AYB_SERVER_PORT="$SERVER_PORT"
+        export AYB_DATABASE_EMBEDDED_PORT="$DATABASE_PORT"
+        export AYB_DATABASE_EMBEDDED_DATA_DIR="$data_dir"
+        if [ "$name" = "movies" ]; then \
+            AYB_AUTH_MAGIC_LINK_ENABLED=true exec "$AYB_BIN" demo "$name"; \
+        else \
+            exec "$AYB_BIN" demo "$name"; \
+        fi
+    ) > "$log" 2>&1 &
     demo_pid=$!
 
     # Wait for AYB server
@@ -241,7 +247,7 @@ run_demo_e2e() {
     local guard_status=0
     pw_log=$(mktemp /tmp/ayb-pw-${name}.XXXXXX)
 
-    (cd "$example_dir" && npx playwright test 2>&1) | tee "$pw_log"
+    (cd "$example_dir" && AYB_DEMO_EXTERNAL_SERVER=1 npx playwright test 2>&1) | tee "$pw_log"
     playwright_status=${PIPESTATUS[0]}
 
     previous_dir="$(pwd)"

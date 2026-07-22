@@ -445,7 +445,7 @@ describe("auth", () => {
     const result = await client.auth.requestMagicLink("demo@example.com");
     const call = (fetchFn as ReturnType<typeof vi.fn>).mock.calls[0];
 
-    expect(call[0]).toContain("/api/auth/magic-link");
+    expect(call[0]).toBe("http://localhost:8090/api/auth/magic-link");
     expect(call[1].method).toBe("POST");
     expect(JSON.parse(call[1].body as string)).toEqual({ email: "demo@example.com" });
     expect(result).toEqual({ message: "if valid, a login link has been sent" });
