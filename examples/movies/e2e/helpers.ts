@@ -1,4 +1,4 @@
-import { expect, type Page } from "@playwright/test";
+import { expect, type Page, type Route } from "@playwright/test";
 
 export const DEMO_EMAIL = "alice@demo.test";
 
@@ -31,6 +31,18 @@ const EMPTY_MOVIES_RESPONSE: MovieSearchResponse = {
 
 const ANONYMOUS_BOOTSTRAP_OPTOUT_KEY = "ayb_anonymous_bootstrap_optout";
 const MOVIE_COLLECTION_ROUTE = "**/api/collections/movies**";
+const MAGIC_LINK_ROUTE = "**/api/auth/magic-link";
+
+type MagicLinkRequestEvidence = {
+  method: string;
+  path: string;
+  jsonBody: unknown;
+  responseStatus: number;
+};
+
+type MagicLinkRequestCapture = {
+  evidence: () => Promise<MagicLinkRequestEvidence>;
+};
 
 export async function optOutAnonymousBootstrap(page: Page): Promise<void> {
   await page.addInitScript((key) => {
@@ -92,6 +104,66 @@ export async function failNextAuthLogin(page: Page): Promise<void> {
     }
     await route.continue();
   });
+}
+
+/** Capture the next magic-link request while allowing it to reach the backend. */
+export async function recordNextMagicLinkRequest(page: Page): Promise<MagicLinkRequestCapture> {
+  let settled = false;
+  let resolveEvidence: (evidence: MagicLinkRequestEvidence) => void = () => {};
+  let rejectEvidence: (error: Error) => void = () => {};
+  const evidencePromise = new Promise<MagicLinkRequestEvidence>((resolve, reject) => {
+    resolveEvidence = resolve;
+    rejectEvidence = reject;
+  });
+
+  const handler = async (route: Route) => {
+    if (settled) {
+      await route.continue();
+      return;
+    }
+    settled = true;
+    clearTimeout(timeoutID);
+    const request = route.request();
+    let evidence: MagicLinkRequestEvidence | undefined;
+    let captureError: unknown;
+    try {
+      const jsonBody = request.postDataJSON();
+      const response = await route.fetch();
+      await route.fulfill({ response });
+      evidence = {
+        method: request.method(),
+        path: new URL(request.url()).pathname,
+        jsonBody,
+        responseStatus: response.status(),
+      };
+    } catch (error) {
+      captureError = error;
+      await route.continue().catch(() => {});
+    }
+    try {
+      await page.unroute(MAGIC_LINK_ROUTE, handler);
+    } catch (error) {
+      captureError ??= error;
+    }
+    if (captureError) {
+      const detail = captureError instanceof Error ? captureError.message : String(captureError);
+      rejectEvidence(new Error(`Failed to capture magic-link request: ${detail}`));
+      return;
+    }
+    if (!evidence) {
+      rejectEvidence(new Error("Failed to capture magic-link request: no evidence was recorded"));
+      return;
+    }
+    resolveEvidence(evidence);
+  };
+
+  await page.route(MAGIC_LINK_ROUTE, handler);
+  const timeoutID = setTimeout(() => {
+    settled = true;
+    rejectEvidence(new Error("magic-link request was not sent"));
+    void page.unroute(MAGIC_LINK_ROUTE, handler).catch(() => {});
+  }, 15000);
+  return { evidence: () => evidencePromise };
 }
 
 export async function failNextLogout(page: Page): Promise<void> {

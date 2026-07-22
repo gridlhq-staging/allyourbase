@@ -143,14 +143,28 @@ func TestDemoPlaywrightConfigsAreExecutionGuarded(t *testing.T) {
 			})
 		})
 	}
-	t.Run("kanban_reuses_isolated_demo_port", func(t *testing.T) {
+	t.Run("kanban_fails_closed_on_prebound_demo_port", func(t *testing.T) {
 		configPath := filepath.Join(repoRoot, "examples", "kanban", "playwright.config.ts")
 		config := readRepoText(t, configPath)
 		requireContainsAll(t, config, []string{
 			"process.env.AYB_DEMO_APP_PORT",
 			"port: testPort",
-			"reuseExistingServer: true",
+			"reuseExistingServer: false",
 		})
+	})
+	t.Run("kanban_focused_config_fails_closed_and_starts_demo_runtime", func(t *testing.T) {
+		config := readRepoText(t, filepath.Join(repoRoot, "examples", "kanban", "playwright.config.ts"))
+		requireContainsAll(t, config, []string{
+			"webServer:", "../../ayb", "demo kanban", "AYB_SERVER_PORT", "AYB_DATABASE_EMBEDDED_PORT",
+			"export AYB_SERVER_PORT", "export AYB_DATABASE_EMBEDDED_PORT", "export AYB_DATABASE_EMBEDDED_DATA_DIR",
+			"export HOME", "AYB_AUTH_RATE_LIMIT=10000", "AYB_RATE_LIMIT_API=10000/min", "demo_pid", "trap cleanup EXIT INT TERM",
+			`AYB_DATABASE_EMBEDDED_DATA_DIR="$(mktemp`, `gracefulShutdown: { signal: "SIGINT", timeout: 10000 }`,
+		})
+		requireDoesNotContainAny(t, config, []string{"npm run dev", "vite", `export AYB_SERVER_PORT="$(pick_free_port`,
+			`export AYB_DATABASE_EMBEDDED_PORT="$(pick_free_port`, `export AYB_DATABASE_EMBEDDED_DATA_DIR="$(mktemp`})
+		if strings.Index(config, "trap cleanup EXIT INT TERM") > strings.Index(config, `AYB_DATABASE_EMBEDDED_DATA_DIR="$(mktemp`) {
+			t.Fatal("Kanban runtime cleanup trap must be installed before temporary runtime state is allocated")
+		}
 	})
 	t.Run("manual_smoke_harness", func(t *testing.T) {
 		scriptPath := filepath.Join(repoRoot, "_dev", "manual_smoke_tests", "18_demo_e2e.test.sh")
@@ -270,7 +284,7 @@ func TestDemoCIJobsPinNewGitHubActions(t *testing.T) {
 			t.Fatal("workflow is missing jobs.demo-instantsearch")
 		}
 		requireJobUsesAction(t, job, "actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd")
-		requireJobUsesAction(t, job, "actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e")
+		requireJobUsesAction(t, job, githubActionsSetupNode22Action)
 		requireJobUsesAction(t, job, "actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16")
 	})
 	t.Run("demo-unit", func(t *testing.T) {
@@ -279,7 +293,7 @@ func TestDemoCIJobsPinNewGitHubActions(t *testing.T) {
 			t.Fatal("workflow is missing jobs.demo-unit")
 		}
 		requireJobUsesAction(t, job, "actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd")
-		requireJobUsesAction(t, job, "actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e")
+		requireJobUsesAction(t, job, githubActionsSetupNode22Action)
 	})
 }
 
@@ -345,13 +359,9 @@ func TestMoviesRealProviderSmokeIsWiredAndUnskippable(t *testing.T) {
 			t.Errorf("%s must run make %s from the repository root with its failure gating the job",
 				moviesRealProviderJob, moviesRealProviderTarget)
 		}
+		requireWorkflowJobPreparesJavaScriptPrerequisites(t, workflow, makefile, moviesRealProviderJob, moviesRealProviderTarget)
 		requireJobUsesAction(t, job, "actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd")
 		requireJobUsesAction(t, job, "actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16")
-		for _, step := range job.Steps {
-			if strings.HasPrefix(strings.TrimSpace(step.Uses), "actions/setup-node@") {
-				t.Errorf("%s must not set up Node; the default real-provider path runs no Node code", moviesRealProviderJob)
-			}
-		}
 		if job.TimeoutMinutes <= 0 {
 			t.Errorf("%s must declare an explicit timeout-minutes sized from the measured pull/smoke runtime", moviesRealProviderJob)
 		}
@@ -654,6 +664,91 @@ func TestDemoCIWiringShellAssertionsRejectNonExecutedText(t *testing.T) {
 	if got := shellCommandBlockIndex(commands, []string{"npx", "playwright", "test"}); got != 1 {
 		t.Fatalf("Playwright command lookup must ignore echoed text; got block index %d", got)
 	}
+}
+
+func workflowJobRunsScriptWithFlag(workflow githubActionsWorkflow, jobName, script, flag string) bool {
+	job, ok := workflow.Jobs[jobName]
+	if !ok {
+		return false
+	}
+	for _, step := range job.Steps {
+		if !githubActionsStepIsRootGating(workflow.Defaults, job, step) {
+			continue
+		}
+		for _, block := range executableShellCommandBlocks(step.Run) {
+			if shellBlockRunsCommandWithArgs(block, []string{script, flag}) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func requireShellCommandsRun(t *testing.T, name string, commands []string, wanted [][]string) {
+	t.Helper()
+	for _, want := range wanted {
+		if shellCommandBlockIndex(commands, want) < 0 {
+			t.Errorf("%s must execute %q", name, strings.Join(want, " "))
+		}
+	}
+}
+
+func recipeContainsScopedCommand(recipe, demo, command string) bool {
+	for _, block := range executableShellCommandBlocks(recipe) {
+		if shellBlockRunsScopedCommand(block, demo, strings.Fields(command)) {
+			return true
+		}
+	}
+	return false
+}
+
+func recipeContainsCommandWithArgs(recipe string, args []string) bool {
+	for _, block := range executableShellCommandBlocks(recipe) {
+		if shellBlockRunsCommandWithArgs(block, args) {
+			return true
+		}
+	}
+	return false
+}
+
+func shellBlockRunsScopedCommand(block, demo string, commandFields []string) bool {
+	seenScopedCD := false
+	for _, segment := range shellCommandSegments(block) {
+		if shellSegmentChangesToDemo(segment, demo) {
+			seenScopedCD = true
+			continue
+		}
+		if shellSegmentStartsWithCommand(segment, "cd") {
+			seenScopedCD = false
+			continue
+		}
+		if seenScopedCD && shellSegmentStartsWithFields(segment, commandFields) {
+			return true
+		}
+	}
+	return false
+}
+
+func shellSegmentChangesToDemo(segment, demo string) bool {
+	fields := strings.Fields(segment)
+	if len(fields) < 2 || fields[0] != "cd" {
+		return false
+	}
+	return strings.Trim(fields[1], `"'`) == "examples/"+demo
+}
+
+func missingStrings(want, got []string) []string {
+	gotSet := make(map[string]struct{}, len(got))
+	for _, value := range got {
+		gotSet[value] = struct{}{}
+	}
+	var missing []string
+	for _, value := range want {
+		if _, ok := gotSet[value]; !ok {
+			missing = append(missing, value)
+		}
+	}
+	return missing
 }
 
 func readDemoPackageManifests(t *testing.T, repoRoot string) map[string]demoPackageManifest {

@@ -54,6 +54,7 @@ func TestPushSmokeWorkflowJobIsBlockingAndMinimal(t *testing.T) {
 	t.Parallel()
 
 	repoRoot := findRepoRoot(t)
+	makefile := readRepoText(t, filepath.Join(repoRoot, "Makefile"))
 	workflowPath := filepath.Join(repoRoot, ".github", "workflows", "ci.yml")
 	var workflow githubActionsWorkflow
 	if err := yaml.Unmarshal([]byte(readRepoText(t, workflowPath)), &workflow); err != nil {
@@ -74,13 +75,11 @@ func TestPushSmokeWorkflowJobIsBlockingAndMinimal(t *testing.T) {
 		if strings.TrimSpace(step.If) != "" {
 			t.Errorf("%s step %q must not declare an if: %q", pushSmokeJob, step.Name, step.If)
 		}
-		if strings.HasPrefix(strings.TrimSpace(step.Uses), "actions/setup-node@") {
-			t.Errorf("%s must not set up Node", pushSmokeJob)
-		}
 	}
 	if !workflowJobHasRunStep(workflow, pushSmokeJob, "make "+pushSmokeTarget) {
 		t.Fatalf("%s must run make %s unconditionally from the repository root", pushSmokeJob, pushSmokeTarget)
 	}
+	requireWorkflowJobPreparesJavaScriptPrerequisites(t, workflow, makefile, pushSmokeJob, pushSmokeTarget)
 	requireJobUsesAction(t, job, "actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd")
 	requireJobUsesAction(t, job, "actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16")
 	if !pushSmokeJobInstallsPrerequisites(job) {

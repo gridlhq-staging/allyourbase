@@ -7,11 +7,23 @@ import {
   addCard,
   loginUser,
   runId,
+  uniqueName,
   DEMO_ACCOUNTS,
   loginWithDemoAccount,
 } from "./helpers";
 
+const persistentBoardName = uniqueName("My Persistent Board");
+const deleteBoardName = uniqueName("Will Delete");
+
 test.describe("Row-Level Security (collaborative model)", () => {
+  test("collaborative persistence board names include run-specific suffixes", () => {
+    expect(persistentBoardName).not.toBe("My Persistent Board");
+    expect(deleteBoardName).not.toBe("Will Delete");
+    expect(persistentBoardName).toContain(runId);
+    expect(deleteBoardName).toContain(runId);
+    expect(persistentBoardName).not.toBe(deleteBoardName);
+  });
+
   test("user B can see user A boards", async ({ browser }) => {
     const boardName = `Visible Board ${runId}`;
     // User A creates a board.
@@ -77,8 +89,8 @@ test.describe("Row-Level Security (collaborative model)", () => {
     const ctx = await browser.newContext();
     const page = await ctx.newPage();
     const email = await registerUser(page);
-    await createBoard(page, "My Persistent Board");
-    await expect(page.getByText("My Persistent Board")).toBeVisible();
+    await createBoard(page, persistentBoardName);
+    await expect(page.getByText(persistentBoardName)).toBeVisible();
 
     // Logout.
     await page.getByText("Sign out").click();
@@ -86,7 +98,7 @@ test.describe("Row-Level Security (collaborative model)", () => {
 
     // Login again.
     await loginUser(page, email);
-    await expect(page.getByText("My Persistent Board")).toBeVisible();
+    await expect(page.getByText(persistentBoardName)).toBeVisible();
 
     await ctx.close();
   });
@@ -95,22 +107,22 @@ test.describe("Row-Level Security (collaborative model)", () => {
     const ctx = await browser.newContext();
     const page = await ctx.newPage();
     const email = await registerUser(page);
-    await createBoard(page, "Will Delete");
-    await expect(page.getByText("Will Delete")).toBeVisible();
+    await createBoard(page, deleteBoardName);
+    await expect(page.getByText(deleteBoardName)).toBeVisible();
 
     // Delete the board.
     page.on("dialog", (dialog) => dialog.accept());
-    const boardCard = page.getByRole("button", { name: /Open board Will Delete/ });
+    const boardCard = page.getByRole("button", { name: `Open board ${deleteBoardName}` });
     await boardCard.hover();
-    await page.getByRole("button", { name: "Delete board Will Delete" }).click();
-    await expect(page.getByText("Will Delete")).toBeHidden();
+    await page.getByRole("button", { name: `Delete board ${deleteBoardName}` }).click();
+    await expect(page.getByText(deleteBoardName)).toBeHidden();
 
     // Logout and re-login.
     await page.getByText("Sign out").click();
     await loginUser(page, email);
 
     // Should still be gone.
-    await expect(page.getByText("Will Delete")).toBeHidden();
+    await expect(page.getByText(deleteBoardName)).toBeHidden();
 
     await ctx.close();
   });

@@ -59,6 +59,19 @@ func TestCheckCoverageMatrixScriptPassesForZeroGateCounts(t *testing.T) {
 	}
 }
 
+func TestCheckCoverageMatrixScriptPassesForCanonicalMatrix(t *testing.T) {
+	t.Parallel()
+
+	repoRoot := findRepoRoot(t)
+	cmd := exec.Command("bash", checkCoverageMatrixScript)
+	cmd.Dir = repoRoot
+
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("expected canonical coverage matrix success, got error: %v output=%s", err, output)
+	}
+}
+
 func TestCheckCoverageMatrixScriptFailsForNonZeroGateCount(t *testing.T) {
 	t.Parallel()
 

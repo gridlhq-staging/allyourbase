@@ -15,6 +15,8 @@ import (
 )
 
 const apexLandingCanonicalRepo = "AllyourbaseHQ/allyourbase"
+const apexLandingIndexPath = "examples/apex_landing/index.html"
+const apexLandingDirmapPath = "examples/apex_landing/DIRMAP.md"
 
 const (
 	apexCheckoutAction = "actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd"
@@ -26,7 +28,6 @@ var (
 	apexGitHubHrefPattern = regexp.MustCompile(`href=["'](https://github\.com/[A-Za-z0-9_.-]+(?:/[A-Za-z0-9_.-]+)?)["']`)
 	apexGitHubTextPattern = regexp.MustCompile(`>\s*(github\.com/[A-Za-z0-9_.-]+(?:/[A-Za-z0-9_.-]+)?)\s*</a>`)
 	apexDemoURLPattern    = regexp.MustCompile(`https://([a-z0-9-]+)\.demo\.allyourbase\.io`)
-	apexOwnerLabelPattern = regexp.MustCompile("`([a-z0-9-]+)\\.`")
 )
 
 func TestApexLandingGitHubLinkIsCanonicalPublicRepo(t *testing.T) {
@@ -64,30 +65,40 @@ func TestApexLandingCanonicalRepoMatchesDebbieProdIdentity(t *testing.T) {
 	}
 }
 
-func TestApexLandingDirmapMatchesIndexHTML(t *testing.T) {
+func TestApexLandingIndexHTMLCarriesDemoLinks(t *testing.T) {
 	t.Parallel()
 
 	repoRoot := findRepoRoot(t)
 	indexDemos := extractApexDemoNames(readApexLandingFile(t, repoRoot, "index.html"))
-	dirmapContent := readApexLandingFile(t, repoRoot, "DIRMAP.md")
-	dirmapDemos := extractApexDirmapOwnerDemos(dirmapContent)
 
 	if len(indexDemos) == 0 {
 		t.Fatal("expected at least one *.demo.allyourbase.io link in apex landing page")
 	}
-	if len(dirmapDemos) == 0 {
-		t.Fatal("expected at least one live subdomain owner in apex landing DIRMAP owner sentence")
+}
+
+func TestApexLandingProjectedSourceSurvivesPublicProjection(t *testing.T) {
+	t.Parallel()
+
+	repoRoot := findRepoRoot(t)
+	indexHTML := readRepoText(t, filepath.Join(repoRoot, apexLandingIndexPath))
+	demos := extractApexDemoNames(indexHTML)
+	if len(demos) == 0 {
+		t.Fatal("expected at least one *.demo.allyourbase.io link in apex landing page")
 	}
 
-	if missing := apexSetDifference(indexDemos, dirmapDemos); len(missing) > 0 {
-		t.Errorf("DIRMAP live-owner sentence is missing demos linked by index.html: %v", missing)
+	scope, err := loadDebbieSyncScope(repoRoot)
+	if errors.Is(err, fs.ErrNotExist) {
+		return
 	}
-	if extra := apexSetDifference(dirmapDemos, indexDemos); len(extra) > 0 {
-		t.Errorf("DIRMAP live-owner sentence has extra demos not linked by index.html: %v", extra)
+	if err != nil {
+		t.Fatalf("load Debbie sync scope: %v", err)
 	}
-	normalizedDirmap := strings.Join(strings.Fields(dirmapContent), " ")
-	if strings.Contains(normalizedDirmap, "until a live deploy owner has landed") {
-		t.Error("DIRMAP still claims a demo is waiting until a live deploy owner has landed")
+	postSyncDeletesDirmap := apexPostSyncHooksDeleteDirmap(t, repoRoot)
+	if !apexSourceSurvivesPublicProjection(scope, apexLandingIndexPath, postSyncDeletesDirmap) {
+		t.Fatalf("%s must survive Debbie projection and post-sync cleanup", apexLandingIndexPath)
+	}
+	if apexSourceSurvivesPublicProjection(scope, apexLandingDirmapPath, postSyncDeletesDirmap) {
+		t.Fatalf("%s must not be an apex contract source after post-sync DIRMAP deletion", apexLandingDirmapPath)
 	}
 }
 
@@ -256,18 +267,16 @@ func requireApexExactStrings(t *testing.T, description string, got, want []strin
 func TestApexLandingContractParsersKnownAnswer(t *testing.T) {
 	t.Parallel()
 
-	t.Run("well formed page and DIRMAP", func(t *testing.T) {
+	t.Run("well formed page", func(t *testing.T) {
 		page := `<a href="https://kanban.demo.allyourbase.io">Kanban</a>
 <a href="https://movies.demo.allyourbase.io">Movies</a>
 <a href="https://github.com/AllyourbaseHQ/allyourbase">github.com/AllyourbaseHQ/allyourbase</a>`
-		dirmap := "Owner of the apex URL; the two demo subdomains (`kanban.`, `movies.`) remain owned by their demo apps."
 
 		assertApexStringSetEqual(t, "GitHub identities", extractApexGitHubIdentities(page), apexStringSet(
 			"https://github.com/AllyourbaseHQ/allyourbase",
 			"github.com/AllyourbaseHQ/allyourbase",
 		))
 		assertApexStringSetEqual(t, "index demos", extractApexDemoNames(page), apexStringSet("kanban", "movies"))
-		assertApexStringSetEqual(t, "DIRMAP owners", extractApexDirmapOwnerDemos(dirmap), apexStringSet("kanban", "movies"))
 	})
 
 	t.Run("wrong GitHub org is preserved for comparison", func(t *testing.T) {
@@ -293,16 +302,19 @@ github = "wrong/section"`
 		}
 	})
 
-	t.Run("DIRMAP ignores demos outside owner sentence labels", func(t *testing.T) {
-		page := `<a href="https://kanban.demo.allyourbase.io">Kanban</a>
-<a href="https://movies.demo.allyourbase.io">Movies</a>`
-		dirmap := "Owner of the apex URL; the demo subdomain (`kanban.`) remains owned by its demo app, while Movies is described elsewhere.\n\n| index.html | Links movies.demo.allyourbase.io. |"
-		indexDemos := extractApexDemoNames(page)
-		dirmapDemos := extractApexDirmapOwnerDemos(dirmap)
+	t.Run("Debbie projected source rejects post sync DIRMAP contract source", func(t *testing.T) {
+		debbie := `[sync]
+files = ["README.md"]
 
-		assertApexStringSetEqual(t, "DIRMAP owners", dirmapDemos, apexStringSet("kanban"))
-		if got := apexSetDifference(indexDemos, dirmapDemos); !equalApexStrings(got, []string{"movies"}) {
-			t.Fatalf("missing DIRMAP owners = %v, want [movies]", got)
+[[sync.dirs]]
+path = "examples/"
+`
+		scope := parseDebbieSyncScope(debbie)
+		if !apexSourceSurvivesPublicProjection(scope, apexLandingIndexPath, true) {
+			t.Fatalf("%s must survive examples/ sync scope", apexLandingIndexPath)
+		}
+		if apexSourceSurvivesPublicProjection(scope, apexLandingDirmapPath, true) {
+			t.Fatalf("%s must not survive post-sync DIRMAP deletion", apexLandingDirmapPath)
 		}
 	})
 
@@ -312,9 +324,6 @@ github = "wrong/section"`
 		}
 		if got := extractApexDemoNames(""); len(got) != 0 {
 			t.Fatalf("index demos = %v, want empty", sortedApexSet(got))
-		}
-		if got := extractApexDirmapOwnerDemos(""); len(got) != 0 {
-			t.Fatalf("DIRMAP owners = %v, want empty", sortedApexSet(got))
 		}
 	})
 }
@@ -349,18 +358,30 @@ func extractApexDemoNames(page string) map[string]struct{} {
 	return demos
 }
 
-func extractApexDirmapOwnerDemos(dirmap string) map[string]struct{} {
-	demos := make(map[string]struct{})
-	for _, paragraph := range strings.Split(dirmap, "\n\n") {
-		if !strings.Contains(paragraph, "Owner of the apex URL;") {
-			continue
-		}
-		for _, match := range apexOwnerLabelPattern.FindAllStringSubmatch(paragraph, -1) {
-			demos[match[1]] = struct{}{}
-		}
-		break
+func apexSourceSurvivesPublicProjection(scope debbieSyncScope, relativePath string, postSyncDeletesDirmap bool) bool {
+	normalizedPath := normalizeDebbiePath(relativePath)
+	if !scope.includes(normalizedPath) {
+		return false
 	}
-	return demos
+	return !postSyncDeletesDirmap || filepath.Base(normalizedPath) != "DIRMAP.md"
+}
+
+func apexPostSyncHooksDeleteDirmap(t *testing.T, repoRoot string) bool {
+	t.Helper()
+
+	for _, path := range []string{
+		filepath.Join(repoRoot, ".debbie", "post-sync-staging.sh"),
+		filepath.Join(repoRoot, ".debbie", "post-sync-prod.sh"),
+	} {
+		content, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatalf("read %s: %v", path, err)
+		}
+		if !strings.Contains(string(content), `find "$TARGET_ROOT" -name "DIRMAP.md" -delete`) {
+			t.Fatalf("%s must delete DIRMAP.md after public projection", path)
+		}
+	}
+	return true
 }
 
 func parseDebbieProdGitHub(content string) string {

@@ -9,6 +9,7 @@ import {
   failNextNoteEmbed,
   loginWithDemoAccount,
   optOutAnonymousBootstrap,
+  recordNextMagicLinkRequest,
   returnEmptyMovieCorpus,
   searchForMovie,
 } from "./helpers";
@@ -97,11 +98,35 @@ test("signed-out auth surface exposes login, registration, guest, and magic-link
   await page.getByRole("button", { name: "Sign in" }).click();
 
   await page.getByLabel("Email").fill("magic-state@example.test");
+  const magicLinkRequest = await recordNextMagicLinkRequest(page);
   await page.getByRole("button", { name: "Email me a magic link" }).click();
+  await expect(magicLinkRequest.evidence()).resolves.toEqual({
+    method: "POST",
+    path: "/api/auth/magic-link",
+    jsonBody: { email: "magic-state@example.test" },
+    responseStatus: 200,
+  });
   await expect(page.getByRole("status")).toHaveText(
     "We sent a magic link to magic-state@example.test. Check your inbox.",
     { timeout: 15000 },
   );
+});
+
+test("magic-link request capture reports malformed JSON without timing out", async ({ page }) => {
+  await page.goto("/");
+  const magicLinkRequest = await recordNextMagicLinkRequest(page);
+
+  await page.addScriptTag({
+    content: `
+      void fetch("/api/auth/magic-link", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: "not-json",
+      });
+    `,
+  });
+
+  await expect(magicLinkRequest.evidence()).rejects.toThrow("capture magic-link request");
 });
 
 test("authentication failure stays on the signed-out form with exact alert copy", async ({ page }) => {

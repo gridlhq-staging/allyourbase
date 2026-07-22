@@ -132,11 +132,11 @@ func TestCIDockerSmokeWorkflowContract(t *testing.T) {
 
 	requireContainsAll(t, workflowContent, []string{
 		"docker-smoke:",
-		"  docker-smoke:\n    runs-on: ubuntu-latest\n    steps:\n      - uses: actions/checkout@v6",
+		"  docker-smoke:\n    runs-on: ubuntu-latest\n    steps:\n      - uses: " + githubActionsCheckoutAction,
 		"      - name: Build Docker image (no-cache plain-progress evidence)\n        shell: bash\n        run: DOCKER_BUILDKIT=1 docker build --no-cache --progress=plain . 2>&1 | tee /tmp/docker-smoke-build.log",
 		"DOCKER_BUILDKIT=1 docker build --no-cache --progress=plain . 2>&1 | tee /tmp/docker-smoke-build.log",
 		"if: always()",
-		"uses: actions/upload-artifact@v7",
+		"uses: " + githubActionsUploadArtifactAction,
 		"name: docker-smoke-build-log",
 		"path: /tmp/docker-smoke-build.log",
 	})

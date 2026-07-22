@@ -56,6 +56,13 @@ type githubActionsRunDefaults struct {
 	WorkingDirectory string `yaml:"working-directory"`
 }
 
+const (
+	githubActionsCheckoutAction       = "actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd"
+	githubActionsSetupNode22Action    = "actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e"
+	githubActionsSetupGoAction        = "actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16"
+	githubActionsUploadArtifactAction = "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a"
+)
+
 func readRepoText(t *testing.T, path string) string {
 	t.Helper()
 	data, err := os.ReadFile(path)
@@ -102,62 +109,59 @@ func makefileDeclaresPhony(makefile, target string) bool {
 }
 
 func makeTargetPrerequisites(makefile, target string) []string {
-	pattern := regexp.MustCompile(`(?m)^` + regexp.QuoteMeta(target) + `\s*:([^=\n]*)$`)
-	match := pattern.FindStringSubmatch(makefile)
-	if match == nil {
-		return nil
+	return parseMakefilePrerequisiteGraph(makefile)[target]
+}
+
+func parseMakefilePrerequisiteGraph(makefile string) map[string][]string {
+	graph := make(map[string][]string)
+	for _, line := range strings.Split(makefile, "\n") {
+		targetsText, prerequisitesText, found := strings.Cut(line, ":")
+		if strings.HasPrefix(line, "\t") || strings.HasPrefix(strings.TrimSpace(line), "#") ||
+			!found || strings.Contains(targetsText, "=") {
+			continue
+		}
+		prerequisites := strings.Fields(strings.SplitN(prerequisitesText, "#", 2)[0])
+		for _, target := range strings.Fields(targetsText) {
+			graph[target] = append([]string(nil), prerequisites...)
+		}
 	}
-	return strings.Fields(strings.SplitN(match[1], "##", 2)[0])
+	return graph
+}
+
+func makeTargetReachesPrerequisite(makefile, target, prerequisite string) (bool, string) {
+	graph := parseMakefilePrerequisiteGraph(makefile)
+	visiting := make(map[string]bool)
+	var walk func(string, []string) (bool, string)
+	walk = func(current string, path []string) (bool, string) {
+		if current == prerequisite {
+			return true, ""
+		}
+		dependencies, ok := graph[current]
+		if !ok {
+			return false, "missing Make target " + current
+		}
+		if visiting[current] {
+			return false, "cyclic Make dependency path: " + strings.Join(append(path, current), " -> ")
+		}
+		visiting[current] = true
+		defer delete(visiting, current)
+		for _, dependency := range dependencies {
+			if _, ok := graph[dependency]; dependency != prerequisite && !ok {
+				return false, "indeterminate Make dependency path: unresolved prerequisite " + dependency
+			}
+			reached, problem := walk(dependency, append(path, current))
+			if reached || problem != "" {
+				return reached, problem
+			}
+		}
+		return false, ""
+	}
+	return walk(target, nil)
 }
 
 func containsStringField(fields []string, want string) bool {
 	for _, field := range fields {
 		if field == want {
-			return true
-		}
-	}
-	return false
-}
-
-func workflowJobRunsScriptWithFlag(workflow githubActionsWorkflow, jobName, script, flag string) bool {
-	job, ok := workflow.Jobs[jobName]
-	if !ok {
-		return false
-	}
-	for _, step := range job.Steps {
-		if !githubActionsStepIsRootGating(workflow.Defaults, job, step) {
-			continue
-		}
-		for _, block := range executableShellCommandBlocks(step.Run) {
-			if shellBlockRunsCommandWithArgs(block, []string{script, flag}) {
-				return true
-			}
-		}
-	}
-	return false
-}
-
-func requireShellCommandsRun(t *testing.T, name string, commands []string, wanted [][]string) {
-	t.Helper()
-	for _, want := range wanted {
-		if shellCommandBlockIndex(commands, want) < 0 {
-			t.Errorf("%s must execute %q", name, strings.Join(want, " "))
-		}
-	}
-}
-
-func recipeContainsScopedCommand(recipe, demo, command string) bool {
-	for _, block := range executableShellCommandBlocks(recipe) {
-		if shellBlockRunsScopedCommand(block, demo, strings.Fields(command)) {
-			return true
-		}
-	}
-	return false
-}
-
-func recipeContainsCommandWithArgs(recipe string, args []string) bool {
-	for _, block := range executableShellCommandBlocks(recipe) {
-		if shellBlockRunsCommandWithArgs(block, args) {
 			return true
 		}
 	}
@@ -262,24 +266,6 @@ func shellCommandBlockIndex(commands []string, args []string) int {
 		}
 	}
 	return -1
-}
-
-func shellBlockRunsScopedCommand(block, demo string, commandFields []string) bool {
-	seenScopedCD := false
-	for _, segment := range shellCommandSegments(block) {
-		if shellSegmentChangesToDemo(segment, demo) {
-			seenScopedCD = true
-			continue
-		}
-		if shellSegmentStartsWithCommand(segment, "cd") {
-			seenScopedCD = false
-			continue
-		}
-		if seenScopedCD && shellSegmentStartsWithFields(segment, commandFields) {
-			return true
-		}
-	}
-	return false
 }
 
 func shellBlockRunsCommandWithArgs(block string, args []string) bool {
@@ -512,14 +498,6 @@ func normalizeShellSegment(segment string) string {
 	return strings.TrimSpace(strings.Trim(strings.TrimSpace(segment), "()"))
 }
 
-func shellSegmentChangesToDemo(segment, demo string) bool {
-	fields := strings.Fields(segment)
-	if len(fields) < 2 || fields[0] != "cd" {
-		return false
-	}
-	return strings.Trim(fields[1], `"'`) == "examples/"+demo
-}
-
 func shellSegmentStartsWithCommand(segment, command string) bool {
 	fields := strings.Fields(segment)
 	return len(fields) > 0 && fields[0] == command
@@ -577,19 +555,156 @@ func jobHasRunStep(job githubActionsJob, command string) bool {
 	}, "job", command)
 }
 
+const makeTargetJavaScriptStamp = "ui/dist/.stamp"
+
+func TestCIWorkflowPinsEveryActionToACommitSHA(t *testing.T) {
+	t.Parallel()
+
+	repoRoot := findRepoRoot(t)
+	workflowPath := filepath.Join(repoRoot, ".github", "workflows", "ci.yml")
+	var workflow githubActionsWorkflow
+	if err := yaml.Unmarshal([]byte(readRepoText(t, workflowPath)), &workflow); err != nil {
+		t.Fatalf("decode %s failed: %v", workflowPath, err)
+	}
+
+	for jobName, job := range workflow.Jobs {
+		for index, step := range job.Steps {
+			if strings.TrimSpace(step.Uses) == "" {
+				continue
+			}
+			if !githubActionsRefIsCommitPinned(step.Uses) {
+				t.Fatalf("jobs.%s.steps[%d].uses = %q, want immutable owner/name@40-hex commit SHA", jobName, index, step.Uses)
+			}
+		}
+	}
+}
+
+func requireWorkflowJobPreparesJavaScriptPrerequisites(t *testing.T, workflow githubActionsWorkflow, makefile, jobName, target string) {
+	t.Helper()
+	if problem := workflowJobJavaScriptPrerequisiteProblem(workflow, makefile, jobName, target); problem != "" {
+		t.Error(problem)
+	}
+}
+
+func TestWorkflowJobJavaScriptPrerequisiteProblem(t *testing.T) {
+	nodeStep := githubActionsStep{Uses: githubActionsSetupNode22Action, With: map[string]string{"node-version": "22"}}
+	pnpmStep := githubActionsStep{Name: "Enable pnpm", Run: "corepack enable pnpm"}
+	makeStep := githubActionsStep{Run: "make test-target"}
+	wrongNode := githubActionsStep{Uses: githubActionsSetupNode22Action, With: map[string]string{"node-version": "20"}}
+	conditionalNode := nodeStep
+	conditionalNode.If = "success()"
+	nonGatingPnpm := pnpmStep
+	nonGatingPnpm.ContinueOnError = yaml.Node{Kind: yaml.ScalarNode, Value: "true"}
+	transitiveMakefile := "test-target: build\nbuild: " + makeTargetJavaScriptStamp + "\n" + makeTargetJavaScriptStamp + ":\n"
+	cases := []struct {
+		name, makefile string
+		steps          []githubActionsStep
+		want           []string
+	}{
+		{"direct dependency with ordered setup", "test-target: " + makeTargetJavaScriptStamp + "\n", []githubActionsStep{nodeStep, pnpmStep, makeStep}, nil},
+		{"transitive dependency with ordered setup", transitiveMakefile, []githubActionsStep{nodeStep, pnpmStep, makeStep}, nil},
+		{"missing node", transitiveMakefile, []githubActionsStep{pnpmStep, makeStep}, []string{"missing unconditional root-level Node 22 setup-node"}},
+		{"wrong node version", transitiveMakefile, []githubActionsStep{wrongNode, pnpmStep, makeStep}, []string{"missing unconditional root-level Node 22 setup-node"}},
+		{"missing pnpm", transitiveMakefile, []githubActionsStep{nodeStep, makeStep}, []string{"missing unconditional root-level corepack enable pnpm"}},
+		{"setup after make", transitiveMakefile, []githubActionsStep{makeStep, nodeStep, pnpmStep}, []string{"missing unconditional root-level Node 22 setup-node", "missing unconditional root-level corepack enable pnpm"}},
+		{"pnpm before node", transitiveMakefile, []githubActionsStep{pnpmStep, nodeStep, makeStep}, []string{"Node 22 setup-node must run before corepack enable pnpm"}},
+		{"conditional node setup", transitiveMakefile, []githubActionsStep{conditionalNode, pnpmStep, makeStep}, []string{"missing unconditional root-level Node 22 setup-node"}},
+		{"non gating pnpm setup", transitiveMakefile, []githubActionsStep{nodeStep, nonGatingPnpm, makeStep}, []string{"missing unconditional root-level corepack enable pnpm"}},
+		{"dependency cycle", "test-target: build\nbuild: test-target\n", []githubActionsStep{nodeStep, pnpmStep, makeStep}, []string{"cyclic Make dependency path"}},
+		{"unresolved dependency", "test-target: missing-target\n", []githubActionsStep{nodeStep, pnpmStep, makeStep}, []string{"unresolved prerequisite missing-target"}},
+	}
+	for _, tc := range cases {
+		workflow := githubActionsWorkflow{Jobs: map[string]githubActionsJob{"job": {Steps: tc.steps}}}
+		problem := workflowJobJavaScriptPrerequisiteProblem(workflow, tc.makefile, "job", "test-target")
+		if len(tc.want) == 0 && problem != "" {
+			t.Fatalf("%s: problem = %q, want none", tc.name, problem)
+		}
+		for _, want := range tc.want {
+			if !strings.Contains(problem, want) {
+				t.Fatalf("%s: problem = %q, want substring %q", tc.name, problem, want)
+			}
+		}
+	}
+}
+
+func workflowJobJavaScriptPrerequisiteProblem(workflow githubActionsWorkflow, makefile, jobName, target string) string {
+	reachesStamp, dependencyProblem := makeTargetReachesPrerequisite(makefile, target, makeTargetJavaScriptStamp)
+	if dependencyProblem != "" {
+		return jobName + " cannot derive Make prerequisites for " + target + ": " + dependencyProblem
+	}
+	if !reachesStamp {
+		return ""
+	}
+	if _, ok := workflow.Jobs[jobName]; !ok {
+		return "workflow is missing jobs." + jobName
+	}
+	makeStepIndex := workflowJobRunStepIndex(workflow, jobName, "make "+target)
+	nodeStepIndex := workflowJobStepIndex(workflow, jobName, githubActionsStepSetsUpNode22)
+	pnpmStepIndex := workflowJobStepIndex(workflow, jobName, githubActionsStepEnablesPnpm)
+	var problems []string
+	if makeStepIndex < 0 {
+		problems = append(problems, "missing gating make "+target+" step")
+	}
+	if nodeStepIndex < 0 || (makeStepIndex >= 0 && nodeStepIndex > makeStepIndex) {
+		problems = append(problems, "missing unconditional root-level Node 22 setup-node before make "+target)
+	}
+	if pnpmStepIndex < 0 || (makeStepIndex >= 0 && pnpmStepIndex > makeStepIndex) {
+		problems = append(problems, "missing unconditional root-level corepack enable pnpm before make "+target)
+	}
+	if nodeStepIndex >= 0 && pnpmStepIndex >= 0 && nodeStepIndex > pnpmStepIndex {
+		problems = append(problems, "Node 22 setup-node must run before corepack enable pnpm")
+	}
+	if len(problems) == 0 {
+		return ""
+	}
+	return jobName + " must prepare JavaScript prerequisites because " +
+		target + " reaches " + makeTargetJavaScriptStamp + ": " + strings.Join(problems, "; ")
+}
+
 func workflowJobHasRunStep(workflow githubActionsWorkflow, jobName, command string) bool {
+	return workflowJobRunStepIndex(workflow, jobName, command) >= 0
+}
+
+func workflowJobRunStepIndex(workflow githubActionsWorkflow, jobName, command string) int {
 	job, ok := workflow.Jobs[jobName]
 	if !ok {
-		return false
+		return -1
 	}
-	for _, step := range job.Steps {
+	for index, step := range job.Steps {
 		if !githubActionsStepIsRootGating(workflow.Defaults, job, step) {
 			continue
 		}
 		for _, block := range executableShellCommandBlocks(step.Run) {
 			if shellBlockRunsCommandWithArgs(block, strings.Fields(command)) {
-				return true
+				return index
 			}
+		}
+	}
+	return -1
+}
+
+func workflowJobStepIndex(workflow githubActionsWorkflow, jobName string, matches func(githubActionsStep) bool) int {
+	job, ok := workflow.Jobs[jobName]
+	if !ok {
+		return -1
+	}
+	for index, step := range job.Steps {
+		if githubActionsStepIsRootGating(workflow.Defaults, job, step) && matches(step) {
+			return index
+		}
+	}
+	return -1
+}
+
+func githubActionsStepSetsUpNode22(step githubActionsStep) bool {
+	return strings.TrimSpace(step.Uses) == githubActionsSetupNode22Action &&
+		strings.TrimSpace(step.With["node-version"]) == "22"
+}
+
+func githubActionsStepEnablesPnpm(step githubActionsStep) bool {
+	for _, block := range executableShellCommandBlocks(step.Run) {
+		if shellBlockRunsCommandWithArgs(block, []string{"corepack", "enable", "pnpm"}) {
+			return true
 		}
 	}
 	return false
@@ -661,16 +776,10 @@ func githubActionsJobActionRefs(job githubActionsJob) []string {
 	return refs
 }
 
-func missingStrings(want, got []string) []string {
-	gotSet := make(map[string]struct{}, len(got))
-	for _, value := range got {
-		gotSet[value] = struct{}{}
+func githubActionsRefIsCommitPinned(ref string) bool {
+	parts := strings.Split(strings.TrimSpace(ref), "@")
+	if len(parts) != 2 {
+		return false
 	}
-	var missing []string
-	for _, value := range want {
-		if _, ok := gotSet[value]; !ok {
-			missing = append(missing, value)
-		}
-	}
-	return missing
+	return regexp.MustCompile(`^[0-9a-f]{40}$`).MatchString(parts[1])
 }
