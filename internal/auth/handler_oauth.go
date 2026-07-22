@@ -25,7 +25,7 @@ func (h *Handler) handleOAuthRedirect(w http.ResponseWriter, r *http.Request) {
 	client, ok := h.getOAuthClient(provider)
 	if !ok {
 		httputil.WriteErrorWithDocURL(w, http.StatusNotFound, fmt.Sprintf("OAuth provider %q not configured", provider),
-			"https://allyourbase.io/guide/authentication#oauth")
+			httputil.DocURL("/guide/authentication#oauth"))
 		return
 	}
 	returnTo, ok := validatedOAuthReturnTo(h.oauthRedirectURL, h.oauthReturnToAllowlistSnapshot(), r.URL.Query().Get("redirect_to"))
@@ -236,7 +236,7 @@ func (h *Handler) normalizeOAuthCallbackRequest(w http.ResponseWriter, r *http.R
 	req.client, ok = h.getOAuthClient(req.provider)
 	if !ok {
 		httputil.WriteErrorWithDocURL(w, http.StatusNotFound, fmt.Sprintf("OAuth provider %q not configured", req.provider),
-			"https://allyourbase.io/guide/authentication#oauth")
+			httputil.DocURL("/guide/authentication#oauth"))
 		return nil, false
 	}
 
@@ -256,14 +256,14 @@ func (h *Handler) normalizeOAuthCallbackRequest(w http.ResponseWriter, r *http.R
 			}
 		}
 		httputil.WriteErrorWithDocURL(w, http.StatusBadRequest, "OAuth authentication was denied or failed",
-			"https://allyourbase.io/guide/authentication#oauth")
+			httputil.DocURL("/guide/authentication#oauth"))
 		return nil, false
 	}
 
 	stateEntry, ok := h.oauthStateStore.ValidateAndConsumeEntry(req.state)
 	if !ok {
 		httputil.WriteErrorWithDocURL(w, http.StatusBadRequest, "invalid or expired OAuth state",
-			"https://allyourbase.io/guide/authentication#oauth")
+			httputil.DocURL("/guide/authentication#oauth"))
 		return nil, false
 	}
 	req.returnTo = stateEntry.returnTo
@@ -273,7 +273,7 @@ func (h *Handler) normalizeOAuthCallbackRequest(w http.ResponseWriter, r *http.R
 	req.code = oauthCallbackParam(r, "code")
 	if req.code == "" {
 		httputil.WriteErrorWithDocURL(w, http.StatusBadRequest, "missing authorization code",
-			"https://allyourbase.io/guide/authentication#oauth")
+			httputil.DocURL("/guide/authentication#oauth"))
 		return nil, false
 	}
 
@@ -302,7 +302,7 @@ func (h *Handler) exchangeAndEnrichOAuthCallbackUser(w http.ResponseWriter, r *h
 			return nil, oauthTokenResponse{}, false
 		}
 		httputil.WriteErrorWithDocURL(w, http.StatusBadGateway, "failed to authenticate with provider",
-			"https://allyourbase.io/guide/authentication#oauth")
+			httputil.DocURL("/guide/authentication#oauth"))
 		return nil, oauthTokenResponse{}, false
 	}
 

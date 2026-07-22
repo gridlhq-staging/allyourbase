@@ -19,35 +19,7 @@ func wireBackupServices(ctx context.Context, srv *server.Server, cfg *config.Con
 		return
 	}
 
-	bkCfg := backup.Config{
-		Enabled:        true,
-		Bucket:         cfg.Backup.Bucket,
-		Region:         cfg.Backup.Region,
-		Prefix:         cfg.Backup.Prefix,
-		Schedule:       cfg.Backup.Schedule,
-		RetentionCount: cfg.Backup.RetentionCount,
-		RetentionDays:  cfg.Backup.RetentionDays,
-		Encryption:     cfg.Backup.Encryption,
-		Endpoint:       cfg.Backup.Endpoint,
-		AccessKey:      cfg.Backup.AccessKey,
-		SecretKey:      cfg.Backup.SecretKey,
-		PITR: backup.PITRConfig{
-			Enabled:                  cfg.Backup.PITR.Enabled,
-			ArchiveBucket:            cfg.Backup.PITR.ArchiveBucket,
-			ArchivePrefix:            cfg.Backup.PITR.ArchivePrefix,
-			WALRetentionDays:         cfg.Backup.PITR.WALRetentionDays,
-			BaseBackupRetentionDays:  cfg.Backup.PITR.BaseBackupRetentionDays,
-			ComplianceSnapshotMonths: cfg.Backup.PITR.ComplianceSnapshotMonths,
-			RetentionSchedule:        cfg.Backup.PITR.RetentionSchedule,
-			EnvironmentClass:         cfg.Backup.PITR.EnvironmentClass,
-			KMSKeyID:                 cfg.Backup.PITR.KMSKeyID,
-			RPOMinutes:               cfg.Backup.PITR.RPOMinutes,
-			StorageBudgetBytes:       cfg.Backup.PITR.StorageBudgetBytes,
-			ShadowMode:               cfg.Backup.PITR.ShadowMode,
-			BaseBackupSchedule:       cfg.Backup.PITR.BaseBackupSchedule,
-			VerifySchedule:           cfg.Backup.PITR.VerifySchedule,
-		},
-	}
+	bkCfg := backupConfigFromRuntimeConfig(cfg)
 
 	endpoint := cfg.Backup.Endpoint
 	if endpoint == "" {
@@ -106,6 +78,38 @@ func wireBackupServices(ctx context.Context, srv *server.Server, cfg *config.Con
 		"retention_count", cfg.Backup.RetentionCount,
 		"retention_days", cfg.Backup.RetentionDays,
 	)
+}
+
+func backupConfigFromRuntimeConfig(cfg *config.Config) backup.Config {
+	return backup.Config{
+		Enabled:        cfg.Backup.Enabled,
+		Bucket:         cfg.Backup.Bucket,
+		Region:         cfg.Backup.Region,
+		Prefix:         cfg.Backup.Prefix,
+		Schedule:       cfg.Backup.Schedule,
+		RetentionCount: cfg.Backup.RetentionCount,
+		RetentionDays:  cfg.Backup.RetentionDays,
+		Encryption:     cfg.Backup.Encryption,
+		Endpoint:       cfg.Backup.Endpoint,
+		AccessKey:      cfg.Backup.AccessKey,
+		SecretKey:      cfg.Backup.SecretKey,
+		PITR: backup.PITRConfig{
+			Enabled:                  cfg.Backup.PITR.Enabled,
+			ArchiveBucket:            cfg.Backup.PITR.ArchiveBucket,
+			ArchivePrefix:            cfg.Backup.PITR.ArchivePrefix,
+			WALRetentionDays:         cfg.Backup.PITR.WALRetentionDays,
+			BaseBackupRetentionDays:  cfg.Backup.PITR.BaseBackupRetentionDays,
+			ComplianceSnapshotMonths: cfg.Backup.PITR.ComplianceSnapshotMonths,
+			RetentionSchedule:        cfg.Backup.PITR.RetentionSchedule,
+			EnvironmentClass:         cfg.Backup.PITR.EnvironmentClass,
+			KMSKeyID:                 cfg.Backup.PITR.KMSKeyID,
+			RPOMinutes:               cfg.Backup.PITR.RPOMinutes,
+			StorageBudgetBytes:       cfg.Backup.PITR.StorageBudgetBytes,
+			ShadowMode:               cfg.Backup.PITR.ShadowMode,
+			BaseBackupSchedule:       cfg.Backup.PITR.BaseBackupSchedule,
+			VerifySchedule:           cfg.Backup.PITR.VerifySchedule,
+		},
+	}
 }
 
 type pitrWireDependencies struct {

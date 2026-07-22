@@ -19,6 +19,9 @@ const DEFAULT_LIVE_APEX_URL = "https://demo.allyourbase.io";
 
 const SIGN_IN_TIMEOUT_MS = 15_000;
 
+type CachedResp = { body: string; status: number; headers: Record<string, string> };
+type RegisterAuthPayload = { user?: unknown };
+
 let nameCounter = 0;
 const runId = Math.random().toString(36).slice(2, 8);
 function uniqueName(base: string): string {
@@ -35,6 +38,34 @@ function requiredEnvValue(key: string): string {
     throw new Error(`Missing required environment variable: ${key}`);
   }
   return value;
+}
+
+function registeredUserMeResponse(payload: RegisterAuthPayload): CachedResp | null {
+  if (!payload.user || typeof payload.user !== "object") {
+    return null;
+  }
+
+  return {
+    body: JSON.stringify(payload.user),
+    status: 200,
+    headers: { "content-type": "application/json" },
+  };
+}
+
+function registeredUserMeResponseFromBody(status: number, body: string): CachedResp | null {
+  if (status !== 201 || body === "") {
+    return null;
+  }
+
+  try {
+    return registeredUserMeResponse(JSON.parse(body) as RegisterAuthPayload);
+  } catch {
+    return null;
+  }
+}
+
+function liveAuthMeResponse(registeredResponse: CachedResp | null, fetchedResponse: CachedResp | null): CachedResp | null {
+  return registeredResponse ?? fetchedResponse;
 }
 
 async function assertAuthAffordancesWithOptOut(page: import("@playwright/test").Page, url: string): Promise<void> {
@@ -61,18 +92,25 @@ async function authenticateLiveAccount(
   const email = uniqueLiveAccountEmail(scope);
   const emailInput = page.getByLabel("Email");
 
-  // useAuth fires two concurrent loadMe() calls after register/login (one
-  // from the method, one from onAuthStateChange SIGNED_IN). If the second
-  // hits a rate limit, user resets to null and the auth form flickers back.
-  // Deduplicate the burst by fetching /api/auth/me once and serving that same
-  // response to every concurrent call. Every route MUST resolve exactly once:
-  // a fetch failure falls back to a live continue(), and fulfill() is guarded
-  // so a teardown race (unroute) can never leave a request hung — a hung
-  // interception holds an HTTP/1.1 connection and can starve the later
-  // poll-create POST of a socket, which manifests as a never-sent request.
-  type CachedResp = { body: string; status: number; headers: Record<string, string> };
+  let registeredMeResponse: CachedResp | null = null;
   let mePromise: Promise<CachedResp | null> | null = null;
+  await page.route("**/api/auth/register", async (route) => {
+    const response = await route.fetch();
+    const body = await response.text();
+    registeredMeResponse = registeredUserMeResponseFromBody(response.status(), body);
+    await route.fulfill({ body, status: response.status(), headers: response.headers() });
+  });
+
+  // useAuth fires concurrent loadMe() calls after register/login. The register
+  // response already contains the created user, so serve that canonical user to
+  // /me instead of replaying live 429s from the burst.
   await page.route("**/api/auth/me", async (route) => {
+    const registeredResponse = liveAuthMeResponse(registeredMeResponse, null);
+    if (registeredResponse) {
+      await route.fulfill(registeredResponse);
+      return;
+    }
+
     if (!mePromise) {
       mePromise = route
         .fetch()
@@ -83,7 +121,7 @@ async function authenticateLiveAccount(
         }))
         .catch(() => null);
     }
-    const cached = await mePromise;
+    const cached = liveAuthMeResponse(null, await mePromise);
     try {
       if (cached) {
         await route.fulfill({ body: cached.body, status: cached.status, headers: cached.headers });
@@ -104,7 +142,7 @@ async function authenticateLiveAccount(
   await page.getByLabel("Password").fill(DEMO_SIGNIN_PASSWORD);
   await page.getByRole("button", { name: "Create Account" }).click();
   await emailInput.waitFor({ state: "hidden", timeout: SIGN_IN_TIMEOUT_MS });
-  await page.unroute("**/api/auth/me");
+  await page.unroute("**/api/auth/register");
 }
 
 test("fixture leak-gate coverage includes fixture-declared runtime-managed ports", () => {
@@ -156,6 +194,34 @@ test("fixture live mode resolves public URLs from environment and API health own
   expect(resolveDemoTargetForTest(DEMO_TARGETS.livePolls.name, env).url).toBe(env.DEMO_POLLS_URL);
   expect(resolveDemoTargetForTest(DEMO_TARGETS.movies.name, env).url).toBe(env.DEMO_MOVIES_URL);
   expect(resolveApiHealthUrlForTest(env)).toBe("https://api.allyourbase.io/health");
+
+  const registeredResponse = registeredUserMeResponse({
+    user: {
+      id: "user-1",
+      email: "e2e-live@example.test",
+      createdAt: "2026-07-21T23:12:13.072316Z",
+      updatedAt: "2026-07-21T23:12:13.072316Z",
+    },
+  });
+  const rateLimitedResponse: CachedResp = {
+    body: JSON.stringify({ code: 429, message: "too many requests" }),
+    status: 429,
+    headers: { "retry-after": "33" },
+  };
+  const malformedRegisterResponse = "{not-json";
+
+  expect(registeredResponse).toEqual({
+    body: JSON.stringify({
+      id: "user-1",
+      email: "e2e-live@example.test",
+      createdAt: "2026-07-21T23:12:13.072316Z",
+      updatedAt: "2026-07-21T23:12:13.072316Z",
+    }),
+    status: 200,
+    headers: { "content-type": "application/json" },
+  });
+  expect(registeredUserMeResponseFromBody(201, malformedRegisterResponse)).toBeNull();
+  expect(liveAuthMeResponse(registeredResponse, rateLimitedResponse)).toEqual(registeredResponse);
 });
 
 test.describe("local orchestration", () => {

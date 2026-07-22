@@ -56,8 +56,8 @@ export default function PollCard({ poll, options, votes, currentUserId, onClose,
         existingVoteId: myVote?.id,
       });
       onVote?.(vote);
-    } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : "Vote failed");
+    } catch {
+      setError("Could not record vote. Please try again.");
     } finally {
       setVoting(false);
     }

@@ -8,6 +8,7 @@ var validTransitionCases = []struct {
 	to   TenantState
 }{
 	{TenantStateProvisioning, TenantStateActive},
+	{TenantStateProvisioning, TenantStateDeleting},
 	{TenantStateActive, TenantStateSuspended},
 	{TenantStateSuspended, TenantStateActive},
 	{TenantStateActive, TenantStateDeleting},
@@ -22,7 +23,6 @@ var invalidTransitionCases = []struct {
 }{
 	{TenantStateProvisioning, TenantStateDeleted},
 	{TenantStateProvisioning, TenantStateSuspended},
-	{TenantStateProvisioning, TenantStateDeleting},
 	{TenantStateProvisioning, TenantStateProvisioning},
 	{TenantStateActive, TenantStateProvisioning},
 	{TenantStateActive, TenantStateDeleted},

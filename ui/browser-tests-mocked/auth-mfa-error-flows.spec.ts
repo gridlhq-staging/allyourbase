@@ -14,7 +14,7 @@ test.describe("Auth + MFA Error Flows (Browser Mocked)", () => {
     });
 
     await page.goto("/admin/");
-    await page.getByRole("button", { name: /^MFA Management$/i }).click();
+    await page.getByRole("button", { name: /^Multi-Factor Authentication$/i }).click();
 
     await expect(page.getByRole("heading", { name: "Multi-Factor Authentication" })).toBeVisible();
     await expect(page.getByText("Authenticator App")).toBeVisible();
@@ -30,7 +30,7 @@ test.describe("Auth + MFA Error Flows (Browser Mocked)", () => {
     });
 
     await page.goto("/admin/");
-    await page.getByRole("button", { name: /^MFA Management$/i }).click();
+    await page.getByRole("button", { name: /^Multi-Factor Authentication$/i }).click();
     await expect(page.getByRole("heading", { name: "Multi-Factor Authentication" })).toBeVisible();
 
     await page.getByRole("button", { name: /set up email mfa/i }).click();
@@ -46,7 +46,7 @@ test.describe("Auth + MFA Error Flows (Browser Mocked)", () => {
     });
 
     await page.goto("/admin/");
-    await page.getByRole("button", { name: /^MFA Management$/i }).click();
+    await page.getByRole("button", { name: /^Multi-Factor Authentication$/i }).click();
     await expect(page.getByRole("heading", { name: "Multi-Factor Authentication" })).toBeVisible();
 
     await page.getByRole("button", { name: /set up authenticator/i }).click();
@@ -71,7 +71,7 @@ test.describe("Auth + MFA Error Flows (Browser Mocked)", () => {
     });
 
     await page.goto("/admin/");
-    await page.getByRole("button", { name: /^MFA Management$/i }).click();
+    await page.getByRole("button", { name: /^Multi-Factor Authentication$/i }).click();
     await expect(page.getByRole("heading", { name: "Multi-Factor Authentication" })).toBeVisible();
 
     await page.getByRole("button", { name: /set up email mfa/i }).click();
@@ -93,7 +93,7 @@ test.describe("Auth + MFA Error Flows (Browser Mocked)", () => {
     });
 
     await page.goto("/admin/");
-    await page.getByRole("button", { name: /^Account Linking$/i }).click();
+    await page.getByRole("button", { name: /^Link Your Account$/i }).click();
     await expect(page.getByRole("heading", { name: "Link Your Account" })).toBeVisible();
 
     await page.getByRole("button", { name: /start anonymous session/i }).click();
@@ -114,7 +114,7 @@ test.describe("Auth + MFA Error Flows (Browser Mocked)", () => {
     });
 
     await page.goto("/admin/");
-    await page.getByRole("button", { name: /^Account Linking$/i }).click();
+    await page.getByRole("button", { name: /^Link Your Account$/i }).click();
     await expect(page.getByRole("heading", { name: "Link Your Account" })).toBeVisible();
 
     await page.getByRole("button", { name: /start anonymous session/i }).click();

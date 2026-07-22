@@ -264,7 +264,7 @@ func (s *Server) handleMessagingSMSSend(w http.ResponseWriter, r *http.Request) 
 	if s.smsProvider == nil {
 		httputil.WriteErrorWithDocURL(w, http.StatusNotFound,
 			"SMS is not enabled",
-			"https://allyourbase.io/guide/messaging#sms")
+			httputil.DocURL("/guide/messaging#sms"))
 		return
 	}
 

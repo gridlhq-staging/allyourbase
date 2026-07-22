@@ -60,7 +60,7 @@ func (h *Handler) handlePasswordResetConfirm(w http.ResponseWriter, r *http.Requ
 		switch {
 		case errors.Is(err, ErrInvalidResetToken):
 			httputil.WriteErrorWithDocURL(w, http.StatusBadRequest, "invalid or expired reset token",
-				"https://allyourbase.io/guide/authentication")
+				httputil.DocURL("/guide/authentication"))
 		case errors.Is(err, ErrValidation):
 			msg := strings.TrimPrefix(err.Error(), ErrValidation.Error()+": ")
 			httputil.WriteError(w, http.StatusBadRequest, msg)
@@ -89,7 +89,7 @@ func (h *Handler) handleVerifyEmail(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		if errors.Is(err, ErrInvalidVerifyToken) {
 			httputil.WriteErrorWithDocURL(w, http.StatusBadRequest, "invalid or expired verification token",
-				"https://allyourbase.io/guide/authentication")
+				httputil.DocURL("/guide/authentication"))
 			return
 		}
 		h.logger.Error("email verification error", "error", err)

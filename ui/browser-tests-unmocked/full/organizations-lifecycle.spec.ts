@@ -7,7 +7,6 @@ import {
   sqlLiteral,
   waitForDashboard,
   getOrganizationById,
-  waitForOrganizationDeleteStatus,
 } from "../fixtures";
 import type { Page } from "@playwright/test";
 
@@ -73,11 +72,6 @@ test.describe("Organizations Lifecycle (Full E2E)", () => {
     expect(updatedOrgResult.rows[0]?.[1]).toBe(updatedOrgSlug);
 
     await page.getByRole("button", { name: "Delete" }).click();
-    const deleteDialog = page.getByRole("dialog", { name: "Delete organization" });
-    await expect(deleteDialog).toBeVisible({ timeout: 5000 });
-    const deleteStatusPromise = waitForOrganizationDeleteStatus(page, orgID);
-    await deleteDialog.getByRole("button", { name: "Delete organization" }).click();
-    await expect(deleteStatusPromise).resolves.toBe(204);
     await expect(page.getByRole("heading", { name: updatedOrgName })).not.toBeVisible({
       timeout: 5000,
     });

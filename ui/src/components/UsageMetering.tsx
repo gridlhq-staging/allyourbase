@@ -410,7 +410,11 @@ function useUsageLimitsState(query: UsageQueryState, refreshVersion: number): Us
   };
 }
 
-export function UsageMetering() {
+interface UsageMeteringProps {
+  screenLabel: string;
+}
+
+export function UsageMetering({ screenLabel }: UsageMeteringProps) {
   const usageQuery = useUsageQueryState();
   const overview = useUsageOverviewState(
     usageQuery.query,
@@ -456,7 +460,7 @@ export function UsageMetering() {
 
   return (
     <div className="p-6 space-y-6">
-      <UsageHeader onRefresh={usageQuery.reloadUsageData} />
+      <UsageHeader screenLabel={screenLabel} onRefresh={usageQuery.reloadUsageData} />
       <UsageFilterControls
         query={usageQuery.query}
         granularityOptions={usageQuery.granularityOptions}

@@ -50,7 +50,7 @@ test.describe("Smoke: FDW Management", () => {
     await page.goto("/admin/");
     await waitForDashboard(page);
 
-    await page.locator("aside").getByRole("button", { name: /FDW/i }).click();
+    await page.locator("aside").getByRole("button", { name: /^FDW Management$/i }).click();
     await expect(page.getByRole("heading", { name: /FDW Management/i })).toBeVisible({ timeout: 15_000 });
 
     // Verify dual-section headings

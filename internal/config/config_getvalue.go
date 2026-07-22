@@ -154,6 +154,7 @@ var configKeyRegistry = withConfigKeyMetadata(map[string]configKeyMetadata{
 	"jobs.scheduler_tick_s":                      {getter: func(cfg *Config) any { return cfg.Jobs.SchedulerTickS }},
 	"jobs.job_runs_retention_days":               {getter: func(cfg *Config) any { return cfg.Jobs.JobRunsRetentionDays }},
 	"push.enabled":                               {getter: func(cfg *Config) any { return cfg.Push.Enabled }},
+	"push.use_log_provider":                      {getter: func(cfg *Config) any { return cfg.Push.UseLogProvider }},
 	"push.fcm.credentials_file":                  {getter: func(cfg *Config) any { return cfg.Push.FCM.CredentialsFile }},
 	"push.apns.key_file":                         {getter: func(cfg *Config) any { return cfg.Push.APNS.KeyFile }},
 	"push.apns.team_id":                          {getter: func(cfg *Config) any { return cfg.Push.APNS.TeamID }},
@@ -181,6 +182,7 @@ var boolCoercionKeys = []string{
 	"telemetry.enabled",
 	"jobs.enabled",
 	"jobs.scheduler_enabled",
+	"push.use_log_provider",
 	"audit.enabled",
 	"audit.all_tables",
 }
@@ -239,6 +241,7 @@ func withConfigKeyMetadata(registry map[string]configKeyMetadata) map[string]con
 	assignCoercer(registry, []string{"auth.oauth_return_to_allowlist"}, coerceOAuthReturnToAllowlistValue)
 	assignSetValueValidator(registry, "telemetry.sample_rate", validateTelemetrySampleRateValue)
 	assignSetValueValidator(registry, "auth.oauth_return_to_allowlist", validateOAuthReturnToAllowlistValue)
+	assignSetValueValidator(registry, "push.use_log_provider", validateStrictBoolValue)
 	return registry
 }
 
@@ -297,6 +300,15 @@ func validateTelemetrySampleRateValue(value string) error {
 		return fmt.Errorf("telemetry.sample_rate must be between 0.0 and 1.0, got %q", value)
 	}
 	return nil
+}
+
+func validateStrictBoolValue(value string) error {
+	switch value {
+	case "true", "false", "1", "0":
+		return nil
+	default:
+		return fmt.Errorf("push.use_log_provider must be a boolean (true, false, 1, or 0), got %q", value)
+	}
 }
 
 // IsValidKey returns true if the dotted key is a recognized config key.

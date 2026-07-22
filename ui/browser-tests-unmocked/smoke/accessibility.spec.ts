@@ -145,7 +145,7 @@ test.describe("Smoke: Accessibility", () => {
   test("database: Matviews page is accessible", async ({ page }) => {
     await page.goto("/admin/");
     await waitForDashboard(page);
-    await navigateAndScan(page, /^Matviews$/i, "Matviews");
+    await navigateAndScan(page, /^Materialized Views$/i, "Materialized Views");
   });
 
   test("database: Schema designer page is accessible", async ({ page }) => {
@@ -157,7 +157,7 @@ test.describe("Smoke: Accessibility", () => {
   test("database: FDW page is accessible", async ({ page }) => {
     await page.goto("/admin/");
     await waitForDashboard(page);
-    await navigateAndScan(page, /^FDW$/i, "FDW");
+    await navigateAndScan(page, /^FDW Management$/i, "FDW Management");
   });
 
   test("services: Storage page is accessible", async ({ page }) => {
@@ -217,7 +217,7 @@ test.describe("Smoke: Accessibility", () => {
   test("admin: Apps page is accessible", async ({ page }) => {
     await page.goto("/admin/");
     await waitForDashboard(page);
-    await navigateAndScan(page, /^Apps$/i, "Apps");
+    await navigateAndScan(page, /^Applications$/i, "Applications");
   });
 
   test("admin: API keys page is accessible", async ({ page }) => {
@@ -271,7 +271,7 @@ test.describe("Smoke: Accessibility", () => {
   test("admin: Backups page is accessible", async ({ page }) => {
     await page.goto("/admin/");
     await waitForDashboard(page);
-    await navigateAndScan(page, /^Backups$/i, "Backups");
+    await navigateAndScan(page, /^Backups & PITR$/i, "Backups & PITR");
   });
 
   test("admin: Analytics page is accessible", async ({ page }) => {
@@ -283,7 +283,7 @@ test.describe("Smoke: Accessibility", () => {
   test("admin: Usage page is accessible", async ({ page }) => {
     await page.goto("/admin/");
     await waitForDashboard(page);
-    await navigateAndScan(page, /^Usage$/i, "Usage");
+    await navigateAndScan(page, /^Usage Metering$/i, "Usage Metering");
   });
 
   test("admin: Replicas page is accessible", async ({ page }) => {
@@ -391,19 +391,19 @@ test.describe("Smoke: Accessibility", () => {
   test("auth: MFA management page is accessible", async ({ page }) => {
     await page.goto("/admin/");
     await waitForDashboard(page);
-    await navigateAndScan(page, /^MFA Management$/i, "MFA Management");
+    await navigateAndScan(page, /^Multi-Factor Authentication$/i, "Multi-Factor Authentication");
   });
 
   test("auth: Account linking page is accessible", async ({ page }) => {
     await page.goto("/admin/");
     await waitForDashboard(page);
-    await navigateAndScan(page, /^Account Linking$/i, "Account Linking");
+    await navigateAndScan(page, /^Link Your Account$/i, "Link Your Account");
   });
 
   test("auth: SAML page is accessible", async ({ page }) => {
     await page.goto("/admin/");
     await waitForDashboard(page);
-    await navigateAndScan(page, /^SAML$/i, "SAML");
+    await navigateAndScan(page, /^SAML Configuration$/i, "SAML Configuration");
   });
 
   test("auth: Auth hooks page is accessible", async ({ page }) => {

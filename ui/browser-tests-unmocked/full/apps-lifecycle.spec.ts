@@ -61,7 +61,7 @@ test.describe("Apps Lifecycle (Full E2E)", () => {
     await page.goto("/admin/");
     await waitForDashboard(page);
 
-    await page.locator("aside").getByRole("button", { name: /^Apps$/i }).click();
+    await page.locator("aside").getByRole("button", { name: /^Applications$/i }).click();
     await expect(page.getByRole("heading", { name: /Applications/i })).toBeVisible({ timeout: 5000 });
 
     const seededRow = page.getByRole("row", { name: new RegExp(seededName) }).first();

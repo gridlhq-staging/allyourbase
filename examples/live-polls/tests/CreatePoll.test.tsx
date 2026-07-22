@@ -115,8 +115,13 @@ describe("CreatePoll", () => {
     expect(onCreated).toHaveBeenCalledWith(mockPoll, [mockOpt1, mockOpt2]);
   });
 
-  it("shows API error message on failed submit", async () => {
-    mockCreate.mockRejectedValueOnce(new Error("Server error"));
+  it("disables submit while pending and normalizes API failures", async () => {
+    let rejectCreate = (_reason?: unknown) => {};
+    mockCreate.mockImplementationOnce(
+      () => new Promise((_, reject) => {
+        rejectCreate = reject;
+      }),
+    );
 
     render(<CreatePoll userId="user-1" onCreated={vi.fn()} />);
 
@@ -130,9 +135,16 @@ describe("CreatePoll", () => {
       target: { value: "No" },
     });
 
-    fireEvent.submit(screen.getByText("Create Poll").closest("form")!);
+    fireEvent.click(screen.getByRole("button", { name: "Create Poll" }));
 
-    expect(await screen.findByText("Server error")).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: "Creating..." })).toBeDisabled();
+
+    rejectCreate(new Error("database connection unavailable"));
+
+    expect(
+      await screen.findByText("Could not create poll. Please try again."),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Create Poll" })).toBeEnabled();
   });
 
   it("creates options in parallel (Promise.all), not sequentially", async () => {

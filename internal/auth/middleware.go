@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"strings"
 
 	"github.com/allyourbase/ayb/internal/httputil"
 )
@@ -18,7 +19,7 @@ func RequireAuth(svc *Service) func(http.Handler) http.Handler {
 			if !ok {
 				httputil.WriteErrorWithDocURL(w, http.StatusUnauthorized,
 					"missing or invalid authorization header",
-					"https://allyourbase.io/guide/authentication")
+					httputil.DocURL("/guide/authentication"))
 				return
 			}
 
@@ -26,12 +27,18 @@ func RequireAuth(svc *Service) func(http.Handler) http.Handler {
 			if err != nil {
 				httputil.WriteErrorWithDocURL(w, http.StatusUnauthorized,
 					"invalid or expired token",
-					"https://allyourbase.io/guide/authentication")
+					httputil.DocURL("/guide/authentication"))
 				return
 			}
 
 			if claims.MFAPending {
 				httputil.WriteErrorWithDocURL(w, http.StatusUnauthorized, "MFA verification required", httputil.DocURL("/guide/authentication"))
+				return
+			}
+			if !claimsHavePrincipal(claims) {
+				httputil.WriteErrorWithDocURL(w, http.StatusUnauthorized,
+					"invalid or expired token",
+					httputil.DocURL("/guide/authentication"))
 				return
 			}
 
@@ -93,7 +100,7 @@ func RequireAuthOrMFAPending(svc *Service) func(http.Handler) http.Handler {
 			if !ok {
 				httputil.WriteErrorWithDocURL(w, http.StatusUnauthorized,
 					"missing or invalid authorization header",
-					"https://allyourbase.io/guide/authentication")
+					httputil.DocURL("/guide/authentication"))
 				return
 			}
 
@@ -101,13 +108,19 @@ func RequireAuthOrMFAPending(svc *Service) func(http.Handler) http.Handler {
 			if err != nil {
 				httputil.WriteErrorWithDocURL(w, http.StatusUnauthorized,
 					"invalid or expired token",
-					"https://allyourbase.io/guide/authentication")
+					httputil.DocURL("/guide/authentication"))
 				return
 			}
 
 			if claims.MFAPending {
 				ctx := context.WithValue(r.Context(), mfaPendingCtxKey{}, claims)
 				next.ServeHTTP(w, r.WithContext(ctx))
+				return
+			}
+			if !claimsHavePrincipal(claims) {
+				httputil.WriteErrorWithDocURL(w, http.StatusUnauthorized,
+					"invalid or expired token",
+					httputil.DocURL("/guide/authentication"))
 				return
 			}
 
@@ -184,6 +197,10 @@ func oauthTokenInfoToClaims(info *OAuthTokenInfo) *Claims {
 		claims.Subject = *info.UserID
 	}
 	return claims
+}
+
+func claimsHavePrincipal(claims *Claims) bool {
+	return claims != nil && (strings.TrimSpace(claims.Subject) != "" || strings.TrimSpace(claims.AppID) != "")
 }
 
 // ErrScopeReadOnly is returned when a readonly API key attempts a write operation.

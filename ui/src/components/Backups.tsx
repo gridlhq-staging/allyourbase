@@ -111,7 +111,11 @@ function filterBackupsByType(backups: BackupRow[], backupType: string): BackupRo
   return backups.filter((backup) => backup.backup_type.toLowerCase() === normalizedBackupType);
 }
 
-export function Backups() {
+interface BackupsProps {
+  screenLabel: string;
+}
+
+export function Backups({ screenLabel }: BackupsProps) {
   const [data, setData] = useState<BackupListResponse | null>(null);
   const [pitrContexts, setPitrContexts] = useState<PITRContextOption[]>([]);
   const [selectedPitrContextKey, setSelectedPitrContextKey] = useState("");
@@ -304,7 +308,7 @@ export function Backups() {
     <div className="p-6">
       <div className="flex items-center justify-between mb-6">
         <div>
-          <h1 className="text-lg font-semibold">Backups & PITR</h1>
+          <h1 className="text-lg font-semibold">{screenLabel}</h1>
           <p className="text-sm text-gray-500 dark:text-gray-400 mt-0.5">
             Manage database backups and point-in-time recovery
           </p>

@@ -61,6 +61,7 @@ These environment variables are applied by `config.Load` via `applyEnv`:
 | `AYB_ADMIN_PASSWORD` | `admin.password` |
 | `AYB_CORS_ORIGINS` | `server.cors_allowed_origins` (CSV) |
 | `AYB_LOG_LEVEL` | `logging.level` |
+| `AYB_METRICS_AUTH_TOKEN` | `metrics.auth_token` |
 
 Example:
 
@@ -77,6 +78,25 @@ Notes:
 - `database.health_check_interval` is a real file key (`[database] health_check_interval`) and is measured in seconds.
 - `AYB_DATABASE_REPLICA_URLS` accepts a comma-separated list (for example `url1,url2`).
 - Setting `AYB_TLS_DOMAIN` or `--domain` enables TLS during validation.
+
+## Prometheus metrics
+
+Prometheus metrics are enabled by default at `/metrics`:
+
+```toml
+[metrics]
+enabled = true
+path = "/metrics"
+auth_token = "replace-with-a-secret-token"
+```
+
+Without `metrics.auth_token`, tokenless scrapes are accepted only from IPv4 or IPv6 loopback peers such as `127.0.0.1` and `::1`. Remote scrapers and reverse proxies must authenticate with a bearer token because forwarding headers such as `X-Forwarded-For` and `X-Real-IP` are never trusted for metrics access.
+
+Set the same token with an environment variable when file configuration is not appropriate:
+
+```bash
+export AYB_METRICS_AUTH_TOKEN="replace-with-a-secret-token"
+```
 
 ## CLI overrides
 

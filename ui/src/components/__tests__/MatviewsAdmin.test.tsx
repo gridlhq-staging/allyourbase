@@ -106,13 +106,13 @@ describe("MatviewsAdmin", () => {
 
   it("shows loading state", () => {
     mockListMatviews.mockReturnValue(new Promise(() => {}));
-    renderWithProviders(<MatviewsAdmin schema={minimalSchema} />);
+    renderWithProviders(<MatviewsAdmin screenLabel="Materialized Views" schema={minimalSchema} />);
     expect(screen.getByText("Loading materialized views...")).toBeInTheDocument();
   });
 
   it("shows error state with retry", async () => {
     mockListMatviews.mockRejectedValueOnce(new Error("connection refused"));
-    renderWithProviders(<MatviewsAdmin schema={minimalSchema} />);
+    renderWithProviders(<MatviewsAdmin screenLabel="Materialized Views" schema={minimalSchema} />);
 
     await waitFor(() => {
       expect(screen.getByText("connection refused")).toBeInTheDocument();
@@ -127,11 +127,21 @@ describe("MatviewsAdmin", () => {
   });
 
   it("renders empty state", async () => {
-    renderWithProviders(<MatviewsAdmin schema={minimalSchema} />);
+    renderWithProviders(<MatviewsAdmin screenLabel="Materialized Views" schema={minimalSchema} />);
 
     await waitFor(() => {
       expect(screen.getByText("No materialized views registered")).toBeInTheDocument();
     });
+  });
+
+  it("uses the injected registry label as the primary heading", async () => {
+    renderWithProviders(
+      <MatviewsAdmin schema={minimalSchema} screenLabel="Registry Matviews Label" />,
+    );
+
+    expect(
+      await screen.findByRole("heading", { name: "Registry Matviews Label" }),
+    ).toBeInTheDocument();
   });
 
   it("renders matview table with status columns", async () => {
@@ -155,7 +165,7 @@ describe("MatviewsAdmin", () => {
       ]),
     );
 
-    renderWithProviders(<MatviewsAdmin schema={minimalSchema} />);
+    renderWithProviders(<MatviewsAdmin screenLabel="Materialized Views" schema={minimalSchema} />);
 
     await waitFor(() => {
       expect(screen.getByRole("heading", { name: "Materialized Views" })).toBeInTheDocument();
@@ -177,7 +187,7 @@ describe("MatviewsAdmin", () => {
       makeRefreshResult(makeRegistration({ id: "mv-refresh", lastRefreshStatus: "success" }), 55),
     );
 
-    renderWithProviders(<MatviewsAdmin schema={minimalSchema} />);
+    renderWithProviders(<MatviewsAdmin screenLabel="Materialized Views" schema={minimalSchema} />);
 
     const user = userEvent.setup();
     await waitFor(() => {
@@ -192,7 +202,7 @@ describe("MatviewsAdmin", () => {
   });
 
   it("opens register modal with matview dropdown from schema cache", async () => {
-    renderWithProviders(<MatviewsAdmin schema={minimalSchema} />);
+    renderWithProviders(<MatviewsAdmin screenLabel="Materialized Views" schema={minimalSchema} />);
 
     const user = userEvent.setup();
     await waitFor(() => {
@@ -215,7 +225,7 @@ describe("MatviewsAdmin", () => {
   });
 
   it("registers a matview via modal", async () => {
-    renderWithProviders(<MatviewsAdmin schema={minimalSchema} />);
+    renderWithProviders(<MatviewsAdmin screenLabel="Materialized Views" schema={minimalSchema} />);
 
     const user = userEvent.setup();
     await waitFor(() => {
@@ -241,7 +251,7 @@ describe("MatviewsAdmin", () => {
       makeListResponse([makeRegistration({ id: "mv-edit", refreshMode: "standard" })]),
     );
 
-    renderWithProviders(<MatviewsAdmin schema={minimalSchema} />);
+    renderWithProviders(<MatviewsAdmin screenLabel="Materialized Views" schema={minimalSchema} />);
 
     const user = userEvent.setup();
     await waitFor(() => {
@@ -269,7 +279,7 @@ describe("MatviewsAdmin", () => {
       makeListResponse([makeRegistration({ id: "mv-del", viewName: "leaderboard" })]),
     );
 
-    renderWithProviders(<MatviewsAdmin schema={minimalSchema} />);
+    renderWithProviders(<MatviewsAdmin screenLabel="Materialized Views" schema={minimalSchema} />);
 
     const user = userEvent.setup();
     await waitFor(() => {
@@ -302,7 +312,7 @@ describe("MatviewsAdmin", () => {
       ]),
     );
 
-    renderWithProviders(<MatviewsAdmin schema={minimalSchema} />);
+    renderWithProviders(<MatviewsAdmin screenLabel="Materialized Views" schema={minimalSchema} />);
 
     await waitFor(() => {
       // For never-refreshed matviews, status/duration/time should show "-"
@@ -322,7 +332,7 @@ describe("MatviewsAdmin", () => {
       ]),
     );
 
-    renderWithProviders(<MatviewsAdmin schema={minimalSchema} />);
+    renderWithProviders(<MatviewsAdmin screenLabel="Materialized Views" schema={minimalSchema} />);
 
     await waitFor(() => {
       // Should truncate long errors

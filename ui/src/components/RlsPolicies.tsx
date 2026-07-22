@@ -14,7 +14,6 @@ import {
   ShieldOff,
   Plus,
   Trash2,
-  AlertCircle,
   Loader2,
   Code,
 } from "lucide-react";
@@ -32,9 +31,11 @@ import {
   generatePolicySql,
   type PolicyTemplate,
 } from "./rls-helpers";
+import { ErrorNotice } from "./ErrorNotice";
 
 interface RlsPoliciesProps {
   schema: SchemaCache;
+  screenLabel: string;
 }
 
 const initialCreatePolicyFormState: CreatePolicyFormState = {
@@ -56,7 +57,7 @@ function buildQualifiedTableName(table: Pick<Table, "schema" | "name">): string 
   return `${table.schema}.${table.name}`;
 }
 
-export function RlsPolicies({ schema }: RlsPoliciesProps) {
+export function RlsPolicies({ schema, screenLabel }: RlsPoliciesProps) {
   const tables = Object.values(schema.tables)
     .filter((table) => table.kind === "table")
     .sort((left, right) => buildQualifiedTableName(left).localeCompare(buildQualifiedTableName(right)));
@@ -258,28 +259,27 @@ export function RlsPolicies({ schema }: RlsPoliciesProps) {
             Loading policies...
           </div>
         ) : error ? (
-          <div className="m-4 p-3 bg-red-50 border border-red-200 rounded-lg flex items-start gap-2">
-            <AlertCircle className="w-4 h-4 text-red-500 mt-0.5 shrink-0" />
-            <div>
-              <p className="text-sm text-red-700">{error}</p>
-              <button
-                onClick={fetchData}
-                className="mt-2 text-xs text-red-600 hover:text-red-800 underline"
-              >
-                Retry
-              </button>
-            </div>
+          <div className="m-4">
+            <ErrorNotice
+              message={error}
+              docsPath="/guide/authentication#row-level-security-rls"
+              actionLabel="Retry"
+              onAction={fetchData}
+            />
           </div>
         ) : (
           <div className="p-6">
+            <div className="mb-4">
+              <h1 className="text-lg font-semibold">{screenLabel}</h1>
+            </div>
             <div className="flex items-center justify-between mb-6">
               <div className="flex items-center gap-3">
-                <h1 className="text-lg font-semibold">
+                <h2 className="text-base font-semibold">
                   {selectedTable.schema !== "public" && (
                     <span className="text-gray-500 dark:text-gray-300">{selectedTable.schema}.</span>
                   )}
                   {selectedTable.name}
-                </h1>
+                </h2>
 
                 {rlsStatus && (
                   <span

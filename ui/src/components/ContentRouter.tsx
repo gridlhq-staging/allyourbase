@@ -7,6 +7,7 @@ import type { AdminView, View } from "./layout-types";
 import { Code, Columns3, SlidersHorizontal, Tags, Table as TableIcon, TableProperties } from "lucide-react";
 import { cn } from "../lib/utils";
 import { findAdminScreen, SCREEN_REGISTRY, type ScreenProps, type ScreenRegistry } from "../screens/registry";
+import { ErrorNotice } from "./ErrorNotice";
 
 const CONTENT_ROUTER_MAIN_CLASS = "flex-1 flex flex-col overflow-hidden bg-gray-50 dark:bg-gray-950";
 const VIEW_TOGGLE_BUTTON_CLASS = "px-3 py-1 text-xs rounded font-medium transition-colors";
@@ -33,6 +34,8 @@ interface TableViewToggleButtonProps {
   onClick: () => void;
 }
 
+type BaseScreenProps = Omit<ScreenProps, "screenLabel">;
+
 function TableViewToggleButton({
   active,
   icon: Icon,
@@ -55,11 +58,11 @@ function TableViewToggleButton({
 
 function renderAdminContent(
   view: View,
-  props: ScreenProps,
+  props: BaseScreenProps,
   screenRegistry: ScreenRegistry,
 ) {
   const screen = findAdminScreen(view, screenRegistry);
-  return screen?.render(props);
+  return screen?.render({ ...props, screenLabel: screen.label });
 }
 
 function renderSelectedContent(
@@ -73,7 +76,10 @@ function renderSelectedContent(
     case "schema":
       return <SchemaView table={selected} />;
     case "sql":
-      return findAdminScreen("sql-editor", screenRegistry)?.render({ schema, onRefresh });
+      {
+        const sqlScreen = findAdminScreen("sql-editor", screenRegistry);
+        return sqlScreen?.render({ schema, onRefresh, screenLabel: sqlScreen.label });
+      }
     case "synonyms":
       return <SynonymsEditor selected={selected} schema={schema} />;
     case "search-settings":
@@ -98,15 +104,14 @@ export function ContentRouter({
   if (routeFailure) {
     return (
       <main className={CONTENT_ROUTER_MAIN_CLASS}>
-        <div className="flex-1 flex flex-col items-center justify-center gap-3">
-          <h1 className="text-lg font-semibold">{routeFailure}</h1>
-          <button
-            type="button"
-            onClick={onReturnToBase}
-            className="rounded bg-gray-900 px-3 py-2 text-sm text-white dark:bg-gray-100 dark:text-gray-900"
-          >
-            Return to console
-          </button>
+        <div className="flex flex-1 items-center justify-center">
+          <ErrorNotice
+            message={routeFailure}
+            docsPath="/guide/getting-started"
+            actionLabel="Return to console"
+            onAction={onReturnToBase}
+            variant="page"
+          />
         </div>
       </main>
     );

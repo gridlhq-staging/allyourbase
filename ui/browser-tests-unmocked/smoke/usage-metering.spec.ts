@@ -41,7 +41,7 @@ test.describe("Smoke: Usage Metering", () => {
       await waitForDashboard(page);
 
       const usageResponsePromise = waitForUsageListResponse(page);
-      await page.locator("aside").getByRole("button", { name: /^Usage$/i }).click();
+      await page.locator("aside").getByRole("button", { name: /^Usage Metering$/i }).click();
       await expect(page.getByRole("heading", { name: /Usage Metering/i })).toBeVisible({ timeout: 15_000 });
 
       const usageResponse = await usageResponsePromise;

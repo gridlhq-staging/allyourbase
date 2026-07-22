@@ -343,28 +343,24 @@ func (s *Server) registerAdminServicesRoutes(r chi.Router) {
 
 func (s *Server) registerAdminIncidentRoutes(r chi.Router) {
 	// Status incidents (admin-auth gated).
-	if s.cfg.Status.Enabled && s.pool != nil && s.statusIncidentStore != nil {
-		r.Route("/admin/incidents", func(r chi.Router) {
-			r.Use(s.requireAdminToken)
-			r.With(middleware.AllowContentType("application/json")).Post("/", handleCreateIncident(s.statusIncidentStore))
-			r.Get("/", handleListIncidents(s.statusIncidentStore))
-			r.With(middleware.AllowContentType("application/json")).Put("/{id}", handleUpdateIncident(s.statusIncidentStore))
-			r.With(middleware.AllowContentType("application/json")).Post("/{id}/updates", handleAddIncidentUpdate(s.statusIncidentStore))
-		})
-	}
+	r.Route("/admin/incidents", func(r chi.Router) {
+		r.Use(s.requireAdminToken)
+		r.With(middleware.AllowContentType("application/json")).Post("/", handleCreateIncident(s.statusIncidentStore))
+		r.Get("/", handleListIncidents(s.statusIncidentStore))
+		r.With(middleware.AllowContentType("application/json")).Put("/{id}", handleUpdateIncident(s.statusIncidentStore))
+		r.With(middleware.AllowContentType("application/json")).Post("/{id}/updates", handleAddIncidentUpdate(s.statusIncidentStore))
+	})
 }
 
 func (s *Server) registerAdminSupportTicketRoutes(r chi.Router) {
 	// Support ticket admin routes (admin-auth gated).
-	if s.cfg.Support.Enabled {
-		r.Route("/admin/support/tickets", func(r chi.Router) {
-			r.Use(s.requireAdminToken)
-			r.Get("/", s.handleAdminListSupportTickets)
-			r.Get("/{id}", s.handleAdminGetSupportTicket)
-			r.With(middleware.AllowContentType("application/json")).Put("/{id}", s.handleAdminUpdateSupportTicket)
-			r.With(middleware.AllowContentType("application/json")).Post("/{id}/messages", s.handleAdminAddSupportMessage)
-		})
-	}
+	r.Route("/admin/support/tickets", func(r chi.Router) {
+		r.Use(s.requireAdminToken)
+		r.Get("/", s.handleAdminListSupportTickets)
+		r.Get("/{id}", s.handleAdminGetSupportTicket)
+		r.With(middleware.AllowContentType("application/json")).Put("/{id}", s.handleAdminUpdateSupportTicket)
+		r.With(middleware.AllowContentType("application/json")).Post("/{id}/messages", s.handleAdminAddSupportMessage)
+	})
 }
 
 func (s *Server) registerAdminLoggingDrainRoutes(r chi.Router) {

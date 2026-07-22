@@ -62,6 +62,16 @@ input {
   white-space: nowrap;
 }
 
+.state-message {
+  margin: 0;
+  color: #546173;
+  font-weight: 600;
+}
+
+.state-message-error {
+  color: #9f2d20;
+}
+
 .content {
   display: grid;
   grid-template-columns: 220px minmax(0, 1fr);
@@ -135,6 +145,16 @@ input {
   color: #263241;
   text-align: center;
   font-size: 0.8rem;
+}
+
+.facet-empty {
+  margin: 0 0 18px;
+  color: #687485;
+  font-size: 0.9rem;
+}
+
+.results-hidden {
+  display: none;
 }
 
 .ais-Hits-list {

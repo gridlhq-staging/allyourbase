@@ -616,32 +616,32 @@ describe("Layout", () => {
     expect(screen.queryByText("Data")).not.toBeInTheDocument();
   });
 
-  it("renders Auth section in sidebar with MFA and Account Linking items", () => {
+  it("renders Auth section in sidebar with MFA and Link Your Account items", () => {
     renderWithTheme(
       <Layout schema={twoTableSchema} onLogout={onLogout} onRefresh={onRefresh} />,
     );
     expect(screen.getByText("Auth")).toBeInTheDocument();
     expect(screen.getByText("Auth Settings")).toBeInTheDocument();
-    expect(screen.getByText("MFA Management")).toBeInTheDocument();
-    expect(screen.getByText("Account Linking")).toBeInTheDocument();
+    expect(screen.getByText("Multi-Factor Authentication")).toBeInTheDocument();
+    expect(screen.getByText("Link Your Account")).toBeInTheDocument();
   });
 
-  it("clicking MFA Management renders MFAEnrollment component", async () => {
+  it("clicking Multi-Factor Authentication renders MFAEnrollment component", async () => {
     renderWithTheme(
       <Layout schema={twoTableSchema} onLogout={onLogout} onRefresh={onRefresh} />,
     );
     const user = userEvent.setup();
-    await user.click(screen.getByText("MFA Management"));
+    await user.click(screen.getByText("Multi-Factor Authentication"));
     expect(await screen.findByTestId("mfa-enrollment-view")).toBeInTheDocument();
     expect(screen.queryByText("Data")).not.toBeInTheDocument();
   });
 
-  it("clicking Account Linking renders AccountLinking component", async () => {
+  it("clicking Link Your Account renders AccountLinking component", async () => {
     renderWithTheme(
       <Layout schema={twoTableSchema} onLogout={onLogout} onRefresh={onRefresh} />,
     );
     const user = userEvent.setup();
-    await user.click(screen.getByText("Account Linking"));
+    await user.click(screen.getByText("Link Your Account"));
     expect(await screen.findByTestId("account-linking-view")).toBeInTheDocument();
     expect(screen.queryByText("Data")).not.toBeInTheDocument();
   });
@@ -666,12 +666,12 @@ describe("Layout", () => {
     expect(screen.queryByText("Data")).not.toBeInTheDocument();
   });
 
-  it("clicking Usage renders UsageMetering component", async () => {
+  it("clicking Usage Metering renders UsageMetering component", async () => {
     renderWithTheme(
       <Layout schema={twoTableSchema} onLogout={onLogout} onRefresh={onRefresh} />,
     );
     const user = userEvent.setup();
-    await user.click(screen.getByText("Usage"));
+    await user.click(screen.getByText("Usage Metering"));
     expect(await screen.findByTestId("usage-metering-view")).toBeInTheDocument();
     expect(screen.queryByText("Data")).not.toBeInTheDocument();
   });

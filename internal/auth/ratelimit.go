@@ -88,7 +88,7 @@ func (rl *RateLimiter) Middleware(next http.Handler) http.Handler {
 			}
 			w.Header().Set("Retry-After", strconv.Itoa(retryAfter))
 			httputil.WriteErrorWithDocURL(w, http.StatusTooManyRequests, "too many requests",
-				"https://allyourbase.io/guide/authentication")
+				httputil.DocURL("/guide/authentication"))
 			return
 		}
 		next.ServeHTTP(w, r)

@@ -56,8 +56,8 @@ test.describe("Smoke: Backups", () => {
     await page.goto("/admin/");
     await waitForDashboard(page);
 
-    await page.locator("aside").getByRole("button", { name: /Backups/i }).click();
-    await expect(page.getByRole("heading", { name: /Backups/i })).toBeVisible({ timeout: 15_000 });
+    await page.locator("aside").getByRole("button", { name: /^Backups & PITR$/i }).click();
+    await expect(page.getByRole("heading", { name: /^Backups & PITR$/i })).toBeVisible({ timeout: 15_000 });
 
     // Verify table column headers
     await expect(page.getByRole("columnheader", { name: /Status/i })).toBeVisible({ timeout: 5000 });

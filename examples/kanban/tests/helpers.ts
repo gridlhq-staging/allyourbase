@@ -29,9 +29,33 @@ type BlockedRequestGate = {
   release: () => void;
 };
 
-type FailingAttachmentDeleteRoute = {
-  interceptedObjectName: () => string | null;
+type MockRecord = Record<string, unknown> & { id: string };
+
+type MockKanbanApiOptions = {
+  boards?: MockRecord[];
+  columns?: MockRecord[];
+  cards?: MockRecord[];
+  attachments?: MockRecord[];
+  persistCreates?: boolean;
+};
+
+type AuthenticatedSession = {
+  token: string;
+  refreshToken: string;
+  email: string;
+  userId: string;
+};
+
+type InstalledRoute = {
   uninstall: () => Promise<void>;
+};
+
+type RequestTrackingRoute = InstalledRoute & {
+  waitForRequest: () => Promise<void>;
+};
+
+type FailingAttachmentDeleteRoute = InstalledRoute & {
+  interceptedObjectName: () => string | null;
 };
 
 /** Demo account credentials. */
@@ -171,7 +195,17 @@ export async function createBoard(
   await titleInput.fill(title);
   await expect(titleInput).toHaveValue(title);
   await expect(createButton).toBeEnabled();
-  await createButton.click();
+  const [createResponse] = await Promise.all([
+    page.waitForResponse((response) => {
+      return (
+        response.request().method() === "POST" &&
+        new URL(response.url()).pathname.endsWith("/api/collections/boards")
+      );
+    }),
+    createButton.click(),
+  ]);
+  expect(createResponse.ok()).toBe(true);
+  await expect(titleInput).toHaveValue("");
   // Use .first() — collaborative model means other users' boards are visible,
   // so duplicate titles from other workers may exist.
   await expect(page.getByText(title).first()).toBeVisible();
@@ -340,6 +374,256 @@ export async function installFailingAttachmentDeleteRoute(
   };
 }
 
+/** Install an authenticated in-memory Kanban API for deterministic state tests. */
+export async function installMockKanbanApi(
+  page: Page,
+  options: MockKanbanApiOptions = {},
+): Promise<void> {
+  const records = {
+    boards: [...(options.boards ?? [])],
+    columns: [...(options.columns ?? [])],
+    cards: [...(options.cards ?? [])],
+    attachments: [...(options.attachments ?? [])],
+  };
+
+  await installAuthenticatedSession(page, {
+    token: "state-test-token",
+    refreshToken: "state-test-refresh",
+    email: "state-test@example.com",
+    userId: "state-test-user",
+  });
+
+  await page.route("**/api/storage/card-attachments", async (route, request) => {
+    if (request.method() === "POST") {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          bucket: "card-attachments",
+          name: "state-upload.txt",
+          size: 18,
+          content_type: "text/plain",
+          created_at: new Date().toISOString(),
+        }),
+      });
+      return;
+    }
+    await route.fallback();
+  });
+
+  await page.route("**/api/collections/**", async (route, request) => {
+    const url = new URL(request.url());
+    const [, collection, id] = url.pathname.match(/\/api\/collections\/([^/]+)\/?([^/]*)/) ?? [];
+    if (!isMockedKanbanCollection(collection)) {
+      await route.fallback();
+      return;
+    }
+
+    const method = request.method();
+    if (method === "GET") {
+      await fulfillList(route, records[collection]);
+      return;
+    }
+    if (method === "POST") {
+      const created = {
+        id: `${collection}-${records[collection].length + 1}`,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+        ...(request.postDataJSON() as Record<string, unknown>),
+      };
+      if (options.persistCreates ?? true) {
+        records[collection].push(created);
+      }
+      await fulfillJSON(route, 200, created);
+      return;
+    }
+    if (method === "PATCH" && id) {
+      const body = request.postDataJSON() as Record<string, unknown>;
+      const existingIndex = records[collection].findIndex((record) => record.id === id);
+      const updated = {
+        ...records[collection][existingIndex],
+        ...body,
+        id,
+        updated_at: new Date().toISOString(),
+      };
+      if (existingIndex >= 0) {
+        records[collection][existingIndex] = updated;
+      }
+      await fulfillJSON(route, 200, updated);
+      return;
+    }
+    if (method === "DELETE" && id) {
+      records[collection] = records[collection].filter((record) => record.id !== id);
+      await route.fulfill({ status: 204 });
+      return;
+    }
+
+    await route.fallback();
+  });
+}
+
+/** Fail matching collection requests so specs can assert visible error states. */
+export async function installFailingCollectionRoute(
+  page: Page,
+  collection: "boards" | "columns" | "cards" | "attachments",
+  method: "GET" | "POST" | "PATCH" | "DELETE",
+  message: string,
+): Promise<RequestTrackingRoute> {
+  const routePattern = `**/api/collections/${collection}**`;
+  let intercepted = false;
+  let resolveIntercepted: () => void;
+  const interceptedRequest = new Promise<void>((resolve) => {
+    resolveIntercepted = resolve;
+  });
+  const handler = async (route: Route) => {
+    const request = route.request();
+    if (request.method() !== method) {
+      await route.fallback();
+      return;
+    }
+    intercepted = true;
+    resolveIntercepted();
+    await fulfillJSON(route, 500, { message });
+  };
+  await page.route(routePattern, handler);
+  return {
+    uninstall: () => page.unroute(routePattern, handler),
+    waitForRequest: async () => {
+      if (intercepted) return;
+      await interceptedRequest;
+    },
+  };
+}
+
+/** Fail storage upload requests so specs can assert attachment upload errors. */
+export async function installFailingStorageUploadRoute(
+  page: Page,
+  message: string,
+): Promise<void> {
+  await page.route("**/api/storage/card-attachments", async (route, request) => {
+    if (request.method() !== "POST") {
+      await route.fallback();
+      return;
+    }
+    await fulfillJSON(route, 500, { message });
+  });
+}
+
+/**
+ * Delay matching collection requests until the test releases them.
+ *
+ * `afterRelease` selects how a held request continues once released:
+ * `"fallback"` hands off to a later mock route (mocked-backend specs), while
+ * `"continue"` lets the request reach the network (real-backend specs).
+ *
+ * `holdSubsequent` widens the gate from a single occurrence to "occurrence and
+ * every later matching request", which loading-state assertions need under
+ * React StrictMode: a mounted component's load effect fires twice in dev, so
+ * holding only the first request lets the second resolve and clear the loading
+ * UI before it can be asserted. Holding all pending loads keeps the component's
+ * `loading` flag true until the gate is released.
+ */
+export async function blockCollectionRequest(
+  page: Page,
+  collection: "boards" | "columns" | "cards" | "attachments",
+  method: "GET" | "POST" | "PATCH" | "DELETE",
+  { occurrence = 1, afterRelease = "fallback", holdSubsequent = false }: BlockCollectionRequestOptions = {},
+): Promise<BlockedRequestGate> {
+  let seen = 0;
+  let blocked = false;
+  let released = false;
+  let releaseHeldRequests = () => {};
+  const heldUntilReleased = new Promise<void>((resolve) => {
+    releaseHeldRequests = resolve;
+  });
+
+  await page.route(`**/api/collections/${collection}**`, async (route, request) => {
+    if (request.method() === method) {
+      seen += 1;
+      const shouldHold = holdSubsequent ? seen >= occurrence : seen === occurrence;
+      if (shouldHold && !released) {
+        blocked = true;
+        await heldUntilReleased;
+      }
+    }
+    if (afterRelease === "continue") {
+      await route.continue();
+    } else {
+      await route.fallback();
+    }
+  });
+
+  return {
+    wasBlocked: () => blocked,
+    release: () => {
+      if (!blocked) {
+        throw new Error("expected collection request to be blocked before release");
+      }
+      released = true;
+      releaseHeldRequests();
+    },
+  };
+}
+
+interface BlockCollectionRequestOptions {
+  occurrence?: number;
+  afterRelease?: "continue" | "fallback";
+  holdSubsequent?: boolean;
+}
+
+function isMockedKanbanCollection(
+  collection: string | undefined,
+): collection is "boards" | "columns" | "cards" | "attachments" {
+  return (
+    collection === "boards" ||
+    collection === "columns" ||
+    collection === "cards" ||
+    collection === "attachments"
+  );
+}
+
+async function fulfillList(route: Route, items: MockRecord[]): Promise<void> {
+  await fulfillJSON(route, 200, {
+    items,
+    page: 1,
+    perPage: 100,
+    totalItems: items.length,
+    totalPages: items.length > 0 ? 1 : 0,
+  });
+}
+
+async function fulfillJSON(route: Route, status: number, value: unknown): Promise<void> {
+  await route.fulfill({
+    status,
+    contentType: "application/json",
+    body: JSON.stringify(value),
+  });
+}
+
+async function installAuthenticatedSession(
+  page: Page,
+  session: AuthenticatedSession,
+): Promise<void> {
+  await page.addInitScript(({ optOutKey, token, refreshToken, email }) => {
+    sessionStorage.setItem("ayb_token", token);
+    sessionStorage.setItem("ayb_refresh_token", refreshToken);
+    localStorage.setItem("ayb_email", email);
+    localStorage.setItem(optOutKey, "1");
+  }, {
+    optOutKey: ANONYMOUS_BOOTSTRAP_OPTOUT_KEY,
+    token: session.token,
+    refreshToken: session.refreshToken,
+    email: session.email,
+  });
+
+  await page.route("**/api/auth/me", async (route) => {
+    await fulfillJSON(route, 200, {
+      id: session.userId,
+      email: session.email,
+    });
+  });
+}
+
 /** Simulate a partial starter-board seed by keeping the marker and deleting the Done starter card. */
 export async function simulateInterruptedSeedMissingDoneCard(
   page: Page,
@@ -432,21 +716,11 @@ export async function installEscapedBoardApiMock(
 ): Promise<() => string | null> {
   let capturedColumnsFilter: string | null = null;
 
-  await page.addInitScript((optOutKey) => {
-    sessionStorage.setItem("ayb_token", "test-token");
-    sessionStorage.setItem("ayb_refresh_token", "test-refresh");
-    localStorage.setItem("ayb_email", "security-test@example.com");
-    localStorage.setItem(optOutKey, "1");
-  }, ANONYMOUS_BOOTSTRAP_OPTOUT_KEY);
-  await page.route("**/api/auth/me", async (route) => {
-    await route.fulfill({
-      status: 200,
-      contentType: "application/json",
-      body: JSON.stringify({
-        id: "user-security-test",
-        email: "security-test@example.com",
-      }),
-    });
+  await installAuthenticatedSession(page, {
+    token: "test-token",
+    refreshToken: "test-refresh",
+    email: "security-test@example.com",
+    userId: "user-security-test",
   });
   await page.route("**/api/collections/boards**", async (route, request) => {
     if (request.method() !== "GET") {
@@ -490,27 +764,15 @@ export async function installEscapedBoardApiMock(
   return () => capturedColumnsFilter;
 }
 
-/** Delay the first column-create request until the test releases it. */
+/**
+ * Delay the first column-create request until the test releases it.
+ *
+ * Real-backend specs use this to hold a local create in flight; it delegates to
+ * the shared block-until-released seam with `continue` so the held request still
+ * reaches the network once released.
+ */
 export async function blockFirstColumnCreate(page: Page): Promise<BlockedRequestGate> {
-  let releaseBlockedRequest = () => {
-    throw new Error("expected first column create request to be blocked before release");
-  };
-  let blockedFirstCreate = false;
-
-  await page.route("**/api/collections/columns", async (route, request) => {
-    if (!blockedFirstCreate && request.method() === "POST") {
-      blockedFirstCreate = true;
-      await new Promise<void>((resolve) => {
-        releaseBlockedRequest = resolve;
-      });
-    }
-    await route.continue();
-  });
-
-  return {
-    wasBlocked: () => blockedFirstCreate,
-    release: () => releaseBlockedRequest(),
-  };
+  return blockCollectionRequest(page, "columns", "POST", { afterRelease: "continue" });
 }
 
 /** Add a card to a column. */

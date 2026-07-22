@@ -34,7 +34,7 @@ test.describe("Smoke: SAML", () => {
     await page.goto("/admin/");
     await waitForDashboard(page);
 
-    await page.locator("aside").getByRole("button", { name: /SAML/i }).click();
+    await page.locator("aside").getByRole("button", { name: /^SAML Configuration$/i }).click();
     await expect(page.getByRole("heading", { name: /SAML Configuration/i })).toBeVisible({ timeout: 15_000 });
 
     // Verify table column headers

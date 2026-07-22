@@ -59,7 +59,7 @@ test.describe("Smoke: Apps List", () => {
     await page.goto("/admin/");
     await waitForDashboard(page);
 
-    await page.locator("aside").getByRole("button", { name: /^Apps$/i }).click();
+    await page.locator("aside").getByRole("button", { name: /^Applications$/i }).click();
     await expect(page.getByRole("heading", { name: /Applications/i })).toBeVisible({ timeout: 15_000 });
 
     await expect(page.getByRole("columnheader", { name: "Name" })).toBeVisible();

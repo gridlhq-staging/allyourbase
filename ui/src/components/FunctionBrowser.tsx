@@ -5,9 +5,10 @@ import { Play, ChevronDown, ChevronRight } from "lucide-react";
 
 interface FunctionBrowserProps {
   functions: Record<string, SchemaFunction>;
+  screenLabel: string;
 }
 
-export function FunctionBrowser({ functions }: FunctionBrowserProps) {
+export function FunctionBrowser({ functions, screenLabel }: FunctionBrowserProps) {
   const fnList = Object.values(functions).sort((a, b) =>
     `${a.schema}.${a.name}`.localeCompare(`${b.schema}.${b.name}`),
   );
@@ -78,7 +79,7 @@ export function FunctionBrowser({ functions }: FunctionBrowserProps) {
   return (
     <div className="p-6 max-w-4xl">
       <h2 className="text-lg font-semibold mb-4">
-        Functions ({fnList.length})
+        {screenLabel} ({fnList.length})
       </h2>
 
       <div className="space-y-1">

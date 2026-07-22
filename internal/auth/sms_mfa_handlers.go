@@ -30,7 +30,7 @@ type mfaPendingResponse struct {
 func (h *Handler) handleMFAEnroll(w http.ResponseWriter, r *http.Request) {
 	if !h.smsEnabled {
 		httputil.WriteErrorWithDocURL(w, http.StatusNotFound, "SMS MFA is not enabled",
-			"https://allyourbase.io/guide/authentication#sms")
+			httputil.DocURL("/guide/authentication#sms"))
 		return
 	}
 
@@ -80,7 +80,7 @@ func (h *Handler) handleMFAEnroll(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) handleMFAEnrollConfirm(w http.ResponseWriter, r *http.Request) {
 	if !h.smsEnabled {
 		httputil.WriteErrorWithDocURL(w, http.StatusNotFound, "SMS MFA is not enabled",
-			"https://allyourbase.io/guide/authentication#sms")
+			httputil.DocURL("/guide/authentication#sms"))
 		return
 	}
 
@@ -126,7 +126,7 @@ func (h *Handler) handleMFAEnrollConfirm(w http.ResponseWriter, r *http.Request)
 func (h *Handler) handleMFAChallenge(w http.ResponseWriter, r *http.Request) {
 	if !h.smsEnabled {
 		httputil.WriteErrorWithDocURL(w, http.StatusNotFound, "SMS MFA is not enabled",
-			"https://allyourbase.io/guide/authentication#sms")
+			httputil.DocURL("/guide/authentication#sms"))
 		return
 	}
 
@@ -151,7 +151,7 @@ func (h *Handler) handleMFAChallenge(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) handleMFAVerify(w http.ResponseWriter, r *http.Request) {
 	if !h.smsEnabled {
 		httputil.WriteErrorWithDocURL(w, http.StatusNotFound, "SMS MFA is not enabled",
-			"https://allyourbase.io/guide/authentication#sms")
+			httputil.DocURL("/guide/authentication#sms"))
 		return
 	}
 

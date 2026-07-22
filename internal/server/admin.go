@@ -76,7 +76,7 @@ func (s *Server) handleAdminLogin(w http.ResponseWriter, r *http.Request) {
 
 	if !aa.validatePassword(body.Password) {
 		httputil.WriteErrorWithDocURL(w, http.StatusUnauthorized, "invalid password",
-			"https://allyourbase.io/guide/admin-dashboard")
+			httputil.DocURL("/guide/admin-dashboard"))
 		return
 	}
 
@@ -95,14 +95,14 @@ func (s *Server) requireAdminToken(next http.Handler) http.Handler {
 
 		if aa == nil {
 			httputil.WriteErrorWithDocURL(w, http.StatusUnauthorized, "admin authentication required",
-				"https://allyourbase.io/guide/admin-dashboard")
+				httputil.DocURL("/guide/admin-dashboard"))
 			return
 		}
 
 		token, ok := httputil.ExtractBearerToken(r)
 		if !ok || !aa.validateToken(token) {
 			httputil.WriteErrorWithDocURL(w, http.StatusUnauthorized, "admin authentication required",
-				"https://allyourbase.io/guide/admin-dashboard")
+				httputil.DocURL("/guide/admin-dashboard"))
 			return
 		}
 

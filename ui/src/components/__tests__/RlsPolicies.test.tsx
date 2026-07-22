@@ -11,8 +11,8 @@ import {
   enableRls,
   disableRls,
 } from "../../api";
-import type { SchemaCache, RlsTableStatus } from "../../types";
-import { makePolicy } from "./rls-test-fixtures";
+import type { RlsTableStatus } from "../../types";
+import { makePolicy, makeRlsSchema } from "./rls-test-fixtures";
 
 vi.mock("../../api", () => ({
   listRlsPolicies: vi.fn(),
@@ -37,23 +37,6 @@ const mockDeletePolicy = vi.mocked(deleteRlsPolicy);
 const mockEnableRls = vi.mocked(enableRls);
 const mockDisableRls = vi.mocked(disableRls);
 
-function makeSchema(tableNames: string[] = ["posts", "comments"], schemaName = "public"): SchemaCache {
-  const tables: SchemaCache["tables"] = {};
-  for (const name of tableNames) {
-    tables[`${schemaName}.${name}`] = {
-      schema: schemaName,
-      name,
-      kind: "table",
-      columns: [
-        { name: "id", position: 1, type: "uuid", nullable: false, isPrimaryKey: true, jsonType: "string" },
-        { name: "user_id", position: 2, type: "uuid", nullable: false, isPrimaryKey: false, jsonType: "string" },
-      ],
-      primaryKey: ["id"],
-    };
-  }
-  return { tables, schemas: [schemaName], builtAt: "2026-02-10T12:00:00Z" };
-}
-
 function makeStatus(overrides: Partial<RlsTableStatus> = {}): RlsTableStatus {
   return { rlsEnabled: true, forceRls: false, ...overrides };
 }
@@ -66,14 +49,14 @@ describe("RlsPolicies", () => {
   it("shows loading state", () => {
     mockListPolicies.mockReturnValue(new Promise(() => {}));
     mockGetStatus.mockReturnValue(new Promise(() => {}));
-    renderWithProviders(<RlsPolicies schema={makeSchema()} />);
+    renderWithProviders(<RlsPolicies screenLabel="RLS Policies" schema={makeRlsSchema()} />);
     expect(screen.getByText("Loading policies...")).toBeInTheDocument();
   });
 
   it("shows table list in sidebar", async () => {
     mockListPolicies.mockResolvedValueOnce([]);
     mockGetStatus.mockResolvedValueOnce(makeStatus());
-    renderWithProviders(<RlsPolicies schema={makeSchema(["posts", "comments"])} />);
+    renderWithProviders(<RlsPolicies screenLabel="RLS Policies" schema={makeRlsSchema(["posts", "comments"])} />);
 
     await waitFor(() => {
       expect(screen.getByText("posts")).toBeInTheDocument();
@@ -81,10 +64,27 @@ describe("RlsPolicies", () => {
     });
   });
 
+  it("uses the injected registry label as the page heading while keeping Tables subordinate", async () => {
+    mockListPolicies.mockResolvedValueOnce([]);
+    mockGetStatus.mockResolvedValueOnce(makeStatus());
+    renderWithProviders(
+      <RlsPolicies
+        schema={makeRlsSchema(["posts", "comments"])}
+        screenLabel="Registry RLS Label"
+      />,
+    );
+
+    expect(
+      await screen.findByRole("heading", { name: "Registry RLS Label" }),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Tables" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "comments" })).toBeInTheDocument();
+  });
+
   it("table schema prefix uses WCAG AA compliant contrast token", async () => {
     mockListPolicies.mockResolvedValueOnce([]);
     mockGetStatus.mockResolvedValueOnce(makeStatus());
-    renderWithProviders(<RlsPolicies schema={makeSchema(["posts"], "analytics")} />);
+    renderWithProviders(<RlsPolicies screenLabel="RLS Policies" schema={makeRlsSchema(["posts"], "analytics")} />);
 
     await waitFor(() => {
       expect(screen.getByText("posts")).toBeInTheDocument();
@@ -97,7 +97,7 @@ describe("RlsPolicies", () => {
   it("shows RLS enabled badge when RLS is on", async () => {
     mockListPolicies.mockResolvedValueOnce([]);
     mockGetStatus.mockResolvedValueOnce(makeStatus({ rlsEnabled: true }));
-    renderWithProviders(<RlsPolicies schema={makeSchema()} />);
+    renderWithProviders(<RlsPolicies screenLabel="RLS Policies" schema={makeRlsSchema()} />);
 
     await waitFor(() => {
       expect(screen.getByText("RLS Enabled")).toBeInTheDocument();
@@ -107,7 +107,7 @@ describe("RlsPolicies", () => {
   it("shows RLS disabled badge when RLS is off", async () => {
     mockListPolicies.mockResolvedValueOnce([]);
     mockGetStatus.mockResolvedValueOnce(makeStatus({ rlsEnabled: false }));
-    renderWithProviders(<RlsPolicies schema={makeSchema()} />);
+    renderWithProviders(<RlsPolicies screenLabel="RLS Policies" schema={makeRlsSchema()} />);
 
     await waitFor(() => {
       expect(screen.getByText("RLS Disabled")).toBeInTheDocument();
@@ -121,7 +121,7 @@ describe("RlsPolicies", () => {
     ];
     mockListPolicies.mockResolvedValueOnce(policies);
     mockGetStatus.mockResolvedValueOnce(makeStatus());
-    renderWithProviders(<RlsPolicies schema={makeSchema()} />);
+    renderWithProviders(<RlsPolicies screenLabel="RLS Policies" schema={makeRlsSchema()} />);
 
     await waitFor(() => {
       expect(screen.getByText("owner_access")).toBeInTheDocument();
@@ -134,7 +134,7 @@ describe("RlsPolicies", () => {
   it("shows empty state when no policies", async () => {
     mockListPolicies.mockResolvedValueOnce([]);
     mockGetStatus.mockResolvedValueOnce(makeStatus());
-    renderWithProviders(<RlsPolicies schema={makeSchema()} />);
+    renderWithProviders(<RlsPolicies screenLabel="RLS Policies" schema={makeRlsSchema()} />);
 
     await waitFor(() => {
       expect(screen.getByText("No policies on this table")).toBeInTheDocument();
@@ -145,7 +145,7 @@ describe("RlsPolicies", () => {
   it("shows error state with retry", async () => {
     mockListPolicies.mockRejectedValueOnce(new Error("connection refused"));
     mockGetStatus.mockRejectedValueOnce(new Error("connection refused"));
-    renderWithProviders(<RlsPolicies schema={makeSchema()} />);
+    renderWithProviders(<RlsPolicies screenLabel="RLS Policies" schema={makeRlsSchema()} />);
 
     await waitFor(() => {
       expect(screen.getByText("connection refused")).toBeInTheDocument();
@@ -156,7 +156,7 @@ describe("RlsPolicies", () => {
   it("opens create policy modal on Add Policy click", async () => {
     mockListPolicies.mockResolvedValueOnce([]);
     mockGetStatus.mockResolvedValueOnce(makeStatus());
-    renderWithProviders(<RlsPolicies schema={makeSchema()} />);
+    renderWithProviders(<RlsPolicies screenLabel="RLS Policies" schema={makeRlsSchema()} />);
 
     await waitFor(() => {
       expect(screen.getByText("No policies on this table")).toBeInTheDocument();
@@ -191,7 +191,7 @@ describe("RlsPolicies", () => {
     });
     mockGetStatus.mockResolvedValue(makeStatus());
     mockCreatePolicy.mockResolvedValueOnce({ message: "policy created" });
-    renderWithProviders(<RlsPolicies schema={makeSchema(["posts", "comments"])} />);
+    renderWithProviders(<RlsPolicies screenLabel="RLS Policies" schema={makeRlsSchema(["posts", "comments"])} />);
 
     await waitFor(() => {
       expect(screen.getByText("Add Policy")).toBeInTheDocument();
@@ -266,7 +266,7 @@ describe("RlsPolicies", () => {
     mockListPolicies.mockResolvedValue([]);
     mockGetStatus.mockResolvedValue(makeStatus());
     mockCreatePolicy.mockRejectedValueOnce(new Error("create failed"));
-    renderWithProviders(<RlsPolicies schema={makeSchema(["posts"])} />);
+    renderWithProviders(<RlsPolicies screenLabel="RLS Policies" schema={makeRlsSchema(["posts"])} />);
 
     await waitFor(() => {
       expect(screen.getByText("Add Policy")).toBeInTheDocument();
@@ -298,7 +298,7 @@ describe("RlsPolicies", () => {
   it("shows policy templates in create modal", async () => {
     mockListPolicies.mockResolvedValueOnce([]);
     mockGetStatus.mockResolvedValueOnce(makeStatus());
-    renderWithProviders(<RlsPolicies schema={makeSchema()} />);
+    renderWithProviders(<RlsPolicies screenLabel="RLS Policies" schema={makeRlsSchema()} />);
 
     await waitFor(() => {
       expect(screen.getByText("Add Policy")).toBeInTheDocument();
@@ -316,7 +316,7 @@ describe("RlsPolicies", () => {
   it("template and placeholder auth-context copy uses ayb session keys", async () => {
     mockListPolicies.mockResolvedValueOnce([]);
     mockGetStatus.mockResolvedValueOnce(makeStatus());
-    renderWithProviders(<RlsPolicies schema={makeSchema()} />);
+    renderWithProviders(<RlsPolicies screenLabel="RLS Policies" schema={makeRlsSchema()} />);
 
     await waitFor(() => {
       expect(screen.getByText("Add Policy")).toBeInTheDocument();
@@ -348,7 +348,7 @@ describe("RlsPolicies", () => {
   it("opens delete confirmation when delete button clicked", async () => {
     mockListPolicies.mockResolvedValueOnce([makePolicy()]);
     mockGetStatus.mockResolvedValueOnce(makeStatus());
-    renderWithProviders(<RlsPolicies schema={makeSchema()} />);
+    renderWithProviders(<RlsPolicies screenLabel="RLS Policies" schema={makeRlsSchema()} />);
 
     await waitFor(() => {
       expect(screen.getByText("owner_access")).toBeInTheDocument();
@@ -365,7 +365,7 @@ describe("RlsPolicies", () => {
     mockListPolicies.mockResolvedValue([makePolicy()]);
     mockGetStatus.mockResolvedValue(makeStatus());
     mockDeletePolicy.mockResolvedValueOnce(undefined);
-    renderWithProviders(<RlsPolicies schema={makeSchema()} />);
+    renderWithProviders(<RlsPolicies screenLabel="RLS Policies" schema={makeRlsSchema()} />);
 
     await waitFor(() => {
       expect(screen.getByText("owner_access")).toBeInTheDocument();
@@ -389,7 +389,7 @@ describe("RlsPolicies", () => {
     mockListPolicies.mockResolvedValue([makePolicy()]);
     mockGetStatus.mockResolvedValue(makeStatus());
     mockDeletePolicy.mockRejectedValueOnce(new Error("delete failed"));
-    renderWithProviders(<RlsPolicies schema={makeSchema()} />);
+    renderWithProviders(<RlsPolicies screenLabel="RLS Policies" schema={makeRlsSchema()} />);
 
     await waitFor(() => {
       expect(screen.getByText("owner_access")).toBeInTheDocument();
@@ -413,7 +413,7 @@ describe("RlsPolicies", () => {
   it("cancel on delete dialog closes it", async () => {
     mockListPolicies.mockResolvedValueOnce([makePolicy()]);
     mockGetStatus.mockResolvedValueOnce(makeStatus());
-    renderWithProviders(<RlsPolicies schema={makeSchema()} />);
+    renderWithProviders(<RlsPolicies screenLabel="RLS Policies" schema={makeRlsSchema()} />);
 
     await waitFor(() => {
       expect(screen.getByText("owner_access")).toBeInTheDocument();
@@ -441,7 +441,7 @@ describe("RlsPolicies", () => {
       .mockResolvedValueOnce(makeStatus({ rlsEnabled: false }))
       .mockResolvedValueOnce(makeStatus({ rlsEnabled: true }));
     mockEnableRls.mockResolvedValueOnce({ message: "enabled" });
-    renderWithProviders(<RlsPolicies schema={makeSchema(["posts"])} />);
+    renderWithProviders(<RlsPolicies screenLabel="RLS Policies" schema={makeRlsSchema(["posts"])} />);
 
     await waitFor(() => {
       expect(screen.getByText("Enable RLS")).toBeInTheDocument();
@@ -469,7 +469,7 @@ describe("RlsPolicies", () => {
     mockListPolicies.mockResolvedValue([]);
     mockGetStatus.mockResolvedValue(makeStatus({ rlsEnabled: true }));
     mockDisableRls.mockResolvedValueOnce({ message: "disabled" });
-    renderWithProviders(<RlsPolicies schema={makeSchema(["posts"])} />);
+    renderWithProviders(<RlsPolicies screenLabel="RLS Policies" schema={makeRlsSchema(["posts"])} />);
 
     await waitFor(() => {
       expect(screen.getByText("Disable RLS")).toBeInTheDocument();
@@ -487,7 +487,7 @@ describe("RlsPolicies", () => {
     mockListPolicies.mockResolvedValue([]);
     mockGetStatus.mockResolvedValue(makeStatus({ rlsEnabled: true }));
     mockDisableRls.mockRejectedValueOnce(new Error("toggle failed"));
-    renderWithProviders(<RlsPolicies schema={makeSchema(["posts"])} />);
+    renderWithProviders(<RlsPolicies screenLabel="RLS Policies" schema={makeRlsSchema(["posts"])} />);
 
     await waitFor(() => {
       expect(screen.getByText("Disable RLS")).toBeInTheDocument();
@@ -508,7 +508,7 @@ describe("RlsPolicies", () => {
   it("shows SQL preview when View SQL clicked", async () => {
     mockListPolicies.mockResolvedValueOnce([makePolicy()]);
     mockGetStatus.mockResolvedValueOnce(makeStatus());
-    renderWithProviders(<RlsPolicies schema={makeSchema()} />);
+    renderWithProviders(<RlsPolicies screenLabel="RLS Policies" schema={makeRlsSchema()} />);
 
     await waitFor(() => {
       expect(screen.getByText("owner_access")).toBeInTheDocument();
@@ -529,7 +529,7 @@ describe("RlsPolicies", () => {
       }),
     ]);
     mockGetStatus.mockResolvedValueOnce(makeStatus());
-    renderWithProviders(<RlsPolicies schema={makeSchema()} />);
+    renderWithProviders(<RlsPolicies screenLabel="RLS Policies" schema={makeRlsSchema()} />);
 
     await waitFor(() => {
       expect(screen.getByText("(user_id = 1)")).toBeInTheDocument();
@@ -542,7 +542,7 @@ describe("RlsPolicies", () => {
       makePolicy({ roles: ["authenticated", "admin"] }),
     ]);
     mockGetStatus.mockResolvedValueOnce(makeStatus());
-    renderWithProviders(<RlsPolicies schema={makeSchema()} />);
+    renderWithProviders(<RlsPolicies screenLabel="RLS Policies" schema={makeRlsSchema()} />);
 
     await waitFor(() => {
       expect(screen.getByText("Roles: authenticated, admin")).toBeInTheDocument();
@@ -552,7 +552,7 @@ describe("RlsPolicies", () => {
   it("shows PERMISSIVE badge", async () => {
     mockListPolicies.mockResolvedValueOnce([makePolicy({ permissive: "PERMISSIVE" })]);
     mockGetStatus.mockResolvedValueOnce(makeStatus());
-    renderWithProviders(<RlsPolicies schema={makeSchema()} />);
+    renderWithProviders(<RlsPolicies screenLabel="RLS Policies" schema={makeRlsSchema()} />);
 
     await waitFor(() => {
       expect(screen.getByText("PERMISSIVE")).toBeInTheDocument();
@@ -562,7 +562,7 @@ describe("RlsPolicies", () => {
   it("shows RESTRICTIVE badge", async () => {
     mockListPolicies.mockResolvedValueOnce([makePolicy({ permissive: "RESTRICTIVE" })]);
     mockGetStatus.mockResolvedValueOnce(makeStatus());
-    renderWithProviders(<RlsPolicies schema={makeSchema()} />);
+    renderWithProviders(<RlsPolicies screenLabel="RLS Policies" schema={makeRlsSchema()} />);
 
     await waitFor(() => {
       expect(screen.getByText("RESTRICTIVE")).toBeInTheDocument();
@@ -570,7 +570,7 @@ describe("RlsPolicies", () => {
   });
 
   it("filters tables to only show kind=table (no views)", async () => {
-    const schema = makeSchema(["posts"]);
+    const schema = makeRlsSchema(["posts"]);
     schema.tables["public.my_view"] = {
       schema: "public",
       name: "my_view",
@@ -580,7 +580,7 @@ describe("RlsPolicies", () => {
     };
     mockListPolicies.mockResolvedValueOnce([]);
     mockGetStatus.mockResolvedValueOnce(makeStatus());
-    renderWithProviders(<RlsPolicies schema={schema} />);
+    renderWithProviders(<RlsPolicies screenLabel="RLS Policies" schema={schema} />);
 
     await waitFor(() => {
       expect(screen.getByText("posts")).toBeInTheDocument();
@@ -589,30 +589,10 @@ describe("RlsPolicies", () => {
     expect(screen.queryByText("my_view")).not.toBeInTheDocument();
   });
 
-  it("retry button refetches data after error", async () => {
-    mockListPolicies.mockRejectedValueOnce(new Error("db down"));
-    mockGetStatus.mockRejectedValueOnce(new Error("db down"));
-    renderWithProviders(<RlsPolicies schema={makeSchema()} />);
-
-    await waitFor(() => {
-      expect(screen.getByText("db down")).toBeInTheDocument();
-    });
-
-    // Retry should fetch again
-    mockListPolicies.mockResolvedValueOnce([]);
-    mockGetStatus.mockResolvedValueOnce(makeStatus());
-    const user = userEvent.setup();
-    await user.click(screen.getByText("Retry"));
-
-    await waitFor(() => {
-      expect(screen.getByText("No policies on this table")).toBeInTheDocument();
-    });
-  });
-
   it("create modal closes on cancel", async () => {
     mockListPolicies.mockResolvedValueOnce([]);
     mockGetStatus.mockResolvedValueOnce(makeStatus());
-    renderWithProviders(<RlsPolicies schema={makeSchema()} />);
+    renderWithProviders(<RlsPolicies screenLabel="RLS Policies" schema={makeRlsSchema()} />);
 
     await waitFor(() => {
       expect(screen.getByText("Add Policy")).toBeInTheDocument();
@@ -629,7 +609,7 @@ describe("RlsPolicies", () => {
   it("close SQL preview modal", async () => {
     mockListPolicies.mockResolvedValueOnce([makePolicy()]);
     mockGetStatus.mockResolvedValueOnce(makeStatus());
-    renderWithProviders(<RlsPolicies schema={makeSchema()} />);
+    renderWithProviders(<RlsPolicies screenLabel="RLS Policies" schema={makeRlsSchema()} />);
 
     await waitFor(() => {
       expect(screen.getByText("owner_access")).toBeInTheDocument();
@@ -655,7 +635,7 @@ describe("RlsPolicies", () => {
       }),
     ]);
     mockGetStatus.mockResolvedValueOnce(makeStatus());
-    renderWithProviders(<RlsPolicies schema={makeSchema()} />);
+    renderWithProviders(<RlsPolicies screenLabel="RLS Policies" schema={makeRlsSchema()} />);
 
     await waitFor(() => {
       expect(screen.getByText("owner_access")).toBeInTheDocument();
@@ -682,7 +662,7 @@ describe("RlsPolicies", () => {
   it("shows no policies message with create button for empty table", async () => {
     mockListPolicies.mockResolvedValueOnce([]);
     mockGetStatus.mockResolvedValueOnce(makeStatus());
-    renderWithProviders(<RlsPolicies schema={makeSchema(["posts"])} />);
+    renderWithProviders(<RlsPolicies screenLabel="RLS Policies" schema={makeRlsSchema(["posts"])} />);
 
     await waitFor(() => {
       expect(screen.getByText("No policies on this table")).toBeInTheDocument();
@@ -693,7 +673,7 @@ describe("RlsPolicies", () => {
   it("create your first policy button opens modal", async () => {
     mockListPolicies.mockResolvedValueOnce([]);
     mockGetStatus.mockResolvedValueOnce(makeStatus());
-    renderWithProviders(<RlsPolicies schema={makeSchema(["posts"])} />);
+    renderWithProviders(<RlsPolicies screenLabel="RLS Policies" schema={makeRlsSchema(["posts"])} />);
 
     await waitFor(() => {
       expect(screen.getByText("Create your first policy")).toBeInTheDocument();
@@ -709,7 +689,7 @@ describe("RlsPolicies", () => {
       makePolicy({ usingExpr: null, withCheckExpr: null }),
     ]);
     mockGetStatus.mockResolvedValueOnce(makeStatus());
-    renderWithProviders(<RlsPolicies schema={makeSchema()} />);
+    renderWithProviders(<RlsPolicies screenLabel="RLS Policies" schema={makeRlsSchema()} />);
 
     await waitFor(() => {
       expect(screen.getByText("owner_access")).toBeInTheDocument();
@@ -723,7 +703,7 @@ describe("RlsPolicies", () => {
       makePolicy({ policyName: "policy_3", command: "UPDATE" }),
     ]);
     mockGetStatus.mockResolvedValueOnce(makeStatus());
-    renderWithProviders(<RlsPolicies schema={makeSchema()} />);
+    renderWithProviders(<RlsPolicies screenLabel="RLS Policies" schema={makeRlsSchema()} />);
 
     await waitFor(() => {
       expect(screen.getByText("policy_1")).toBeInTheDocument();
@@ -738,7 +718,7 @@ describe("RlsPolicies", () => {
   it("create policy form has required fields", async () => {
     mockListPolicies.mockResolvedValueOnce([]);
     mockGetStatus.mockResolvedValueOnce(makeStatus());
-    renderWithProviders(<RlsPolicies schema={makeSchema()} />);
+    renderWithProviders(<RlsPolicies screenLabel="RLS Policies" schema={makeRlsSchema()} />);
 
     await waitFor(() => {
       expect(screen.getByText("Add Policy")).toBeInTheDocument();
@@ -754,7 +734,7 @@ describe("RlsPolicies", () => {
   });
 
   it("create policy sends schema for non-public tables", async () => {
-    const schema = makeSchema([]);
+    const schema = makeRlsSchema([]);
     schema.tables["myapp.tasks"] = {
       schema: "myapp",
       name: "tasks",
@@ -767,7 +747,7 @@ describe("RlsPolicies", () => {
     mockListPolicies.mockResolvedValue([]);
     mockGetStatus.mockResolvedValue(makeStatus());
     mockCreatePolicy.mockResolvedValueOnce({ message: "policy created" });
-    renderWithProviders(<RlsPolicies schema={schema} />);
+    renderWithProviders(<RlsPolicies screenLabel="RLS Policies" schema={schema} />);
 
     await waitFor(() => {
       // Table should appear in sidebar

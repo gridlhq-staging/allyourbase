@@ -4,6 +4,7 @@
 //
 // Usage: go run ./internal/testutil/cmd/testpg -- go test -tags=integration -count=1 ./...
 // Package main testpg starts AYB's managed Postgres on a free port and runs a given command with TEST_DATABASE_URL set, allowing integration tests to run without Docker or a local Postgres install.
+// Package main Stub summary for internal/testutil/cmd/testpg/main.go.
 package main
 
 import (
@@ -17,7 +18,9 @@ import (
 	"os/signal"
 	"path/filepath"
 	"strings"
+	"sync"
 	"syscall"
+	"time"
 
 	"github.com/allyourbase/ayb/internal/pgmanager"
 	"github.com/allyourbase/ayb/internal/testutil"
@@ -35,57 +38,13 @@ func run() int {
 		return 1
 	}
 
-	port, err := testutil.FreePort()
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "testpg: finding free port: %v\n", err)
-		return 1
-	}
-
-	tempRoot, err := createTempRoot()
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "testpg: create temp postgres root: %v\n", err)
-		return 1
-	}
-	defer os.RemoveAll(tempRoot)
-
-	pgLogFile, logWriter, err := openPostgresLog()
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "testpg: create log file: %v\n", err)
-		return 1
-	}
-	defer os.Remove(pgLogFile.Name())
-	defer pgLogFile.Close()
-
-	logger := slog.New(slog.NewTextHandler(logWriter, &slog.HandlerOptions{Level: slog.LevelDebug}))
-
-	binRoot, err := persistentPGBinRoot()
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "testpg: resolve managed postgres binary root: %v\n", err)
-		return 1
-	}
-
-	cfg := newTestPGConfig(tempRoot, binRoot, port, logger)
-	mgr := pgmanager.New(cfg)
-
 	ctx := context.Background()
-
-	fmt.Fprintf(os.Stderr, "testpg: starting managed postgres on port %d (logs: %s)\n", port, pgLogFile.Name())
-	connURL, err := startManagedPostgres(ctx, mgr, binRoot)
+	runtime, err := startTestPGRuntime(ctx)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "testpg: start postgres: %v\n", err)
+		fmt.Fprintf(os.Stderr, "testpg: %v\n", err)
 		return 1
 	}
-	testDBURL, err := replaceDatabaseInConnURL(connURL, "postgres")
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "testpg: build TEST_DATABASE_URL: %v\n", err)
-		return 1
-	}
-
-	cleanup := func() {
-		fmt.Fprintln(os.Stderr, "testpg: stopping managed postgres")
-		_ = mgr.Stop()
-	}
-	defer cleanup()
+	defer runtime.cleanup()
 
 	// Trap signals so postgres is stopped on Ctrl+C / SIGTERM instead of
 	// being orphaned. A second signal force-exits immediately.
@@ -93,9 +52,14 @@ func run() int {
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
 	defer signal.Stop(sigCh)
 
-	fmt.Fprintf(os.Stderr, "testpg: TEST_DATABASE_URL=%s\n", testDBURL)
+	fmt.Fprintf(os.Stderr, "testpg: TEST_DATABASE_URL=%s\n", runtime.databaseURL)
 
-	cmd := newChildCommand(args, testDBURL, filepath.Join(cfg.BinDir, "bin"))
+	cmd := newChildCommand(args, childCommandEnvironment{
+		databaseURL:      runtime.databaseURL,
+		pgBinDir:         filepath.Join(runtime.cfg.BinDir, "bin"),
+		backupConfigPath: runtime.archive.configPath,
+		projectID:        testPGArchiveProjectID,
+	})
 	if err := cmd.Start(); err != nil {
 		fmt.Fprintf(os.Stderr, "testpg: %v\n", err)
 		return 1
@@ -105,7 +69,117 @@ func run() int {
 	waitCh := make(chan error, 1)
 	go func() { waitCh <- cmd.Wait() }()
 
-	return waitForChildOrSignal(cmd, waitCh, sigCh, cleanup)
+	return waitForChildOrSignal(cmd, waitCh, sigCh, runtime.cleanup)
+}
+
+type testPGRuntime struct {
+	cfg         pgmanager.Config
+	archive     *archiveRuntime
+	databaseURL string
+	cleanup     func()
+}
+
+func startTestPGRuntime(ctx context.Context) (*testPGRuntime, error) {
+	port, err := testutil.FreePort()
+	if err != nil {
+		return nil, fmt.Errorf("finding free port: %w", err)
+	}
+
+	tempRoot, err := createTempRoot()
+	if err != nil {
+		return nil, fmt.Errorf("create temp postgres root: %w", err)
+	}
+	pgLogFile, logWriter, err := openPostgresLog()
+	if err != nil {
+		_ = os.RemoveAll(tempRoot)
+		return nil, fmt.Errorf("create log file: %w", err)
+	}
+
+	runtime, err := openTestPGRuntime(ctx, tempRoot, port, pgLogFile, logWriter)
+	if err != nil {
+		_ = pgLogFile.Close()
+		_ = os.Remove(pgLogFile.Name())
+		_ = os.RemoveAll(tempRoot)
+		return nil, err
+	}
+	return runtime, nil
+}
+
+func openTestPGRuntime(
+	ctx context.Context,
+	tempRoot string,
+	port int,
+	pgLogFile *os.File,
+	logWriter io.Writer,
+) (*testPGRuntime, error) {
+	logger := slog.New(slog.NewTextHandler(logWriter, &slog.HandlerOptions{Level: slog.LevelDebug}))
+	binRoot, err := persistentPGBinRoot()
+	if err != nil {
+		return nil, fmt.Errorf("resolve managed postgres binary root: %w", err)
+	}
+	archive, err := prepareArchiveRuntime(ctx, tempRoot, port)
+	if err != nil {
+		return nil, fmt.Errorf("prepare WAL archive runtime: %w", err)
+	}
+	restoreProjectEnvironment, err := setArchiveProjectEnvironment()
+	if err != nil {
+		closeArchive(archive)
+		return nil, fmt.Errorf("set archive project environment: %w", err)
+	}
+
+	cfg := newTestPGConfig(tempRoot, binRoot, port, logger)
+	cfg.ArchiveCommand = archive.command
+	mgr := pgmanager.New(cfg)
+	fmt.Fprintf(os.Stderr, "testpg: starting managed postgres on port %d (logs: %s)\n", port, pgLogFile.Name())
+	connURL, err := startManagedPostgres(ctx, mgr, binRoot)
+	if err != nil {
+		restoreProjectEnvironment()
+		closeArchive(archive)
+		return nil, fmt.Errorf("start postgres: %w", err)
+	}
+	databaseURL, err := replaceDatabaseInConnURL(connURL, "postgres")
+	if err != nil {
+		restoreProjectEnvironment()
+		_ = mgr.Stop()
+		closeArchive(archive)
+		return nil, fmt.Errorf("build TEST_DATABASE_URL: %w", err)
+	}
+
+	return &testPGRuntime{
+		cfg:         cfg,
+		archive:     archive,
+		databaseURL: databaseURL,
+		cleanup:     testPGCleanup(tempRoot, pgLogFile, mgr, archive, restoreProjectEnvironment),
+	}, nil
+}
+
+func testPGCleanup(
+	tempRoot string,
+	pgLogFile *os.File,
+	mgr *pgmanager.Manager,
+	archive *archiveRuntime,
+	restoreProjectEnvironment func(),
+) func() {
+	var once sync.Once
+	return func() {
+		once.Do(func() {
+			fmt.Fprintln(os.Stderr, "testpg: stopping managed postgres")
+			_ = mgr.Stop()
+			closeArchive(archive)
+			restoreProjectEnvironment()
+			_ = os.Remove(pgLogFile.Name())
+			_ = pgLogFile.Close()
+			_ = os.RemoveAll(tempRoot)
+		})
+	}
+}
+
+func closeArchive(archive *archiveRuntime) {
+	cleanupCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	if err := archive.close(cleanupCtx); err != nil {
+		fmt.Fprintf(os.Stderr, "testpg: stop WAL archive runtime: %v\n", err)
+	}
 }
 
 func parseChildArgs(args []string) ([]string, bool) {
@@ -180,12 +254,24 @@ func startManagedPostgres(ctx context.Context, mgr *pgmanager.Manager, binRoot s
 	return connURL, nil
 }
 
-func newChildCommand(args []string, connURL, pgBinDir string) *exec.Cmd {
+type childCommandEnvironment struct {
+	databaseURL      string
+	pgBinDir         string
+	backupConfigPath string
+	projectID        string
+}
+
+func newChildCommand(args []string, environment childCommandEnvironment) *exec.Cmd {
 	cmd := exec.Command(args[0], args[1:]...) //nolint:gosec
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
-	cmd.Env = append(os.Environ(), "TEST_DATABASE_URL="+connURL, "TEST_PG_BIN_DIR="+pgBinDir)
+	cmd.Env = append(os.Environ(),
+		"TEST_DATABASE_URL="+environment.databaseURL,
+		"TEST_PG_BIN_DIR="+environment.pgBinDir,
+		testutil.BackupConfigPathEnv+"="+environment.backupConfigPath,
+		testutil.ArchiveProjectIDEnv+"="+environment.projectID,
+	)
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	return cmd
 }

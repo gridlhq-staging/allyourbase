@@ -43,8 +43,16 @@ beforeEach(() => {
 });
 
 describe("SAMLConfig", () => {
+  it("uses the injected registry label as the primary heading", () => {
+    renderWithProviders(<SAMLConfig screenLabel="Registry SAML Label" />);
+
+    expect(
+      screen.getByRole("heading", { name: "Registry SAML Label" }),
+    ).toBeInTheDocument();
+  });
+
   it("renders provider list with name/entity_id/updated_at", async () => {
-    renderWithProviders(<SAMLConfig />);
+    renderWithProviders(<SAMLConfig screenLabel="SAML Configuration" />);
     await waitFor(() => {
       expect(screen.getByText("okta-prod")).toBeInTheDocument();
     });
@@ -55,7 +63,7 @@ describe("SAMLConfig", () => {
   });
 
   it("validates required name and entity_id in create form", async () => {
-    renderWithProviders(<SAMLConfig />);
+    renderWithProviders(<SAMLConfig screenLabel="SAML Configuration" />);
     await waitFor(() => {
       expect(screen.getByText("okta-prod")).toBeInTheDocument();
     });
@@ -66,7 +74,7 @@ describe("SAMLConfig", () => {
   });
 
   it("creates provider with metadata URL", async () => {
-    renderWithProviders(<SAMLConfig />);
+    renderWithProviders(<SAMLConfig screenLabel="SAML Configuration" />);
     await waitFor(() => {
       expect(screen.getByText("okta-prod")).toBeInTheDocument();
     });
@@ -95,7 +103,7 @@ describe("SAMLConfig", () => {
   });
 
   it("shows error and does not submit when attribute mapping JSON is invalid", async () => {
-    renderWithProviders(<SAMLConfig />);
+    renderWithProviders(<SAMLConfig screenLabel="SAML Configuration" />);
     await waitFor(() => {
       expect(screen.getByText("okta-prod")).toBeInTheDocument();
     });
@@ -121,7 +129,7 @@ describe("SAMLConfig", () => {
   });
 
   it("supports metadata via raw XML textarea", async () => {
-    renderWithProviders(<SAMLConfig />);
+    renderWithProviders(<SAMLConfig screenLabel="SAML Configuration" />);
     await waitFor(() => {
       expect(screen.getByText("okta-prod")).toBeInTheDocument();
     });
@@ -148,7 +156,7 @@ describe("SAMLConfig", () => {
   });
 
   it("fires ConfirmDialog on delete", async () => {
-    renderWithProviders(<SAMLConfig />);
+    renderWithProviders(<SAMLConfig screenLabel="SAML Configuration" />);
     await waitFor(() => {
       expect(screen.getByText("okta-prod")).toBeInTheDocument();
     });
@@ -169,7 +177,7 @@ describe("SAMLConfig", () => {
   });
 
   it("pre-fills form on edit", async () => {
-    renderWithProviders(<SAMLConfig />);
+    renderWithProviders(<SAMLConfig screenLabel="SAML Configuration" />);
     await waitFor(() => {
       expect(screen.getByText("okta-prod")).toBeInTheDocument();
     });
@@ -189,7 +197,7 @@ describe("SAMLConfig", () => {
     (api.listSAMLProviders as ReturnType<typeof vi.fn>).mockRejectedValue(
       new Error("Network error"),
     );
-    renderWithProviders(<SAMLConfig />);
+    renderWithProviders(<SAMLConfig screenLabel="SAML Configuration" />);
     await waitFor(() => {
       expect(screen.getByText("Network error")).toBeInTheDocument();
     });

@@ -22,7 +22,8 @@ type WALGap struct {
 	After       string
 }
 
-// WALShipper uploads WAL segments to object storage and records metadata.
+// WALShipper uploads PostgreSQL archive files to object storage and records
+// range metadata for complete WAL segments.
 type WALShipper struct {
 	store      Store
 	walRepo    WALSegmentRepo
@@ -47,11 +48,12 @@ func NewWALShipper(store Store, walRepo WALSegmentRepo, cfg PITRConfig, projectI
 	}
 }
 
-// Ship archives one WAL segment file and records metadata.
+// Ship archives one file supplied by PostgreSQL's archive_command. Complete
+// WAL segments receive range metadata; backup and timeline history files do not.
 func (w *WALShipper) Ship(ctx context.Context, walFilePath string, walFileName string) error {
-	parsed, err := ParseWALFileName(walFileName)
+	archiveFile, err := parsePostgresArchiveFileName(walFileName)
 	if err != nil {
-		return fmt.Errorf("parsing WAL filename: %w", err)
+		return fmt.Errorf("parsing PostgreSQL archive filename: %w", err)
 	}
 
 	file, err := os.Open(walFilePath)
@@ -67,40 +69,89 @@ func (w *WALShipper) Ship(ctx context.Context, walFilePath string, walFileName s
 	}
 	checksum := hex.EncodeToString(hash.Sum(nil))
 
-	objectKey := WALSegmentKey(w.cfg.ArchivePrefix, w.projectID, w.databaseID, parsed.Timeline, parsed.OriginalName)
+	objectKey := WALSegmentKey(w.cfg.ArchivePrefix, w.projectID, w.databaseID, archiveFile.Timeline, archiveFile.OriginalName)
 
 	if _, err := w.store.HeadObject(ctx, objectKey); err == nil {
-		existing, lookupErr := w.walRepo.GetByName(ctx, w.projectID, w.databaseID, parsed.Timeline, parsed.OriginalName)
-		if lookupErr != nil {
-			return fmt.Errorf("WAL object already exists but metadata lookup failed: %w", lookupErr)
-		}
-		if existing.Checksum != checksum {
-			return fmt.Errorf("checksum mismatch for existing WAL segment %q: existing=%s new=%s", parsed.OriginalName, existing.Checksum, checksum)
-		}
-		return nil
+		return w.acceptExistingArchiveFile(ctx, archiveFile, objectKey, checksum, sizeBytes)
 	}
 
 	if _, err := file.Seek(0, io.SeekStart); err != nil {
 		return fmt.Errorf("rewinding WAL file %q: %w", walFilePath, err)
 	}
 	if err := w.store.PutObject(ctx, objectKey, file, sizeBytes, "application/octet-stream"); err != nil {
-		return fmt.Errorf("uploading WAL segment %q: %w", parsed.OriginalName, err)
+		return fmt.Errorf("uploading PostgreSQL archive file %q: %w", archiveFile.OriginalName, err)
 	}
+	return w.recordSegmentMetadata(ctx, archiveFile, checksum, sizeBytes)
+}
 
+func (w *WALShipper) acceptExistingArchiveFile(
+	ctx context.Context,
+	archiveFile *postgresArchiveFileName,
+	objectKey, checksum string,
+	sizeBytes int64,
+) error {
+	if archiveFile.Segment != nil {
+		existing, err := w.walRepo.GetByName(ctx, w.projectID, w.databaseID, archiveFile.Timeline, archiveFile.OriginalName)
+		if err != nil {
+			return fmt.Errorf("WAL object already exists but metadata lookup failed: %w", err)
+		}
+		if existing != nil {
+			if existing.Checksum != checksum {
+				return fmt.Errorf("checksum mismatch for existing WAL segment %q: existing=%s new=%s", archiveFile.OriginalName, existing.Checksum, checksum)
+			}
+			return nil
+		}
+	}
+	if err := w.verifyStoredArchiveFile(ctx, objectKey, archiveFile.OriginalName, checksum, sizeBytes); err != nil {
+		return err
+	}
+	return w.recordSegmentMetadata(ctx, archiveFile, checksum, sizeBytes)
+}
+
+func (w *WALShipper) verifyStoredArchiveFile(
+	ctx context.Context,
+	objectKey, fileName, expectedChecksum string,
+	expectedSize int64,
+) error {
+	object, sizeBytes, err := w.store.GetObject(ctx, objectKey)
+	if err != nil {
+		return fmt.Errorf("reading existing PostgreSQL archive file %q: %w", fileName, err)
+	}
+	defer object.Close()
+	hash := sha256.New()
+	if _, err := io.Copy(hash, object); err != nil {
+		return fmt.Errorf("hashing existing PostgreSQL archive file %q: %w", fileName, err)
+	}
+	checksum := hex.EncodeToString(hash.Sum(nil))
+	if sizeBytes != expectedSize || checksum != expectedChecksum {
+		return fmt.Errorf("checksum mismatch for existing PostgreSQL archive file %q", fileName)
+	}
+	return nil
+}
+
+func (w *WALShipper) recordSegmentMetadata(
+	ctx context.Context,
+	archiveFile *postgresArchiveFileName,
+	checksum string,
+	sizeBytes int64,
+) error {
+	if archiveFile.Segment == nil {
+		return nil
+	}
+	segment := archiveFile.Segment
 	if err := w.walRepo.Record(ctx, WALSegment{
 		ProjectID:   w.projectID,
 		DatabaseID:  w.databaseID,
-		Timeline:    parsed.Timeline,
-		SegmentName: parsed.OriginalName,
-		StartLSN:    parsed.StartLSN(),
-		EndLSN:      parsed.EndLSN(),
+		Timeline:    segment.Timeline,
+		SegmentName: segment.OriginalName,
+		StartLSN:    segment.StartLSN(),
+		EndLSN:      segment.EndLSN(),
 		Checksum:    checksum,
 		SizeBytes:   sizeBytes,
 		ArchivedAt:  time.Now().UTC(),
 	}); err != nil {
 		return fmt.Errorf("recording WAL segment metadata: %w", err)
 	}
-
 	return nil
 }
 

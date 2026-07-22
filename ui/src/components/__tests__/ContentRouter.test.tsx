@@ -3,6 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { SchemaCache, Table } from "../../types";
 import type { View } from "../layout-types";
+import { docsUrl } from "../../lib/docs_url";
 import { ContentRouter } from "../ContentRouter";
 import {
   filterScreenRegistry,
@@ -146,6 +147,47 @@ function registryWithSqlScreen(sqlScreen: AdminScreen): ScreenRegistry {
 }
 
 describe("ContentRouter admin views", () => {
+  it("passes the resolved registry label to normal admin screen renders", () => {
+    const renderScreen = vi.fn(({ screenLabel }) => (
+      <div data-testid="registry-label-probe">{screenLabel}</div>
+    ));
+    const registry = {
+      sections: [
+        {
+          title: "Admin",
+          screens: [
+            {
+              id: "usage",
+              label: "Distinct Registry Usage Label",
+              icon: {} as never,
+              render: renderScreen,
+            },
+          ],
+        },
+      ],
+    } satisfies ScreenRegistry;
+
+    render(
+      <ContentRouter
+        schema={makeSchema()}
+        view="usage"
+        isAdminView={true}
+        selected={null}
+        onRefresh={vi.fn()}
+        onSetView={vi.fn()}
+        onSelectAdminView={vi.fn()}
+        screenRegistry={registry}
+      />,
+    );
+
+    expect(screen.getByTestId("registry-label-probe")).toHaveTextContent(
+      "Distinct Registry Usage Label",
+    );
+    expect(renderScreen).toHaveBeenCalledWith(
+      expect.objectContaining({ screenLabel: "Distinct Registry Usage Label" }),
+    );
+  });
+
   it("routes known owners without a silent fallback", async () => {
     const { rerender } = renderAdminRouter("sql-editor");
     expect(await screen.findByTestId("sql-editor")).toBeInTheDocument();
@@ -216,6 +258,10 @@ describe("ContentRouter admin views", () => {
       />,
     );
     expect(screen.getByRole("heading", { name: label })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "View guide" })).toHaveAttribute(
+      "href",
+      docsUrl("/guide/getting-started"),
+    );
     await userEvent.setup().click(screen.getByRole("button", { name: "Return to console" }));
     expect(onReturnToBase).toHaveBeenCalledOnce();
   });
@@ -277,14 +323,14 @@ describe("ContentRouter selected table views", () => {
   });
 
   it("routes the selected-table SQL view through the registry sql-editor screen", async () => {
-    const sqlRender = vi.fn(({ onRefresh }) => (
+    const sqlRender = vi.fn(({ onRefresh, screenLabel }) => (
       <button data-testid="registry-sql-editor" onClick={onRefresh}>
-        Registry SQL Editor
+        {screenLabel}
       </button>
     ));
     const sqlScreen = {
       id: "sql-editor",
-      label: "SQL Editor",
+      label: "Distinct SQL Label",
       icon: {} as never,
       render: sqlRender,
     } satisfies AdminScreen;
@@ -296,8 +342,11 @@ describe("ContentRouter selected table views", () => {
     );
 
     expect(await screen.findByTestId("registry-sql-editor")).toBeInTheDocument();
+    expect(screen.getByTestId("registry-sql-editor")).toHaveTextContent("Distinct SQL Label");
     expect(screen.queryByTestId("sql-editor")).not.toBeInTheDocument();
-    expect(sqlRender).toHaveBeenCalledWith({ schema, onRefresh });
+    expect(sqlRender).toHaveBeenCalledWith(
+      expect.objectContaining({ schema, onRefresh, screenLabel: "Distinct SQL Label" }),
+    );
 
     await user.click(screen.getByTestId("registry-sql-editor"));
     expect(onRefresh).toHaveBeenCalledTimes(1);

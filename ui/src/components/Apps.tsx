@@ -19,7 +19,11 @@ type Modal =
   | { kind: "create" }
   | { kind: "delete"; app: AppResponse };
 
-export function Apps() {
+interface AppsProps {
+  screenLabel: string;
+}
+
+export function Apps({ screenLabel }: AppsProps) {
   const [data, setData] = useState<AppListResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -131,7 +135,7 @@ export function Apps() {
     <div className="p-6">
       <div className="flex items-center justify-between mb-6">
         <div>
-          <h1 className="text-lg font-semibold">Applications</h1>
+          <h1 className="text-lg font-semibold">{screenLabel}</h1>
           <p className="text-sm text-gray-500 dark:text-gray-400 mt-0.5">
             Manage registered applications and their rate limits
           </p>

@@ -125,7 +125,7 @@ type webhookRequest struct {
 var validEvents = map[string]bool{"create": true, "update": true, "delete": true}
 
 // apiDocURL is the documentation link included in validation error responses.
-const apiDocURL = "https://allyourbase.io/guide/api-reference"
+var apiDocURL = httputil.DocURL("/guide/api-reference")
 
 func validateEvents(events []string) string {
 	for _, e := range events {

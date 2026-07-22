@@ -38,7 +38,7 @@ test.describe("FDW Lifecycle (Full E2E)", () => {
     await page.goto("/admin/");
     await waitForDashboard(page);
 
-    await page.locator("aside").getByRole("button", { name: /^FDW$/i }).click();
+    await page.locator("aside").getByRole("button", { name: /^FDW Management$/i }).click();
     await expect(page.getByRole("heading", { name: /FDW Management/i })).toBeVisible({ timeout: 5000 });
 
     // Verify section headings

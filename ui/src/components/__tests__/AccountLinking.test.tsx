@@ -47,7 +47,7 @@ describe("AccountLinking", () => {
     });
     mockLinkEmail.mockResolvedValue(TOKENS);
     const user = userEvent.setup();
-    render(<AccountLinking onLinked={onLinked} />);
+    render(<AccountLinking screenLabel="Link Your Account" onLinked={onLinked} />);
 
     expect(screen.getByRole("button", { name: /start anonymous session/i })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /link account/i })).toBeDisabled();
@@ -72,7 +72,7 @@ describe("AccountLinking", () => {
       new Error("anonymous auth is disabled"),
     );
     const user = userEvent.setup();
-    render(<AccountLinking onLinked={onLinked} />);
+    render(<AccountLinking screenLabel="Link Your Account" onLinked={onLinked} />);
 
     await user.click(screen.getByRole("button", { name: /start anonymous session/i }));
 
@@ -87,17 +87,30 @@ describe("AccountLinking", () => {
   });
 
   it("renders heading and email/password form", () => {
-    render(<AccountLinking onLinked={onLinked} />);
+    render(<AccountLinking screenLabel="Link Your Account" onLinked={onLinked} />);
     expect(screen.getByRole("heading", { name: /link your account/i })).toBeInTheDocument();
     expect(screen.getByTestId("link-email-input")).toBeInTheDocument();
     expect(screen.getByTestId("link-password-input")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /link account/i })).toBeInTheDocument();
   });
 
+  it("uses the injected registry label as the primary heading", () => {
+    render(
+      <AccountLinking
+        onLinked={onLinked}
+        screenLabel="Registry Account Linking Label"
+      />,
+    );
+
+    expect(
+      screen.getByRole("heading", { name: "Registry Account Linking Label" }),
+    ).toBeInTheDocument();
+  });
+
   it("submits email and password and calls onLinked on success", async () => {
     mockLinkEmail.mockResolvedValue(TOKENS);
     const user = userEvent.setup();
-    render(<AccountLinking onLinked={onLinked} />);
+    render(<AccountLinking screenLabel="Link Your Account" onLinked={onLinked} />);
 
     await user.type(screen.getByTestId("link-email-input"), "linked@test.com");
     await user.type(screen.getByTestId("link-password-input"), "securepass123");
@@ -114,7 +127,7 @@ describe("AccountLinking", () => {
   it("shows error when email is already taken (409)", async () => {
     mockLinkEmail.mockRejectedValue(new Error("email already belongs to another account"));
     const user = userEvent.setup();
-    render(<AccountLinking onLinked={onLinked} />);
+    render(<AccountLinking screenLabel="Link Your Account" onLinked={onLinked} />);
 
     await user.type(screen.getByTestId("link-email-input"), "taken@test.com");
     await user.type(screen.getByTestId("link-password-input"), "pass123");
@@ -129,7 +142,7 @@ describe("AccountLinking", () => {
   it("shows error when not anonymous (403)", async () => {
     mockLinkEmail.mockRejectedValue(new Error("only anonymous accounts can link credentials"));
     const user = userEvent.setup();
-    render(<AccountLinking onLinked={onLinked} />);
+    render(<AccountLinking screenLabel="Link Your Account" onLinked={onLinked} />);
 
     await user.type(screen.getByTestId("link-email-input"), "test@test.com");
     await user.type(screen.getByTestId("link-password-input"), "pass123");
@@ -141,14 +154,14 @@ describe("AccountLinking", () => {
   });
 
   it("disables submit button when fields are empty", () => {
-    render(<AccountLinking onLinked={onLinked} />);
+    render(<AccountLinking screenLabel="Link Your Account" onLinked={onLinked} />);
     expect(screen.getByRole("button", { name: /link account/i })).toBeDisabled();
   });
 
   it("shows loading state during submission", async () => {
     mockLinkEmail.mockReturnValue(new Promise(() => {})); // never resolves
     const user = userEvent.setup();
-    render(<AccountLinking onLinked={onLinked} />);
+    render(<AccountLinking screenLabel="Link Your Account" onLinked={onLinked} />);
 
     await user.type(screen.getByTestId("link-email-input"), "test@test.com");
     await user.type(screen.getByTestId("link-password-input"), "pass123");
@@ -160,7 +173,7 @@ describe("AccountLinking", () => {
   it("shows success message after linking", async () => {
     mockLinkEmail.mockResolvedValue(TOKENS);
     const user = userEvent.setup();
-    render(<AccountLinking onLinked={onLinked} />);
+    render(<AccountLinking screenLabel="Link Your Account" onLinked={onLinked} />);
 
     await user.type(screen.getByTestId("link-email-input"), "linked@test.com");
     await user.type(screen.getByTestId("link-password-input"), "securepass123");

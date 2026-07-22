@@ -183,7 +183,8 @@ func defaultStatusConfig() StatusConfig {
 
 func defaultPushConfig() PushConfig {
 	return PushConfig{
-		Enabled: false,
+		Enabled:        false,
+		UseLogProvider: false,
 		APNS: PushAPNSConfig{
 			Environment: "production",
 		},

@@ -280,6 +280,41 @@ export async function cleanupBranch(
   }
 }
 
+export type ReplicaSeedTarget = {
+  host: string;
+  port: number;
+  database: string;
+  sslMode: string;
+};
+
+/**
+ * Resolves a reachable standby from AYB_DATABASE_REPLICA_URLS for replica seeding.
+ * Returns null when no valid target is configured, which callers treat as a skip
+ * precondition. This is the single parser for that variable across browser specs.
+ */
+export function resolveReplicaSeedTarget(): ReplicaSeedTarget | null {
+  const replicaURL = process.env.AYB_DATABASE_REPLICA_URLS
+    ?.split(",")
+    .map((value) => value.trim())
+    .find((value) => value.length > 0);
+  if (!replicaURL) {
+    return null;
+  }
+
+  try {
+    const parsed = new URL(replicaURL);
+    const database = parsed.pathname.replace(/^\/+/, "");
+    return {
+      host: parsed.hostname,
+      port: parsed.port ? Number(parsed.port) : 5432,
+      database: database || "postgres",
+      sslMode: parsed.searchParams.get("sslmode") || "disable",
+    };
+  } catch {
+    return null;
+  }
+}
+
 /** Creates a read replica with the given connection config and returns its name. */
 export async function seedReplica(
   request: APIRequestContext,

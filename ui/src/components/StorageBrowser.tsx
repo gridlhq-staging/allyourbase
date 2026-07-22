@@ -16,7 +16,6 @@ import {
   Copy,
   Link2,
   Loader2,
-  AlertCircle,
   HardDrive,
   Eye,
   RefreshCw,
@@ -24,6 +23,7 @@ import {
 import { CdnPurgeSection } from "./CdnPurgeSection";
 import { cn } from "../lib/utils";
 import { useAppToast } from "./ToastProvider";
+import { ErrorNotice } from "./ErrorNotice";
 
 const BUCKET_KEY = "ayb_storage_bucket";
 
@@ -92,7 +92,7 @@ export function StorageBrowser() {
         );
         fetchFiles();
       } catch (e) {
-        addToast("error", e instanceof Error ? e.message : "Upload failed");
+        setError(e instanceof Error ? e.message : "Upload failed");
       } finally {
         setUploading(false);
         if (fileInput.current) fileInput.current.value = "";
@@ -221,9 +221,8 @@ export function StorageBrowser() {
       </div>
 
       {error && (
-        <div className="mx-6 mt-3 px-3 py-2 text-xs text-red-700 bg-red-50 border border-red-200 rounded flex items-center gap-2">
-          <AlertCircle className="w-3.5 h-3.5 shrink-0" />
-          {error}
+        <div className="mx-6 mt-3">
+          <ErrorNotice message={error} docsPath="/guide/file-storage" />
         </div>
       )}
 

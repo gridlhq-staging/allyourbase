@@ -395,7 +395,10 @@ func TestAuthMetricsRecordedForRegisterAndLogin(t *testing.T) {
 	}, "")
 	testutil.StatusCode(t, http.StatusOK, w.Code)
 
-	metrics := doJSON(t, srv, "GET", "/metrics", nil, "")
+	metricsReq := httptest.NewRequest(http.MethodGet, "/metrics", nil)
+	metricsReq.RemoteAddr = "127.0.0.1:1234"
+	metrics := httptest.NewRecorder()
+	srv.Router().ServeHTTP(metrics, metricsReq)
 	testutil.StatusCode(t, http.StatusOK, metrics.Code)
 	body := metrics.Body.String()
 	testutil.Contains(t, body, "ayb_auth_signups_total 1")

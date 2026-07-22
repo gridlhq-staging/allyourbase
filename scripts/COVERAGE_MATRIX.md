@@ -46,7 +46,6 @@
 | `api-explorer` | content-verified | exists | N/A | not | api-explorer-view, api-explorer |
 | `rls` | content-verified | exists | yes | not | rls-policies-view, rls-policies |
 | `sql-editor` | content-verified | exists | yes | exists | admin-sql-query, create-table-nav, admin-dashboard-setup, sql-editor-lifecycle, sql-editor-error-flows (mocked) |
-| `graphql` | content-verified | not | N/A | not | graphql-explorer |
 | `schema-designer` | content-verified | exists | N/A | exists | schema-designer-table, schema-designer-lifecycle, schema-designer (mocked) |
 | `sms-health` | content-verified | exists | N/A | not | sms-health, sms-dashboard (secondary) |
 | `sms-messages` | content-verified | exists | yes | not | sms-messages, sms-dashboard |
@@ -89,14 +88,14 @@
 
 | Metric | Count |
 |---|---|
-| Total views | 55 |
+| Total views | 54 |
 | Smoke = none | 0 |
 | Smoke = heading-only | 0 |
-| Smoke = content-verified | 55 |
-| All views with smoke coverage | 55/55 (100%) |
+| Smoke = content-verified | 54 |
+| All views with smoke coverage | 54/54 (100%) |
 | Views with full lifecycle specs | 50 |
 | CRUD-capable views missing full lifecycle | 0 |
-| Views missing mocked coverage | 30 |
+| Views missing mocked coverage | 29 |
 
 ## Stage Gap Lists
 

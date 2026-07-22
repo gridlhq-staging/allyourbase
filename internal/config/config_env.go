@@ -136,8 +136,7 @@ func applyEnv(cfg *Config) error {
 	if err := applyStatusEnv(cfg); err != nil {
 		return err
 	}
-	applyPushEnv(cfg)
-	return nil
+	return applyPushEnv(cfg)
 }
 
 // ApplyEnvironment applies AYB_* environment overrides to the config.

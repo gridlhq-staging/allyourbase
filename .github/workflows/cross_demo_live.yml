@@ -3,7 +3,8 @@ name: Cross Demo Live
 on:
   workflow_dispatch:
   schedule:
-    - cron: "0 13 * * 1"
+    # Daily 13:00 UTC runs supply M7's scripts/demo_freshness_check.sh 26-hour freshness gate.
+    - cron: "0 13 * * *"
 
 permissions:
   contents: read
@@ -37,7 +38,8 @@ jobs:
           DEMO_POLLS_URL: https://polls.demo.allyourbase.io
           DEMO_MOVIES_URL: https://movies.demo.allyourbase.io
           DEMO_API_URL: https://api.allyourbase.io
-        run: npx playwright test cross_demo.spec.ts --reporter=line --retries=2 --trace=retain-on-failure
+        # Retries mask flakes; fix-don't-hide policy and Stage 1's five-run clean baseline justify zero retries.
+        run: npx playwright test cross_demo.spec.ts --reporter=line --retries=0 --trace=retain-on-failure
 
       - name: Upload Playwright failure artifacts
         if: failure()

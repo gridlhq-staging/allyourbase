@@ -8,9 +8,34 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- Managed PostgreSQL now enables automatic WAL archival during managed server
+  startup by writing the effective `ayb wal-ship --config ... %p %f`
+  `archive_command` into the generated PostgreSQL configuration when backup
+  and PITR settings are valid.
+- Dashboard console administration screens now report live server truth for
+  support, branch, replica, tenant, secret, SQL, storage, auth, and function
+  workflows instead of relying on stale placeholder states.
+- Shared console failure states now link to the relevant operator guides, and
+  registry-owned labels/headings keep command-palette and page titles aligned.
+- Push-notification runtime smoke coverage is now automated through
+  `make test-push-smoke`, covering the persisted send path with the in-repo
+  provider boundary while live APNs/FCM delivery remains operator-gated.
+
 ### Changed
 
+- Tokenless `/metrics` scraping is loopback-only by default, while remote
+  scrapers still require the configured bearer token.
+- The apex demo landing deployment path now has live-refresh verification and
+  deploy automation evidence for the canonical `demo.allyourbase.io` page.
+- Launch and comparison documentation now reflects the current public release
+  posture and updated competitor positioning without making launch posting an
+  autonomous release gate.
+
 ### Fixed
+
+- Public docs and error links now share the same `doc_url` base owner, so
+  actionable backend errors route to durable guide URLs without duplicating
+  the URL construction contract.
 
 ## [0.0.19-beta] - 2026-07-20
 

@@ -12,32 +12,27 @@ import (
 )
 
 //go:linkname writeManagedPostgresConf github.com/allyourbase/ayb/internal/pgmanager.writePostgresConf
-func writeManagedPostgresConf(dataDir string, port uint32, runtimeDir string, sharedPreloadLibraries []string) error
+func writeManagedPostgresConf(dataDir string, port uint32, runtimeDir string, sharedPreloadLibraries []string, archiveCommand string) error
 
 // retiredWALArchivalClaim is the specific untrue promise this contract removed.
 // It must never reappear, regardless of what the config generator emits.
 const retiredWALArchivalClaim = "continuously archives PostgreSQL write-ahead log"
 
-// automaticWALArchivalClaims are phrasings that promise AYB itself archives WAL
-// without operator setup. Any of them appearing in the guide requires the
-// managed-Postgres config generator to emit an active archive_command.
-var automaticWALArchivalClaims = []string{
-	"continuously archives",
-	"automatically archives",
-	"archives WAL segments automatically",
-}
+// managedPostgresAutomaticWALAnchor and externalPostgresManualWALAnchor keep
+// ownership explicit for the two supported PostgreSQL deployment modes.
+const managedPostgresAutomaticWALAnchor = "For AYB-managed PostgreSQL, `ayb start` automatically enables WAL archival"
+const externalPostgresManualWALAnchor = "For externally managed PostgreSQL, you must install the archive settings yourself"
 
-// operatorManagedWALAnchor is the stable phrase asserting the truthful contract:
-// enabling [backup.pitr] does not wire Postgres to call ayb wal-ship.
-const operatorManagedWALAnchor = "does not configure Postgres to invoke `ayb wal-ship`"
+// retiredOperatorManagedWALAnchor is the pre-automation contract that must not
+// reappear now that managed startup owns the archive command.
+const retiredOperatorManagedWALAnchor = "does not configure Postgres to invoke `ayb wal-ship`"
 
 // retiredShadowModeAutomaticWALClaim is the shadow-mode wording that implied
 // AYB archives WAL automatically. Shadow mode only gates restore cutover.
 const retiredShadowModeAutomaticWALClaim = "In shadow mode, AYB archives WAL segments and takes base backups normally"
 
-// shadowModeOperatorManagedWALAnchor keeps the guide explicit that WAL shipping
-// in shadow mode still depends on a separately configured archive command.
-const shadowModeOperatorManagedWALAnchor = "if Postgres is already configured to run the archive command, WAL shipping continues"
+// shadowModeArchiveContinuityAnchor states what shadow mode does not gate.
+const shadowModeArchiveContinuityAnchor = "`shadow_mode` does not disable base backups or WAL shipping"
 
 // retiredFireDrillClaims promise that a fire drill executes a restore.
 // FireDrillRunner.Run only asks RestorePlanner.ValidateWindow for a plan.
@@ -62,24 +57,27 @@ func TestDocsPITRClaim(t *testing.T) {
 		}
 	}
 
-	if !strings.Contains(docs, operatorManagedWALAnchor) {
-		t.Errorf("backups guide is missing the operator-managed WAL anchor %q", operatorManagedWALAnchor)
+	if !strings.Contains(docs, managedPostgresAutomaticWALAnchor) {
+		t.Errorf("backups guide is missing the managed-Postgres automatic WAL anchor %q", managedPostgresAutomaticWALAnchor)
+	}
+	if !strings.Contains(docs, externalPostgresManualWALAnchor) {
+		t.Errorf("backups guide is missing the external-Postgres manual WAL anchor %q", externalPostgresManualWALAnchor)
+	}
+	if strings.Contains(docs, retiredOperatorManagedWALAnchor) {
+		t.Errorf("backups guide still contains the retired operator-managed WAL contract %q", retiredOperatorManagedWALAnchor)
 	}
 	if strings.Contains(docs, retiredWALArchivalClaim) {
 		t.Errorf("backups guide still makes the retired automatic-archival promise %q", retiredWALArchivalClaim)
 	}
-	if !strings.Contains(docs, shadowModeOperatorManagedWALAnchor) {
-		t.Errorf("backups guide is missing the shadow-mode operator-managed WAL anchor %q", shadowModeOperatorManagedWALAnchor)
+	if !strings.Contains(docs, shadowModeArchiveContinuityAnchor) {
+		t.Errorf("backups guide is missing the shadow-mode archive-continuity anchor %q", shadowModeArchiveContinuityAnchor)
 	}
 	if strings.Contains(lowerDocs, strings.ToLower(retiredShadowModeAutomaticWALClaim)) {
 		t.Errorf("backups guide still claims shadow mode auto-archives WAL with %q", retiredShadowModeAutomaticWALClaim)
 	}
 
-	confHasArchiveCommand := generatedPostgresConfHasArchiveCommand(t)
-	for _, claim := range automaticWALArchivalClaims {
-		if strings.Contains(lowerDocs, strings.ToLower(claim)) && !confHasArchiveCommand {
-			t.Errorf("backups guide claims %q but the generated postgresql.conf has no active archive_command setting", claim)
-		}
+	if !generatedPostgresConfHasArchiveCommand(t) {
+		t.Error("managed-Postgres config generator has no active archive_command for a usable PITR configuration")
 	}
 }
 
@@ -126,7 +124,8 @@ func generatedPostgresConfHasArchiveCommand(t *testing.T) bool {
 
 	dataDir := t.TempDir()
 	runtimeDir := t.TempDir()
-	if err := writeManagedPostgresConf(dataDir, 25432, runtimeDir, []string{"pg_stat_statements"}); err != nil {
+	archiveCommand := "/opt/ayb/bin/ayb wal-ship --config /etc/ayb/ayb.toml %p %f"
+	if err := writeManagedPostgresConf(dataDir, 25432, runtimeDir, []string{"pg_stat_statements"}, archiveCommand); err != nil {
 		t.Fatalf("write managed postgres config: %v", err)
 	}
 	conf, err := os.ReadFile(filepath.Join(dataDir, "postgresql.conf"))

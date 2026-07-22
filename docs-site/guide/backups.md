@@ -14,7 +14,11 @@ Both strategies store artifacts in S3-compatible object storage with optional se
 
 ### WAL archival
 
-WAL archiving is operator-managed. Enabling `[backup.pitr]` requires an `archive_bucket` and ships the `ayb wal-ship` command, but it **does not configure Postgres to invoke `ayb wal-ship`**. Until you wire the archive command yourself, no WAL segments are shipped.
+For AYB-managed PostgreSQL, `ayb start` automatically enables WAL archival when both `[backup]` and `[backup.pitr]` are enabled and the PITR configuration is usable. Managed startup generates `archive_mode = on`, `wal_level = replica`, and an active `archive_command` in `postgresql.conf`. The command embeds the effective absolute path to the running AYB binary and the resolved absolute path to the effective config file before invoking `ayb wal-ship`.
+
+AYB rewrites the managed `postgresql.conf` on every start. Because `archive_mode` is a postmaster-level setting, applying it requires a **full PostgreSQL restart**, not `pg_ctl reload` or `SELECT pg_reload_conf()`. The managed `ayb start` lifecycle performs that stop/start and applies the generated settings; do not hand-edit the generated file.
+
+For externally managed PostgreSQL, you must install the archive settings yourself in the PostgreSQL configuration:
 
 Add the following to your `postgresql.conf`:
 
@@ -25,11 +29,9 @@ archive_command = '/absolute/path/to/ayb wal-ship --config /absolute/path/to/ayb
 
 Both paths must be absolute. Postgres runs `archive_command` through `/bin/sh` from the data directory with a minimal environment, so a relative path or a bare `ayb` will not resolve.
 
-For externally managed Postgres, put those settings in `postgresql.conf`. On AYB-managed Postgres, do **not** hand-edit the generated `postgresql.conf`: AYB rewrites that file on every start. Persist the same settings with `ALTER SYSTEM` or `postgresql.auto.conf` instead, then restart Postgres so `archive_mode` takes effect.
+Restart externally managed PostgreSQL after installing the settings so `archive_mode` takes effect. Once `archive_mode` is already enabled, changing only `archive_command` can be applied with a reload.
 
-`archive_mode` is a `postmaster`-level setting, so turning it on requires a **full Postgres restart**, not `pg_ctl reload` or `SELECT pg_reload_conf()`. Once `archive_mode` is already enabled, `archive_command` itself can be updated with a reload.
-
-Without this setup, the only recovery points that exist are the physical base backups. That makes your effective recovery-point interval `base_backup_schedule` — daily at the default `0 3 * * *` — not `rpo_minutes`. Once the archive command is active, WAL archival combined with periodic base backups enables recovery to any point within the configured retention window.
+`rpo_minutes` is the lag-alert threshold, not a WAL shipping cadence or a guaranteed recovery point. Actual recoverability depends on successfully archived WAL plus retained physical base backups; without a working archive command, recovery is limited to available base backups.
 
 ## Configuration
 
@@ -64,7 +66,7 @@ Backup and PITR settings live in your `ayb.toml` config file.
 | `environment_class` | string | `"non-prod"` | Environment label (e.g. `"prod"`, `"staging"`) |
 | `kms_key_id` | string | `""` | KMS key ID for WAL encryption |
 | `retention_schedule` | string | `"0 4 * * *"` | Cron expression for retention cleanup |
-| `rpo_minutes` | int | `5` | Alerting threshold only (must be > 0). `WALLagChecker.Check` raises a `wal_archive_lag` alert when the newest archived WAL segment is older than this. It does not configure, guarantee, or influence the achievable recovery point. |
+| `rpo_minutes` | int | `5` | WAL lag-alert threshold only (must be > 0). `WALLagChecker.Check` raises a `wal_archive_lag` alert when the newest archived WAL segment is older than this. It is not a shipping cadence or guaranteed recovery point; recoverability depends on successfully archived WAL plus retained base backups. |
 | `storage_budget_bytes` | int64 | `0` | Maximum storage for WAL archives (0 = unlimited) |
 | `shadow_mode` | bool | `true` | See [Shadow mode](#shadow-mode) below |
 | `base_backup_schedule` | string | `"0 3 * * *"` | Cron expression for physical base backups |
@@ -73,7 +75,7 @@ Backup and PITR settings live in your `ayb.toml` config file.
 ### Shadow mode
 
 ::: warning
-`shadow_mode` defaults to **`true`**. In shadow mode, AYB still takes base backups normally, and if Postgres is already configured to run the archive command, WAL shipping continues, but AYB **refuses actual restore cutover requests** with a `409 Conflict` error. This lets you validate that PITR inputs are being produced before enabling real restores.
+`shadow_mode` defaults to **`true`**. `shadow_mode` does not disable base backups or WAL shipping; it makes AYB **refuse actual restore cutover requests** with a `409 Conflict` error. This lets you validate that PITR inputs are being produced before enabling real restores.
 
 Set `shadow_mode = false` in your `[backup.pitr]` config to enable actual point-in-time restores.
 :::

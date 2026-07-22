@@ -27,8 +27,9 @@ test.describe("Smoke: Support Tickets", () => {
 
   test("seeded ticket renders with metadata in list and message in detail", async ({ page, request, adminToken }) => {
     const probeStatus = await probeEndpoint(request, adminToken, "/api/admin/support/tickets");
+    expect(probeStatus, "/api/admin/support/tickets must be registered by the embedded console server").not.toBe(404);
     test.skip(
-      probeStatus === 501 || probeStatus === 404,
+      probeStatus === 501,
       `Support service not configured (status ${probeStatus})`,
     );
 

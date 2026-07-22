@@ -1,7 +1,9 @@
 package config
 
-const defaultTOML = `# Allyourbase (AYB) Configuration
-# Documentation: https://allyourbase.io/guide/configuration
+import "github.com/allyourbase/ayb/internal/httputil"
+
+var defaultTOML = `# Allyourbase (AYB) Configuration
+# Documentation: ` + httputil.DocURL("/guide/configuration") + `
 
 [server]
 # Address to listen on.
@@ -373,13 +375,13 @@ format = "json"
 # Authorization = "Bearer token"
 
 [metrics]
-# Expose Prometheus metrics endpoint.
+# Expose Prometheus metrics endpoint. Tokenless access is loopback-only.
 enabled = true
 
 # HTTP path for metrics scraping.
 path = "/metrics"
 
-# Optional bearer token required for metrics access.
+# Optional bearer token required for remote scrapers or reverse proxies.
 # auth_token = ""
 
 [realtime]
@@ -423,6 +425,14 @@ scheduler_tick_s = 15
 
 # Remove completed job-run history older than this many days automatically.
 job_runs_retention_days = 90
+
+[push]
+# Enable push notifications. Requires jobs.enabled.
+enabled = false
+
+# Local/test mode: route FCM and APNS device records through the log provider.
+# Validation only permits this on loopback-local runtimes; keep false for live delivery.
+use_log_provider = false
 
 [audit]
 # Audit logging for create/update/delete API mutations.

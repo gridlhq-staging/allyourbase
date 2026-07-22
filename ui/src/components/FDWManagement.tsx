@@ -12,7 +12,11 @@ import { useAdminResource } from "../hooks/useAdminResource";
 import { AdminTable, type Column } from "./shared/AdminTable";
 import { ConfirmDialog } from "./shared/ConfirmDialog";
 
-export function FDWManagement() {
+interface FDWManagementProps {
+  screenLabel: string;
+}
+
+export function FDWManagement({ screenLabel }: FDWManagementProps) {
   const servers = useAdminResource(listServers);
   const tables = useAdminResource(listTables);
 
@@ -167,7 +171,7 @@ export function FDWManagement() {
     return (
       <div className="p-6">
         <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-4">
-          FDW Management
+          {screenLabel}
         </h2>
         <p className="text-red-600 dark:text-red-400">{error}</p>
       </div>
@@ -177,7 +181,7 @@ export function FDWManagement() {
   return (
     <div className="p-6">
       <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-4">
-        FDW Management
+        {screenLabel}
       </h2>
 
       {/* Servers Section */}

@@ -1,8 +1,11 @@
 import { expect, test, type Locator, type Page } from "@playwright/test";
 import {
+  delayNextBYOKClear,
+  delayNextNoteEmbed,
   expectInceptionNoteEmbedding,
   expectLocalChatStream,
   loginWithDemoAccount,
+  optOutAnonymousBootstrap,
   searchForMovie,
 } from "./helpers";
 
@@ -216,6 +219,76 @@ test("note submission embeds against the selected movie", async ({ page }) => {
     await page.getByRole("button", { name: "Save Note" }).click();
   });
   await expect(page.getByText("Saved")).toBeVisible();
+});
+
+test("registration submission signs in the new movie user", async ({ page }) => {
+  const email = `movie-register-${Date.now()}@example.test`;
+
+  await optOutAnonymousBootstrap(page);
+  await page.goto("/");
+  await page.getByRole("button", { name: "Sign up" }).click();
+  await page.getByLabel("Email").fill(email);
+  await page.getByLabel("Password").fill("password123");
+  await page.getByRole("button", { name: "Create Account" }).click();
+
+  await expect(page.getByTestId("user-email")).toHaveText(email, { timeout: 15000 });
+  await expect(page.getByRole("button", { name: "Sign out" })).toBeVisible();
+});
+
+test("anonymous upgrade completes into the signed-in movie surface", async ({ page }) => {
+  const email = `movie-upgrade-${Date.now()}@example.test`;
+
+  await page.goto("/");
+  await expect(page.getByText("You're browsing as a guest. Add an email and password to keep your data.")).toBeVisible({
+    timeout: 15000,
+  });
+  await expect(page.getByRole("button", { name: "Continue as Guest" })).toBeHidden();
+  await page.getByLabel("Email").fill(email);
+  await page.getByLabel("Password").fill("password123");
+  await page.getByRole("button", { name: "Upgrade Account" }).click();
+
+  await expect(page.getByTestId("user-email")).toHaveText(email, { timeout: 15000 });
+  await expect(page.getByText("You're browsing as a guest. Add an email and password to keep your data.")).toBeHidden();
+  await expect(page.getByRole("button", { name: "Sign out" })).toBeVisible();
+});
+
+test("selected Inception keeps notes, chat, and BYOK sections usable", async ({ page }) => {
+  await loginWithDemoAccount(page);
+  await searchForMovie(page, "inception", "inception");
+
+  await page.getByTestId("search-result-row-inception").click();
+
+  await expect(page.getByTestId("selected-result-notes-panel")).toContainText("Notes");
+  await expect(page.getByTestId("chat-section")).toContainText("Chat");
+  await expect(page.getByTestId("provider-keys-section")).toContainText("Provider Keys (BYOK)");
+
+  await delayNextNoteEmbed(page);
+  await page.getByPlaceholder("Add a note about this movie...").fill("Inception selected-state note");
+  await page.getByRole("button", { name: "Save Note" }).click();
+  await expect(page.getByRole("button", { name: "Saving..." })).toBeDisabled();
+  await expect(page.getByText("Saved")).toBeVisible({ timeout: 15000 });
+
+  await page.getByPlaceholder("Ask about movies...").fill("Summarize inception");
+  await page.getByRole("button", { name: "Send" }).click();
+  await expect(page.getByText("Local stub response: Summarize inception")).toBeVisible({ timeout: 15000 });
+
+  await page.getByPlaceholder("Vault secret name...").fill("nonexistent_local_secret");
+  await page.getByRole("button", { name: "Set" }).click();
+  await expect(page.getByRole("alert")).toContainText("BYOK set failed", { timeout: 15000 });
+});
+
+test("provider-key clear disables controls while clearing and returns without error", async ({ page }) => {
+  await loginWithDemoAccount(page);
+  await delayNextBYOKClear(page);
+
+  const providerKeys = page.getByTestId("provider-keys-section");
+  const clearButton = providerKeys.getByRole("button", { name: "Clear" });
+  await clearButton.click();
+
+  await expect(clearButton).toBeDisabled();
+  await expect(providerKeys.getByPlaceholder("Vault secret name...")).toBeDisabled();
+  await expect(clearButton).toBeEnabled({ timeout: 15000 });
+  await expect(providerKeys.getByRole("alert")).toBeHidden();
 });
 
 test("BYOK error and chat stay local-deterministic", async ({ page }) => {

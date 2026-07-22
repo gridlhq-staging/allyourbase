@@ -72,13 +72,13 @@ test.describe("Auth Passkey Lifecycle (Full E2E)", () => {
         await waitForDashboard(page);
         await page.locator("aside").getByRole("button", { name: /Auth Settings/i }).click();
         await expect(page.getByRole("heading", { name: /Auth Settings/i })).toBeVisible({ timeout: 5000 });
-        await expect(page.locator("aside").getByRole("button", { name: /MFA Management/i })).toBeVisible({
+        await expect(page.locator("aside").getByRole("button", { name: /Multi-Factor Authentication/i })).toBeVisible({
           timeout: 5000,
         });
       });
 
       await test.step("MFA Management: register two passkeys with distinctive names", async () => {
-        await page.locator("aside").getByRole("button", { name: /MFA Management/i }).click();
+        await page.locator("aside").getByRole("button", { name: /Multi-Factor Authentication/i }).click();
         await expect(page.getByRole("heading", { name: /Multi-Factor Authentication/i })).toBeVisible({ timeout: 5000 });
         await expect(page.getByRole("button", { name: /Register Passkey/i })).toBeVisible({ timeout: 5000 });
         virtualAuthenticator = await createVirtualAuthenticator(page);

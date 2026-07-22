@@ -193,7 +193,7 @@ type smsConfirmRequest struct {
 func (h *Handler) handleSMSRequest(w http.ResponseWriter, r *http.Request) {
 	if !h.smsEnabled {
 		httputil.WriteErrorWithDocURL(w, http.StatusNotFound, "SMS authentication is not enabled",
-			"https://allyourbase.io/guide/authentication#sms")
+			httputil.DocURL("/guide/authentication#sms"))
 		return
 	}
 
@@ -229,7 +229,7 @@ func (h *Handler) handleSMSRequest(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) handleSMSConfirm(w http.ResponseWriter, r *http.Request) {
 	if !h.smsEnabled {
 		httputil.WriteErrorWithDocURL(w, http.StatusNotFound, "SMS authentication is not enabled",
-			"https://allyourbase.io/guide/authentication#sms")
+			httputil.DocURL("/guide/authentication#sms"))
 		return
 	}
 

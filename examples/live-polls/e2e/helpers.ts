@@ -30,6 +30,10 @@ interface VirtualAuthenticatorHandle {
   authenticatorId: string;
   remove: () => Promise<void>;
 }
+interface ReleaseGate {
+  released: Promise<void>;
+  release: () => void;
+}
 type ObservedAuthRequest = {
   pathname: string;
   method: string;
@@ -43,6 +47,14 @@ const PASSWORD_LOGIN_ENDPOINT = "/api/auth/login";
 export interface PasskeyFirstFactorRequestObserver {
   stop: () => void;
   expectPasskeyOnlySignIn: (email: string) => void;
+}
+
+function createReleaseGate(): ReleaseGate {
+  let release!: () => void;
+  const released = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  return { released, release };
 }
 
 async function ensureDemoAccountExists(
@@ -349,6 +361,92 @@ export async function openCreatePoll(page: Page): Promise<void> {
   await expect(
     page.getByRole("heading", { name: "New Poll" }),
   ).toBeVisible();
+}
+
+/** Signals that a route has intercepted the request and is holding it open. */
+export interface HeldBootstrapRoute {
+  /** Resolves once the anonymous bootstrap request has actually been intercepted. */
+  blocked: Promise<void>;
+  /** Releases the held request so the app can finish signing in. */
+  release: () => void;
+}
+
+/** Hold anonymous sign-in until the test releases the first-load state. */
+export async function arrangeDelayedAnonymousBootstrap(page: Page): Promise<HeldBootstrapRoute> {
+  const gate = createReleaseGate();
+  const interception = createReleaseGate();
+
+  await page.route("**/api/auth/anonymous", async (route) => {
+    interception.release();
+    await gate.released;
+    await route.continue();
+  });
+
+  return { blocked: interception.released, release: gate.release };
+}
+
+/** Return empty bootstrap reads without relying on the shared database contents. */
+export async function arrangeEmptyPollBootstrap(page: Page): Promise<void> {
+  await page.addInitScript(() => {
+    sessionStorage.setItem("ayb_live_polls_bootstrap_seeded", "1");
+  });
+  await page.route("**/api/graphql", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ data: { polls: [] } }),
+    });
+  });
+  await page.route("**/api/collections/votes?*", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        items: [],
+        page: 1,
+        perPage: 500,
+        totalItems: 0,
+        totalPages: 0,
+      }),
+    });
+  });
+}
+
+/** Fail both GraphQL bootstrap and its records fallback. */
+export async function arrangePollBootstrapFailure(page: Page): Promise<void> {
+  await page.route("**/api/graphql", async (route) => {
+    await route.fulfill({
+      status: 503,
+      contentType: "application/json",
+      body: JSON.stringify({ message: "bootstrap database unavailable" }),
+    });
+  });
+  await page.route("**/api/collections/polls?*", async (route) => {
+    await route.fulfill({
+      status: 503,
+      contentType: "application/json",
+      body: JSON.stringify({ message: "bootstrap database unavailable" }),
+    });
+  });
+}
+
+/** Hold then fail one collection write so pending and failure UI are observable. */
+export async function arrangeCollectionWriteFailure(
+  page: Page,
+  collection: "polls" | "votes",
+): Promise<() => void> {
+  const gate = createReleaseGate();
+
+  await page.route(`**/api/collections/${collection}`, async (route) => {
+    await gate.released;
+    await route.fulfill({
+      status: 503,
+      contentType: "application/json",
+      body: JSON.stringify({ message: "database connection unavailable" }),
+    });
+  });
+
+  return gate.release;
 }
 
 /**

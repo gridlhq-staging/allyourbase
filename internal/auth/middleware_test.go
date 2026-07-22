@@ -11,6 +11,7 @@ import (
 
 	"github.com/allyourbase/ayb/internal/httputil"
 	"github.com/allyourbase/ayb/internal/testutil"
+	"github.com/golang-jwt/jwt/v5"
 )
 
 func newTestService() *Service {
@@ -231,6 +232,28 @@ func TestClaimsFromContextNil(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
 	claims := ClaimsFromContext(req.Context())
 	testutil.Nil(t, claims)
+}
+
+func TestClaimsHavePrincipal(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name   string
+		claims *Claims
+		want   bool
+	}{
+		{name: "nil claims", claims: nil, want: false},
+		{name: "empty claims", claims: &Claims{}, want: false},
+		{name: "blank identifiers", claims: &Claims{RegisteredClaims: jwt.RegisteredClaims{Subject: " "}, AppID: "\t"}, want: false},
+		{name: "user subject", claims: &Claims{RegisteredClaims: jwt.RegisteredClaims{Subject: "user-1"}}, want: true},
+		{name: "application ID", claims: &Claims{AppID: "app-1"}, want: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			testutil.Equal(t, tt.want, claimsHavePrincipal(tt.claims))
+		})
+	}
 }
 
 func TestRequireAuthMissingHeaderDocURL(t *testing.T) {

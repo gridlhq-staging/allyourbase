@@ -165,3 +165,51 @@ func TestAdminFunctionsByNameRouteRegistered(t *testing.T) {
 	testutil.Equal(t, http.StatusServiceUnavailable, w.Code)
 	testutil.Contains(t, w.Body.String(), "edge functions are not enabled")
 }
+
+func TestConsoleCalledAdminGETRoutesRegisteredByDefault(t *testing.T) {
+	t.Parallel()
+	srv := newTestServerWithPassword(t, "pass")
+	token := loginAdmin(t, srv, "pass")
+
+	tests := []struct {
+		name           string
+		path           string
+		wantStatus     int
+		wantBodySubstr string
+	}{
+		{
+			name:           "incidents",
+			path:           "/api/admin/incidents",
+			wantStatus:     http.StatusServiceUnavailable,
+			wantBodySubstr: "status incident store not configured",
+		},
+		{
+			name:           "support tickets",
+			path:           "/api/admin/support/tickets",
+			wantStatus:     http.StatusNotImplemented,
+			wantBodySubstr: "support service is not configured",
+		},
+		{name: "branches", path: "/api/admin/branches"},
+		{name: "replicas", path: "/api/admin/replicas"},
+		{name: "secrets", path: "/api/admin/secrets"},
+		{name: "tenants", path: "/api/admin/tenants"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodGet, tt.path, nil)
+			req.Header.Set("Authorization", "Bearer "+token)
+			w := httptest.NewRecorder()
+
+			srv.Router().ServeHTTP(w, req)
+
+			testutil.NotEqual(t, http.StatusNotFound, w.Code)
+			if tt.wantStatus != 0 {
+				testutil.Equal(t, tt.wantStatus, w.Code)
+			}
+			if tt.wantBodySubstr != "" {
+				testutil.Contains(t, w.Body.String(), tt.wantBodySubstr)
+			}
+		})
+	}
+}

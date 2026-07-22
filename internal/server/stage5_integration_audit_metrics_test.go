@@ -308,6 +308,7 @@ func TestStage5TenantMetricsExposeTenantLabeledSeriesForScopedTraffic(t *testing
 	stage5TriggerQuotaViolation(t, srv, activatedTenant.ID, hardLimit)
 
 	metricsReq := httptest.NewRequest(http.MethodGet, "/metrics", nil)
+	metricsReq.RemoteAddr = "127.0.0.1:1234"
 	metricsResp := httptest.NewRecorder()
 	srv.Router().ServeHTTP(metricsResp, metricsReq)
 	testutil.Equal(t, http.StatusOK, metricsResp.Code)

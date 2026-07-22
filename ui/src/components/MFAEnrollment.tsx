@@ -38,7 +38,11 @@ function buildMFABootstrapCredentials(): { email: string; password: string } {
   };
 }
 
-export function MFAEnrollment() {
+interface MFAEnrollmentProps {
+  screenLabel: string;
+}
+
+export function MFAEnrollment({ screenLabel }: MFAEnrollmentProps) {
   const { canUse } = useCapability();
   const anonymousBootstrapEnabled = canUse("auth_anonymous");
   const passkeysEnabled = canUse("auth_webauthn");
@@ -216,7 +220,7 @@ export function MFAEnrollment() {
   return (
     <div className="p-6 max-w-2xl mx-auto space-y-6">
       <div className="flex items-center justify-between gap-4 flex-wrap">
-        <h2 className="text-lg font-semibold">Multi-Factor Authentication</h2>
+        <h2 className="text-lg font-semibold">{screenLabel}</h2>
         <div
           data-testid="aal-level-indicator"
           className="px-3 py-1 text-xs font-medium rounded-full bg-blue-50 text-blue-700 border border-blue-200"

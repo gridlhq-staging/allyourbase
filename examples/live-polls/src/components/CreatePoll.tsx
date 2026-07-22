@@ -50,8 +50,8 @@ export default function CreatePoll({ userId, onCreated }: Props) {
       setQuestion("");
       setOptions(["", ""]);
       onCreated(poll, createdOptions);
-    } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : "Failed to create poll");
+    } catch {
+      setError("Could not create poll. Please try again.");
     } finally {
       setLoading(false);
     }

@@ -78,12 +78,19 @@ func initDatabaseSignalReceived(sigCh <-chan os.Signal) bool {
 func startInitDatabaseManagedPostgres(
 	ctx context.Context,
 	cfg *config.Config,
+	effectiveConfigPath string,
 	logger *slog.Logger,
 	sp *startupProgress,
 ) (initDatabaseManagedPostgres, *pgmanager.Manager, error) {
 	sp.step("Starting managed PostgreSQL...")
 	logger.Info("no database URL configured, starting managed PostgreSQL")
 	applyDeprecatedManagedPGConfig(cfg, logger)
+
+	archiveCommand, err := managedPostgresArchiveCommand(cfg, effectiveConfigPath)
+	if err != nil {
+		sp.fail()
+		return nil, nil, err
+	}
 
 	managedPG := newInitDatabaseManagedPostgres(pgmanager.Config{
 		Port:                   uint32(cfg.ManagedPG.Port),
@@ -92,7 +99,11 @@ func startInitDatabaseManagedPostgres(
 		PGVersion:              cfg.ManagedPG.PGVersion,
 		Extensions:             cfg.ManagedPG.EffectiveExtensions(),
 		SharedPreloadLibraries: cfg.ManagedPG.EffectiveSharedPreloadLibraries(),
-		Logger:                 logger,
+		// archive_mode is generated before Manager.Start, and managed Postgres
+		// startup is a stop/start lifecycle. Archival config changes are not
+		// reload-only operations.
+		ArchiveCommand: archiveCommand,
+		Logger:         logger,
 	})
 	var pgMgr *pgmanager.Manager
 	if realPGMgr, ok := managedPG.(*pgmanager.Manager); ok {
@@ -262,6 +273,7 @@ func startInitDatabaseSchemaWatcher(
 func initDatabase(
 	ctx context.Context,
 	cfg *config.Config,
+	effectiveConfigPath string,
 	fromValue string,
 	branchName string,
 	sigCh <-chan os.Signal,
@@ -293,7 +305,7 @@ func initDatabase(
 			return nil, nil, nil, nil, nil
 		}
 
-		managedPGResult, pgMgrResult, err := startInitDatabaseManagedPostgres(ctx, cfg, logger, sp)
+		managedPGResult, pgMgrResult, err := startInitDatabaseManagedPostgres(ctx, cfg, effectiveConfigPath, logger, sp)
 		if err != nil {
 			return nil, nil, nil, nil, err
 		}

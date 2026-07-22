@@ -203,3 +203,13 @@ func TestSupportNotConfigured(t *testing.T) {
 	srv.handleListSupportTickets(w, req)
 	testutil.Equal(t, http.StatusNotImplemented, w.Code)
 }
+
+func TestSupportNotConfiguredWhenDisabled(t *testing.T) {
+	t.Parallel()
+	srv := supportTestServer(support.NewNoopSupportService())
+	srv.cfg.Support.Enabled = false
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/admin/support/tickets", nil)
+	srv.handleAdminListSupportTickets(w, req)
+	testutil.Equal(t, http.StatusNotImplemented, w.Code)
+}

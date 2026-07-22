@@ -56,7 +56,7 @@ func (h *Handler) handleCreateAPIKey(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		if err == ErrInvalidScope {
 			httputil.WriteErrorWithDocURL(w, http.StatusBadRequest, err.Error(),
-				"https://allyourbase.io/guide/api-reference")
+				httputil.DocURL("/guide/api-reference"))
 			return
 		}
 		h.logger.Error("create api key error", "error", err)

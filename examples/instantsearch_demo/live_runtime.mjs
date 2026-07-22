@@ -1,6 +1,6 @@
 import { spawn, spawnSync } from "node:child_process";
 import { accessSync, constants, mkdtempSync, readFileSync, rmSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { dirname, isAbsolute, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 export const INSTANTSEARCH_COLLECTION = "instantsearch_products";
@@ -82,6 +82,16 @@ export function createInstantSearchProcessEnv(runtimeHome) {
     ...resolveGoCacheEnv(),
     HOME: runtimeHome,
     AYB_DATABASE_EMBEDDED_PORT: String(MANAGED_PG_PORT),
+    // Lift the API rate limits for the isolated test server. The browser suite
+    // drives many anonymous search requests in quick succession — React
+    // StrictMode double-renders in dev and the specs fire rapid facet/query
+    // interactions against one shared worker-scoped runtime — which otherwise
+    // trips the default 30/min anonymous throttle and returns 429s. Those 429s
+    // surface as the demo's API-error state and make the search states
+    // non-deterministic. An explicit override in the environment still wins.
+    AYB_RATE_LIMIT_API: process.env.AYB_RATE_LIMIT_API ?? "100000/min",
+    AYB_RATE_LIMIT_API_ANONYMOUS:
+      process.env.AYB_RATE_LIMIT_API_ANONYMOUS ?? "100000/min",
   };
   delete env.AYB_ADMIN_TOKEN;
   delete env.AYB_DATABASE_URL;
@@ -113,7 +123,16 @@ function resolveGoCacheEnv() {
 
 function resolveAybCommand() {
   if (process.env.AYB_BIN?.trim()) {
-    return { command: process.env.AYB_BIN.trim(), args: [] };
+    const configuredPath = process.env.AYB_BIN.trim();
+    if (!isAbsolute(configuredPath) && !configuredPath.includes("/")) {
+      throw new Error("AYB_BIN must be an explicit executable path, not a PATH lookup");
+    }
+
+    const resolvedPath = isAbsolute(configuredPath)
+      ? configuredPath
+      : resolve(process.cwd(), configuredPath);
+    accessSync(resolvedPath, constants.X_OK);
+    return { command: resolvedPath, args: [] };
   }
 
   const candidates = [join(REPO_ROOT, "ayb"), join(process.cwd(), "ayb")];

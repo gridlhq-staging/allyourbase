@@ -17,6 +17,13 @@ enabled = true
 
 AYB validates push configuration before startup. In addition, runtime provider construction uses log-provider fallback if a configured provider cannot be initialized, so push wiring can stay up while provider errors are surfaced in logs.
 
+For local and test-only runtime smoke coverage, set `push.use_log_provider = true`
+or `AYB_PUSH_USE_LOG_PROVIDER=true`. This explicit mode routes both FCM and APNS
+device records to AYB's log provider, even if real provider credentials are also
+configured. Validation only permits this mode on loopback-local runtimes. Keep it
+`false` for live delivery; normal APNs/FCM mode still requires the provider
+credentials below.
+
 ## Provider setup
 
 ### Firebase Cloud Messaging (FCM)
@@ -294,6 +301,7 @@ In the Admin Dashboard, open `Messaging -> Push Notifications` to:
 ```toml
 [push]
 enabled = false                # Enable push notifications (requires jobs.enabled)
+use_log_provider = false       # Local/test mode only; false for live delivery
 
 [push.fcm]
 credentials_file = ""         # Path to Firebase service account JSON
@@ -311,6 +319,7 @@ Environment variables:
 | Variable | Config equivalent |
 |---|---|
 | `AYB_PUSH_ENABLED` | `push.enabled` |
+| `AYB_PUSH_USE_LOG_PROVIDER` | `push.use_log_provider` |
 | `AYB_PUSH_FCM_CREDENTIALS_FILE` | `push.fcm.credentials_file` |
 | `AYB_PUSH_APNS_KEY_FILE` | `push.apns.key_file` |
 | `AYB_PUSH_APNS_TEAM_ID` | `push.apns.team_id` |
@@ -321,11 +330,13 @@ Environment variables:
 Validation rules:
 
 - `push.enabled` requires `jobs.enabled` (delivery uses the job queue)
-- Config validation requires at least one provider (FCM or APNS) to be fully configured
+- `push.use_log_provider` is accepted only for loopback-local runtimes because it routes delivery data through the log provider
+- Config validation requires at least one provider (FCM or APNS) to be fully configured unless `push.use_log_provider` is explicitly true
 - `push.fcm.credentials_file` must exist and contain valid JSON
 - APNS requires all four fields (`key_file`, `team_id`, `key_id`, `bundle_id`) when `key_file` is set
 - `push.apns.environment` must be `"production"` or `"sandbox"`
 - During service wiring, provider initialization failures fall back to log providers (`buildPushProviders`) instead of disabling the push service
+- When `push.use_log_provider` is true, `buildPushProviders` deliberately installs one shared log provider for both FCM and APNS device records and does not attempt live provider construction
 
 ## Compatibility note
 

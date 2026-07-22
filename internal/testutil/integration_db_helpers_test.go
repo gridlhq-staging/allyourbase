@@ -20,6 +20,22 @@ func TestIntegration_GetTestPoolReturnsUsablePool(t *testing.T) {
 	}
 }
 
+func TestIntegration_GetTestPoolIsolatesCallers(t *testing.T) {
+	first := GetTestPool(t)
+	second := GetTestPool(t)
+
+	var firstName, secondName string
+	if err := first.QueryRow(context.Background(), "SELECT current_database()").Scan(&firstName); err != nil {
+		t.Fatalf("querying first database name: %v", err)
+	}
+	if err := second.QueryRow(context.Background(), "SELECT current_database()").Scan(&secondName); err != nil {
+		t.Fatalf("querying second database name: %v", err)
+	}
+	if firstName == secondName {
+		t.Fatalf("GetTestPool callers share database %q; want isolated databases", firstName)
+	}
+}
+
 func TestIntegration_execSQLIncludesStatementOnError(t *testing.T) {
 	pool := GetTestPool(t)
 	badSQL := "SELECT definitely_missing_column FROM definitely_missing_table"

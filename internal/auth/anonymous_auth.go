@@ -318,7 +318,7 @@ type linkEmailRequest struct {
 func (h *Handler) handleAnonymousSignIn(w http.ResponseWriter, r *http.Request) {
 	if !h.anonymousAuthEnabled {
 		httputil.WriteErrorWithDocURL(w, http.StatusNotFound, "anonymous auth is not enabled",
-			"https://allyourbase.io/guide/authentication#anonymous")
+			httputil.DocURL("/guide/authentication#anonymous"))
 		return
 	}
 

@@ -1,4 +1,3 @@
-/** @module Browser-test helpers for observing dashboard JavaScript chunk loading. */
 import { expect, type Page, type Request } from "@playwright/test";
 
 const JAVASCRIPT_ASSET_PATTERN = /\/assets\/[^/?]+\.js(?:[?#]|$)/;
@@ -30,6 +29,25 @@ export function observeJavaScriptChunks(page: Page) {
   page.on("request", onRequest);
   return {
     requestedChunkURLs,
+    dispose: () => page.off("request", onRequest),
+  };
+}
+
+export function observeMatchingRequests(
+  page: Page,
+  match: { method: string; urlIncludes: string },
+) {
+  let requestCount = 0;
+  const expectedMethod = match.method.toUpperCase();
+  const onRequest = (request: Request) => {
+    if (request.method() === expectedMethod && request.url().includes(match.urlIncludes)) {
+      requestCount += 1;
+    }
+  };
+
+  page.on("request", onRequest);
+  return {
+    count: () => requestCount,
     dispose: () => page.off("request", onRequest),
   };
 }

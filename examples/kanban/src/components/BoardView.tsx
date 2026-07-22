@@ -18,12 +18,15 @@ export default function BoardView({ board, onBack }: Props) {
   const [editingCard, setEditingCard] = useState<Card | null>(null);
   const [newColTitle, setNewColTitle] = useState("");
   const [addingCol, setAddingCol] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [mutationError, setMutationError] = useState<string | null>(null);
 
   useEffect(() => {
     loadBoard();
   }, [board.id]);
 
   async function loadBoard() {
+    setLoadError(null);
     try {
       const colRes = await ayb.records.list<Column>("columns", {
         filter: `board_id=${quoteRecordFilterLiteral(board.id)}`,
@@ -40,9 +43,12 @@ export default function BoardView({ board, onBack }: Props) {
           perPage: 500,
         });
         setCards(cardRes.items);
+      } else {
+        setCards([]);
       }
     } catch (err) {
       console.error("Failed to load board:", err);
+      setLoadError(err instanceof Error ? err.message : "Failed to load board");
     } finally {
       setLoading(false);
     }
@@ -106,6 +112,7 @@ export default function BoardView({ board, onBack }: Props) {
     e.preventDefault();
     if (!newColTitle.trim()) return;
     setAddingCol(true);
+    setMutationError(null);
     try {
       const col = await ayb.records.create<Column>("columns", {
         board_id: board.id,
@@ -119,6 +126,7 @@ export default function BoardView({ board, onBack }: Props) {
       setNewColTitle("");
     } catch (err) {
       console.error("Failed to create column:", err);
+      setMutationError(err instanceof Error ? err.message : "Failed to create column");
     } finally {
       setAddingCol(false);
     }
@@ -155,6 +163,8 @@ export default function BoardView({ board, onBack }: Props) {
 
     const card = cards.find((c) => c.id === draggableId);
     if (!card) return;
+
+    setMutationError(null);
 
     // Optimistic update
     const newCards = cards.filter((c) => c.id !== draggableId);
@@ -195,6 +205,7 @@ export default function BoardView({ board, onBack }: Props) {
       }
     } catch (err) {
       console.error("Failed to move card:", err);
+      setMutationError(err instanceof Error ? err.message : "Failed to move card");
       loadBoard(); // Revert on error
     }
   }
@@ -238,6 +249,16 @@ export default function BoardView({ board, onBack }: Props) {
 
       {/* Board */}
       <div className="flex-1 overflow-x-auto p-6">
+        {loadError && (
+          <p role="alert" className="mb-4 text-sm text-red-600">
+            {loadError}
+          </p>
+        )}
+        {mutationError && (
+          <p role="alert" className="mb-4 text-sm text-red-600">
+            {mutationError}
+          </p>
+        )}
         <DragDropContext onDragEnd={handleDragEnd}>
           <div className="flex gap-4 items-start h-full">
             {columns.map((col) => (

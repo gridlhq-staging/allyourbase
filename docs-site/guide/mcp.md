@@ -71,9 +71,9 @@ Any MCP client that supports stdio transport can launch:
 ayb mcp --url http://127.0.0.1:8090 --token "$AYB_TOKEN"
 ```
 
-## Tools (13 total)
+## Tools (14 total)
 
-### Data & schema tools (10)
+### Data & schema tools (11, including `search_movies` for semantic movie search)
 
 | Tool | Purpose |
 |---|---|

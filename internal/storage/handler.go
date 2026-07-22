@@ -175,7 +175,7 @@ func (h *Handler) HandleServe(w http.ResponseWriter, r *http.Request) {
 		validation := h.svc.ValidateSignedURL(bucket, name, r.URL.Query())
 		if !validation.Valid {
 			httputil.WriteErrorWithDocURL(w, http.StatusForbidden, "invalid or expired signed URL",
-				"https://allyourbase.io/guide/file-storage")
+				httputil.DocURL("/guide/file-storage"))
 			return
 		}
 		if validation.TenantID != "" {

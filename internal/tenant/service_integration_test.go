@@ -173,6 +173,24 @@ func TestTransitionStateAtomic(t *testing.T) {
 	}
 }
 
+func TestTransitionProvisioningTenantToDeleting(t *testing.T) {
+	setupTenantTestDB(t)
+	ctx := context.Background()
+	svc := newTestService()
+
+	created, err := svc.CreateTenant(ctx, "Provisioning Delete Corp", "provisioning-delete", "schema", "free", "default", nil, "")
+	testutil.NoError(t, err)
+	testutil.Equal(t, TenantStateProvisioning, created.State)
+
+	deleting, err := svc.TransitionState(ctx, created.ID, TenantStateProvisioning, TenantStateDeleting)
+	testutil.NoError(t, err)
+	testutil.Equal(t, TenantStateDeleting, deleting.State)
+
+	reloaded, err := svc.GetTenant(ctx, created.ID)
+	testutil.NoError(t, err)
+	testutil.Equal(t, TenantStateDeleting, reloaded.State)
+}
+
 func TestListTenants(t *testing.T) {
 	setupTenantTestDB(t)
 	ctx := context.Background()

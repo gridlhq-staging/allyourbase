@@ -5,9 +5,10 @@ import {
   InstantSearch,
   Pagination,
   RangeInput,
-  RefinementList,
   SearchBox,
   Stats,
+  useInstantSearch,
+  useRefinementList,
 } from "react-instantsearch";
 import type { Hit } from "instantsearch.js/es/types/results";
 import type { ComponentProps, ComponentPropsWithoutRef } from "react";
@@ -100,6 +101,120 @@ function ProductCard({ hit }: { hit: ProductHit }) {
   );
 }
 
+function hasRealResults(results: unknown): boolean {
+  return Boolean(
+    results &&
+      typeof results === "object" &&
+      !("__isArtificial" in results && results.__isArtificial === true),
+  );
+}
+
+function ResultsSummary() {
+  const { status } = useInstantSearch();
+  return (
+    <div data-testid="results-summary" data-search-status={status}>
+      <SearchStateSummary />
+    </div>
+  );
+}
+
+function SearchStateSummary() {
+  const { error, results, status } = useInstantSearch({ catchError: true });
+
+  if (status === "error" || error) {
+    return (
+      <p className="state-message state-message-error" role="alert">
+        We could not load products. Check the API connection and retry.
+      </p>
+    );
+  }
+
+  if (!hasRealResults(results)) {
+    return (
+      <p className="state-message" role="status">
+        Loading product search...
+      </p>
+    );
+  }
+
+  if (results.nbHits === 0) {
+    return (
+      <p className="state-message" role="status">
+        No products match this search.
+      </p>
+    );
+  }
+
+  return <Stats />;
+}
+
+function SearchResults() {
+  const { error, results, status } = useInstantSearch({ catchError: true });
+
+  if (status === "error" || error) {
+    return null;
+  }
+
+  if (!hasRealResults(results)) {
+    return (
+      <div className="results-hidden" aria-hidden="true">
+        <Hits hitComponent={ProductCard} />
+        <Pagination />
+      </div>
+    );
+  }
+
+  if (results.nbHits === 0) {
+    return null;
+  }
+
+  return (
+    <>
+      <Hits hitComponent={ProductCard} />
+      <Pagination />
+    </>
+  );
+}
+
+function FacetList({ attribute, label }: { attribute: string; label: string }) {
+  const { error, results, status } = useInstantSearch({ catchError: true });
+  const { items, refine } = useRefinementList({
+    attribute,
+    operator: "or",
+  });
+
+  if (status === "error" || error || !hasRealResults(results)) {
+    return null;
+  }
+
+  if (items.length === 0) {
+    return (
+      <p className="facet-empty">
+        No {label.toLowerCase()} filters available.
+      </p>
+    );
+  }
+
+  return (
+    <ul className="ais-RefinementList-list">
+      {items.map((item) => (
+        <li className="ais-RefinementList-item" key={item.value}>
+          <label className="ais-RefinementList-label">
+            <input
+              checked={item.isRefined}
+              className="ais-RefinementList-checkbox"
+              onChange={() => refine(item.value)}
+              type="checkbox"
+            />
+            <span className="ais-RefinementList-labelText">{item.label}</span>
+            <span className="ais-RefinementList-count">{item.count}</span>
+          </label>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
 export default function App() {
   return (
     <main className="app-shell">
@@ -107,16 +222,14 @@ export default function App() {
         <Configure hitsPerPage={HITS_PER_PAGE} facets={FACETS} />
         <section className="toolbar" aria-label="Search controls">
           <SearchBox placeholder="Search products" />
-          <div data-testid="results-summary">
-            <Stats />
-          </div>
+          <ResultsSummary />
         </section>
         <section className="content">
           <aside className="filters" aria-label="Filters">
             <h2>Category</h2>
-            <RefinementList attribute="category" operator="or" searchable={false} />
+            <FacetList attribute="category" label="Category" />
             <h2>Brand</h2>
-            <RefinementList attribute="brand" operator="or" searchable={false} />
+            <FacetList attribute="brand" label="Brand" />
             <section className="price-range" aria-label="Price range">
               <h2>Price range</h2>
               {/* Stage 3 will evaluate deterministic RangeSlider driving under Playwright. */}
@@ -124,8 +237,7 @@ export default function App() {
             </section>
           </aside>
           <section className="results" aria-label="Search results">
-            <Hits hitComponent={ProductCard} />
-            <Pagination />
+            <SearchResults />
           </section>
         </section>
       </InstantSearch>

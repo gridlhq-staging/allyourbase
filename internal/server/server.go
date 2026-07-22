@@ -170,6 +170,9 @@ func newServer(cfg *config.Config, logger *slog.Logger, schemaCache *schema.Cach
 	r := chi.NewRouter()
 	tracerProvider, outboundTransport := initTracing(cfg, r, logger)
 	drainManager, logger := initDrainManager(cfg, logger, outboundTransport)
+	if cfg.Metrics.Enabled && cfg.Metrics.AuthToken == "" {
+		logger.Warn(metricsAuthTokenWarningMessage)
+	}
 	var replicaStore replica.ReplicaStore
 	if pool != nil {
 		replicaStore = newReplicaStore(pool)

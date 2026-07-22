@@ -274,7 +274,7 @@ func (s *Store) UpdateDeliveryStatus(ctx context.Context, id, status, errorCode,
 		     error_code = NULLIF($3, ''),
 		     error_message = NULLIF($4, ''),
 		     provider_message_id = NULLIF($5, ''),
-		     sent_at = CASE WHEN $2 = 'sent' THEN NOW() ELSE sent_at END,
+		     sent_at = CASE WHEN $2::varchar = 'sent' THEN NOW() ELSE sent_at END,
 		     updated_at = NOW()
 		 WHERE id = $1`,
 		id, status, errorCode, errorMsg, messageID,

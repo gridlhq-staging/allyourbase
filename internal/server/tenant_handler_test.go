@@ -939,6 +939,27 @@ func TestHandleAdminDeleteTenant(t *testing.T) {
 		testutil.Equal(t, 0, svc.deleteTenantSchemaCalls)
 	})
 
+	t.Run("success transitions provisioning to deleting", func(t *testing.T) {
+		t.Parallel()
+		svc := &mockTenantService{
+			tenant:           &tenant.Tenant{ID: "t1", Slug: "tenant-p", IsolationMode: "schema", State: tenant.TenantStateProvisioning},
+			transitionResult: &tenant.Tenant{ID: "t1", State: tenant.TenantStateDeleting},
+		}
+		h := handleAdminDeleteTenant(svc, nil)
+		req := httptest.NewRequest(http.MethodDelete, "/api/admin/tenants/t1", nil)
+		req = withURLParams(req, map[string]string{"tenantId": "t1"})
+		w := httptest.NewRecorder()
+
+		h.ServeHTTP(w, req)
+
+		testutil.Equal(t, http.StatusOK, w.Code)
+		var result tenant.Tenant
+		testutil.NoError(t, json.NewDecoder(w.Body).Decode(&result))
+		testutil.Equal(t, tenant.TenantStateDeleting, result.State)
+		testutil.Equal(t, 1, svc.deleteTenantSchemaCalls)
+		testutil.Equal(t, "tenant-p", svc.lastDeletedSchemaSlug)
+	})
+
 	t.Run("schema drop failure does not fail delete transition", func(t *testing.T) {
 		t.Parallel()
 		svc := &mockTenantService{

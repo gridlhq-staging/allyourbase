@@ -139,6 +139,8 @@ func runDemo(cmd *cobra.Command, args []string) error {
 	// demo is a copy of the registry entry; resolving the effective port here
 	// keeps the banner and the served port consistent under an override.
 	demo.Port = effectiveDemoPort(demo)
+	demo.TrySteps = append([]string(nil), demo.TrySteps...)
+	demo.TrySteps[0] = fmt.Sprintf("Open http://localhost:%d", demo.Port)
 
 	useColor := colorEnabled()
 	isTTY := ui.StderrIsTTY()

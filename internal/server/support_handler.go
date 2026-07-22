@@ -38,7 +38,7 @@ type supportTicketWithMessagesResponse struct {
 }
 
 func (s *Server) supportNotConfigured(w http.ResponseWriter) bool {
-	if s.supportSvc != nil {
+	if s.cfg != nil && s.cfg.Support.Enabled && s.supportSvc != nil {
 		return false
 	}
 	httputil.WriteError(w, http.StatusNotImplemented, "support service is not configured")

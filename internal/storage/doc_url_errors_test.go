@@ -77,7 +77,7 @@ func TestDocURLBucketDeleteNonEmptyConflict(t *testing.T) {
 	assertDocURLError(t, w, http.StatusConflict, "bucket has objects; use force=true to delete", docURLFileStorage)
 }
 
-// --- handler_upload.go (3 mapped branches) ---
+// --- handler_upload.go (2 mapped branches) ---
 
 func TestDocURLUploadTenantQuotaExceeded(t *testing.T) {
 	t.Parallel()
@@ -105,17 +105,6 @@ func TestDocURLUploadUserQuotaExceeded(t *testing.T) {
 
 	assertDocURLError(t, rec, http.StatusRequestEntityTooLarge, "storage quota exceeded", docURLFileStorage)
 }
-
-// handler_upload.go:146 ("file name is required") has no test here on purpose:
-// it is unreachable through HTTP. parseUploadRequest only reaches that guard
-// when r.FormFile succeeds and header.Filename is empty, but Go's multipart
-// reader files a part under MultipartForm.File only when its filename is
-// non-empty — an empty filename decodes as a plain form value, so FormFile
-// returns ErrMissingFile and the request lands on the preceding "missing file
-// field" branch instead. The doc_url conversion was still applied to that line
-// for consistency; removing the dead guard belongs to the mapping owner, not to
-// this sweep. A test here could only pass by asserting the neighbouring
-// branch's response, which would not be able to fail for a real defect.
 
 // --- handler_resumable.go (4 mapped branches) ---
 

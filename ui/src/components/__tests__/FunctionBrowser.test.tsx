@@ -57,19 +57,32 @@ describe("FunctionBrowser", () => {
   });
 
   it("renders empty state when no functions", () => {
-    render(<FunctionBrowser functions={{}} />);
+    render(<FunctionBrowser screenLabel="Functions" functions={{}} />);
     expect(
       screen.getByText("No functions found in the database."),
     ).toBeDefined();
   });
 
   it("renders function list with count", () => {
-    render(<FunctionBrowser functions={sampleFunctions} />);
+    render(<FunctionBrowser screenLabel="Functions" functions={sampleFunctions} />);
     expect(screen.getByText("Functions (4)")).toBeDefined();
   });
 
+  it("uses the injected registry label as the heading base with count suffix", () => {
+    render(
+      <FunctionBrowser
+        functions={sampleFunctions}
+        screenLabel="Registry Functions Label"
+      />,
+    );
+
+    expect(
+      screen.getByRole("heading", { name: "Registry Functions Label (4)" }),
+    ).toBeInTheDocument();
+  });
+
   it("shows function names", () => {
-    render(<FunctionBrowser functions={sampleFunctions} />);
+    render(<FunctionBrowser screenLabel="Functions" functions={sampleFunctions} />);
     expect(screen.getByText("add_numbers")).toBeDefined();
     expect(screen.getByText("cleanup_old_data")).toBeDefined();
     expect(screen.getByText("get_active_users")).toBeDefined();
@@ -77,7 +90,7 @@ describe("FunctionBrowser", () => {
   });
 
   it("shows return type info", () => {
-    render(<FunctionBrowser functions={sampleFunctions} />);
+    render(<FunctionBrowser screenLabel="Functions" functions={sampleFunctions} />);
     // "integer" appears twice (add_numbers + unnamed_param_fn)
     expect(screen.getAllByText("integer").length).toBe(2);
     expect(screen.getByText("void")).toBeDefined();
@@ -85,13 +98,13 @@ describe("FunctionBrowser", () => {
   });
 
   it("shows schema prefix for non-public schemas", () => {
-    render(<FunctionBrowser functions={sampleFunctions} />);
+    render(<FunctionBrowser screenLabel="Functions" functions={sampleFunctions} />);
     expect(screen.getByText("stats.")).toBeDefined();
   });
 
   it("expands function to show parameter inputs", async () => {
     const user = userEvent.setup();
-    render(<FunctionBrowser functions={sampleFunctions} />);
+    render(<FunctionBrowser screenLabel="Functions" functions={sampleFunctions} />);
 
     await user.click(screen.getByText("add_numbers"));
 
@@ -105,7 +118,7 @@ describe("FunctionBrowser", () => {
 
   it("shows warning for unnamed parameters", async () => {
     const user = userEvent.setup();
-    render(<FunctionBrowser functions={sampleFunctions} />);
+    render(<FunctionBrowser screenLabel="Functions" functions={sampleFunctions} />);
 
     await user.click(screen.getByText("unnamed_param_fn"));
 
@@ -118,7 +131,7 @@ describe("FunctionBrowser", () => {
 
   it("shows no parameter section for no-arg functions", async () => {
     const user = userEvent.setup();
-    render(<FunctionBrowser functions={sampleFunctions} />);
+    render(<FunctionBrowser screenLabel="Functions" functions={sampleFunctions} />);
 
     await user.click(screen.getByText("cleanup_old_data"));
 
@@ -130,7 +143,7 @@ describe("FunctionBrowser", () => {
   it("executes function and displays result", async () => {
     mockCallRpc.mockResolvedValueOnce({ status: 200, data: 42 });
     const user = userEvent.setup();
-    render(<FunctionBrowser functions={sampleFunctions} />);
+    render(<FunctionBrowser screenLabel="Functions" functions={sampleFunctions} />);
 
     await user.click(screen.getByText("add_numbers"));
 
@@ -150,7 +163,7 @@ describe("FunctionBrowser", () => {
     mockCallRpc.mockResolvedValueOnce({ status: 204, data: null });
     const user = userEvent.setup();
     render(
-      <FunctionBrowser
+      <FunctionBrowser screenLabel="Functions"
         functions={{
           "analytics.refresh_rollups": {
             schema: "analytics",
@@ -176,7 +189,7 @@ describe("FunctionBrowser", () => {
     mockCallRpc.mockResolvedValueOnce({ status: 204, data: null });
     const user = userEvent.setup();
     render(
-      <FunctionBrowser
+      <FunctionBrowser screenLabel="Functions"
         functions={{
           'analytics.rollup/refresh?preview#v2': {
             schema: "analytics",
@@ -204,7 +217,7 @@ describe("FunctionBrowser", () => {
   it("makes execution result output keyboard-focusable for scroll access", async () => {
     mockCallRpc.mockResolvedValueOnce({ status: 200, data: 42 });
     const user = userEvent.setup();
-    render(<FunctionBrowser functions={sampleFunctions} />);
+    render(<FunctionBrowser screenLabel="Functions" functions={sampleFunctions} />);
 
     await user.click(screen.getByText("add_numbers"));
     await user.click(screen.getByRole("button", { name: /Execute/ }));
@@ -217,7 +230,7 @@ describe("FunctionBrowser", () => {
   it("executes void function and shows void result", async () => {
     mockCallRpc.mockResolvedValueOnce({ status: 204, data: null });
     const user = userEvent.setup();
-    render(<FunctionBrowser functions={sampleFunctions} />);
+    render(<FunctionBrowser screenLabel="Functions" functions={sampleFunctions} />);
 
     await user.click(screen.getByText("cleanup_old_data"));
     await user.click(screen.getByRole("button", { name: /Execute/ }));
@@ -232,7 +245,7 @@ describe("FunctionBrowser", () => {
   it("displays error when execution fails", async () => {
     mockCallRpc.mockRejectedValueOnce(new Error("function not found"));
     const user = userEvent.setup();
-    render(<FunctionBrowser functions={sampleFunctions} />);
+    render(<FunctionBrowser screenLabel="Functions" functions={sampleFunctions} />);
 
     await user.click(screen.getByText("add_numbers"));
     await user.click(screen.getByRole("button", { name: /Execute/ }));
@@ -245,7 +258,7 @@ describe("FunctionBrowser", () => {
 
   it("collapses expanded function on second click", async () => {
     const user = userEvent.setup();
-    render(<FunctionBrowser functions={sampleFunctions} />);
+    render(<FunctionBrowser screenLabel="Functions" functions={sampleFunctions} />);
 
     await user.click(screen.getByText("add_numbers"));
     expect(screen.getByText("Adds two integers")).toBeDefined();
@@ -257,7 +270,7 @@ describe("FunctionBrowser", () => {
   it("executes on Enter key in parameter input", async () => {
     mockCallRpc.mockResolvedValueOnce({ status: 200, data: 7 });
     const user = userEvent.setup();
-    render(<FunctionBrowser functions={sampleFunctions} />);
+    render(<FunctionBrowser screenLabel="Functions" functions={sampleFunctions} />);
 
     await user.click(screen.getByText("add_numbers"));
 
@@ -273,14 +286,14 @@ describe("FunctionBrowser", () => {
   });
 
   it("shows SETOF return type for set-returning functions", () => {
-    render(<FunctionBrowser functions={sampleFunctions} />);
+    render(<FunctionBrowser screenLabel="Functions" functions={sampleFunctions} />);
     expect(screen.getByText("SETOF record")).toBeDefined();
   });
 
   it("shows duration in result", async () => {
     mockCallRpc.mockResolvedValueOnce({ status: 200, data: [] });
     const user = userEvent.setup();
-    render(<FunctionBrowser functions={sampleFunctions} />);
+    render(<FunctionBrowser screenLabel="Functions" functions={sampleFunctions} />);
 
     await user.click(screen.getByText("get_active_users"));
 
@@ -296,7 +309,7 @@ describe("FunctionBrowser", () => {
   });
 
   it("schema prefix uses WCAG AA compliant contrast token", () => {
-    render(<FunctionBrowser functions={sampleFunctions} />);
+    render(<FunctionBrowser screenLabel="Functions" functions={sampleFunctions} />);
     const className = screen.getByText("stats.").className;
     expectWcagContrastToken(className);
   });

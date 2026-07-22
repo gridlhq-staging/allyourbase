@@ -5,7 +5,6 @@ import { executeSQL, ApiError } from "../api";
 import type { SqlResult } from "../types";
 import {
   Play,
-  AlertCircle,
   Clock,
   CheckCircle2,
   FileJson,
@@ -13,6 +12,7 @@ import {
 } from "lucide-react";
 import { useCodeMirrorTheme } from "./codeMirrorTheme";
 import { ConfirmDialog } from "./shared/ConfirmDialog";
+import { ErrorNotice } from "./ErrorNotice";
 
 const DESTRUCTIVE_SQL_KEYWORDS = new Set(["DELETE", "DROP", "TRUNCATE"]);
 
@@ -355,11 +355,8 @@ export function SqlEditor({ onSchemaChange }: SqlEditorProps) {
       {/* Results area */}
       <div className="flex-1 overflow-auto">
         {error && (
-          <div className="m-4 p-3 bg-red-50 border border-red-200 rounded-lg flex items-start gap-2">
-            <AlertCircle className="w-4 h-4 text-red-500 mt-0.5 shrink-0" />
-            <pre className="text-sm text-red-700 whitespace-pre-wrap font-mono">
-              {error}
-            </pre>
+          <div className="m-4">
+            <ErrorNotice message={error} docsPath="/guide/patterns" />
           </div>
         )}
 

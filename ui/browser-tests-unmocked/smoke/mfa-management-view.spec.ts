@@ -53,7 +53,7 @@ test.describe("Smoke: MFA Management", () => {
     // Act: navigate to MFA Management
     await page.goto("/admin/");
     await waitForDashboard(page);
-    await page.locator("aside").getByRole("button", { name: /^MFA Management$/i }).click();
+    await page.locator("aside").getByRole("button", { name: /^Multi-Factor Authentication$/i }).click();
     await expect(page.getByRole("heading", { name: /Multi-Factor Authentication/i })).toBeVisible({ timeout: 15_000 });
 
     // Assert: enrolled methods section is always rendered

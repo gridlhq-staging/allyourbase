@@ -313,8 +313,13 @@ describe("PollCard", () => {
     expect(mockCreate).not.toHaveBeenCalled();
   });
 
-  it("shows an error message when the vote API call fails", async () => {
-    mockCreate.mockRejectedValueOnce(new Error("Network error"));
+  it("disables vote options while pending and normalizes API failures", async () => {
+    let rejectVote = (_reason?: unknown) => {};
+    mockCreate.mockImplementationOnce(
+      () => new Promise((_, reject) => {
+        rejectVote = reject;
+      }),
+    );
 
     render(
       <PollCard
@@ -329,6 +334,17 @@ describe("PollCard", () => {
 
     fireEvent.click(screen.getByRole("button", { name: /TypeScript/ }));
 
-    expect(await screen.findByText("Network error")).toBeInTheDocument();
+    await waitFor(() => {
+      for (const button of screen.getAllByRole("button")) {
+        expect(button).toBeDisabled();
+      }
+    });
+
+    rejectVote(new Error("database connection unavailable"));
+
+    expect(
+      await screen.findByText("Could not record vote. Please try again."),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /TypeScript/ })).toBeEnabled();
   });
 });

@@ -66,7 +66,7 @@ test.describe("Auth MFA Lifecycle (Full E2E)", () => {
 
     // ── Step 2: Create anonymous session ──
     await test.step("Account Linking: start anonymous session", async () => {
-      await page.locator("aside").getByRole("button", { name: /Account Linking/i }).click();
+      await page.locator("aside").getByRole("button", { name: /^Link Your Account$/i }).click();
       await expect(page.getByRole("heading", { name: /Link Your Account/i })).toBeVisible({ timeout: 5000 });
 
       await page.getByRole("button", { name: /Start Anonymous Session/i }).click();
@@ -85,7 +85,7 @@ test.describe("Auth MFA Lifecycle (Full E2E)", () => {
     let totpSecret = "";
 
     await test.step("MFA Management: enroll TOTP", async () => {
-      await page.locator("aside").getByRole("button", { name: /MFA Management/i }).click();
+      await page.locator("aside").getByRole("button", { name: /^Multi-Factor Authentication$/i }).click();
       await expect(page.getByRole("heading", { name: /Multi-Factor Authentication/i })).toBeVisible({ timeout: 5000 });
 
       // Should show no MFA methods initially

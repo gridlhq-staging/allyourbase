@@ -1,7 +1,11 @@
 // Package backup This file defines backup configuration structures for full backups and point-in-time recovery, including Config for general backup settings and PITRConfig for WAL archiving.
 package backup
 
-import "fmt"
+import (
+	"fmt"
+
+	"github.com/allyourbase/ayb/internal/pitrconfig"
+)
 
 // Config mirrors config.BackupConfig for the backup package.
 // The wiring layer (start.go) converts config.BackupConfig → backup.Config.
@@ -61,34 +65,31 @@ func DefaultPITR() PITRConfig {
 
 // Validate checks that PITRConfig is usable. Disabled configs always pass.
 func (p *PITRConfig) Validate() error {
-	if !p.Enabled {
-		return nil
+	shared := p.sharedConfig()
+	if err := shared.Validate(); err != nil {
+		return err
 	}
-	if p.ArchiveBucket == "" {
-		return fmt.Errorf("pitr: archive_bucket is required when enabled")
-	}
-	if p.RPOMinutes <= 0 {
-		return fmt.Errorf("pitr: rpo_minutes must be > 0")
-	}
-	if p.WALRetentionDays < 1 {
-		return fmt.Errorf("pitr: wal_retention_days must be >= 1")
-	}
-	if p.RetentionSchedule == "" {
-		return fmt.Errorf("pitr: retention_schedule is required when enabled")
-	}
-	if p.BaseBackupRetentionDays < 1 {
-		return fmt.Errorf("pitr: base_backup_retention_days must be >= 1")
-	}
-	if p.ComplianceSnapshotMonths < 0 {
-		return fmt.Errorf("pitr: compliance_snapshot_months must be >= 0")
-	}
-	if p.StorageBudgetBytes < 0 {
-		return fmt.Errorf("pitr: storage_budget_bytes must be >= 0")
-	}
-	if p.EnvironmentClass == "" {
-		p.EnvironmentClass = "non-prod"
-	}
+	p.EnvironmentClass = shared.EnvironmentClass
 	return nil
+}
+
+func (p *PITRConfig) sharedConfig() pitrconfig.Config {
+	return pitrconfig.Config{
+		Enabled:                  p.Enabled,
+		ArchiveBucket:            p.ArchiveBucket,
+		ArchivePrefix:            p.ArchivePrefix,
+		WALRetentionDays:         p.WALRetentionDays,
+		BaseBackupRetentionDays:  p.BaseBackupRetentionDays,
+		ComplianceSnapshotMonths: p.ComplianceSnapshotMonths,
+		EnvironmentClass:         p.EnvironmentClass,
+		KMSKeyID:                 p.KMSKeyID,
+		RetentionSchedule:        p.RetentionSchedule,
+		RPOMinutes:               p.RPOMinutes,
+		StorageBudgetBytes:       p.StorageBudgetBytes,
+		ShadowMode:               p.ShadowMode,
+		BaseBackupSchedule:       p.BaseBackupSchedule,
+		VerifySchedule:           p.VerifySchedule,
+	}
 }
 
 // Default returns a Config with sensible defaults.

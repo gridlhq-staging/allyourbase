@@ -1,5 +1,6 @@
 import { useState, type FormEvent } from "react";
 import { adminLogin, ApiError } from "../api";
+import { ErrorNotice } from "./ErrorNotice";
 
 export function Login({ onSuccess }: { onSuccess: () => void }) {
   const [password, setPassword] = useState("");
@@ -34,8 +35,8 @@ export function Login({ onSuccess }: { onSuccess: () => void }) {
         </p>
 
         {error && (
-          <div className="bg-red-50 border border-red-200 text-red-700 rounded px-3 py-2 text-sm mb-4">
-            {error}
+          <div className="mb-4">
+            <ErrorNotice message={error} docsPath="/guide/authentication" />
           </div>
         )}
 

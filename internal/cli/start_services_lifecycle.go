@@ -113,14 +113,14 @@ func (s *shutdownState) cleanup(pool *pgxpool.Pool, logger *slog.Logger) {
 }
 
 // runForegroundPreflight verifies the configured port is available, generates a default config file if needed, and validates PocketBase migration source paths.
-func runForegroundPreflight(cfg *config.Config, configPath, fromValue string, logger *slog.Logger) error {
+func runForegroundPreflight(cfg *config.Config, configPathExplicit bool, fromValue string, logger *slog.Logger) error {
 	ln, err := net.Listen("tcp", cfg.Address())
 	if err != nil {
 		return portError(cfg.Server.Port, err)
 	}
 	ln.Close()
 
-	if configPath == "" {
+	if !configPathExplicit {
 		if _, err := os.Stat("ayb.toml"); os.IsNotExist(err) {
 			if err := config.GenerateDefault("ayb.toml"); err != nil {
 				logger.Warn("could not generate default ayb.toml", "error", err)

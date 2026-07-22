@@ -25,8 +25,8 @@ test.describe("Backups Lifecycle (Full E2E)", () => {
     await page.goto("/admin/");
     await waitForDashboard(page);
 
-    await page.locator("aside").getByRole("button", { name: /Backups/i }).click();
-    await expect(page.getByRole("heading", { name: /Backups/i })).toBeVisible({ timeout: 5000 });
+    await page.locator("aside").getByRole("button", { name: /^Backups & PITR$/i }).click();
+    await expect(page.getByRole("heading", { name: /^Backups & PITR$/i })).toBeVisible({ timeout: 5000 });
 
     // Verify page structure is loaded
     await expect(page.getByText("Manage database backups and point-in-time recovery")).toBeVisible();

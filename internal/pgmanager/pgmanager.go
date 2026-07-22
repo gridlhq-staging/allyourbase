@@ -25,6 +25,7 @@ type Config struct {
 	PGVersion              string   // PG major version (default "16")
 	Extensions             []string // extensions to ensure on every start (CREATE EXTENSION IF NOT EXISTS)
 	SharedPreloadLibraries []string // shared_preload_libraries for postgresql.conf
+	ArchiveCommand         string   // archive_command for WAL archival; empty disables generated archive settings
 	Logger                 *slog.Logger
 }
 
@@ -116,7 +117,7 @@ func (m *Manager) Start(ctx context.Context) (string, error) {
 	}
 
 	// Write postgresql.conf.
-	if err := writePostgresConf(m.dataDir, port, m.runtimeDir, preloadLibraries); err != nil {
+	if err := writePostgresConf(m.dataDir, port, m.runtimeDir, preloadLibraries, m.cfg.ArchiveCommand); err != nil {
 		return "", fmt.Errorf("writing postgresql.conf: %w", err)
 	}
 

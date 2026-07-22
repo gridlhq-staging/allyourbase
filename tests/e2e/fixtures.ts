@@ -478,6 +478,7 @@ export async function orchestrateDemoRoundtrip(
     const apiProcess = spawnManagedProcess(aybBin, apiStartArgs, {
       AYB_AUTH_ENABLED: "true",
       AYB_AUTH_JWT_SECRET: STAGE3_JWT_SECRET,
+      AYB_AUTH_ANONYMOUS_AUTH_ENABLED: "true",
       AYB_AUTH_RATE_LIMIT: "10000",
       AYB_AUTH_RATE_LIMIT_AUTH: "10000/min",
       AYB_AUTH_ANONYMOUS_RATE_LIMIT: "10000",

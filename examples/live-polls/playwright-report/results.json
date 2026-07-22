@@ -1,0 +1,1861 @@
+{
+  "config": {
+    "configFile": "/Users/stuart/parallel_development/allyourbase_dev/jul21_6pm_3_demo_ux_state_depth/allyourbase_dev/examples/live-polls/playwright.config.ts",
+    "rootDir": "/Users/stuart/parallel_development/allyourbase_dev/jul21_6pm_3_demo_ux_state_depth/allyourbase_dev/examples/live-polls/e2e",
+    "forbidOnly": false,
+    "fullyParallel": false,
+    "globalSetup": null,
+    "globalTeardown": null,
+    "globalTimeout": 0,
+    "grep": {},
+    "grepInvert": null,
+    "maxFailures": 0,
+    "metadata": {
+      "actualWorkers": 9
+    },
+    "preserveOutput": "always",
+    "projects": [
+      {
+        "outputDir": "/Users/stuart/parallel_development/allyourbase_dev/jul21_6pm_3_demo_ux_state_depth/allyourbase_dev/examples/live-polls/test-results",
+        "repeatEach": 1,
+        "retries": 0,
+        "metadata": {
+          "actualWorkers": 9
+        },
+        "id": "live-polls",
+        "name": "live-polls",
+        "testDir": "/Users/stuart/parallel_development/allyourbase_dev/jul21_6pm_3_demo_ux_state_depth/allyourbase_dev/examples/live-polls/e2e",
+        "testIgnore": [],
+        "testMatch": [
+          "**/*.@(spec|test).?(c|m)[jt]s?(x)"
+        ],
+        "timeout": 30000
+      }
+    ],
+    "quiet": false,
+    "reporter": [
+      [
+        "list",
+        null
+      ],
+      [
+        "json",
+        {
+          "outputFile": "playwright-report/results.json"
+        }
+      ]
+    ],
+    "reportSlowTests": {
+      "max": 5,
+      "threshold": 300000
+    },
+    "runAgents": "none",
+    "shard": null,
+    "tags": [],
+    "updateSnapshots": "missing",
+    "updateSourceMethod": "patch",
+    "version": "1.58.2",
+    "workers": 9,
+    "webServer": {
+      "command": "npm run dev",
+      "port": 45175,
+      "reuseExistingServer": true,
+      "timeout": 10000
+    }
+  },
+  "suites": [
+    {
+      "title": "auth-passkey-firstfactor.spec.ts",
+      "file": "auth-passkey-firstfactor.spec.ts",
+      "column": 0,
+      "line": 0,
+      "specs": [
+        {
+          "title": "first-factor passkey sign-in through login CTA",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "live-polls",
+              "projectName": "live-polls",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 720,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-22T02:31:47.633Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "89757e09ed91b0bf5e6d-fa3988163427b5efa560",
+          "file": "auth-passkey-firstfactor.spec.ts",
+          "line": 10,
+          "column": 1
+        }
+      ]
+    },
+    {
+      "title": "auth.spec.ts",
+      "file": "auth.spec.ts",
+      "column": 0,
+      "line": 0,
+      "specs": [],
+      "suites": [
+        {
+          "title": "Authentication",
+          "file": "auth.spec.ts",
+          "line": 12,
+          "column": 6,
+          "specs": [
+            {
+              "title": "shows anonymous main shell by default",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "live-polls",
+                  "projectName": "live-polls",
+                  "results": [
+                    {
+                      "workerIndex": 1,
+                      "parallelIndex": 1,
+                      "status": "passed",
+                      "duration": 229,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-07-22T02:31:47.626Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "d748ac400d08b85935ef-c16a451858e21f947f22",
+              "file": "auth.spec.ts",
+              "line": 13,
+              "column": 3
+            },
+            {
+              "title": "shows demo accounts on login page",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "live-polls",
+                  "projectName": "live-polls",
+                  "results": [
+                    {
+                      "workerIndex": 1,
+                      "parallelIndex": 1,
+                      "status": "passed",
+                      "duration": 117,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-07-22T02:31:48.477Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "d748ac400d08b85935ef-f374163880413f8c86ce",
+              "file": "auth.spec.ts",
+              "line": 30,
+              "column": 3
+            },
+            {
+              "title": "can toggle between login and register",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "live-polls",
+                  "projectName": "live-polls",
+                  "results": [
+                    {
+                      "workerIndex": 1,
+                      "parallelIndex": 1,
+                      "status": "passed",
+                      "duration": 182,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-07-22T02:31:48.603Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "d748ac400d08b85935ef-fedfa1d3355a1af7acae",
+              "file": "auth.spec.ts",
+              "line": 38,
+              "column": 3
+            },
+            {
+              "title": "can register a new user",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "live-polls",
+                  "projectName": "live-polls",
+                  "results": [
+                    {
+                      "workerIndex": 1,
+                      "parallelIndex": 1,
+                      "status": "passed",
+                      "duration": 279,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-07-22T02:31:48.792Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "d748ac400d08b85935ef-587bf20bf2331f1f4d0e",
+              "file": "auth.spec.ts",
+              "line": 52,
+              "column": 3
+            },
+            {
+              "title": "can login with demo account",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "live-polls",
+                  "projectName": "live-polls",
+                  "results": [
+                    {
+                      "workerIndex": 1,
+                      "parallelIndex": 1,
+                      "status": "passed",
+                      "duration": 356,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-07-22T02:31:49.078Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "d748ac400d08b85935ef-4b6e55fdde2184a9ddbd",
+              "file": "auth.spec.ts",
+              "line": 62,
+              "column": 3
+            },
+            {
+              "title": "clicking demo account fills credentials",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "live-polls",
+                  "projectName": "live-polls",
+                  "results": [
+                    {
+                      "workerIndex": 1,
+                      "parallelIndex": 1,
+                      "status": "passed",
+                      "duration": 162,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-07-22T02:31:49.440Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "d748ac400d08b85935ef-d57787cba684655ce85e",
+              "file": "auth.spec.ts",
+              "line": 70,
+              "column": 3
+            },
+            {
+              "title": "can login with existing credentials",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "live-polls",
+                  "projectName": "live-polls",
+                  "results": [
+                    {
+                      "workerIndex": 1,
+                      "parallelIndex": 1,
+                      "status": "passed",
+                      "duration": 441,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-07-22T02:31:49.611Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "d748ac400d08b85935ef-d5558634479111ab36c9",
+              "file": "auth.spec.ts",
+              "line": 80,
+              "column": 3
+            },
+            {
+              "title": "shows error for invalid credentials",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "live-polls",
+                  "projectName": "live-polls",
+                  "results": [
+                    {
+                      "workerIndex": 1,
+                      "parallelIndex": 1,
+                      "status": "passed",
+                      "duration": 244,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-07-22T02:31:50.060Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "d748ac400d08b85935ef-0c480e2d5927b79905ca",
+              "file": "auth.spec.ts",
+              "line": 98,
+              "column": 3
+            },
+            {
+              "title": "can logout",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "live-polls",
+                  "projectName": "live-polls",
+                  "results": [
+                    {
+                      "workerIndex": 1,
+                      "parallelIndex": 1,
+                      "status": "passed",
+                      "duration": 375,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-07-22T02:31:50.311Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "d748ac400d08b85935ef-37fff29623a496314523",
+              "file": "auth.spec.ts",
+              "line": 110,
+              "column": 3
+            },
+            {
+              "title": "persists auth across page reload",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "live-polls",
+                  "projectName": "live-polls",
+                  "results": [
+                    {
+                      "workerIndex": 1,
+                      "parallelIndex": 1,
+                      "status": "passed",
+                      "duration": 276,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-07-22T02:31:50.694Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "d748ac400d08b85935ef-ec6d2429f91a4eefb31e",
+              "file": "auth.spec.ts",
+              "line": 119,
+              "column": 3
+            },
+            {
+              "title": "shows error when registering with duplicate email",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "live-polls",
+                  "projectName": "live-polls",
+                  "results": [
+                    {
+                      "workerIndex": 1,
+                      "parallelIndex": 1,
+                      "status": "passed",
+                      "duration": 417,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-07-22T02:31:50.977Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "d748ac400d08b85935ef-b7f36f16f9a3d0d8547c",
+              "file": "auth.spec.ts",
+              "line": 129,
+              "column": 3
+            },
+            {
+              "title": "can login, logout, then login again",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "live-polls",
+                  "projectName": "live-polls",
+                  "results": [
+                    {
+                      "workerIndex": 1,
+                      "parallelIndex": 1,
+                      "status": "passed",
+                      "duration": 794,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-07-22T02:31:51.398Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "d748ac400d08b85935ef-1437c14dcc40f24882f6",
+              "file": "auth.spec.ts",
+              "line": 150,
+              "column": 3
+            },
+            {
+              "title": "login page subtitle matches mode",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "live-polls",
+                  "projectName": "live-polls",
+                  "results": [
+                    {
+                      "workerIndex": 1,
+                      "parallelIndex": 1,
+                      "status": "passed",
+                      "duration": 105,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-07-22T02:31:52.196Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "d748ac400d08b85935ef-a1be43a5d22d3501e82e",
+              "file": "auth.spec.ts",
+              "line": 176,
+              "column": 3
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "title": "cross-user-realtime.spec.ts",
+      "file": "cross-user-realtime.spec.ts",
+      "column": 0,
+      "line": 0,
+      "specs": [],
+      "suites": [
+        {
+          "title": "Cross-user realtime voting",
+          "file": "cross-user-realtime.spec.ts",
+          "line": 4,
+          "column": 6,
+          "specs": [
+            {
+              "title": "vote by user A updates count for user B in realtime",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "live-polls",
+                  "projectName": "live-polls",
+                  "results": [
+                    {
+                      "workerIndex": 2,
+                      "parallelIndex": 2,
+                      "status": "passed",
+                      "duration": 1237,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-07-22T02:31:47.636Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "e0d15852c475df56cfe2-92d483e6e8bea36a8f58",
+              "file": "cross-user-realtime.spec.ts",
+              "line": 8,
+              "column": 3
+            },
+            {
+              "title": "vote change by user A reflects for user B in realtime",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "live-polls",
+                  "projectName": "live-polls",
+                  "results": [
+                    {
+                      "workerIndex": 2,
+                      "parallelIndex": 2,
+                      "status": "passed",
+                      "duration": 948,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-07-22T02:31:49.485Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "e0d15852c475df56cfe2-7b1fde4f2dae82663afb",
+              "file": "cross-user-realtime.spec.ts",
+              "line": 37,
+              "column": 3
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "title": "poll-management.spec.ts",
+      "file": "poll-management.spec.ts",
+      "column": 0,
+      "line": 0,
+      "specs": [],
+      "suites": [
+        {
+          "title": "Poll Management",
+          "file": "poll-management.spec.ts",
+          "line": 11,
+          "column": 6,
+          "specs": [
+            {
+              "title": "owner can close their poll",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "live-polls",
+                  "projectName": "live-polls",
+                  "results": [
+                    {
+                      "workerIndex": 3,
+                      "parallelIndex": 3,
+                      "status": "passed",
+                      "duration": 744,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-07-22T02:31:47.644Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "7f6fade02262860dbc93-d539315a1b5dd6b7e5a5",
+              "file": "poll-management.spec.ts",
+              "line": 12,
+              "column": 3
+            },
+            {
+              "title": "closed poll disables voting",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "live-polls",
+                  "projectName": "live-polls",
+                  "results": [
+                    {
+                      "workerIndex": 3,
+                      "parallelIndex": 3,
+                      "status": "passed",
+                      "duration": 564,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-07-22T02:31:48.994Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "7f6fade02262860dbc93-d8c2dc4f99199070a239",
+              "file": "poll-management.spec.ts",
+              "line": 26,
+              "column": 3
+            },
+            {
+              "title": "non-owner does not see close button",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "live-polls",
+                  "projectName": "live-polls",
+                  "results": [
+                    {
+                      "workerIndex": 3,
+                      "parallelIndex": 3,
+                      "status": "passed",
+                      "duration": 859,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-07-22T02:31:49.568Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "7f6fade02262860dbc93-905f1321d1766a448a7a",
+              "file": "poll-management.spec.ts",
+              "line": 42,
+              "column": 3
+            },
+            {
+              "title": "closed poll persists across reload",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "live-polls",
+                  "projectName": "live-polls",
+                  "results": [
+                    {
+                      "workerIndex": 3,
+                      "parallelIndex": 3,
+                      "status": "passed",
+                      "duration": 550,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-07-22T02:31:50.434Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "7f6fade02262860dbc93-c72da44938de99012899",
+              "file": "poll-management.spec.ts",
+              "line": 62,
+              "column": 3
+            },
+            {
+              "title": "closed poll seen by other users shows Closed badge",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "live-polls",
+                  "projectName": "live-polls",
+                  "results": [
+                    {
+                      "workerIndex": 3,
+                      "parallelIndex": 3,
+                      "status": "passed",
+                      "duration": 769,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-07-22T02:31:50.991Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "7f6fade02262860dbc93-9c2e982b8cce0175c3c3",
+              "file": "poll-management.spec.ts",
+              "line": 77,
+              "column": 3
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "title": "polls.spec.ts",
+      "file": "polls.spec.ts",
+      "column": 0,
+      "line": 0,
+      "specs": [],
+      "suites": [
+        {
+          "title": "Polls bootstrap network",
+          "file": "polls.spec.ts",
+          "line": 9,
+          "column": 6,
+          "specs": [
+            {
+              "title": "issues graphql bootstrap request after auth",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "live-polls",
+                  "projectName": "live-polls",
+                  "results": [
+                    {
+                      "workerIndex": 4,
+                      "parallelIndex": 4,
+                      "status": "passed",
+                      "duration": 452,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-07-22T02:31:47.636Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "2248aa842ff9da29518e-792dd5c7bd9f9cd06793",
+              "file": "polls.spec.ts",
+              "line": 11,
+              "column": 3
+            }
+          ]
+        },
+        {
+          "title": "Polls",
+          "file": "polls.spec.ts",
+          "line": 27,
+          "column": 6,
+          "specs": [
+            {
+              "title": "can open and close create poll form",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "live-polls",
+                  "projectName": "live-polls",
+                  "results": [
+                    {
+                      "workerIndex": 4,
+                      "parallelIndex": 4,
+                      "status": "passed",
+                      "duration": 341,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-07-22T02:31:48.706Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "2248aa842ff9da29518e-466b859e1f05bcffaf29",
+              "file": "polls.spec.ts",
+              "line": 32,
+              "column": 3
+            },
+            {
+              "title": "create poll form has correct default state",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "live-polls",
+                  "projectName": "live-polls",
+                  "results": [
+                    {
+                      "workerIndex": 4,
+                      "parallelIndex": 4,
+                      "status": "passed",
+                      "duration": 346,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-07-22T02:31:49.060Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "2248aa842ff9da29518e-102c78f476f89ffc6aab",
+              "file": "polls.spec.ts",
+              "line": 54,
+              "column": 3
+            },
+            {
+              "title": "can add and remove options",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "live-polls",
+                  "projectName": "live-polls",
+                  "results": [
+                    {
+                      "workerIndex": 4,
+                      "parallelIndex": 4,
+                      "status": "passed",
+                      "duration": 353,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-07-22T02:31:49.416Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "2248aa842ff9da29518e-85c1ac3cc1a36eabc87d",
+              "file": "polls.spec.ts",
+              "line": 71,
+              "column": 3
+            },
+            {
+              "title": "requires at least 2 options to create poll",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "live-polls",
+                  "projectName": "live-polls",
+                  "results": [
+                    {
+                      "workerIndex": 4,
+                      "parallelIndex": 4,
+                      "status": "passed",
+                      "duration": 330,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-07-22T02:31:49.777Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "2248aa842ff9da29518e-339b08ead4a8e7ba20cb",
+              "file": "polls.spec.ts",
+              "line": 89,
+              "column": 3
+            },
+            {
+              "title": "can create a poll",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "live-polls",
+                  "projectName": "live-polls",
+                  "results": [
+                    {
+                      "workerIndex": 4,
+                      "parallelIndex": 4,
+                      "status": "passed",
+                      "duration": 433,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-07-22T02:31:50.114Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "2248aa842ff9da29518e-545161436cf91140af4b",
+              "file": "polls.spec.ts",
+              "line": 101,
+              "column": 3
+            },
+            {
+              "title": "can create a poll with multiple options",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "live-polls",
+                  "projectName": "live-polls",
+                  "results": [
+                    {
+                      "workerIndex": 4,
+                      "parallelIndex": 4,
+                      "status": "passed",
+                      "duration": 463,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-07-22T02:31:50.556Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "2248aa842ff9da29518e-1e996d32af6adc8c538c",
+              "file": "polls.spec.ts",
+              "line": 118,
+              "column": 3
+            },
+            {
+              "title": "can create multiple polls",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "live-polls",
+                  "projectName": "live-polls",
+                  "results": [
+                    {
+                      "workerIndex": 4,
+                      "parallelIndex": 4,
+                      "status": "passed",
+                      "duration": 551,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-07-22T02:31:51.026Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "2248aa842ff9da29518e-bd4766b5b6622d7315e2",
+              "file": "polls.spec.ts",
+              "line": 133,
+              "column": 3
+            },
+            {
+              "title": "new poll shows 0 votes initially",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "live-polls",
+                  "projectName": "live-polls",
+                  "results": [
+                    {
+                      "workerIndex": 4,
+                      "parallelIndex": 4,
+                      "status": "passed",
+                      "duration": 397,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-07-22T02:31:51.586Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "2248aa842ff9da29518e-0e77055e08044b167139",
+              "file": "polls.spec.ts",
+              "line": 141,
+              "column": 3
+            },
+            {
+              "title": "polls persist after page reload",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "live-polls",
+                  "projectName": "live-polls",
+                  "results": [
+                    {
+                      "workerIndex": 4,
+                      "parallelIndex": 4,
+                      "status": "passed",
+                      "duration": 503,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-07-22T02:31:51.988Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "2248aa842ff9da29518e-83380a498533c8765d6f",
+              "file": "polls.spec.ts",
+              "line": 149,
+              "column": 3
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "title": "realtime.spec.ts",
+      "file": "realtime.spec.ts",
+      "column": 0,
+      "line": 0,
+      "specs": [],
+      "suites": [
+        {
+          "title": "Realtime SSE",
+          "file": "realtime.spec.ts",
+          "line": 4,
+          "column": 6,
+          "specs": [
+            {
+              "title": "poll created by user A appears for user B",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "live-polls",
+                  "projectName": "live-polls",
+                  "results": [
+                    {
+                      "workerIndex": 5,
+                      "parallelIndex": 5,
+                      "status": "passed",
+                      "duration": 1054,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-07-22T02:31:47.640Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "f9e2d0c80f3a45ae9766-3a4c4fff498c0ed864d4",
+              "file": "realtime.spec.ts",
+              "line": 5,
+              "column": 3
+            },
+            {
+              "title": "poll closed by owner updates for other users",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "live-polls",
+                  "projectName": "live-polls",
+                  "results": [
+                    {
+                      "workerIndex": 5,
+                      "parallelIndex": 5,
+                      "status": "passed",
+                      "duration": 806,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-07-22T02:31:49.299Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "f9e2d0c80f3a45ae9766-51bb65c3b69798b6f70a",
+              "file": "realtime.spec.ts",
+              "line": 31,
+              "column": 3
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "title": "rls.spec.ts",
+      "file": "rls.spec.ts",
+      "column": 0,
+      "line": 0,
+      "specs": [],
+      "suites": [
+        {
+          "title": "Row-Level Security",
+          "file": "rls.spec.ts",
+          "line": 13,
+          "column": 6,
+          "specs": [
+            {
+              "title": "all users can see all polls (public read)",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "live-polls",
+                  "projectName": "live-polls",
+                  "results": [
+                    {
+                      "workerIndex": 6,
+                      "parallelIndex": 6,
+                      "status": "passed",
+                      "duration": 1526,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-07-22T02:31:47.640Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "e5f3066dd2a06c4254d4-740739f2dc7a00587b26",
+              "file": "rls.spec.ts",
+              "line": 14,
+              "column": 3
+            },
+            {
+              "title": "all users can vote on any poll",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "live-polls",
+                  "projectName": "live-polls",
+                  "results": [
+                    {
+                      "workerIndex": 6,
+                      "parallelIndex": 6,
+                      "status": "passed",
+                      "duration": 1244,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-07-22T02:31:49.775Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "e5f3066dd2a06c4254d4-4bd6e9d0a69080f9142b",
+              "file": "rls.spec.ts",
+              "line": 42,
+              "column": 3
+            },
+            {
+              "title": "server rejects direct API close by non-owner (bypasses UI)",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "live-polls",
+                  "projectName": "live-polls",
+                  "results": [
+                    {
+                      "workerIndex": 6,
+                      "parallelIndex": 6,
+                      "status": "passed",
+                      "duration": 659,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-07-22T02:31:51.026Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "e5f3066dd2a06c4254d4-e0cc3809f3bc639b283c",
+              "file": "rls.spec.ts",
+              "line": 82,
+              "column": 3
+            },
+            {
+              "title": "server rejects voting on a closed poll via direct API call (bypasses UI)",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "live-polls",
+                  "projectName": "live-polls",
+                  "results": [
+                    {
+                      "workerIndex": 6,
+                      "parallelIndex": 6,
+                      "status": "passed",
+                      "duration": 737,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-07-22T02:31:51.692Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "e5f3066dd2a06c4254d4-e8abf98b66b183a13172",
+              "file": "rls.spec.ts",
+              "line": 119,
+              "column": 3
+            },
+            {
+              "title": "votes are visible to all users (HTTP read, not realtime)",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "live-polls",
+                  "projectName": "live-polls",
+                  "results": [
+                    {
+                      "workerIndex": 6,
+                      "parallelIndex": 6,
+                      "status": "passed",
+                      "duration": 717,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-07-22T02:31:52.433Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "e5f3066dd2a06c4254d4-c5bdc68a6e14c88fa57a",
+              "file": "rls.spec.ts",
+              "line": 155,
+              "column": 3
+            },
+            {
+              "title": "server rejects direct poll insert on behalf of another user (bypasses UI)",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "live-polls",
+                  "projectName": "live-polls",
+                  "results": [
+                    {
+                      "workerIndex": 6,
+                      "parallelIndex": 6,
+                      "status": "passed",
+                      "duration": 598,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-07-22T02:31:53.153Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "e5f3066dd2a06c4254d4-9479e10a2ab4ca4aa0f0",
+              "file": "rls.spec.ts",
+              "line": 180,
+              "column": 3
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "title": "states.spec.ts",
+      "file": "states.spec.ts",
+      "column": 0,
+      "line": 0,
+      "specs": [],
+      "suites": [
+        {
+          "title": "Live poll states",
+          "file": "states.spec.ts",
+          "line": 13,
+          "column": 6,
+          "specs": [
+            {
+              "title": "shows a deterministic first-load state",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "live-polls",
+                  "projectName": "live-polls",
+                  "results": [
+                    {
+                      "workerIndex": 7,
+                      "parallelIndex": 7,
+                      "status": "passed",
+                      "duration": 290,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-07-22T02:31:47.640Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "be092eae759d55e55094-c97e532fa343a32e71b3",
+              "file": "states.spec.ts",
+              "line": 14,
+              "column": 3
+            },
+            {
+              "title": "shows the empty poll list without bootstrap seeding",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "live-polls",
+                  "projectName": "live-polls",
+                  "results": [
+                    {
+                      "workerIndex": 7,
+                      "parallelIndex": 7,
+                      "status": "passed",
+                      "duration": 110,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-07-22T02:31:48.539Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "be092eae759d55e55094-b1312fb0f6b9589a9335",
+              "file": "states.spec.ts",
+              "line": 28,
+              "column": 3
+            },
+            {
+              "title": "shows a stable bootstrap failure message",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "live-polls",
+                  "projectName": "live-polls",
+                  "results": [
+                    {
+                      "workerIndex": 7,
+                      "parallelIndex": 7,
+                      "status": "passed",
+                      "duration": 406,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-07-22T02:31:48.658Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "be092eae759d55e55094-98ebfb8ff6003a9e1178",
+              "file": "states.spec.ts",
+              "line": 38,
+              "column": 3
+            },
+            {
+              "title": "shows create progress and a stable failure message",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "live-polls",
+                  "projectName": "live-polls",
+                  "results": [
+                    {
+                      "workerIndex": 7,
+                      "parallelIndex": 7,
+                      "status": "passed",
+                      "duration": 459,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-07-22T02:31:49.075Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "be092eae759d55e55094-aaf3092b96c86d4b13ec",
+              "file": "states.spec.ts",
+              "line": 49,
+              "column": 3
+            },
+            {
+              "title": "disables voting in progress and shows a stable failure message",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "live-polls",
+                  "projectName": "live-polls",
+                  "results": [
+                    {
+                      "workerIndex": 7,
+                      "parallelIndex": 7,
+                      "status": "passed",
+                      "duration": 468,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-07-22T02:31:49.543Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "be092eae759d55e55094-d3a7b90d0ef24bbc2bcb",
+              "file": "states.spec.ts",
+              "line": 67,
+              "column": 3
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "title": "voting.spec.ts",
+      "file": "voting.spec.ts",
+      "column": 0,
+      "line": 0,
+      "specs": [],
+      "suites": [
+        {
+          "title": "Voting",
+          "file": "voting.spec.ts",
+          "line": 4,
+          "column": 6,
+          "specs": [
+            {
+              "title": "can vote on a poll",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "live-polls",
+                  "projectName": "live-polls",
+                  "results": [
+                    {
+                      "workerIndex": 8,
+                      "parallelIndex": 8,
+                      "status": "passed",
+                      "duration": 736,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-07-22T02:31:47.641Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "be878b313d3acd1a519a-da47716d59a7cbbd1fdd",
+              "file": "voting.spec.ts",
+              "line": 5,
+              "column": 3
+            },
+            {
+              "title": "can change vote to another option",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "live-polls",
+                  "projectName": "live-polls",
+                  "results": [
+                    {
+                      "workerIndex": 8,
+                      "parallelIndex": 8,
+                      "status": "passed",
+                      "duration": 704,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-07-22T02:31:48.987Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "be878b313d3acd1a519a-d56b290b6a55b793f382",
+              "file": "voting.spec.ts",
+              "line": 18,
+              "column": 3
+            },
+            {
+              "title": "vote counts update with percentages",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "live-polls",
+                  "projectName": "live-polls",
+                  "results": [
+                    {
+                      "workerIndex": 8,
+                      "parallelIndex": 8,
+                      "status": "passed",
+                      "duration": 1115,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-07-22T02:31:49.700Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "be878b313d3acd1a519a-dd15d87f82002bc82d8e",
+              "file": "voting.spec.ts",
+              "line": 38,
+              "column": 3
+            },
+            {
+              "title": "cannot vote on a closed poll",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "live-polls",
+                  "projectName": "live-polls",
+                  "results": [
+                    {
+                      "workerIndex": 8,
+                      "parallelIndex": 8,
+                      "status": "passed",
+                      "duration": 519,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-07-22T02:31:50.823Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "be878b313d3acd1a519a-a2feb8c85324f8d16f0d",
+              "file": "voting.spec.ts",
+              "line": 71,
+              "column": 3
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "errors": [],
+  "stats": {
+    "startTime": "2026-07-22T02:31:47.081Z",
+    "duration": 6695.833,
+    "expected": 48,
+    "skipped": 0,
+    "unexpected": 0,
+    "flaky": 0
+  }
+}

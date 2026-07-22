@@ -13,6 +13,7 @@ vi.mock("../../api_replicas", () => ({
 }));
 
 import * as api from "../../api_replicas";
+import { ApiError } from "../../api";
 
 const mockReplicas = {
   replicas: [
@@ -266,6 +267,131 @@ describe("Replicas", () => {
     await waitFor(() => {
       expect(api.removeReplica).toHaveBeenCalledWith("replica-manual");
     });
+  });
+
+  it("renders the created replica and resets the form after a successful add", async () => {
+    const createdReplica = {
+      name: "replica-new",
+      url: "postgres://replica-new.local:5433/appdb",
+      state: "healthy",
+      lag_bytes: 0,
+      weight: 100,
+      connections: { total: 4, idle: 4, in_use: 0 },
+      last_checked_at: "2026-03-12T15:05:00Z",
+      last_error: null,
+    };
+    (api.addReplica as ReturnType<typeof vi.fn>).mockResolvedValue({
+      status: "added",
+      record: {
+        name: "replica-new",
+        host: "replica-new.local",
+        port: 5433,
+        database: "appdb",
+        ssl_mode: "verify-full",
+        weight: 100,
+        max_lag_bytes: 0,
+        role: "replica",
+        state: "active",
+      },
+      replicas: [...mockReplicas.replicas, createdReplica],
+    });
+
+    renderWithProviders(<Replicas />);
+    await waitFor(() => {
+      expect(screen.getByText("postgres://replica1:5432/mydb")).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: /add replica/i }));
+    fireEvent.change(screen.getByLabelText("Name"), { target: { value: "replica-new" } });
+    fireEvent.change(screen.getByLabelText("Host"), { target: { value: "replica-new.local" } });
+    fireEvent.change(screen.getByLabelText("Port"), { target: { value: "5433" } });
+    fireEvent.change(screen.getByLabelText("Database"), { target: { value: "appdb" } });
+    fireEvent.click(screen.getByRole("button", { name: /^add$/i }));
+
+    // The returned row must render and the success toast must name the created replica.
+    expect(await screen.findByText(createdReplica.url)).toBeInTheDocument();
+    expect(screen.getByText("Replica replica-new added")).toBeInTheDocument();
+
+    // The form closes on success and reopens with defaults, not the submitted values.
+    expect(screen.queryByLabelText("Name")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /add replica/i }));
+    expect(screen.getByLabelText("Name")).toHaveValue("");
+    expect(screen.getByLabelText("Host")).toHaveValue("");
+    expect(screen.getByLabelText("Database")).toHaveValue("");
+    expect(screen.getByLabelText("Port")).toHaveValue(5432);
+    expect(screen.getByLabelText("SSL Mode")).toHaveValue("verify-full");
+    expect(screen.getByLabelText("Weight")).toHaveValue(100);
+    expect(screen.getByLabelText("Max Lag (bytes)")).toHaveValue(0);
+  });
+
+  // Lifecycle-unavailability statuses must be classified by ApiError.status, never by
+  // matching backend message text, so the guidance stays stable as backend copy changes.
+  const unavailableCases = [
+    {
+      status: 503,
+      backendMessage: "replica lifecycle not available",
+      expectedGuidance: /Replica lifecycle support is not enabled/i,
+    },
+    {
+      status: 502,
+      backendMessage: "dial connectivity pool: connection refused",
+      expectedGuidance: /Replica target is not reachable/i,
+    },
+  ];
+
+  for (const testCase of unavailableCases) {
+    it(`keeps the add form recoverable with operator guidance on ${testCase.status}`, async () => {
+      (api.addReplica as ReturnType<typeof vi.fn>).mockRejectedValue(
+        new ApiError(testCase.status, testCase.backendMessage),
+      );
+
+      renderWithProviders(<Replicas />);
+      await waitFor(() => {
+        expect(screen.getByText("postgres://replica1:5432/mydb")).toBeInTheDocument();
+      });
+
+      fireEvent.click(screen.getByRole("button", { name: /add replica/i }));
+      fireEvent.change(screen.getByLabelText("Name"), { target: { value: "replica-unavailable" } });
+      fireEvent.change(screen.getByLabelText("Host"), { target: { value: "standby.invalid" } });
+      fireEvent.change(screen.getByLabelText("Database"), { target: { value: "appdb" } });
+      fireEvent.click(screen.getByRole("button", { name: /^add$/i }));
+
+      expect(await screen.findByText(testCase.expectedGuidance)).toBeInTheDocument();
+
+      // The add button stops spinning and stays actionable for a retry.
+      const addButton = screen.getByRole("button", { name: /^add$/i });
+      await waitFor(() => expect(addButton).toBeEnabled());
+      expect(addButton.querySelector(".animate-spin")).toBeNull();
+
+      // The form stays open with the entered values so the operator can correct and retry.
+      expect(screen.getByLabelText("Name")).toHaveValue("replica-unavailable");
+      expect(screen.getByLabelText("Host")).toHaveValue("standby.invalid");
+      expect(screen.getByLabelText("Database")).toHaveValue("appdb");
+
+      // No success state is applied.
+      expect(screen.queryByText(/added$/i)).not.toBeInTheDocument();
+      expect(screen.getByText("postgres://replica1:5432/mydb")).toBeInTheDocument();
+      expect(screen.getByText("postgres://replica2:5432/mydb")).toBeInTheDocument();
+    });
+  }
+
+  it("surfaces the backend message for statuses outside the lifecycle-unavailable set", async () => {
+    (api.addReplica as ReturnType<typeof vi.fn>).mockRejectedValue(
+      new ApiError(409, "replica already exists"),
+    );
+
+    renderWithProviders(<Replicas />);
+    await waitFor(() => {
+      expect(screen.getByText("postgres://replica1:5432/mydb")).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: /add replica/i }));
+    fireEvent.change(screen.getByLabelText("Name"), { target: { value: "replica-1" } });
+    fireEvent.change(screen.getByLabelText("Host"), { target: { value: "replica1" } });
+    fireEvent.change(screen.getByLabelText("Database"), { target: { value: "mydb" } });
+    fireEvent.click(screen.getByRole("button", { name: /^add$/i }));
+
+    expect(await screen.findByText("replica already exists")).toBeInTheDocument();
   });
 
   it("shows error state on fetch failure", async () => {

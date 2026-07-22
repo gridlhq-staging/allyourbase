@@ -114,6 +114,7 @@ func TestInitDatabaseCleansOwnedResourcesOnFromMigrationFailure(t *testing.T) {
 	pool, pgMgr, schemaCache, watcherCancel, err := initDatabase(
 		context.Background(),
 		cfg,
+		"ayb.toml",
 		"seed.sql",
 		"",
 		make(chan os.Signal, 1),
@@ -154,6 +155,7 @@ func TestInitDatabaseCleansUpManagedPGOnPoolFailure(t *testing.T) {
 	pool, pgMgr, schemaCache, watcherCancel, err := initDatabase(
 		context.Background(),
 		cfg,
+		"ayb.toml",
 		"",
 		"",
 		make(chan os.Signal, 1),
@@ -188,6 +190,7 @@ func TestStartInitDatabaseManagedPostgresUsesDeprecatedEmbeddedPortWhenManagedPG
 	managedPG, pgMgr, err := startInitDatabaseManagedPostgres(
 		context.Background(),
 		cfg,
+		"ayb.toml",
 		testNoopLogger(),
 		newStartupProgress(io.Discard, false, false),
 	)
@@ -197,6 +200,128 @@ func TestStartInitDatabaseManagedPostgresUsesDeprecatedEmbeddedPortWhenManagedPG
 	testutil.Nil(t, pgMgr)
 	testutil.Equal(t, uint32(19999), got.Port)
 	testutil.Equal(t, "postgresql://managed.example/test", cfg.Database.URL)
+}
+
+func TestStartInitDatabaseManagedPostgresDisablesArchiveCommandWithoutBackupPITR(t *testing.T) {
+	tests := []struct {
+		name          string
+		backupEnabled bool
+		pitrEnabled   bool
+	}{
+		{
+			name:          "backup disabled",
+			backupEnabled: false,
+			pitrEnabled:   true,
+		},
+		{
+			name:          "pitr disabled",
+			backupEnabled: true,
+			pitrEnabled:   false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			origManagedPostgres := newInitDatabaseManagedPostgres
+			t.Cleanup(func() {
+				newInitDatabaseManagedPostgres = origManagedPostgres
+			})
+
+			var got pgmanager.Config
+			newInitDatabaseManagedPostgres = func(cfg pgmanager.Config) initDatabaseManagedPostgres {
+				got = cfg
+				return &fakeInitDatabaseManagedPostgres{connURL: "postgresql://managed.example/test"}
+			}
+
+			cfg := config.Default()
+			cfg.Database.URL = ""
+			cfg.Backup.Enabled = tt.backupEnabled
+			cfg.Backup.PITR.Enabled = tt.pitrEnabled
+
+			_, _, err := startInitDatabaseManagedPostgres(
+				context.Background(),
+				cfg,
+				"ayb.toml",
+				testNoopLogger(),
+				newStartupProgress(io.Discard, false, false),
+			)
+
+			testutil.NoError(t, err)
+			testutil.Equal(t, "", got.ArchiveCommand)
+		})
+	}
+}
+
+func TestStartInitDatabaseManagedPostgresBuildsArchiveCommandWhenBackupPITREnabled(t *testing.T) {
+	origManagedPostgres := newInitDatabaseManagedPostgres
+	t.Cleanup(func() {
+		newInitDatabaseManagedPostgres = origManagedPostgres
+	})
+
+	var got pgmanager.Config
+	newInitDatabaseManagedPostgres = func(cfg pgmanager.Config) initDatabaseManagedPostgres {
+		got = cfg
+		return &fakeInitDatabaseManagedPostgres{connURL: "postgresql://managed.example/test"}
+	}
+
+	configPath := filepath.Join("config dir", "ayb user's.toml")
+	absConfigPath, err := filepath.Abs(configPath)
+	testutil.NoError(t, err)
+	executablePath, err := os.Executable()
+	testutil.NoError(t, err)
+
+	cfg := config.Default()
+	cfg.Database.URL = ""
+	cfg.Backup.Enabled = true
+	cfg.Backup.PITR.Enabled = true
+	cfg.Backup.PITR.ArchiveBucket = "wal-archive"
+
+	_, _, err = startInitDatabaseManagedPostgres(
+		context.Background(),
+		cfg,
+		configPath,
+		testNoopLogger(),
+		newStartupProgress(io.Discard, false, false),
+	)
+
+	testutil.NoError(t, err)
+	expected := shellSingleQuote(executablePath) +
+		" wal-ship --config " + shellSingleQuote(absConfigPath) +
+		" " + shellSingleQuote("%p") +
+		" " + shellSingleQuote("%f")
+	testutil.Equal(t, expected, got.ArchiveCommand)
+}
+
+func TestStartInitDatabaseManagedPostgresRejectsInvalidPITRArchiveConfig(t *testing.T) {
+	origManagedPostgres := newInitDatabaseManagedPostgres
+	t.Cleanup(func() {
+		newInitDatabaseManagedPostgres = origManagedPostgres
+	})
+
+	managedPostgresCreated := false
+	newInitDatabaseManagedPostgres = func(pgmanager.Config) initDatabaseManagedPostgres {
+		managedPostgresCreated = true
+		return &fakeInitDatabaseManagedPostgres{connURL: "postgresql://managed.example/test"}
+	}
+
+	cfg := config.Default()
+	cfg.Database.URL = ""
+	cfg.Backup.Enabled = true
+	cfg.Backup.PITR.Enabled = true
+	cfg.Backup.PITR.ArchiveBucket = ""
+
+	managedPG, pgMgr, err := startInitDatabaseManagedPostgres(
+		context.Background(),
+		cfg,
+		"ayb.toml",
+		testNoopLogger(),
+		newStartupProgress(io.Discard, false, false),
+	)
+
+	testutil.ErrorContains(t, err, "pitr: archive_bucket is required when enabled")
+	testutil.Nil(t, managedPG)
+	testutil.Nil(t, pgMgr)
+	testutil.Equal(t, false, managedPostgresCreated)
 }
 
 func TestStartInitDatabaseManagedPostgresPrefersManagedPGPortOverDeprecatedEmbeddedPort(t *testing.T) {
@@ -219,6 +344,7 @@ func TestStartInitDatabaseManagedPostgresPrefersManagedPGPortOverDeprecatedEmbed
 	_, _, err := startInitDatabaseManagedPostgres(
 		context.Background(),
 		cfg,
+		"ayb.toml",
 		testNoopLogger(),
 		newStartupProgress(io.Discard, false, false),
 	)
@@ -256,6 +382,7 @@ func TestInitDatabaseCleansUpBothOnBootstrapFailure(t *testing.T) {
 	pool, pgMgr, schemaCache, watcherCancel, err := initDatabase(
 		context.Background(),
 		cfg,
+		"ayb.toml",
 		"",
 		"",
 		make(chan os.Signal, 1),

@@ -5,8 +5,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"math"
+	"net"
+	"net/url"
 	"os"
 	"strings"
+
+	"github.com/allyourbase/ayb/internal/pitrconfig"
 )
 
 // validateLoggingConfig validates logging configuration including level, batch sizes, flush intervals, and drain configurations for multiple log delivery backends.
@@ -127,10 +131,13 @@ func validatePushConfig(c *Config) error {
 	if !c.Jobs.Enabled {
 		return fmt.Errorf("push.enabled requires jobs.enabled (push delivery uses the job queue)")
 	}
+	if c.Push.UseLogProvider && !pushLogProviderLocalOnly(c) {
+		return fmt.Errorf("push.use_log_provider is limited to local loopback runtimes; configure a real provider for remote deployments")
+	}
 
 	fcmConfigured := c.Push.FCM.CredentialsFile != ""
 	apnsConfigured := c.Push.APNS.KeyFile != "" && c.Push.APNS.TeamID != "" && c.Push.APNS.KeyID != "" && c.Push.APNS.BundleID != ""
-	if !fcmConfigured && !apnsConfigured {
+	if !c.Push.UseLogProvider && !fcmConfigured && !apnsConfigured {
 		return fmt.Errorf("push.enabled requires at least one provider (fcm or apns) to be fully configured")
 	}
 
@@ -170,6 +177,47 @@ func validatePushConfig(c *Config) error {
 	return nil
 }
 
+func pushLogProviderLocalOnly(c *Config) bool {
+	if c == nil {
+		return false
+	}
+	if !isLoopbackHost(c.Server.Host) {
+		return false
+	}
+	if !isLoopbackURLHost(c.Server.SiteURL) {
+		return false
+	}
+	if !isLoopbackHost(c.Server.TLSDomain) {
+		return false
+	}
+	return true
+}
+
+func isLoopbackURLHost(raw string) bool {
+	if strings.TrimSpace(raw) == "" {
+		return true
+	}
+	parsed, err := url.Parse(strings.TrimSpace(raw))
+	if err != nil {
+		return false
+	}
+	return isLoopbackHost(parsed.Hostname())
+}
+
+func isLoopbackHost(raw string) bool {
+	host := strings.TrimSpace(raw)
+	if host == "" {
+		return true
+	}
+	if strings.EqualFold(host, "localhost") {
+		return true
+	}
+	if ip := net.ParseIP(host); ip != nil {
+		return ip.IsLoopback()
+	}
+	return false
+}
+
 // validateBackupConfig validates backup configuration when backups are enabled, including S3 credentials and retention policies.
 func validateBackupConfig(c *Config) error {
 	if !c.Backup.Enabled {
@@ -200,7 +248,34 @@ func validateBackupConfig(c *Config) error {
 	if enc != "" && enc != "AES256" && enc != "aws:kms" {
 		return fmt.Errorf("backup.encryption must be empty, \"AES256\", or \"aws:kms\", got %q", enc)
 	}
+	pitrCfg := pitrConfigForValidation(c.Backup.PITR)
+	if err := pitrCfg.Validate(); err != nil {
+		return err
+	}
+	c.Backup.PITR.EnvironmentClass = pitrCfg.EnvironmentClass
 	return nil
+}
+
+// pitrConfigForValidation projects config-package PITR settings onto the shared
+// pitrconfig contract. It exists because internal/config cannot import
+// internal/backup without creating an import cycle.
+func pitrConfigForValidation(cfg PITRConfig) pitrconfig.Config {
+	return pitrconfig.Config{
+		Enabled:                  cfg.Enabled,
+		ArchiveBucket:            cfg.ArchiveBucket,
+		ArchivePrefix:            cfg.ArchivePrefix,
+		WALRetentionDays:         cfg.WALRetentionDays,
+		BaseBackupRetentionDays:  cfg.BaseBackupRetentionDays,
+		ComplianceSnapshotMonths: cfg.ComplianceSnapshotMonths,
+		RetentionSchedule:        cfg.RetentionSchedule,
+		EnvironmentClass:         cfg.EnvironmentClass,
+		KMSKeyID:                 cfg.KMSKeyID,
+		RPOMinutes:               cfg.RPOMinutes,
+		StorageBudgetBytes:       cfg.StorageBudgetBytes,
+		ShadowMode:               cfg.ShadowMode,
+		BaseBackupSchedule:       cfg.BaseBackupSchedule,
+		VerifySchedule:           cfg.VerifySchedule,
+	}
 }
 
 // validateAIConfig validates AI service configuration including circuit breaker settings and embedding model dimensions.

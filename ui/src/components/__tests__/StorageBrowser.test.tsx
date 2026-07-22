@@ -10,6 +10,7 @@ import {
   getSignedURL,
 } from "../../api";
 import type { StorageObject } from "../../types";
+import { docsUrl } from "../../lib/docs_url";
 
 vi.mock("../../api", () => ({
   listStorageFiles: vi.fn(),
@@ -363,6 +364,26 @@ describe("StorageBrowser", () => {
     await waitFor(() => {
       expect(mockUploadFile).toHaveBeenCalledWith("uploads", file);
     });
+  });
+
+  it("shows RF-015 oversized upload as a recoverable failure", async () => {
+    const user = userEvent.setup();
+    const oversizedError = "request body is capped by max_file_size";
+    mockListFiles.mockResolvedValue({ items: [], totalItems: 0 });
+    mockUploadFile.mockRejectedValueOnce(new Error(oversizedError));
+    renderWithProviders(<StorageBrowser />);
+    await screen.findByText(/No files in/);
+
+    const file = new File(["oversized"], "too-large.bin");
+    const fileInput = document.querySelector('input[type="file"]') as HTMLInputElement;
+    await user.upload(fileInput, file);
+
+    expect(await screen.findByText(oversizedError)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Upload" })).toBeEnabled();
+    expect(screen.getByRole("link", { name: "View guide" })).toHaveAttribute(
+      "href",
+      docsUrl("/guide/file-storage"),
+    );
   });
 
   it("requests signed URL using file bucket", async () => {

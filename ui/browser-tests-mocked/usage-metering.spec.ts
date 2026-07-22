@@ -12,7 +12,7 @@ test.describe("Usage Metering (Browser Mocked)", () => {
 
     await page.goto("/admin/");
 
-    await page.locator("aside").getByRole("button", { name: /^Usage$/i }).click();
+    await page.locator("aside").getByRole("button", { name: /^Usage Metering$/i }).click();
     await expect(page.getByRole("heading", { name: /Usage Metering/i })).toBeVisible();
 
     await expect(page.getByRole("cell", { name: "Tenant One" })).toBeVisible();

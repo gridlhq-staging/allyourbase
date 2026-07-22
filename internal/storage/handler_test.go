@@ -14,6 +14,7 @@ import (
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
+	"net/textproto"
 	"net/url"
 	"strconv"
 	"strings"
@@ -100,6 +101,31 @@ func TestHandleUploadMissingFile(t *testing.T) {
 	var errResp map[string]any
 	testutil.NoError(t, json.NewDecoder(rec.Body).Decode(&errResp))
 	testutil.Contains(t, errResp["message"].(string), `missing "file" field`)
+}
+
+func TestHandleUploadEmptyNameAndEmptyFilenameReturnsMissingFile(t *testing.T) {
+	t.Parallel()
+	h := NewHandler(newTestService(), testutil.DiscardLogger(), 10<<20, "", false)
+	router := testRouter(h)
+
+	body := &bytes.Buffer{}
+	w := multipart.NewWriter(body)
+	testutil.NoError(t, w.WriteField("name", ""))
+	header := make(textproto.MIMEHeader)
+	header.Set("Content-Disposition", `form-data; name="file"; filename=""`)
+	header.Set("Content-Type", "application/octet-stream")
+	filePart, err := w.CreatePart(header)
+	testutil.NoError(t, err)
+	_, err = filePart.Write([]byte("data"))
+	testutil.NoError(t, err)
+	testutil.NoError(t, w.Close())
+
+	req := httptest.NewRequest(http.MethodPost, "/api/storage/images", body)
+	req.Header.Set("Content-Type", w.FormDataContentType())
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	assertDocURLError(t, rec, http.StatusBadRequest, `missing "file" field in multipart form`, docURLFileStorage)
 }
 
 func TestHandleUploadInvalidBucket(t *testing.T) {

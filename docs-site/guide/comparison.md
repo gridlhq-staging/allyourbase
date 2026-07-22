@@ -49,6 +49,55 @@ AYB ships built-in migration/import flows for these source platforms:
 - Appwrite
 - Nhost
 
+## Leaving PocketBase for Allyourbase
+
+Use the [PocketBase migration guide](/guide/migrations#pocketbase) for the
+supported one-command and explicit import flows. Review schema constraints,
+relation handling, and file migration behavior before switching production
+traffic.
+
+## Leaving Supabase for Allyourbase
+
+Use the [Supabase migration guide](/guide/migrations#supabase) for the supported
+PostgreSQL import path. Database objects can move without implying parity with
+every Supabase-hosted service, so inventory service dependencies separately.
+
+## Leaving Firebase for Allyourbase
+
+Use the [Firebase migration guide](/guide/migrations#firebase) for Firestore
+collection and Firebase Auth imports. Rehearse the generated relational schema
+and identity mapping against a non-production export first.
+
+## Leaving Algolia for Allyourbase
+
+Use the [Algolia migration guide](/guide/migrating-from-algolia) for the shipped
+one-index record importer and query mapping. Algolia-specific ranking controls
+and hosted index operations do not have direct AYB equivalents.
+
+## Leaving Directus for Allyourbase
+
+Use the [Directus migration guide](/guide/migrations#directus) for database
+metadata and content import behavior. Verify permissions and application-facing
+queries independently before cutover.
+
+## Leaving Appwrite for Allyourbase
+
+Use the [Appwrite migration guide](/guide/migrations#appwrite) for database,
+identity, and storage migration boundaries. Confirm unsupported source features
+before choosing the final cutover sequence.
+
+## Leaving Nhost for Allyourbase
+
+Use the [Nhost migration guide](/guide/migrations#nhost) for the supported
+PostgreSQL import path. Treat GraphQL, authentication, and operational service
+parity as separate acceptance checks.
+
+## Honest beta limits
+
+Allyourbase is still beta software. Read the [beta limitations](/guide/beta-limitations)
+before a production evaluation, and validate recovery, upgrades, migration
+coverage, and every application-critical integration in your own environment.
+
 ## Search and Algolia
 
 AYB's shipped search path is PostgreSQL search on the standard collection list endpoint, not a hosted-search replacement for every Algolia workflow. It is a fit when records already live in PostgreSQL and you want one API path for full-text `search`, per-collection synonym groups, optional `fuzzy=true` typo tolerance through `pg_trgm`, safe `filter` expressions, scalar `facets`, pagination, and RLS-scoped counts.

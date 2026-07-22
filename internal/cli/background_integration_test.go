@@ -100,16 +100,29 @@ func waitForNoHealthPort(port int, timeout time.Duration) bool {
 	return false
 }
 
-// startArgs returns the base arguments for "ayb start" including the port,
-// and—when running under testpg—the --database-url flag so the spawned
-// binary reuses testpg's managed Postgres instead of launching its own
-// (which would conflict on the default embedded Postgres port).
+// startArgs returns the base arguments for "ayb start" including the port and
+// the database isolated for this package by TestMain. Using TEST_DATABASE_URL
+// directly would let the spawned server migrate testpg's cluster-wide base
+// database and interfere with integration tests in other packages.
 func startArgs(port int, extraFlags ...string) []string {
-	args := []string{"start", "--port", fmt.Sprintf("%d", port)}
-	if dbURL := os.Getenv("TEST_DATABASE_URL"); dbURL != "" {
-		args = append(args, "--database-url", dbURL)
+	args := []string{
+		"start", "--port", fmt.Sprintf("%d", port),
+		"--database-url", sharedPG.ConnString,
 	}
 	return append(args, extraFlags...)
+}
+
+func TestBackgroundStartArgsUseIsolatedDatabase(t *testing.T) {
+	t.Setenv("TEST_DATABASE_URL", "postgres://cluster/base")
+
+	args := startArgs(18090)
+	joined := strings.Join(args, " ")
+	if !strings.Contains(joined, sharedPG.ConnString) {
+		t.Fatalf("start args should use isolated database %q, got %q", sharedPG.ConnString, joined)
+	}
+	if strings.Contains(joined, "postgres://cluster/base") {
+		t.Fatalf("start args must not use cluster base database, got %q", joined)
+	}
 }
 
 func backgroundCommand(homeDir, bin string, args ...string) *exec.Cmd {

@@ -59,7 +59,7 @@ test.describe("Matviews Lifecycle (Full E2E)", () => {
 
     await page.goto("/admin/");
     await waitForDashboard(page);
-    await page.locator("aside").getByRole("button", { name: /^Matviews$/i }).click();
+    await page.locator("aside").getByRole("button", { name: /^Materialized Views$/i }).click();
     await expect(page.getByRole("heading", { name: "Materialized Views" })).toBeVisible({ timeout: 5000 });
 
     const row = page.locator("tr").filter({ hasText: matviewName }).first();
@@ -99,7 +99,7 @@ test.describe("Matviews Lifecycle (Full E2E)", () => {
 
     await page.goto("/admin/");
     await waitForDashboard(page);
-    await page.locator("aside").getByRole("button", { name: /^Matviews$/i }).click();
+    await page.locator("aside").getByRole("button", { name: /^Materialized Views$/i }).click();
     await expect(page.getByRole("heading", { name: "Materialized Views" })).toBeVisible({ timeout: 5000 });
 
     await page.getByRole("button", { name: "Register Matview" }).click();

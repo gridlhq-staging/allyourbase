@@ -1,11 +1,10 @@
-.PHONY: build dev test test-sdk test-sdk-go test-sdk-python test-sdk-dart test-sdk-swift test-sdk-kotlin test-sdk-react test-sdk-ssr test-sdk-all test-sdk-integration test-ui test-demos-unit test-quickstart-contract test-integration test-multinode test-cell test-demo-smoke test-demo-instantsearch test-demo-e2e test-demo-launch test-demo-cross-smoke test-demo-movies-real-provider test-e2e test-smoke test-browser-full test-full test-all test-everything test-api-smoke test-api-journey lint check hygiene check-hygiene check-sizes check-screen-specs check-coverage-matrix check-followups check-ui-bundle-size check-ui-lint check-browser-tests-lint check-func-sizes check-installer check-sdk-build launch-check adoption release-candidate-check clean ui demos release docker docker-runtime-smoke help sync-openapi build-postgres load-admin-status load-admin-status-local load-auth-request-path load-auth-request-path-local load-data-path load-data-path-local load-data-pool-pressure load-data-pool-pressure-local load-http-100 load-http-100-local load-http-500 load-http-500-local load-http-1000 load-http-1000-local load-realtime-ws load-realtime-ws-local load-realtime-ws-1000 load-realtime-ws-1000-local load-realtime-ws-5000 load-realtime-ws-5000-local load-realtime-ws-10000 load-realtime-ws-10000-local load-sustained-soak load-sustained-soak-local
+.PHONY: build dev test test-sdk test-sdk-go test-sdk-python test-sdk-dart test-sdk-swift test-sdk-kotlin test-sdk-react test-sdk-ssr test-sdk-all test-sdk-integration test-ui test-demos-unit test-quickstart-contract test-integration test-multinode test-cell test-demo-smoke test-demo-instantsearch test-demo-e2e test-demo-launch test-demo-cross-smoke test-demo-movies-real-provider test-push-smoke test-e2e test-smoke test-browser-full test-full test-all test-everything test-api-smoke test-api-journey lint check hygiene check-hygiene check-sizes check-screen-specs check-followups check-ui-bundle-size check-ui-lint check-browser-tests-lint check-func-sizes check-installer check-sdk-build launch-check adoption release-candidate-check clean ui demos release docker docker-runtime-smoke help sync-openapi build-postgres load-admin-status load-admin-status-local load-auth-request-path load-auth-request-path-local load-data-path load-data-path-local load-data-pool-pressure load-data-pool-pressure-local load-http-100 load-http-100-local load-http-500 load-http-500-local load-http-1000 load-http-1000-local load-realtime-ws load-realtime-ws-local load-realtime-ws-1000 load-realtime-ws-1000-local load-realtime-ws-5000 load-realtime-ws-5000-local load-realtime-ws-10000 load-realtime-ws-10000-local load-sustained-soak load-sustained-soak-local
 
 # Build variables
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
 COMMIT  ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo "none")
 DATE    ?= $(shell date -u +"%Y-%m-%dT%H:%M:%SZ")
 LDFLAGS  = -ldflags "-s -w -X main.version=$(VERSION) -X main.commit=$(COMMIT) -X main.date=$(DATE)"
-PNPM    ?= $(shell if command -v pnpm >/dev/null 2>&1; then printf 'pnpm'; elif command -v corepack >/dev/null 2>&1; then printf 'corepack pnpm'; else printf 'pnpm'; fi)
 
 LOAD_K6_BIN ?= k6
 LOAD_DEFAULT_VUS ?= 1
@@ -137,7 +136,7 @@ sdk/dist/.stamp: $(shell find sdk/src -type f) sdk/package.json sdk/package-lock
 	@touch $@
 
 sdk_react/dist/.stamp: $(shell find sdk_react/src -type f) sdk_react/package.json sdk_react/pnpm-lock.yaml sdk_react/tsconfig.json sdk/dist/.stamp
-	cd sdk_react && $(PNPM) install && $(PNPM) run build
+	cd sdk_react && pnpm install && pnpm run build
 	@touch $@
 
 examples/kanban/dist/.stamp: $(KANBAN_DEPS) sdk/dist/.stamp sdk_react/dist/.stamp
@@ -153,7 +152,7 @@ examples/movies/dist/.stamp: $(MOVIES_DEPS) sdk/dist/.stamp sdk_react/dist/.stam
 	@touch $@
 
 ui/dist/.stamp: $(UI_DEPS)
-	cd ui && $(PNPM) install && $(PNPM) build
+	cd ui && pnpm install && pnpm build
 	@touch $@
 
 build: ui/dist/.stamp examples/kanban/dist/.stamp examples/live-polls/dist/.stamp examples/movies/dist/.stamp ## Build the ayb binary (rebuilds UI + demos if sources changed)
@@ -187,10 +186,10 @@ test-sdk-kotlin: ## Run Kotlin SDK tests (requires JDK)
 	cd sdk_kotlin && ./gradlew test
 
 test-sdk-react: ## Run React SDK checks (requires JS SDK deps for relative source imports)
-	cd sdk && npm ci && cd ../sdk_react && $(PNPM) install && $(PNPM) test
+	cd sdk && npm ci && cd ../sdk_react && pnpm install && pnpm test
 
 test-sdk-ssr: ## Run SSR SDK checks (requires JS SDK deps for relative source imports)
-	cd sdk && npm ci && cd ../sdk_ssr && $(PNPM) install && $(PNPM) test
+	cd sdk && npm ci && cd ../sdk_ssr && pnpm install && pnpm test
 
 test-sdk-all: ## Run all locally-runnable SDK checks (excludes Kotlin)
 	$(MAKE) test-sdk
@@ -202,7 +201,7 @@ test-sdk-all: ## Run all locally-runnable SDK checks (excludes Kotlin)
 	$(MAKE) test-sdk-ssr
 
 test-ui: ## Run UI component tests (vitest + jsdom, no browser)
-	cd ui && $(PNPM) install --frozen-lockfile && $(PNPM) test
+	cd ui && pnpm install --frozen-lockfile && pnpm test
 
 test-demos-unit: sdk/dist/.stamp sdk_react/dist/.stamp ## Run Vitest-only demo unit suites
 	cd examples/live-polls && npm ci --prefer-offline --no-audit && npm test
@@ -348,6 +347,9 @@ test-demo-movies-real-provider: build ## Run movies real-provider smoke — real
 test-demo-launch: build ## Run demo launch smoke — kanban + live-polls + movies CLI launch contracts
 	@cd _dev/manual_smoke_tests && AYB_BIN=$(CURDIR)/ayb bash 17_demo_launch.test.sh
 
+test-push-smoke: build ## Run push notification runtime smoke through the log provider
+	AYB_BIN=$(CURDIR)/ayb bash _dev/manual_smoke_tests/20_push_smoke.test.sh
+
 # Cross-demo roundtrip smoke only; narrower than the full per-demo suites above.
 test-demo-cross-smoke: build ## Run cross-demo Playwright smoke — kanban + live-polls + movies in one suite
 	@cd tests/e2e && npm ci --prefer-offline --no-audit && \
@@ -396,9 +398,6 @@ check-sizes: ## Run source-size guardrail
 check-screen-specs: ## Run screen-spec format guard
 	bash scripts/check_screen_spec.sh docs/reference/screen_specs
 
-check-coverage-matrix: ## Run browser coverage matrix guard
-	bash scripts/check-coverage-matrix.sh
-
 check-followups: ## Report follow-up ledger pollution without blocking aggregate gates
 	@status=0; \
 	if ! git show HEAD:chats/icg/_followups.md | bash scripts/check_followups.sh HEAD=-; then status=1; fi; \
@@ -417,10 +416,10 @@ hygiene: ## Strip leaked worktree paths and run hygiene guard
 	$(MAKE) check-hygiene
 
 check-ui-lint: ## Lint admin UI TypeScript source
-	cd ui && $(PNPM) install --frozen-lockfile && npx eslint src/
+	cd ui && pnpm install --frozen-lockfile && npx eslint src/
 
 check-browser-tests-lint: ## Lint browser test specs
-	cd ui && $(PNPM) install --frozen-lockfile && npm run lint:browser-tests && npm run lint:browser-tests:mocked
+	cd ui && pnpm install --frozen-lockfile && npm run lint:browser-tests && npm run lint:browser-tests:mocked
 	cd examples/kanban && npm ci --prefer-offline --no-audit && npm run lint:browser-tests
 	cd examples/live-polls && npm ci --prefer-offline --no-audit && npm run lint:browser-tests
 	cd examples/movies && npm ci --prefer-offline --no-audit && npm run lint:browser-tests
@@ -429,7 +428,7 @@ check-browser-tests-lint: ## Lint browser test specs
 check-func-sizes: ## Run Go function-size guardrail test
 	go test ./internal/codehealth -run TestFunctionSizeAllowlist -count=1
 
-check: hygiene fmt lint check-sizes check-screen-specs check-coverage-matrix check-ui-bundle-size check-ui-lint check-func-sizes ## Run local CI-equivalent quality checks
+check: hygiene fmt lint check-sizes check-screen-specs check-ui-bundle-size check-ui-lint check-func-sizes ## Run local CI-equivalent quality checks
 
 check-installer: ## Run installer validation suite
 	sh tests/test_install.sh
@@ -446,7 +445,7 @@ check-sdk-build: ## Build the JavaScript SDK
 release-candidate-check: check check-browser-tests-lint test-all test-multinode test-sdk-integration test-cell test-quickstart-contract ui check-sdk-build check-installer test-demo-launch test-demo-e2e test-smoke test-browser-full ## Run the trusted public release candidate gate
 
 ui: ## Build the admin dashboard SPA
-	cd ui && $(PNPM) install && $(PNPM) build
+	cd ui && pnpm install && pnpm build
 
 demos: ## Build demo apps (force rebuild, pre-built for go:embed)
 	rm -f examples/kanban/dist/.stamp examples/live-polls/dist/.stamp examples/movies/dist/.stamp

@@ -72,6 +72,28 @@ func TestBuildPushProvidersConfiguredAPNS(t *testing.T) {
 	testutil.True(t, fcmOK, "expected fcm fallback to *push.LogProvider when not configured")
 }
 
+func TestBuildPushProvidersUseLogProviderOverridesConfiguredProviders(t *testing.T) {
+	t.Parallel()
+
+	cfg := &config.Config{}
+	cfg.Push.UseLogProvider = true
+	cfg.Push.FCM.CredentialsFile = writeTestFCMCredentials(t)
+	cfg.Push.APNS.KeyFile = writeTestAPNSKey(t)
+	cfg.Push.APNS.TeamID = "TEAM123"
+	cfg.Push.APNS.KeyID = "KEY123"
+	cfg.Push.APNS.BundleID = "com.example.app"
+	cfg.Push.APNS.Environment = "sandbox"
+	logger := slog.Default()
+
+	providers := buildPushProviders(cfg, logger)
+
+	fcmProvider, fcmOK := providers[push.ProviderFCM].(*push.LogProvider)
+	testutil.True(t, fcmOK, "expected fcm provider to be forced to *push.LogProvider")
+	apnsProvider, apnsOK := providers[push.ProviderAPNS].(*push.LogProvider)
+	testutil.True(t, apnsOK, "expected apns provider to be forced to *push.LogProvider")
+	testutil.True(t, fcmProvider == apnsProvider, "expected fcm and apns to share one log provider")
+}
+
 func TestPushProviderNamesSorted(t *testing.T) {
 	t.Parallel()
 

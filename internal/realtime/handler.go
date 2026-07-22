@@ -102,12 +102,12 @@ func (h *Handler) authenticateRealtimeRequest(w http.ResponseWriter, r *http.Req
 	token, fromQuery := extractToken(r)
 	if token == "" {
 		httputil.WriteErrorWithDocURL(w, http.StatusUnauthorized, "authentication required",
-			"https://allyourbase.io/guide/realtime")
+			httputil.DocURL("/guide/realtime"))
 		return nil, false
 	}
 	if fromQuery && auth.IsAPIKey(token) {
 		httputil.WriteErrorWithDocURL(w, http.StatusUnauthorized, "API keys must be sent in the Authorization header",
-			"https://allyourbase.io/guide/realtime")
+			httputil.DocURL("/guide/realtime"))
 		return nil, false
 	}
 
@@ -123,7 +123,7 @@ func (h *Handler) authenticateRealtimeRequest(w http.ResponseWriter, r *http.Req
 	}
 	if err != nil {
 		httputil.WriteErrorWithDocURL(w, http.StatusUnauthorized, "invalid or expired token",
-			"https://allyourbase.io/guide/realtime")
+			httputil.DocURL("/guide/realtime"))
 		return nil, false
 	}
 
@@ -134,7 +134,7 @@ func (h *Handler) authenticateRealtimeRequest(w http.ResponseWriter, r *http.Req
 func (h *Handler) parseRealtimeTableSubscriptions(w http.ResponseWriter, activeSchema, tablesParam string) (map[string]bool, bool) {
 	if tablesParam == "" {
 		httputil.WriteErrorWithDocURL(w, http.StatusBadRequest, "tables parameter is required",
-			"https://allyourbase.io/guide/realtime")
+			httputil.DocURL("/guide/realtime"))
 		return nil, false
 	}
 
@@ -147,14 +147,14 @@ func (h *Handler) parseRealtimeTableSubscriptions(w http.ResponseWriter, activeS
 		}
 		if sc != nil && !realtimeTableExistsInActiveSchema(sc, activeSchema, name) && name != internalNotificationsTable {
 			httputil.WriteErrorWithDocURL(w, http.StatusBadRequest, "unknown table: "+name,
-				"https://allyourbase.io/guide/realtime")
+				httputil.DocURL("/guide/realtime"))
 			return nil, false
 		}
 		tables[name] = true
 	}
 	if len(tables) == 0 {
 		httputil.WriteErrorWithDocURL(w, http.StatusBadRequest, "at least one valid table is required",
-			"https://allyourbase.io/guide/realtime")
+			httputil.DocURL("/guide/realtime"))
 		return nil, false
 	}
 
@@ -165,7 +165,7 @@ func (h *Handler) parseRealtimeFilters(w http.ResponseWriter, filterParam string
 	filters, err := ParseFilters(filterParam)
 	if err != nil {
 		httputil.WriteErrorWithDocURL(w, http.StatusBadRequest, "invalid filter: "+err.Error(),
-			"https://allyourbase.io/guide/realtime")
+			httputil.DocURL("/guide/realtime"))
 		return nil, false
 	}
 	return filters, true

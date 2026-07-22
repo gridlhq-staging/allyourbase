@@ -55,7 +55,7 @@ New app scaffolds also include starter list-search examples that call `records.l
 - **Type generation** — `ayb types typescript` emits types from your schema
 - **Embedded Postgres** — zero external dependencies for development
 - **MCP server** — `ayb mcp` gives AI tools (Claude Code, Cursor, Windsurf) direct access to your schema, records, SQL, and RLS policies. See the [MCP Server guide](https://allyourbase.io/guide/mcp) for current tools, resources, and prompts.
-13 tools, 2 resources, 3 prompts.
+14 tools, 2 resources, 3 prompts.
 
 Your data lives in standard PostgreSQL. No lock-in — take your database and go.
 

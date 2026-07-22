@@ -43,9 +43,10 @@ function errorPreview(error: string | null): string {
 
 interface MatviewsAdminProps {
   schema: SchemaCache;
+  screenLabel: string;
 }
 
-export function MatviewsAdmin({ schema }: MatviewsAdminProps) {
+export function MatviewsAdmin({ schema, screenLabel }: MatviewsAdminProps) {
   const [data, setData] = useState<MatviewListResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -192,7 +193,7 @@ export function MatviewsAdmin({ schema }: MatviewsAdminProps) {
     <div className="p-6">
       <div className="flex items-center justify-between mb-6">
         <div>
-          <h1 className="text-lg font-semibold">Materialized Views</h1>
+          <h1 className="text-lg font-semibold">{screenLabel}</h1>
           <p className="text-sm text-gray-500 dark:text-gray-400 mt-0.5">
             Register and refresh materialized views
           </p>

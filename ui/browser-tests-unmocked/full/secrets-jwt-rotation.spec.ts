@@ -8,6 +8,7 @@ import {
   getAuthSettingsUnavailableSkipReason,
   getAuthMeWithToken,
   loginEmailAuthSessionToken,
+  observeMatchingRequests,
   probeEndpoint,
   test,
   waitForDashboard,
@@ -88,8 +89,22 @@ test.describe("Secrets JWT Rotation (Full E2E)", () => {
       timeout: 5000,
     });
 
+    const rotateRequests = observeMatchingRequests(page, {
+      method: "POST",
+      urlIncludes: "/api/admin/secrets/rotate",
+    });
+
     await page.getByRole("button", { name: /Rotate JWT Secret/i }).click();
     const rotateDialog = page.getByRole("dialog", { name: /Rotate JWT Secret/i });
+    await expect(rotateDialog).toBeVisible({ timeout: 5000 });
+    await rotateDialog.getByRole("button", { name: /^Cancel$/i }).click();
+    await expect(rotateDialog).toHaveCount(0, { timeout: 5000 });
+    expect(rotateRequests.count()).toBe(0);
+
+    const stillValidTokenMe = await getAuthMeWithToken(request, preRotationToken);
+    expect(stillValidTokenMe.status()).toBe(200);
+
+    await page.getByRole("button", { name: /Rotate JWT Secret/i }).click();
     await expect(rotateDialog).toBeVisible({ timeout: 5000 });
 
     const rotateResponsePromise = page.waitForResponse(
@@ -101,6 +116,8 @@ test.describe("Secrets JWT Rotation (Full E2E)", () => {
 
     const rotateResponse = await rotateResponsePromise;
     expect(rotateResponse.status()).toBe(200);
+    expect(rotateRequests.count()).toBe(1);
+    rotateRequests.dispose();
     await expect(rotateDialog).toHaveCount(0, { timeout: 5000 });
 
     const staleTokenMe = await getAuthMeWithToken(request, preRotationToken);

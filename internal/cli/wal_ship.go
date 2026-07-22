@@ -13,6 +13,41 @@ import (
 	"github.com/spf13/cobra"
 )
 
+type walShipPool interface {
+	Close()
+}
+
+type walSegmentShipper interface {
+	Ship(ctx context.Context, walFilePath string, walFileName string) error
+}
+
+var (
+	loadWALShipConfig = config.Load
+	newWALShipStore   = func(ctx context.Context, cfg backup.S3Config) (backup.Store, error) {
+		return backup.NewS3Store(ctx, cfg)
+	}
+	newWALShipPool = func(ctx context.Context, databaseURL string) (walShipPool, error) {
+		return pgxpool.New(ctx, databaseURL)
+	}
+	newWALShipRepo = func(pool walShipPool) (backup.WALSegmentRepo, error) {
+		pgxPool, ok := pool.(*pgxpool.Pool)
+		if !ok {
+			return nil, fmt.Errorf("unsupported WAL ship pool type %T", pool)
+		}
+		return backup.NewPgWALSegmentRepo(pgxPool), nil
+	}
+	newWALShipShipper = func(
+		store backup.Store,
+		repo backup.WALSegmentRepo,
+		cfg backup.PITRConfig,
+		projectID string,
+		databaseID string,
+		notify backup.Notifier,
+	) walSegmentShipper {
+		return backup.NewWALShipper(store, repo, cfg, projectID, databaseID, notify)
+	}
+)
+
 var walShipCmd = &cobra.Command{
 	Use:   "wal-ship <wal-file-path> <wal-file-name>",
 	Short: "Ship a single PostgreSQL WAL segment to PITR archive storage",
@@ -36,7 +71,7 @@ func runWALShip(cmd *cobra.Command, args []string) error {
 		configPath = "ayb.toml"
 	}
 
-	cfg, err := config.Load(configPath, nil)
+	cfg, err := loadWALShipConfig(configPath, nil)
 	if err != nil {
 		return fmt.Errorf("loading config: %w", err)
 	}
@@ -52,7 +87,7 @@ func runWALShip(cmd *cobra.Command, args []string) error {
 		endpoint = fmt.Sprintf("s3.%s.amazonaws.com", cfg.Backup.Region)
 	}
 
-	store, err := backup.NewS3Store(ctx, backup.S3Config{
+	store, err := newWALShipStore(ctx, backup.S3Config{
 		Endpoint:   endpoint,
 		Bucket:     cfg.Backup.PITR.ArchiveBucket,
 		Region:     cfg.Backup.Region,
@@ -66,11 +101,15 @@ func runWALShip(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("initialising PITR S3 store: %w", err)
 	}
 
-	pool, err := pgxpool.New(ctx, cfg.Database.URL)
+	pool, err := newWALShipPool(ctx, cfg.Database.URL)
 	if err != nil {
 		return fmt.Errorf("connecting to database: %w", err)
 	}
 	defer pool.Close()
+	walRepo, err := newWALShipRepo(pool)
+	if err != nil {
+		return fmt.Errorf("creating WAL metadata repository: %w", err)
+	}
 
 	projectID := os.Getenv("AYB_PROJECT_ID")
 	if projectID == "" {
@@ -78,9 +117,9 @@ func runWALShip(cmd *cobra.Command, args []string) error {
 	}
 	databaseID := extractDBName(cfg.Database.URL)
 
-	shipper := backup.NewWALShipper(
+	shipper := newWALShipShipper(
 		store,
-		backup.NewPgWALSegmentRepo(pool),
+		walRepo,
 		backup.PITRConfig{ArchivePrefix: cfg.Backup.PITR.ArchivePrefix},
 		projectID,
 		databaseID,

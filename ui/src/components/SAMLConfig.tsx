@@ -26,7 +26,11 @@ const emptyForm: FormState = {
   attribute_mapping: "",
 };
 
-export function SAMLConfig() {
+interface SAMLConfigProps {
+  screenLabel: string;
+}
+
+export function SAMLConfig({ screenLabel }: SAMLConfigProps) {
   const { data, loading, error, setError, actionLoading, runAction } =
     useAdminResource(listSAMLProviders);
   const [showForm, setShowForm] = useState(false);
@@ -127,7 +131,7 @@ export function SAMLConfig() {
     return (
       <div className="p-6">
         <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-4">
-          SAML Configuration
+          {screenLabel}
         </h2>
         <p className="text-red-600 dark:text-red-400">{error}</p>
       </div>
@@ -138,7 +142,7 @@ export function SAMLConfig() {
     <div className="p-6">
       <div className="flex items-center justify-between mb-4">
         <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100">
-          SAML Configuration
+          {screenLabel}
         </h2>
         <button
           onClick={() => {

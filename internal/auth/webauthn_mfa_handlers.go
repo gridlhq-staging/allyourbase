@@ -1,4 +1,3 @@
-// Package auth.
 package auth
 
 import (
@@ -23,7 +22,7 @@ func (h *Handler) requireWebAuthnEnabled(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if !h.webauthnEnabled {
 			httputil.WriteErrorWithDocURL(w, http.StatusNotFound, "WebAuthn MFA is not enabled",
-				"https://allyourbase.io/guide/authentication#webauthn")
+				httputil.DocURL("/guide/authentication#webauthn"))
 			return
 		}
 		next.ServeHTTP(w, r)
@@ -191,7 +190,7 @@ func (h *Handler) handleWebAuthnFirstFactorBegin(w http.ResponseWriter, r *http.
 		case errors.Is(err, ErrInvalidCredentials), errors.Is(err, ErrWebAuthnNotEnrolled):
 			httputil.WriteErrorWithDocURL(w, http.StatusUnauthorized,
 				"invalid email or passkey",
-				"https://allyourbase.io/guide/authentication")
+				httputil.DocURL("/guide/authentication"))
 		default:
 			h.logger.Error("WebAuthn first-factor challenge error", "error", err)
 			httputil.WriteError(w, http.StatusInternalServerError, "internal error")
@@ -238,7 +237,7 @@ func (h *Handler) handleWebAuthnFirstFactorFinish(w http.ResponseWriter, r *http
 		case errors.Is(err, ErrWebAuthnChallengeNotFound):
 			httputil.WriteErrorWithDocURL(w, http.StatusUnauthorized,
 				"invalid email or passkey",
-				"https://allyourbase.io/guide/authentication")
+				httputil.DocURL("/guide/authentication"))
 		case errors.Is(err, ErrWebAuthnChallengeUsed):
 			httputil.WriteError(w, http.StatusConflict, "challenge already verified")
 		case errors.Is(err, ErrWebAuthnClonedKey):
@@ -305,7 +304,7 @@ func (h *Handler) handleWebAuthnDiscoverableFinish(w http.ResponseWriter, r *htt
 		case errors.Is(err, ErrWebAuthnChallengeNotFound):
 			httputil.WriteErrorWithDocURL(w, http.StatusUnauthorized,
 				"invalid passkey",
-				"https://allyourbase.io/guide/authentication")
+				httputil.DocURL("/guide/authentication"))
 		case errors.Is(err, ErrWebAuthnChallengeUsed):
 			httputil.WriteError(w, http.StatusConflict, "challenge already verified")
 		case errors.Is(err, ErrWebAuthnClonedKey):

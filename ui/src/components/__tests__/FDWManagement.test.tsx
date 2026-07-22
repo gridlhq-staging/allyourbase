@@ -47,8 +47,16 @@ beforeEach(() => {
 });
 
 describe("FDWManagement", () => {
+  it("uses the injected registry label as the primary heading", () => {
+    renderWithProviders(<FDWManagement screenLabel="Registry FDW Label" />);
+
+    expect(
+      screen.getByRole("heading", { name: "Registry FDW Label" }),
+    ).toBeInTheDocument();
+  });
+
   it("renders server list with name/type/created_at", async () => {
-    renderWithProviders(<FDWManagement />);
+    renderWithProviders(<FDWManagement screenLabel="FDW Management" />);
     await waitFor(() => {
       expect(screen.getByText("postgres_fdw")).toBeInTheDocument();
     });
@@ -57,7 +65,7 @@ describe("FDWManagement", () => {
   });
 
   it("renders table list with schema/name/server_name", async () => {
-    renderWithProviders(<FDWManagement />);
+    renderWithProviders(<FDWManagement screenLabel="FDW Management" />);
     await waitFor(() => {
       expect(screen.getByText("users")).toBeInTheDocument();
     });
@@ -65,7 +73,7 @@ describe("FDWManagement", () => {
   });
 
   it("create-server form validates required fields", async () => {
-    renderWithProviders(<FDWManagement />);
+    renderWithProviders(<FDWManagement screenLabel="FDW Management" />);
     await waitFor(() => {
       expect(screen.getByText("postgres_fdw")).toBeInTheDocument();
     });
@@ -76,7 +84,7 @@ describe("FDWManagement", () => {
   });
 
   it("renders file_fdw-specific fields and submits filename option", async () => {
-    renderWithProviders(<FDWManagement />);
+    renderWithProviders(<FDWManagement screenLabel="FDW Management" />);
     await waitFor(() => {
       expect(screen.getByText("postgres_fdw")).toBeInTheDocument();
     });
@@ -107,7 +115,7 @@ describe("FDWManagement", () => {
   });
 
   it("drop-server fires destructive ConfirmDialog", async () => {
-    renderWithProviders(<FDWManagement />);
+    renderWithProviders(<FDWManagement screenLabel="FDW Management" />);
     await waitFor(() => {
       expect(screen.getByText("postgres_fdw")).toBeInTheDocument();
     });
@@ -128,7 +136,7 @@ describe("FDWManagement", () => {
   });
 
   it("import-tables form validates server and remote_schema", async () => {
-    renderWithProviders(<FDWManagement />);
+    renderWithProviders(<FDWManagement screenLabel="FDW Management" />);
     await waitFor(() => {
       expect(screen.getByText("postgres_fdw")).toBeInTheDocument();
     });
@@ -139,7 +147,7 @@ describe("FDWManagement", () => {
   });
 
   it("drop-table fires ConfirmDialog", async () => {
-    renderWithProviders(<FDWManagement />);
+    renderWithProviders(<FDWManagement screenLabel="FDW Management" />);
     await waitFor(() => {
       expect(screen.getByText("users")).toBeInTheDocument();
     });
@@ -158,7 +166,7 @@ describe("FDWManagement", () => {
     (api.listServers as ReturnType<typeof vi.fn>).mockRejectedValue(
       new Error("Connection refused"),
     );
-    renderWithProviders(<FDWManagement />);
+    renderWithProviders(<FDWManagement screenLabel="FDW Management" />);
     await waitFor(() => {
       expect(screen.getByText("Connection refused")).toBeInTheDocument();
     });

@@ -116,6 +116,7 @@ type AdminScreenId = (typeof ADMIN_VIEWS)[number];
 export interface ScreenProps {
   schema: SchemaCache;
   onRefresh: () => void | Promise<void>;
+  screenLabel: string;
 }
 
 export interface AdminScreen {
@@ -307,12 +308,12 @@ export const SCREEN_REGISTRY: ScreenRegistry = {
       screens: [
         { id: "sql-editor", label: "SQL Editor", icon: Code, render: createNamedLazyScreenRender(() => import("../components/SqlEditor"), "SqlEditor", ({ onRefresh }) => ({ onSchemaChange: onRefresh })) },
         { id: "graphql", label: "GraphQL", icon: Braces, render: createNamedLazyScreenRender(() => import("../components/GraphqlExplorer"), "GraphqlExplorer") },
-        { id: "functions", label: "Functions", icon: Zap, render: createNamedLazyScreenRender(() => import("../components/FunctionBrowser"), "FunctionBrowser", ({ schema }) => ({ functions: schema.functions || {} })) },
-        { id: "rls", label: "RLS Policies", icon: Shield, render: createNamedLazyScreenRender(() => import("../components/RlsPolicies"), "RlsPolicies", ({ schema }) => ({ schema })) },
+        { id: "functions", label: "Functions", icon: Zap, render: createNamedLazyScreenRender(() => import("../components/FunctionBrowser"), "FunctionBrowser", ({ schema, screenLabel }) => ({ functions: schema.functions || {}, screenLabel })) },
+        { id: "rls", label: "RLS Policies", icon: Shield, render: createNamedLazyScreenRender(() => import("../components/RlsPolicies"), "RlsPolicies", ({ schema, screenLabel }) => ({ schema, screenLabel })) },
         { id: "search", label: "Search", icon: Search, render: createNamedLazyScreenRender(() => import("../components/Search"), "Search", ({ schema }) => ({ schema })) },
-        { id: "matviews", label: "Matviews", icon: Layers, render: createNamedLazyScreenRender(() => import("../components/MatviewsAdmin"), "MatviewsAdmin", ({ schema }) => ({ schema })) },
+        { id: "matviews", label: "Materialized Views", icon: Layers, render: createNamedLazyScreenRender(() => import("../components/MatviewsAdmin"), "MatviewsAdmin", ({ schema, screenLabel }) => ({ schema, screenLabel })) },
         { id: "schema-designer", label: "Schema Designer", icon: Columns3, testId: "nav-schema-designer", render: createNamedLazyScreenRender(() => import("../components/SchemaDesigner"), "SchemaDesigner", ({ schema }) => ({ schema })) },
-        { id: "fdw", label: "FDW", icon: Cable, render: createNamedLazyScreenRender(() => import("../components/FDWManagement"), "FDWManagement") },
+        { id: "fdw", label: "FDW Management", icon: Cable, render: createNamedLazyScreenRender(() => import("../components/FDWManagement"), "FDWManagement", ({ screenLabel }) => ({ screenLabel })) },
       ],
     },
     {
@@ -337,7 +338,7 @@ export const SCREEN_REGISTRY: ScreenRegistry = {
       title: "Admin",
       screens: [
         { id: "users", label: "Users", icon: UsersIcon, render: createNamedLazyScreenRender(() => import("../components/Users"), "Users") },
-        { id: "apps", label: "Apps", icon: Box, render: createNamedLazyScreenRender(() => import("../components/Apps"), "Apps") },
+        { id: "apps", label: "Applications", icon: Box, render: createNamedLazyScreenRender(() => import("../components/Apps"), "Apps", ({ screenLabel }) => ({ screenLabel })) },
         { id: "api-keys", label: "API Keys", icon: KeyRound, render: createNamedLazyScreenRender(() => import("../components/ApiKeys"), "ApiKeys") },
         { id: "oauth-clients", label: "OAuth Clients", icon: Fingerprint, render: createNamedLazyScreenRender(() => import("../components/OAuthClients"), "OAuthClients") },
         { id: "api-explorer", label: "API Explorer", icon: Compass, render: createNamedLazyScreenRender(() => import("../components/ApiExplorer"), "ApiExplorer", ({ schema }) => ({ schema })) },
@@ -346,9 +347,9 @@ export const SCREEN_REGISTRY: ScreenRegistry = {
         { id: "realtime-inspector", label: "Realtime Inspector", icon: Activity, render: createNamedLazyScreenRender(() => import("../components/RealtimeInspector"), "RealtimeInspector") },
         { id: "security-advisor", label: "Security Advisor", icon: ShieldAlert, render: createNamedLazyScreenRender(() => import("../components/SecurityAdvisor"), "SecurityAdvisor") },
         { id: "performance-advisor", label: "Performance Advisor", icon: Gauge, render: createNamedLazyScreenRender(() => import("../components/PerformanceAdvisor"), "PerformanceAdvisor") },
-        { id: "backups", label: "Backups", icon: Archive, render: createNamedLazyScreenRender(() => import("../components/Backups"), "Backups") },
+        { id: "backups", label: "Backups & PITR", icon: Archive, render: createNamedLazyScreenRender(() => import("../components/Backups"), "Backups", ({ screenLabel }) => ({ screenLabel })) },
         { id: "analytics", label: "Analytics", icon: BarChart3, render: createNamedLazyScreenRender(() => import("../components/Analytics"), "Analytics") },
-        { id: "usage", label: "Usage", icon: LineChart, render: createNamedLazyScreenRender(() => import("../components/UsageMetering"), "UsageMetering") },
+        { id: "usage", label: "Usage Metering", icon: LineChart, render: createNamedLazyScreenRender(() => import("../components/UsageMetering"), "UsageMetering", ({ screenLabel }) => ({ screenLabel })) },
         { id: "replicas", label: "Replicas", icon: Server, render: createNamedLazyScreenRender(() => import("../components/Replicas"), "Replicas") },
         { id: "branches", label: "Branches", icon: GitBranch, render: createNamedLazyScreenRender(() => import("../components/Branches"), "Branches") },
         { id: "audit-logs", label: "Audit Logs", icon: ScrollText, render: createNamedLazyScreenRender(() => import("../components/AuditLogs"), "AuditLogs") },
@@ -360,8 +361,8 @@ export const SCREEN_REGISTRY: ScreenRegistry = {
         { id: "log-drains", label: "Log Drains", icon: ArrowDownToLine, render: createNamedLazyScreenRender(() => import("../components/LogDrains"), "LogDrains") },
         { id: "stats", label: "Stats", icon: LineChart, render: createNamedLazyScreenRender(() => import("../components/StatsOverview"), "StatsOverview") },
         { id: "notifications", label: "Notifications", icon: BellRing, render: createNamedLazyScreenRender(() => import("../components/Notifications"), "Notifications") },
-        { id: "incidents", label: "Incidents", icon: AlertTriangle, render: createNamedLazyScreenRender(() => import("../components/Incidents"), "Incidents") },
-        { id: "support-tickets", label: "Support Tickets", icon: LifeBuoy, render: createNamedLazyScreenRender(() => import("../components/SupportTickets"), "SupportTickets") },
+        { id: "incidents", label: "Incidents", icon: AlertTriangle, requires: "status", render: createNamedLazyScreenRender(() => import("../components/Incidents"), "Incidents") },
+        { id: "support-tickets", label: "Support Tickets", icon: LifeBuoy, requires: "support", render: createNamedLazyScreenRender(() => import("../components/SupportTickets"), "SupportTickets") },
         { id: "tenants", label: "Tenants", icon: Building2, render: createNamedLazyScreenRender(() => import("../components/Tenants"), "Tenants") },
         { id: "organizations", label: "Organizations", icon: Building2, render: createNamedLazyScreenRender(() => import("../components/Organizations"), "Organizations") },
       ],
@@ -376,9 +377,9 @@ export const SCREEN_REGISTRY: ScreenRegistry = {
       title: "Auth",
       screens: [
         { id: "auth-settings", label: "Auth Settings", icon: Settings, render: createNamedLazyScreenRender(() => import("../components/AuthSettings"), "AuthSettings") },
-        { id: "mfa-management", label: "MFA Management", icon: ShieldCheck, render: createNamedLazyScreenRender(() => import("../components/MFAEnrollment"), "MFAEnrollment") },
-        { id: "account-linking", label: "Account Linking", icon: Link, render: createNamedLazyScreenRender(() => import("../components/AccountLinking"), "AccountLinking", () => ({ onLinked: () => {} })) },
-        { id: "saml", label: "SAML", icon: ShieldPlus, render: createNamedLazyScreenRender(() => import("../components/SAMLConfig"), "SAMLConfig") },
+        { id: "mfa-management", label: "Multi-Factor Authentication", icon: ShieldCheck, render: createNamedLazyScreenRender(() => import("../components/MFAEnrollment"), "MFAEnrollment", ({ screenLabel }) => ({ screenLabel })) },
+        { id: "account-linking", label: "Link Your Account", icon: Link, render: createNamedLazyScreenRender(() => import("../components/AccountLinking"), "AccountLinking", ({ screenLabel }) => ({ onLinked: () => {}, screenLabel })) },
+        { id: "saml", label: "SAML Configuration", icon: ShieldPlus, render: createNamedLazyScreenRender(() => import("../components/SAMLConfig"), "SAMLConfig", ({ screenLabel }) => ({ screenLabel })) },
         { id: "auth-hooks", label: "Auth Hooks", icon: Anchor, render: createNamedLazyScreenRender(() => import("../components/AuthHooks"), "AuthHooks") },
       ],
     },

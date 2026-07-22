@@ -1,8 +1,8 @@
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { AlertCircle, Loader2 } from "lucide-react";
 import { createTenant } from "../api_tenants";
 import { DEFAULT_CREATE_TENANT_ISOLATION_MODE, DEFAULT_CREATE_TENANT_PLAN_TIER } from "../types/tenants";
-import type { DetailTab, TenantAuditQuery } from "../types/tenants";
+import type { DetailTab, Tenant, TenantAuditQuery } from "../types/tenants";
 import { useDraftFilters } from "../hooks/useDraftFilters";
 import { useTenantDetailState, useTenantListState } from "./tenants-hooks";
 import { useTenantManagementState } from "./tenant-management-hooks";
@@ -13,6 +13,7 @@ import {
   TenantMaintenanceSection,
 } from "./TenantsSections";
 import { TenantInfoSection, TenantMembersSection } from "./TenantManagementSections";
+import { ConfirmDialog } from "./shared/ConfirmDialog";
 import {
   type CreateTenantFormErrors,
   type CreateTenantFormValues,
@@ -75,6 +76,9 @@ export function Tenants() {
   const [createErrors, setCreateErrors] = useState<CreateTenantFormErrors>({});
   const [createSubmitError, setCreateSubmitError] = useState<string | null>(null);
   const [isCreatingTenant, setCreatingTenant] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState<Tenant | null>(null);
+  const [deleteConfirmSlug, setDeleteConfirmSlug] = useState("");
+  const [isDeletingTenant, setDeletingTenant] = useState(false);
 
   const {
     draftValues: draftAuditFilters,
@@ -138,6 +142,12 @@ export function Tenants() {
     setActiveTab("info");
   }, []);
 
+  useEffect(() => {
+    setDeleteTarget(null);
+    setDeleteConfirmSlug("");
+    setDeletingTenant(false);
+  }, [selectedId]);
+
   const openCreateDialog = useCallback(() => {
     setCreateDialogOpen(true);
     setCreateSubmitError(null);
@@ -197,6 +207,37 @@ export function Tenants() {
     }
   }, [createValues, setDetail, refreshList]);
 
+  const openDeleteDialog = useCallback(() => {
+    if (!detail.tenant) {
+      return;
+    }
+    setDeleteTarget(detail.tenant);
+    setDeleteConfirmSlug("");
+  }, [detail.tenant]);
+
+  const closeDeleteDialog = useCallback(() => {
+    if (isDeletingTenant) {
+      return;
+    }
+    setDeleteTarget(null);
+    setDeleteConfirmSlug("");
+  }, [isDeletingTenant]);
+
+  const confirmTenantDelete = useCallback(async () => {
+    if (!deleteTarget || deleteConfirmSlug !== deleteTarget.slug) {
+      return;
+    }
+
+    setDeletingTenant(true);
+    try {
+      await handleDelete();
+      setDeleteTarget(null);
+      setDeleteConfirmSlug("");
+    } finally {
+      setDeletingTenant(false);
+    }
+  }, [deleteConfirmSlug, deleteTarget, handleDelete]);
+
   // Loading state
   if (listState.isLoading && listState.items.length === 0) {
     return (
@@ -238,7 +279,7 @@ export function Tenants() {
               onTabChange={setActiveTab}
               onSuspend={handleSuspend}
               onResume={handleResume}
-              onDelete={handleDelete}
+              onDelete={openDeleteDialog}
             />
             {detail.isLoading ? (
               <div className="flex items-center justify-center py-8">
@@ -328,6 +369,33 @@ export function Tenants() {
         onClose={closeCreateDialog}
         onSubmit={handleCreateTenant}
       />
+      <ConfirmDialog
+        open={deleteTarget !== null}
+        title="Delete Tenant"
+        message={
+          deleteTarget
+            ? `Type ${deleteTarget.slug} to move this tenant to deleting.`
+            : "Type the tenant slug to move this tenant to deleting."
+        }
+        confirmLabel="Delete"
+        onConfirm={confirmTenantDelete}
+        onCancel={closeDeleteDialog}
+        destructive
+        loading={isDeletingTenant}
+        confirmDisabled={!deleteTarget || deleteConfirmSlug !== deleteTarget.slug}
+      >
+        <label htmlFor="tenant-delete-confirm-slug" className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
+          Tenant slug
+        </label>
+        <input
+          id="tenant-delete-confirm-slug"
+          type="text"
+          value={deleteConfirmSlug}
+          onChange={(event) => setDeleteConfirmSlug(event.target.value)}
+          disabled={isDeletingTenant}
+          className="w-full rounded border border-gray-300 bg-white px-2 py-1.5 text-sm text-gray-900 disabled:opacity-50 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-100"
+        />
+      </ConfirmDialog>
     </div>
   );
 }

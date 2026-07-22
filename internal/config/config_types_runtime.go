@@ -48,9 +48,10 @@ type JobsConfig struct {
 }
 
 type PushConfig struct {
-	Enabled bool           `toml:"enabled"` // default false
-	FCM     PushFCMConfig  `toml:"fcm"`
-	APNS    PushAPNSConfig `toml:"apns"`
+	Enabled        bool           `toml:"enabled"`          // default false
+	UseLogProvider bool           `toml:"use_log_provider"` // default false
+	FCM            PushFCMConfig  `toml:"fcm"`
+	APNS           PushAPNSConfig `toml:"apns"`
 }
 
 type PushFCMConfig struct {

@@ -22,11 +22,13 @@ export default function KanbanColumn({
   const [newTitle, setNewTitle] = useState("");
   const [adding, setAdding] = useState(false);
   const [showAdd, setShowAdd] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   async function addCard(e: React.FormEvent) {
     e.preventDefault();
     if (!newTitle.trim()) return;
     setAdding(true);
+    setError(null);
     try {
       const card = await ayb.records.create<Card>("cards", {
         column_id: column.id,
@@ -38,6 +40,7 @@ export default function KanbanColumn({
       setShowAdd(false);
     } catch (err) {
       console.error("Failed to create card:", err);
+      setError(err instanceof Error ? err.message : "Failed to create card");
     } finally {
       setAdding(false);
     }
@@ -45,11 +48,13 @@ export default function KanbanColumn({
 
   async function handleDeleteColumn() {
     if (!confirm(`Delete "${column.title}" and all its cards?`)) return;
+    setError(null);
     try {
       await ayb.records.delete("columns", column.id);
       onDeleteColumn(column.id);
     } catch (err) {
       console.error("Failed to delete column:", err);
+      setError(err instanceof Error ? err.message : "Failed to delete column");
     }
   }
 
@@ -105,6 +110,11 @@ export default function KanbanColumn({
       </Droppable>
 
       <div className="mt-2">
+        {error && (
+          <p role="alert" className="mb-2 text-sm text-red-600">
+            {error}
+          </p>
+        )}
         {showAdd ? (
           <form onSubmit={addCard} className="space-y-2">
             <input

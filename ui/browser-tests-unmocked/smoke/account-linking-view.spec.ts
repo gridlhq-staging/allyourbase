@@ -50,7 +50,7 @@ test.describe("Smoke: Account Linking", () => {
     // Act: navigate to Account Linking
     await page.goto("/admin/");
     await waitForDashboard(page);
-    await page.locator("aside").getByRole("button", { name: /^Account Linking$/i }).click();
+    await page.locator("aside").getByRole("button", { name: /^Link Your Account$/i }).click();
     await expect(page.getByRole("heading", { name: /Link Your Account/i })).toBeVisible({ timeout: 15_000 });
 
     // Assert: anonymous session button is present and functional

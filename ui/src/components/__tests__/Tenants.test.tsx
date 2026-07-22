@@ -166,6 +166,18 @@ describe("Tenants", () => {
     await screen.findByRole("button", { name: "Delete" });
 
     await user.click(screen.getByRole("button", { name: "Delete" }));
+    const dialog = await screen.findByRole("dialog", { name: "Delete Tenant" });
+    expect(mockDeleteTenant).not.toHaveBeenCalled();
+    expect(within(dialog).getByRole("button", { name: "Delete" })).toBeDisabled();
+
+    await user.type(within(dialog).getByLabelText("Tenant slug"), "not-acme");
+    expect(within(dialog).getByRole("button", { name: "Delete" })).toBeDisabled();
+    expect(mockDeleteTenant).not.toHaveBeenCalled();
+
+    await user.clear(within(dialog).getByLabelText("Tenant slug"));
+    await user.type(within(dialog).getByLabelText("Tenant slug"), "acme");
+    expect(within(dialog).getByRole("button", { name: "Delete" })).toBeEnabled();
+    await user.click(within(dialog).getByRole("button", { name: "Delete" }));
 
     await waitFor(() => {
       expect(mockDeleteTenant).toHaveBeenCalledWith("t-1");
@@ -174,6 +186,57 @@ describe("Tenants", () => {
       expect(screen.queryByRole("button", { name: "Suspend" })).not.toBeInTheDocument();
       expect(screen.queryByRole("button", { name: "Resume" })).not.toBeInTheDocument();
     });
+  });
+
+  it("deletes a provisioning tenant only after exact slug confirmation", async () => {
+    const provisioningTenant = makeTenant({
+      id: "t-provisioning",
+      name: "Provisioning Corp",
+      slug: "provisioning-corp",
+      state: "provisioning",
+    });
+    mockFetchTenantList.mockResolvedValueOnce(
+      makeListResponse({ items: [provisioningTenant], totalItems: 1 }),
+    );
+    mockGetTenant.mockResolvedValueOnce(provisioningTenant);
+    mockDeleteTenant.mockResolvedValueOnce(makeTenant({ ...provisioningTenant, state: "deleting" }));
+
+    renderWithProviders(<Tenants />);
+    const user = userEvent.setup();
+    await screen.findByText("Provisioning Corp");
+    await user.click(screen.getByText("Provisioning Corp"));
+    await screen.findByRole("button", { name: "Delete" });
+
+    await user.click(screen.getByRole("button", { name: "Delete" }));
+    let dialog = await screen.findByRole("dialog", { name: "Delete Tenant" });
+    expect(mockDeleteTenant).not.toHaveBeenCalled();
+    expect(within(dialog).getByText(/provisioning-corp/)).toBeInTheDocument();
+
+    await user.click(within(dialog).getByRole("button", { name: "Cancel" }));
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Delete Tenant" })).not.toBeInTheDocument());
+    expect(mockDeleteTenant).not.toHaveBeenCalled();
+    expect(screen.getByRole("heading", { name: "Provisioning Corp" })).toBeInTheDocument();
+    expect(within(screen.getByTestId("tenant-info-section")).getByText("provisioning")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Delete" }));
+    dialog = await screen.findByRole("dialog", { name: "Delete Tenant" });
+    const confirmButton = within(dialog).getByRole("button", { name: "Delete" });
+    const slugInput = within(dialog).getByLabelText("Tenant slug");
+    expect(confirmButton).toBeDisabled();
+
+    await user.type(slugInput, "wrong-slug");
+    expect(confirmButton).toBeDisabled();
+    expect(mockDeleteTenant).not.toHaveBeenCalled();
+
+    await user.clear(slugInput);
+    await user.type(slugInput, "provisioning-corp");
+    expect(confirmButton).toBeEnabled();
+    await user.click(confirmButton);
+
+    await waitFor(() => expect(mockDeleteTenant).toHaveBeenCalledWith("t-provisioning"));
+    expect(screen.getByRole("heading", { name: "Provisioning Corp" })).toBeInTheDocument();
+    expect(within(screen.getByTestId("tenant-info-section")).getByText("deleting")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Delete" })).not.toBeInTheDocument();
   });
 
   it("switches to Members tab and shows member list", async () => {

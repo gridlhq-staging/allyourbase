@@ -65,7 +65,7 @@ describe("RlsPolicies schema-qualified table actions", () => {
     mockGetStatus.mockResolvedValue({ rlsEnabled: true, forceRls: false });
     mockDeletePolicy.mockResolvedValueOnce(undefined);
 
-    renderWithProviders(<RlsPolicies schema={makeSchemaWithPrivatePosts()} />);
+    renderWithProviders(<RlsPolicies screenLabel="RLS Policies" schema={makeSchemaWithPrivatePosts()} />);
 
     await waitFor(() => {
       expect(screen.getByText("Add Policy")).toBeInTheDocument();

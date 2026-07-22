@@ -50,6 +50,7 @@ export interface MetricLimitRow {
 }
 
 interface UsageHeaderProps {
+  screenLabel: string;
   onRefresh: () => void;
 }
 
@@ -218,11 +219,11 @@ export function formatMetricLimitRows(limits: UsageLimitsResponse | null): Metri
   });
 }
 
-export function UsageHeader({ onRefresh }: UsageHeaderProps) {
+export function UsageHeader({ screenLabel, onRefresh }: UsageHeaderProps) {
   return (
     <header className="flex items-center justify-between gap-4">
       <div>
-        <h1 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Usage Metering</h1>
+        <h1 className="text-lg font-semibold text-gray-900 dark:text-gray-100">{screenLabel}</h1>
         <p className="text-sm text-gray-500 dark:text-gray-300 mt-0.5">
           Shared usage contract across aggregate list, trends, breakdown, and per-tenant limits.
         </p>

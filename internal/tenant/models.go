@@ -18,7 +18,7 @@ const (
 
 // validTransitions maps each state to the set of valid target states.
 var validTransitions = map[TenantState]map[TenantState]bool{
-	TenantStateProvisioning: {TenantStateActive: true},
+	TenantStateProvisioning: {TenantStateActive: true, TenantStateDeleting: true},
 	TenantStateActive:       {TenantStateSuspended: true, TenantStateDeleting: true},
 	TenantStateSuspended:    {TenantStateActive: true, TenantStateDeleting: true},
 	TenantStateDeleting:     {TenantStateDeleted: true},

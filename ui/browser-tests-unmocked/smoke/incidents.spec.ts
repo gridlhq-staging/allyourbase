@@ -26,8 +26,9 @@ test.describe("Smoke: Incidents", () => {
 
   test("seeded incident renders in list and detail timeline", async ({ page, request, adminToken }) => {
     const probeStatus = await probeEndpoint(request, adminToken, "/api/admin/incidents");
+    expect(probeStatus, "/api/admin/incidents must be registered by the embedded console server").not.toBe(404);
     test.skip(
-      probeStatus === 501 || probeStatus === 404,
+      probeStatus === 503,
       `Incidents service not configured (status ${probeStatus})`,
     );
 

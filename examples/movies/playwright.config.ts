@@ -8,6 +8,7 @@ const port = Number(process.env.AYB_DEMO_APP_PORT) || 5177;
 export default defineConfig({
   testDir: "./e2e",
   timeout: 30000,
+  workers: 1,
   retries: 0,
   use: {
     baseURL: `http://127.0.0.1:${port}`,
@@ -24,7 +25,7 @@ export default defineConfig({
   reporter: [["list"], ["json", { outputFile: "playwright-report/results.json" }]],
   webServer: {
     command:
-      "AYB_AUTH_RATE_LIMIT=10000 AYB_AUTH_RATE_LIMIT_AUTH=10000/min AYB_AUTH_ANONYMOUS_RATE_LIMIT=10000 AYB_RATE_LIMIT_API_ANONYMOUS=10000/min AYB_RATE_LIMIT_API=10000/min bash ./e2e/run_demo_with_fake_ollama.sh",
+      "AYB_AUTH_ANONYMOUS_AUTH_ENABLED=true AYB_AUTH_MAGIC_LINK_ENABLED=true AYB_AUTH_RATE_LIMIT=10000 AYB_AUTH_RATE_LIMIT_AUTH=10000/min AYB_AUTH_ANONYMOUS_RATE_LIMIT=10000 AYB_RATE_LIMIT_API_ANONYMOUS=10000/min AYB_RATE_LIMIT_API=10000/min bash ./e2e/run_demo_with_fake_ollama.sh",
     port,
     reuseExistingServer: true,
     timeout: 60000,

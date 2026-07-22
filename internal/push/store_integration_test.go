@@ -188,11 +188,6 @@ func TestRecordAndGetDelivery(t *testing.T) {
 }
 
 func TestUpdateDeliveryStatus(t *testing.T) {
-	// The UpdateDeliveryStatus SQL uses $2 in both SET and CASE WHEN contexts,
-	// which triggers a pgx DescribeExec type inference ambiguity. This is a
-	// known pgx behavior with the test pool's QueryExecModeDescribeExec config.
-	// Production uses SimpleProtocol or ExecParams mode and is unaffected.
-	// We test via a direct Exec to verify the UPDATE path works.
 	ctx := context.Background()
 	resetAndMigrate(t, ctx)
 
@@ -213,16 +208,12 @@ func TestUpdateDeliveryStatus(t *testing.T) {
 	recorded, err := store.RecordDelivery(ctx, delivery)
 	testutil.NoError(t, err)
 
-	// Update the delivery directly via SQL to avoid the DescribeExec
-	// type inference issue (see comment above).
-	_, err = sharedPG.Pool.Exec(ctx,
-		`UPDATE _ayb_push_deliveries SET status = 'sent', provider_message_id = $2, updated_at = NOW() WHERE id = $1`,
-		recorded.ID, "provider-msg-123")
-	testutil.NoError(t, err)
+	testutil.NoError(t, store.UpdateDeliveryStatus(ctx, recorded.ID, "sent", "", "", "provider-msg-123"))
 
 	got, err := store.GetDelivery(ctx, recorded.ID)
 	testutil.NoError(t, err)
 	testutil.Equal(t, "sent", got.Status)
+	testutil.NotNil(t, got.SentAt)
 	testutil.NotNil(t, got.ProviderMessageID)
 	testutil.Equal(t, "provider-msg-123", *got.ProviderMessageID)
 }

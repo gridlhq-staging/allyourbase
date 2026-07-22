@@ -428,7 +428,7 @@ describe("MFA canonical passkey entry points", () => {
       </>,
     );
 
-    const mfaEntryPoints = screen.getAllByRole("button", { name: /^MFA Management$/i });
+    const mfaEntryPoints = screen.getAllByRole("button", { name: /^Multi-Factor Authentication$/i });
 
     await user.click(mfaEntryPoints[0]);
     expect(onSelectAdminView).toHaveBeenCalledWith("mfa-management");

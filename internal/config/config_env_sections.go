@@ -1,6 +1,7 @@
 package config
 
 import (
+	"fmt"
 	"os"
 	"strings"
 )
@@ -391,9 +392,16 @@ func applyStatusEnv(cfg *Config) error {
 }
 
 // applyPushEnv overrides push notification config fields from AYB_PUSH_* environment variables, covering FCM credentials and APNS key/team/bundle settings.
-func applyPushEnv(cfg *Config) {
+func applyPushEnv(cfg *Config) error {
 	if v := os.Getenv("AYB_PUSH_ENABLED"); v != "" {
 		cfg.Push.Enabled = v == "true" || v == "1"
+	}
+	if v := os.Getenv("AYB_PUSH_USE_LOG_PROVIDER"); v != "" {
+		useLogProvider, err := parseStrictBoolEnv("AYB_PUSH_USE_LOG_PROVIDER", v)
+		if err != nil {
+			return err
+		}
+		cfg.Push.UseLogProvider = useLogProvider
 	}
 	if v := os.Getenv("AYB_PUSH_FCM_CREDENTIALS_FILE"); v != "" {
 		cfg.Push.FCM.CredentialsFile = v
@@ -412,5 +420,17 @@ func applyPushEnv(cfg *Config) {
 	}
 	if v := os.Getenv("AYB_PUSH_APNS_ENVIRONMENT"); v != "" {
 		cfg.Push.APNS.Environment = v
+	}
+	return nil
+}
+
+func parseStrictBoolEnv(name, value string) (bool, error) {
+	switch value {
+	case "true", "1":
+		return true, nil
+	case "false", "0":
+		return false, nil
+	default:
+		return false, fmt.Errorf("%s must be a boolean (true, false, 1, or 0), got %q", name, value)
 	}
 }

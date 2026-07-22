@@ -493,6 +493,27 @@ jobs:
       - name: Movies real-provider smoke
         run: make test-demo-movies-real-provider
 
+  push-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+        with:
+          go-version: "1.25"
+
+      - name: Install smoke prerequisites
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends jq lsof
+
+      - name: Push notification smoke
+        run: make test-push-smoke
+
   demo-unit:
     runs-on: ubuntu-latest
     timeout-minutes: 15

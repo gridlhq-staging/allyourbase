@@ -86,7 +86,7 @@ func (h *Handler) HandleSign(w http.ResponseWriter, r *http.Request) {
 	}
 	if expiry > 7*24*time.Hour {
 		httputil.WriteErrorWithDocURL(w, http.StatusBadRequest, "expiresIn must not exceed 604800 (7 days)",
-			"https://allyourbase.io/guide/file-storage")
+			httputil.DocURL("/guide/file-storage"))
 		return
 	}
 

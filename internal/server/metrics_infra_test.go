@@ -62,6 +62,7 @@ func TestAuthMetricsDoNotIncrementOnFailedAuthRequests(t *testing.T) {
 
 	metrics := httptest.NewRecorder()
 	metricsReq := httptest.NewRequest(http.MethodGet, "/metrics", nil)
+	metricsReq.RemoteAddr = "127.0.0.1:1234"
 	srv.Router().ServeHTTP(metrics, metricsReq)
 	testutil.Equal(t, http.StatusOK, metrics.Code)
 	body := metrics.Body.String()

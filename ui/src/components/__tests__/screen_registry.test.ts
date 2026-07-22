@@ -6,6 +6,7 @@ import {
   ADMIN_VIEWS,
   SCREEN_REGISTRY,
   createLazyScreenRender,
+  findAdminScreen,
   filterScreenRegistry,
   type ScreenProps,
   type ScreenRegistry,
@@ -25,6 +26,87 @@ const EMPTY_SCHEMA = {
   tables: {},
   builtAt: "2026-07-15T00:00:00Z",
 };
+const SCREEN_LABEL_PROBE_TEST_ID = "screen-label-probe";
+
+vi.mock("../FunctionBrowser", async () => {
+  const { createElement } = await import("react");
+  return {
+    FunctionBrowser: ({ screenLabel }: { screenLabel: string }) =>
+      createElement("div", { "data-testid": "screen-label-probe" }, screenLabel),
+  };
+});
+
+vi.mock("../RlsPolicies", async () => {
+  const { createElement } = await import("react");
+  return {
+    RlsPolicies: ({ screenLabel }: { screenLabel: string }) =>
+      createElement("div", { "data-testid": "screen-label-probe" }, screenLabel),
+  };
+});
+
+vi.mock("../MatviewsAdmin", async () => {
+  const { createElement } = await import("react");
+  return {
+    MatviewsAdmin: ({ screenLabel }: { screenLabel: string }) =>
+      createElement("div", { "data-testid": "screen-label-probe" }, screenLabel),
+  };
+});
+
+vi.mock("../FDWManagement", async () => {
+  const { createElement } = await import("react");
+  return {
+    FDWManagement: ({ screenLabel }: { screenLabel: string }) =>
+      createElement("div", { "data-testid": "screen-label-probe" }, screenLabel),
+  };
+});
+
+vi.mock("../Apps", async () => {
+  const { createElement } = await import("react");
+  return {
+    Apps: ({ screenLabel }: { screenLabel: string }) =>
+      createElement("div", { "data-testid": "screen-label-probe" }, screenLabel),
+  };
+});
+
+vi.mock("../Backups", async () => {
+  const { createElement } = await import("react");
+  return {
+    Backups: ({ screenLabel }: { screenLabel: string }) =>
+      createElement("div", { "data-testid": "screen-label-probe" }, screenLabel),
+  };
+});
+
+vi.mock("../UsageMetering", async () => {
+  const { createElement } = await import("react");
+  return {
+    UsageMetering: ({ screenLabel }: { screenLabel: string }) =>
+      createElement("div", { "data-testid": "screen-label-probe" }, screenLabel),
+  };
+});
+
+vi.mock("../MFAEnrollment", async () => {
+  const { createElement } = await import("react");
+  return {
+    MFAEnrollment: ({ screenLabel }: { screenLabel: string }) =>
+      createElement("div", { "data-testid": "screen-label-probe" }, screenLabel),
+  };
+});
+
+vi.mock("../AccountLinking", async () => {
+  const { createElement } = await import("react");
+  return {
+    AccountLinking: ({ screenLabel }: { screenLabel: string }) =>
+      createElement("div", { "data-testid": "screen-label-probe" }, screenLabel),
+  };
+});
+
+vi.mock("../SAMLConfig", async () => {
+  const { createElement } = await import("react");
+  return {
+    SAMLConfig: ({ screenLabel }: { screenLabel: string }) =>
+      createElement("div", { "data-testid": "screen-label-probe" }, screenLabel),
+  };
+});
 
 class TestErrorBoundary extends Component<
   { children: ReactNode },
@@ -58,7 +140,7 @@ function renderScreen(renderScreen: (props: ScreenProps) => ReactNode) {
     createElement(
       TestErrorBoundary,
       null,
-      renderScreen({ schema: EMPTY_SCHEMA, onRefresh }),
+      renderScreen({ schema: EMPTY_SCHEMA, onRefresh, screenLabel: "Test Screen" }),
     ),
   );
   return { onRefresh };
@@ -229,6 +311,33 @@ describe("screen registry", () => {
 
     expect(loader).toHaveBeenCalledTimes(1);
     expect(onRefresh).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([
+    "functions",
+    "rls",
+    "matviews",
+    "fdw",
+    "apps",
+    "backups",
+    "usage",
+    "mfa-management",
+    "account-linking",
+    "saml",
+  ] as const)("maps the registry label into the %s lazy screen props", async (screenId) => {
+    const registeredScreen = findAdminScreen(screenId);
+
+    expect(registeredScreen).toBeDefined();
+    renderScreen((props) =>
+      registeredScreen!.render({
+        ...props,
+        screenLabel: registeredScreen!.label,
+      }),
+    );
+
+    expect(await screen.findByTestId(SCREEN_LABEL_PROBE_TEST_ID)).toHaveTextContent(
+      registeredScreen!.label,
+    );
   });
 
   it("can recover from a rejected lazy import with a fresh loader request after retry", async () => {

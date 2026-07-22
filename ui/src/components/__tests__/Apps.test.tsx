@@ -92,8 +92,17 @@ describe("Apps", () => {
 
   it("shows loading state", () => {
     mockListApps.mockReturnValue(new Promise(() => {}));
-    renderWithProviders(<Apps />);
+    renderWithProviders(<Apps screenLabel="Applications" />);
     expect(screen.getByText("Loading apps...")).toBeInTheDocument();
+  });
+
+  it("uses the injected registry label as the primary heading", async () => {
+    mockListApps.mockResolvedValueOnce(makeListResponse([]));
+    renderWithProviders(<Apps screenLabel="Registry Apps Label" />);
+
+    expect(
+      await screen.findByRole("heading", { name: "Registry Apps Label" }),
+    ).toBeInTheDocument();
   });
 
   it("renders apps list", async () => {
@@ -102,7 +111,7 @@ describe("Apps", () => {
       makeApp({ id: "a2", name: "Backend API" }),
     ];
     mockListApps.mockResolvedValueOnce(makeListResponse(apps));
-    renderWithProviders(<Apps />);
+    renderWithProviders(<Apps screenLabel="Applications" />);
 
     await waitFor(() => {
       expect(screen.getByText("Frontend")).toBeInTheDocument();
@@ -112,7 +121,7 @@ describe("Apps", () => {
 
   it("shows empty state when no apps", async () => {
     mockListApps.mockResolvedValueOnce(makeListResponse([]));
-    renderWithProviders(<Apps />);
+    renderWithProviders(<Apps screenLabel="Applications" />);
 
     await waitFor(() => {
       expect(screen.getByText("No apps registered yet")).toBeInTheDocument();
@@ -121,7 +130,7 @@ describe("Apps", () => {
 
   it("shows error state with retry", async () => {
     mockListApps.mockRejectedValueOnce(new Error("connection refused"));
-    renderWithProviders(<Apps />);
+    renderWithProviders(<Apps screenLabel="Applications" />);
 
     await waitFor(() => {
       expect(screen.getByText("connection refused")).toBeInTheDocument();
@@ -134,7 +143,7 @@ describe("Apps", () => {
     mockListApps.mockResolvedValueOnce(
       makeListResponse(apps, { totalItems: 1 }),
     );
-    renderWithProviders(<Apps />);
+    renderWithProviders(<Apps screenLabel="Applications" />);
 
     await waitFor(() => {
       expect(screen.getByText("1 app")).toBeInTheDocument();
@@ -149,7 +158,7 @@ describe("Apps", () => {
     mockListApps.mockResolvedValueOnce(
       makeListResponse(apps, { totalItems: 2 }),
     );
-    renderWithProviders(<Apps />);
+    renderWithProviders(<Apps screenLabel="Applications" />);
 
     await waitFor(() => {
       expect(screen.getByText("2 apps")).toBeInTheDocument();
@@ -162,7 +171,7 @@ describe("Apps", () => {
         makeApp({ rateLimitRps: 100, rateLimitWindowSeconds: 60 }),
       ]),
     );
-    renderWithProviders(<Apps />);
+    renderWithProviders(<Apps screenLabel="Applications" />);
 
     await waitFor(() => {
       expect(screen.getByText("100 req/60s")).toBeInTheDocument();
@@ -173,7 +182,7 @@ describe("Apps", () => {
     mockListApps.mockResolvedValueOnce(
       makeListResponse([makeApp({ rateLimitRps: 0 })]),
     );
-    renderWithProviders(<Apps />);
+    renderWithProviders(<Apps screenLabel="Applications" />);
 
     await waitFor(() => {
       expect(screen.getByText("none")).toBeInTheDocument();
@@ -184,7 +193,7 @@ describe("Apps", () => {
     mockListApps.mockResolvedValueOnce(
       makeListResponse([makeApp({ ownerUserId: "u1" })]),
     );
-    renderWithProviders(<Apps />);
+    renderWithProviders(<Apps screenLabel="Applications" />);
 
     await waitFor(() => {
       expect(screen.getByText("alice@example.com")).toBeInTheDocument();
@@ -193,7 +202,7 @@ describe("Apps", () => {
 
   it("create button opens create modal", async () => {
     mockListApps.mockResolvedValueOnce(makeListResponse([makeApp()]));
-    renderWithProviders(<Apps />);
+    renderWithProviders(<Apps screenLabel="Applications" />);
 
     await waitFor(() => {
       expect(screen.getByText("My App")).toBeInTheDocument();
@@ -209,7 +218,7 @@ describe("Apps", () => {
   it("create flow calls createApp and refreshes list", async () => {
     mockListApps.mockResolvedValue(makeListResponse([]));
     mockCreateApp.mockResolvedValueOnce(makeApp({ id: "a-new", name: "New App" }));
-    renderWithProviders(<Apps />);
+    renderWithProviders(<Apps screenLabel="Applications" />);
 
     await waitFor(() => {
       expect(screen.getByText("No apps registered yet")).toBeInTheDocument();
@@ -235,7 +244,7 @@ describe("Apps", () => {
 
   it("create button disabled when name is empty", async () => {
     mockListApps.mockResolvedValueOnce(makeListResponse([makeApp()]));
-    renderWithProviders(<Apps />);
+    renderWithProviders(<Apps screenLabel="Applications" />);
 
     await waitFor(() => {
       expect(screen.getByText("My App")).toBeInTheDocument();
@@ -251,7 +260,7 @@ describe("Apps", () => {
 
   it("cancel on create modal closes it", async () => {
     mockListApps.mockResolvedValueOnce(makeListResponse([makeApp()]));
-    renderWithProviders(<Apps />);
+    renderWithProviders(<Apps screenLabel="Applications" />);
 
     await waitFor(() => {
       expect(screen.getByText("My App")).toBeInTheDocument();
@@ -267,7 +276,7 @@ describe("Apps", () => {
 
   it("delete button opens confirmation dialog", async () => {
     mockListApps.mockResolvedValueOnce(makeListResponse([makeApp()]));
-    renderWithProviders(<Apps />);
+    renderWithProviders(<Apps screenLabel="Applications" />);
 
     await waitFor(() => {
       expect(screen.getByText("My App")).toBeInTheDocument();
@@ -285,7 +294,7 @@ describe("Apps", () => {
   it("confirming delete calls deleteApp and refreshes", async () => {
     mockListApps.mockResolvedValue(makeListResponse([makeApp()]));
     mockDeleteApp.mockResolvedValueOnce(undefined);
-    renderWithProviders(<Apps />);
+    renderWithProviders(<Apps screenLabel="Applications" />);
 
     await waitFor(() => {
       expect(screen.getByText("My App")).toBeInTheDocument();
@@ -309,7 +318,7 @@ describe("Apps", () => {
 
   it("cancel on delete dialog closes it", async () => {
     mockListApps.mockResolvedValueOnce(makeListResponse([makeApp()]));
-    renderWithProviders(<Apps />);
+    renderWithProviders(<Apps screenLabel="Applications" />);
 
     await waitFor(() => {
       expect(screen.getByText("My App")).toBeInTheDocument();
@@ -327,7 +336,7 @@ describe("Apps", () => {
     mockListApps.mockResolvedValueOnce(
       makeListResponse([makeApp({ description: "Production frontend" })]),
     );
-    renderWithProviders(<Apps />);
+    renderWithProviders(<Apps screenLabel="Applications" />);
 
     await waitFor(() => {
       expect(screen.getByText("Production frontend")).toBeInTheDocument();
@@ -338,7 +347,7 @@ describe("Apps", () => {
     mockListApps.mockResolvedValueOnce(
       makeListResponse([makeApp({ id: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa" })]),
     );
-    renderWithProviders(<Apps />);
+    renderWithProviders(<Apps screenLabel="Applications" />);
 
     await waitFor(() => {
       expect(
@@ -349,7 +358,7 @@ describe("Apps", () => {
 
   it("retry button refetches apps after error", async () => {
     mockListApps.mockRejectedValueOnce(new Error("network down"));
-    renderWithProviders(<Apps />);
+    renderWithProviders(<Apps screenLabel="Applications" />);
 
     await waitFor(() => {
       expect(screen.getByText("network down")).toBeInTheDocument();
@@ -373,7 +382,7 @@ describe("Apps", () => {
         page: 1,
       }),
     );
-    renderWithProviders(<Apps />);
+    renderWithProviders(<Apps screenLabel="Applications" />);
 
     await waitFor(() => {
       expect(screen.getByText("45 apps")).toBeInTheDocument();
@@ -384,7 +393,7 @@ describe("Apps", () => {
   it("create form sends description when provided", async () => {
     mockListApps.mockResolvedValue(makeListResponse([]));
     mockCreateApp.mockResolvedValueOnce(makeApp({ name: "Desc App" }));
-    renderWithProviders(<Apps />);
+    renderWithProviders(<Apps screenLabel="Applications" />);
 
     await waitFor(() => {
       expect(screen.getByText("No apps registered yet")).toBeInTheDocument();

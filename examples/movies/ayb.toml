@@ -1,5 +1,5 @@
 # Allyourbase (AYB) Configuration
-# Documentation: https://allyourbase.io/docs/config
+# Documentation: https://allyourbase.io/guide/configuration
 
 [server]
 # Address to listen on.
@@ -380,13 +380,13 @@ format = "json"
 # Authorization = "Bearer token"
 
 [metrics]
-# Expose Prometheus metrics endpoint.
+# Expose Prometheus metrics endpoint. Tokenless access is loopback-only.
 enabled = true
 
 # HTTP path for metrics scraping.
 path = "/metrics"
 
-# Optional bearer token required for metrics access.
+# Optional bearer token required for remote scrapers or reverse proxies.
 # auth_token = ""
 
 [realtime]

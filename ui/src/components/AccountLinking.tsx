@@ -5,9 +5,10 @@ import { Loader2 } from "lucide-react";
 
 interface AccountLinkingProps {
   onLinked: (tokens: AuthTokens) => void;
+  screenLabel: string;
 }
 
-export function AccountLinking({ onLinked }: AccountLinkingProps) {
+export function AccountLinking({ onLinked, screenLabel }: AccountLinkingProps) {
   const [sessionReady, setSessionReady] = useState(() => getAuthToken() !== null);
   const [startingSession, setStartingSession] = useState(false);
   const [email, setEmail] = useState("");
@@ -54,7 +55,7 @@ export function AccountLinking({ onLinked }: AccountLinkingProps) {
 
   return (
     <div className="p-6 max-w-md mx-auto space-y-4">
-      <h2 className="text-lg font-semibold">Link Your Account</h2>
+      <h2 className="text-lg font-semibold">{screenLabel}</h2>
       <p className="text-sm text-gray-600 dark:text-gray-300">
         Set an email and password to secure your anonymous account.
       </p>

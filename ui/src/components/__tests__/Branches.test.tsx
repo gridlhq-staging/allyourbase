@@ -84,23 +84,21 @@ describe("Branches", () => {
     });
   });
 
-  it("create modal opens and submits", async () => {
+  it("renders the created branch from the follow-up list after a successful create", async () => {
     const user = userEvent.setup();
+    const BRANCH_FEATURE_X = {
+      id: "b3",
+      name: "feature-x",
+      source_database: "postgres://localhost/main",
+      branch_database: "postgres://localhost/branch_feature_x",
+      status: "creating",
+      created_at: "2026-02-27T12:00:00Z",
+      updated_at: "2026-02-27T12:00:00Z",
+    };
     const fetchMock = mockFetchSequence([
       { body: { branches: [] } },
-      {
-        body: {
-          id: "b3",
-          name: "feature-x",
-          source_database: "postgres://localhost/main",
-          branch_database: "postgres://localhost/branch_feature_x",
-          status: "creating",
-          created_at: "2026-02-27T12:00:00Z",
-          updated_at: "2026-02-27T12:00:00Z",
-        },
-        status: 201,
-      },
-      { body: { branches: [] } },
+      { body: BRANCH_FEATURE_X, status: 201 },
+      { body: { branches: [BRANCH_FEATURE_X] } },
     ]);
     vi.stubGlobal("fetch", fetchMock);
 
@@ -125,6 +123,12 @@ describe("Branches", () => {
         from: undefined,
       });
     });
+
+    // The create is only proven when the follow-up list re-renders the new row.
+    expect(await screen.findByText('Branch "feature-x" created')).toBeInTheDocument();
+    expect(await screen.findByText("feature-x")).toBeInTheDocument();
+    expect(screen.getByText("Creating")).toBeInTheDocument();
+    expect(screen.queryByText(/no branches/i)).not.toBeInTheDocument();
   });
 
   it("shows conflict error on duplicate name", async () => {

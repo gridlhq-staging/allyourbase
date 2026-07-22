@@ -2,6 +2,7 @@ import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { MockApiError } from "../../test-utils";
+import { docsUrl } from "../../lib/docs_url";
 
 vi.mock("../../api", () => ({
   adminLogin: vi.fn(),
@@ -47,7 +48,7 @@ describe("Login", () => {
     });
   });
 
-  it("shows error on failed login", async () => {
+  it("shows RF-016 unauthorized login with form recovery guidance", async () => {
     const { ApiError } = await import("../../api");
     mockAdminLogin.mockRejectedValueOnce(new ApiError(401, "invalid password"));
     const user = userEvent.setup();
@@ -60,6 +61,12 @@ describe("Login", () => {
     await waitFor(() => {
       expect(screen.getByText("invalid password")).toBeInTheDocument();
     });
+    expect(getPasswordInput()).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Sign in" })).toBeEnabled();
+    expect(screen.getByRole("link", { name: "View guide" })).toHaveAttribute(
+      "href",
+      docsUrl("/guide/authentication"),
+    );
     expect(onSuccess).not.toHaveBeenCalled();
   });
 

@@ -164,6 +164,10 @@ test.describe("Tenants Lifecycle (Full E2E)", () => {
     });
 
     await page.getByRole("button", { name: "Delete", exact: true }).click();
+    const activeDeleteDialog = page.getByRole("dialog", { name: "Delete Tenant" });
+    await expect(activeDeleteDialog).toBeVisible();
+    await activeDeleteDialog.getByLabel("Tenant slug").fill(tenantSlug);
+    await activeDeleteDialog.getByRole("button", { name: "Delete", exact: true }).click();
 
     const deletedTenantResult = await execSQL(
       request,
@@ -200,6 +204,51 @@ test.describe("Tenants Lifecycle (Full E2E)", () => {
       adminToken,
       slug: tenantSlug,
       expectedName: tenantName,
+      expectedState: "provisioning",
+    });
+
+    const tenantInfoSection = page.getByTestId("tenant-info-section");
+    await expect(tenantInfoSection.getByText("provisioning")).toBeVisible();
+    await expect(page.getByRole("button", { name: "Delete", exact: true })).toBeVisible();
+
+    await page.getByRole("button", { name: "Delete", exact: true }).click();
+    let deleteDialog = page.getByRole("dialog", { name: "Delete Tenant" });
+    await expect(deleteDialog).toBeVisible();
+    await expect(deleteDialog.getByText(tenantSlug)).toBeVisible();
+    await expect(deleteDialog.getByRole("button", { name: "Delete", exact: true })).toBeDisabled();
+    await deleteDialog.getByRole("button", { name: "Cancel" }).click();
+    await expect(deleteDialog).toHaveCount(0);
+    await expect(page.getByRole("heading", { name: tenantName })).toBeVisible();
+    await expect(tenantInfoSection.getByText("provisioning")).toBeVisible();
+    await expect(page.getByRole("button", { name: "Delete", exact: true })).toBeVisible();
+    await expectTenantRecord({
+      request,
+      adminToken,
+      slug: tenantSlug,
+      expectedName: tenantName,
+      expectedState: "provisioning",
+    });
+
+    await page.getByRole("button", { name: "Delete", exact: true }).click();
+    deleteDialog = page.getByRole("dialog", { name: "Delete Tenant" });
+    const deleteConfirmButton = deleteDialog.getByRole("button", { name: "Delete", exact: true });
+    const slugInput = deleteDialog.getByLabel("Tenant slug");
+    await slugInput.fill("wrong-slug");
+    await expect(deleteConfirmButton).toBeDisabled();
+    await slugInput.fill(tenantSlug);
+    await expect(deleteConfirmButton).toBeEnabled();
+    await deleteConfirmButton.click();
+
+    await expect(page.getByRole("dialog", { name: "Delete Tenant" })).toHaveCount(0);
+    await expect(page.getByRole("heading", { name: tenantName })).toBeVisible();
+    await expect(tenantInfoSection.getByText("deleting")).toBeVisible({ timeout: 5000 });
+    await expect(page.getByRole("button", { name: "Delete", exact: true })).toHaveCount(0);
+    await expectTenantRecord({
+      request,
+      adminToken,
+      slug: tenantSlug,
+      expectedName: tenantName,
+      expectedState: "deleting",
     });
   });
 });

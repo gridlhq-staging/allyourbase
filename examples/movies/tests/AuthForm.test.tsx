@@ -158,12 +158,17 @@ describe("movies AuthForm", () => {
     fireEvent.change(screen.getByLabelText("Email"), { target: { value: "magic@test.com" } });
     fireEvent.click(screen.getByRole("button", { name: "Email me a magic link" }));
     await waitFor(() => expect(requestMagicLink).toHaveBeenCalledWith("magic@test.com"));
+    expect(await screen.findByRole("status")).toHaveTextContent(
+      "We sent a magic link to magic@test.com. Check your inbox.",
+    );
   });
 
   it("renders the Upgrade Account button when current user is anonymous and wires it to linkEmail", async () => {
     linkEmail.mockResolvedValueOnce(undefined);
     setAuth({ id: "anon-1", isAnonymous: true });
     render(<AuthForm onAuth={vi.fn()} />);
+    expect(screen.getByText("You're browsing as a guest. Add an email and password to keep your data.")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Continue as Guest" })).not.toBeInTheDocument();
     fireEvent.change(screen.getByLabelText("Email"), { target: { value: "claim@test.com" } });
     fireEvent.change(screen.getByLabelText("Password"), { target: { value: "password123" } });
     fireEvent.click(screen.getByRole("button", { name: "Upgrade Account" }));

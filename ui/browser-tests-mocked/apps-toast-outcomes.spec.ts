@@ -9,7 +9,7 @@ test.describe("Apps Toast Outcomes (Browser Mocked)", () => {
     await mockAdminAppsApis(page);
 
     await page.goto("/admin/");
-    await page.getByRole("button", { name: /^Apps$/i }).click();
+    await page.getByRole("button", { name: /^Applications$/i }).click();
 
     await expect(page.getByRole("heading", { name: "Applications" })).toBeVisible();
     await expect(page.getByRole("cell", { name: "Starter App" })).toBeVisible({ timeout: 5000 });
@@ -20,7 +20,7 @@ test.describe("Apps Toast Outcomes (Browser Mocked)", () => {
     const apis = await mockAdminAppsApis(page);
 
     await page.goto("/admin/");
-    await page.getByRole("button", { name: /^Apps$/i }).click();
+    await page.getByRole("button", { name: /^Applications$/i }).click();
     await expect(page.getByRole("heading", { name: "Applications" })).toBeVisible();
 
     await page.getByRole("button", { name: "Create App" }).click();
@@ -51,7 +51,7 @@ test.describe("Apps Toast Outcomes (Browser Mocked)", () => {
     });
 
     await page.goto("/admin/");
-    await page.getByRole("button", { name: /^Apps$/i }).click();
+    await page.getByRole("button", { name: /^Applications$/i }).click();
     await expect(page.getByRole("heading", { name: "Applications" })).toBeVisible();
 
     await page.getByRole("button", { name: "Create App" }).click();

@@ -18,7 +18,7 @@ func (h *Handler) requireEmailMFAEnabled(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if !h.emailMFAEnabled {
 			httputil.WriteErrorWithDocURL(w, http.StatusNotFound, "Email MFA is not enabled",
-				"https://allyourbase.io/guide/authentication#email-mfa")
+				httputil.DocURL("/guide/authentication#email-mfa"))
 			return
 		}
 		next.ServeHTTP(w, r)

@@ -3,6 +3,7 @@ package server
 
 import (
 	"context"
+	"net"
 	"net/http"
 	"strings"
 	"time"
@@ -22,7 +23,11 @@ const (
 	serviceUnavailablePush           = "push notifications are not enabled"
 	serviceUnavailableVaultSecrets   = "vault secrets management is not enabled"
 	serviceUnavailableEdgeFunctions  = "edge functions are not enabled"
+	metricsTokenlessAccessDenied     = "metrics endpoint access from non-loopback addresses requires metrics.auth_token"
+	metricsAuthTokenWarningPrefix    = "metrics.auth_token is empty; tokenless metrics access is loopback-only. Configure metrics.auth_token for remote scrapers or reverse proxies. See "
 )
+
+var metricsAuthTokenWarningMessage = metricsAuthTokenWarningPrefix + httputil.DocURL("/guide/configuration")
 
 func serviceUnavailable(w http.ResponseWriter, message string) {
 	httputil.WriteError(w, http.StatusServiceUnavailable, message)
@@ -97,6 +102,19 @@ func registerMetricsEndpoint(r *chi.Mux, cfg *config.Config, httpMetrics *observ
 			if len(parts) != 2 || !strings.EqualFold(parts[0], "Bearer") || parts[1] != cfg.Metrics.AuthToken {
 				w.Header().Set("WWW-Authenticate", `Bearer realm="metrics"`)
 				httputil.WriteError(w, http.StatusUnauthorized, "metrics endpoint unauthorized")
+				return
+			}
+		} else {
+			host, _, err := net.SplitHostPort(req.RemoteAddr)
+			ip := net.ParseIP(host)
+			// RemoteAddr is the server-owned trust boundary; forwarding headers are client-supplied and spoofable.
+			if err != nil || ip == nil || !ip.IsLoopback() {
+				httputil.WriteErrorWithDocURL(
+					w,
+					http.StatusForbidden,
+					metricsTokenlessAccessDenied,
+					httputil.DocURL("/guide/configuration"),
+				)
 				return
 			}
 		}

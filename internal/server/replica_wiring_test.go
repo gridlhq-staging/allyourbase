@@ -624,6 +624,7 @@ func TestNewServerMetricsIncludeReplicaMetrics(t *testing.T) {
 	_ = s.poolRouter.ReadPool()
 
 	req := httptest.NewRequest(http.MethodGet, "/metrics", nil)
+	req.RemoteAddr = "127.0.0.1:1234"
 	rec := httptest.NewRecorder()
 	s.Router().ServeHTTP(rec, req)
 	testutil.Equal(t, http.StatusOK, rec.Code)

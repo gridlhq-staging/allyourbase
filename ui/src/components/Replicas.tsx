@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { AlertCircle, Loader2, Server, Trash2 } from "lucide-react";
 import type { ReplicaStatus, AddReplicaRequest } from "../types/replicas";
+import { ApiError } from "../api";
 import {
   listReplicas,
   checkReplicas,
@@ -57,6 +58,26 @@ type ConfirmAction =
   | { kind: "remove"; name: string; url: string; requiresNameInput: boolean }
   | { kind: "promote"; name: string; url: string; requiresNameInput: boolean }
   | { kind: "failover" };
+
+/**
+ * Add-replica failures that the operator can act on are keyed by HTTP status rather than
+ * backend message text, so guidance stays stable when backend copy changes.
+ */
+const ADD_REPLICA_UNAVAILABLE_GUIDANCE: Record<number, string> = {
+  502: "Replica target is not reachable. Provide a reachable standby endpoint, then retry.",
+  503: "Replica lifecycle support is not enabled on this server. Enable replica lifecycle support, then retry.",
+};
+
+/** Returns operator guidance for lifecycle-unavailable statuses, else the backend message. */
+function describeAddReplicaFailure(error: unknown): string {
+  if (error instanceof ApiError) {
+    const guidance = ADD_REPLICA_UNAVAILABLE_GUIDANCE[error.status];
+    if (guidance) {
+      return guidance;
+    }
+  }
+  return error instanceof Error ? error.message : "Failed to add replica";
+}
 
 const EMPTY_FORM: AddReplicaRequest = {
   name: "",
@@ -134,7 +155,8 @@ export function Replicas() {
       setForm({ ...EMPTY_FORM });
       addToast("success", `Replica ${result.record.name} added`);
     } catch (e) {
-      addToast("error", e instanceof Error ? e.message : "Failed to add replica");
+      // Leave the form open with its entered values so the operator can correct and retry.
+      addToast("error", describeAddReplicaFailure(e));
     } finally {
       setAdding(false);
     }

@@ -10,6 +10,7 @@ import (
 	"log/slog"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"syscall"
 
 	"github.com/allyourbase/ayb/internal/config"
@@ -42,10 +43,11 @@ var registerAnonymousUserCleanupHandler = jobs.RegisterAnonymousUserCleanupHandl
 var registerAnonymousUserCleanupSchedule = jobs.RegisterAnonymousUserCleanupSchedule
 
 type startForegroundInput struct {
-	flags      map[string]string
-	configPath string
-	fromValue  string
-	branchName string
+	flags              map[string]string
+	configPath         string
+	configPathExplicit bool
+	fromValue          string
+	branchName         string
 }
 
 func init() {
@@ -126,11 +128,11 @@ func runStartForeground(cmd *cobra.Command, args []string) error {
 	}
 	sp.header(bannerVersion(buildVersion))
 
-	if err := runForegroundPreflight(cfg, input.configPath, input.fromValue, logger); err != nil {
+	if err := runForegroundPreflight(cfg, input.configPathExplicit, input.fromValue, logger); err != nil {
 		return err
 	}
 
-	pool, pgMgr, schemaCache, watcherCancel, err := initDatabase(ctx, cfg, input.fromValue, input.branchName, sigCh, logger, sp)
+	pool, pgMgr, schemaCache, watcherCancel, err := initDatabase(ctx, cfg, input.configPath, input.fromValue, input.branchName, sigCh, logger, sp)
 	if err != nil {
 		return err
 	}
@@ -210,6 +212,14 @@ func readStartForegroundInput(cmd *cobra.Command) (startForegroundInput, error) 
 	}
 	var err error
 	input.configPath, err = cmd.Flags().GetString("config")
+	if err != nil {
+		return input, err
+	}
+	input.configPathExplicit = input.configPath != ""
+	if input.configPath == "" {
+		input.configPath = "ayb.toml"
+	}
+	input.configPath, err = filepath.Abs(input.configPath)
 	if err != nil {
 		return input, err
 	}

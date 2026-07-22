@@ -270,6 +270,10 @@ func buildPushProviders(cfg *config.Config, logger *slog.Logger) map[string]push
 	logProvider := push.NewLogProvider(logger)
 
 	providers[push.ProviderFCM] = logProvider
+	if cfg.Push.UseLogProvider {
+		providers[push.ProviderAPNS] = logProvider
+		return providers
+	}
 	if strings.TrimSpace(cfg.Push.FCM.CredentialsFile) != "" {
 		p, err := push.NewFCMProvider(cfg.Push.FCM.CredentialsFile, "")
 		if err != nil {

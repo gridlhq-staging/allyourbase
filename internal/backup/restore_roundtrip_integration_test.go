@@ -5,7 +5,6 @@ package backup
 import (
 	"context"
 	"fmt"
-	"io"
 	"log/slog"
 	"os"
 	"os/exec"
@@ -41,23 +40,20 @@ func TestPhysicalBackupRestoreRoundTrip(t *testing.T) {
 	createRestoreRoundTripMarkerTable(t, ctx, pool, markerTable)
 	assertRestoreRoundTripRows(t, ctx, pool, tableName)
 
-	store := newFileBackupStore(t.TempDir())
+	archive := requireRoundTripArchiveRuntime(t, ctx, dbURL)
+	store := archive.store
+	cfg := archive.config
+	projectID := archive.projectID
+	databaseID := archive.databaseID
 	repo := NewPgRepo(pool)
 	walRepo := NewPgWALSegmentRepo(pool)
 	manifestRepo := NewPgManifestRepo(pool)
-	cfg := PITRConfig{
-		Enabled:          true,
-		ArchiveBucket:    "test-only-filesystem-store",
-		ArchivePrefix:    "roundtrip",
-		ShadowMode:       false,
-		EnvironmentClass: "test",
-	}
 	writer := NewManifestWriter(store, manifestRepo, walRepo, cfg)
 	runner := NewBaseBackupRunner(dbURL)
 	runner.PgBaseBackupPath = pgTools.pgBaseBackupPath
-	engine := NewPhysicalEngine(cfg, store, repo, runner, NoopNotifier{}, "project-roundtrip", "postgres", writer)
+	engine := NewPhysicalEngine(cfg, store, repo, runner, NoopNotifier{}, projectID, databaseID, writer)
 
-	rec, err := repo.CreatePhysical(ctx, "project-roundtrip", "postgres", "restore-roundtrip-test")
+	rec, err := repo.CreatePhysical(ctx, projectID, databaseID, "restore-roundtrip-test")
 	if err != nil {
 		t.Fatalf("creating physical backup record: %v", err)
 	}
@@ -73,12 +69,12 @@ func TestPhysicalBackupRestoreRoundTrip(t *testing.T) {
 		t.Fatalf("physical backup completed without a backup manifest for %s", rec.ID)
 	}
 
-	targetTime := recoverableTargetTime(t, ctx, repo, walRepo, store, cfg, rec.ID, "project-roundtrip", "postgres", markerTable, pool)
+	targetTime := recoverableTargetTime(t, ctx, repo, walRepo, store, cfg, rec.ID, projectID, databaseID, markerTable, pool)
 	planner := NewRestorePlanner(repo, walRepo, manifestRepo)
 	jobRepo := NewPgRestoreJobRepo(pool)
 	orchestrator := NewRestoreOrchestrator(planner, jobRepo, store, NoopNotifier{}, cfg, dbURL, cfg.ArchivePrefix, slog.Default())
 
-	job, err := orchestrator.Execute(ctx, "project-roundtrip", "postgres", targetTime, "restore-roundtrip-test")
+	job, err := orchestrator.Execute(ctx, projectID, databaseID, targetTime, "restore-roundtrip-test")
 	if err != nil {
 		t.Fatalf("restore orchestration with default seams failed: %v", err)
 	}
@@ -121,12 +117,10 @@ const (
 // commit brackets, so a restore could "succeed" without replaying any WAL.
 //
 // After bracketing, WAL is forced out with pg_switch_wal and the function waits
-// for archival coverage through the production WAL segment repo, so
-// RestorePlanner.ValidateWindow's three bounds (target at/after base-backup
-// completed_at, at/before latest archived_at, and covered by a segment at or
-// after the target) hold by observation, not assumption. No synthetic WAL rows
-// are ever seeded: when archiving never runs, this fails here naming
-// phase=plan, which is the intended Stage 1 red evidence.
+// for LSN coverage through the production WAL segment repo. This proves the
+// archived chain contains WAL written after the target instead of inferring
+// coverage from an archive timestamp. No synthetic WAL rows are ever seeded:
+// when archiving never runs, this fails here naming phase=plan.
 func recoverableTargetTime(
 	t *testing.T,
 	ctx context.Context,
@@ -161,153 +155,63 @@ func recoverableTargetTime(
 	// Keep the bracket unambiguous at one-second timestamp granularity.
 	time.Sleep(2 * time.Second)
 	insertRestoreRoundTripMarker(t, ctx, pool, markerTable, restoreRoundTripMarkerAfter)
+	var replayThroughLSN string
+	if err := pool.QueryRow(ctx, "SELECT pg_current_wal_lsn()::text").Scan(&replayThroughLSN); err != nil {
+		t.Fatalf("reading WAL position after recovery-target bracket: %v", err)
+	}
 
 	if !targetTime.After(*completed.CompletedAt) {
 		t.Fatalf("PITR target %s is not after base backup completion %s; the bracket would not require WAL replay",
 			targetTime.UTC().Format(time.RFC3339Nano), completed.CompletedAt.UTC().Format(time.RFC3339Nano))
 	}
 
-	switchAndArchiveRoundTripWAL(t, ctx, pool, store, walRepo, cfg, projectID, databaseID, *completed.StartLSN)
+	if _, err := pool.Exec(ctx, "SELECT pg_switch_wal()"); err != nil {
+		t.Fatalf("forcing WAL segment switch for automatic archival: %v", err)
+	}
 
-	waitForArchivedWALCoveringTarget(t, ctx, walRepo, projectID, databaseID, targetTime)
+	waitForArchivedWALCoveringLSN(t, ctx, walRepo, store, cfg.ArchivePrefix, projectID, databaseID, replayThroughLSN)
 	return targetTime.UTC()
 }
 
-func switchAndArchiveRoundTripWAL(
+// waitForArchivedWALCoveringLSN waits until PostgreSQL archives the segment
+// containing WAL written after the recovery target. Archive timestamps alone
+// cannot prove that a segment contains the target transaction.
+func waitForArchivedWALCoveringLSN(
 	t *testing.T,
 	ctx context.Context,
-	pool *pgxpool.Pool,
+	walRepo WALSegmentRepo,
 	store Store,
-	walRepo WALSegmentRepo,
-	cfg PITRConfig,
-	projectID, databaseID, replayStartLSN string,
-) {
-	t.Helper()
-
-	var walFileName, dataDir string
-	if err := pool.QueryRow(ctx, "SELECT pg_walfile_name(pg_current_wal_lsn()), current_setting('data_directory')").
-		Scan(&walFileName, &dataDir); err != nil {
-		t.Fatalf("locating current WAL file before switch: %v", err)
-	}
-	if _, err := pool.Exec(ctx, "SELECT pg_switch_wal()"); err != nil {
-		t.Fatalf("forcing WAL segment switch: %v", err)
-	}
-
-	walFiles := walFilesForReplay(t, filepath.Join(dataDir, "pg_wal"), replayStartLSN, walFileName)
-	shipper := NewWALShipper(store, walRepo, cfg, projectID, databaseID, NoopNotifier{})
-	for _, walFile := range walFiles {
-		waitForWALFile(t, walFile)
-		if err := shipper.Ship(ctx, walFile, filepath.Base(walFile)); err != nil {
-			t.Fatalf("archiving WAL segment %s: %v", walFile, err)
-		}
-	}
-}
-
-func walFilesForReplay(t *testing.T, walDir, replayStartLSN, targetWALFile string) []string {
-	t.Helper()
-
-	replayStart, err := lsnUint64(replayStartLSN)
-	if err != nil {
-		t.Fatalf("parsing base backup end_lsn %s: %v", replayStartLSN, err)
-	}
-	target, err := ParseWALFileName(targetWALFile)
-	if err != nil {
-		t.Fatalf("parsing target WAL file %s: %v", targetWALFile, err)
-	}
-	targetEnd, err := lsnUint64(target.EndLSN())
-	if err != nil {
-		t.Fatalf("parsing target WAL end_lsn %s: %v", target.EndLSN(), err)
-	}
-
-	matches, err := filepath.Glob(filepath.Join(walDir, "[0-9A-F][0-9A-F][0-9A-F][0-9A-F][0-9A-F][0-9A-F][0-9A-F][0-9A-F][0-9A-F][0-9A-F][0-9A-F][0-9A-F][0-9A-F][0-9A-F][0-9A-F][0-9A-F][0-9A-F][0-9A-F][0-9A-F][0-9A-F][0-9A-F][0-9A-F][0-9A-F][0-9A-F]"))
-	if err != nil {
-		t.Fatalf("listing WAL files in %s: %v", walDir, err)
-	}
-
-	var walFiles []string
-	for _, path := range matches {
-		parsed, err := ParseWALFileName(filepath.Base(path))
-		if err != nil {
-			continue
-		}
-		start, err := lsnUint64(parsed.StartLSN())
-		if err != nil {
-			t.Fatalf("parsing WAL start_lsn for %s: %v", path, err)
-		}
-		end, err := lsnUint64(parsed.EndLSN())
-		if err != nil {
-			t.Fatalf("parsing WAL end_lsn for %s: %v", path, err)
-		}
-		if end > replayStart && start <= targetEnd {
-			walFiles = append(walFiles, path)
-		}
-	}
-	if len(walFiles) == 0 {
-		t.Fatalf("no WAL files in %s cover replay range from %s through %s", walDir, replayStartLSN, targetWALFile)
-	}
-	return walFiles
-}
-
-func waitForWALFile(t *testing.T, walPath string) {
-	t.Helper()
-
-	deadline := time.Now().Add(5 * time.Second)
-	var lastErr error
-	for time.Now().Before(deadline) {
-		info, err := os.Stat(walPath)
-		if err == nil && info.Size() > 0 {
-			return
-		}
-		lastErr = err
-		time.Sleep(100 * time.Millisecond)
-	}
-	if lastErr != nil {
-		t.Fatalf("WAL file %s did not become readable: %v", walPath, lastErr)
-	}
-	t.Fatalf("WAL file %s remained empty", walPath)
-}
-
-// waitForArchivedWALCoveringTarget polls the production WAL segment repo until
-// a segment archived at or after targetTime exists, which is exactly the
-// coverage RestorePlanner.ValidateWindow requires.
-func waitForArchivedWALCoveringTarget(
-	t *testing.T,
-	ctx context.Context,
-	walRepo WALSegmentRepo,
+	archivePrefix string,
 	projectID, databaseID string,
-	targetTime time.Time,
+	replayThroughLSN string,
 ) {
 	t.Helper()
 
 	deadline := time.Now().Add(restoreRoundTripArchiveWait)
-	var lastSeen *WALSegment
 	for time.Now().Before(deadline) {
-		latest, err := walRepo.LatestByProject(ctx, projectID, databaseID)
+		segment, err := walRepo.CoveringSegment(ctx, projectID, databaseID, replayThroughLSN)
 		if err != nil {
-			t.Fatalf("querying latest archived WAL segment: %v", err)
+			t.Fatalf("querying automatically archived WAL coverage for LSN %s: %v", replayThroughLSN, err)
 		}
-		if latest != nil {
-			lastSeen = latest
-			if !latest.ArchivedAt.Before(targetTime) {
-				t.Logf("WAL segment %s archived at %s covers PITR target %s",
-					latest.SegmentName,
-					latest.ArchivedAt.UTC().Format(time.RFC3339Nano),
-					targetTime.UTC().Format(time.RFC3339Nano))
-				return
+		if segment != nil {
+			objectKey := WALSegmentKey(archivePrefix, projectID, databaseID, segment.Timeline, segment.SegmentName)
+			objectSize, err := store.HeadObject(ctx, objectKey)
+			if err != nil {
+				t.Fatalf("automatically archived WAL metadata exists but object %s is missing: %v", objectKey, err)
 			}
+			if objectSize != segment.SizeBytes {
+				t.Fatalf("automatically archived WAL object %s size = %d, metadata size = %d", objectKey, objectSize, segment.SizeBytes)
+			}
+			t.Logf("WAL segment %s [%s, %s) covers post-target LSN %s",
+				segment.SegmentName, segment.StartLSN, segment.EndLSN, replayThroughLSN)
+			return
 		}
 		time.Sleep(500 * time.Millisecond)
 	}
 
-	if lastSeen == nil {
-		t.Fatalf("restore phase=plan: no archived WAL segments exist for project=%s database=%s within %s of the PITR target %s; "+
-			"continuous WAL archiving never ran, so no committed record can be recovered",
-			projectID, databaseID, restoreRoundTripArchiveWait, targetTime.UTC().Format(time.RFC3339Nano))
-	}
-	t.Fatalf("restore phase=plan: latest archived WAL segment %s stalled at %s and never reached PITR target %s within %s; "+
-		"the target commit is not covered by any archived segment",
-		lastSeen.SegmentName, lastSeen.ArchivedAt.UTC().Format(time.RFC3339Nano),
-		targetTime.UTC().Format(time.RFC3339Nano), restoreRoundTripArchiveWait)
+	t.Fatalf("restore phase=plan: no automatically archived WAL segment exists for project=%s database=%s within %s covering post-target LSN %s; "+
+		"continuous WAL archiving never ran, so no committed record can be recovered",
+		projectID, databaseID, restoreRoundTripArchiveWait, replayThroughLSN)
 }
 
 func requireTestDBURL(t *testing.T) string {
@@ -529,112 +433,3 @@ func assertRestoreRoundTripRows(t *testing.T, ctx context.Context, pool *pgxpool
 		t.Fatalf("sentinel amount for id=7 = %d; want 707", sentinel)
 	}
 }
-
-type fileBackupStore struct {
-	root string
-}
-
-func newFileBackupStore(root string) *fileBackupStore {
-	return &fileBackupStore{root: root}
-}
-
-func (s *fileBackupStore) PutObject(_ context.Context, key string, body io.Reader, _ int64, _ string) error {
-	path, err := s.pathForKey(key)
-	if err != nil {
-		return err
-	}
-	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
-		return err
-	}
-	file, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600)
-	if err != nil {
-		return err
-	}
-	if _, err := io.Copy(file, body); err != nil {
-		file.Close()
-		return err
-	}
-	return file.Close()
-}
-
-func (s *fileBackupStore) GetObject(_ context.Context, key string) (io.ReadCloser, int64, error) {
-	path, err := s.pathForKey(key)
-	if err != nil {
-		return nil, 0, err
-	}
-	file, err := os.Open(path)
-	if err != nil {
-		return nil, 0, err
-	}
-	stat, err := file.Stat()
-	if err != nil {
-		file.Close()
-		return nil, 0, err
-	}
-	return file, stat.Size(), nil
-}
-
-func (s *fileBackupStore) HeadObject(_ context.Context, key string) (int64, error) {
-	path, err := s.pathForKey(key)
-	if err != nil {
-		return 0, err
-	}
-	stat, err := os.Stat(path)
-	if err != nil {
-		return 0, err
-	}
-	return stat.Size(), nil
-}
-
-func (s *fileBackupStore) ListObjects(_ context.Context, prefix string) ([]StoreObject, error) {
-	var objects []StoreObject
-	err := filepath.WalkDir(s.root, func(path string, d os.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
-		if d.IsDir() {
-			return nil
-		}
-		rel, err := filepath.Rel(s.root, path)
-		if err != nil {
-			return err
-		}
-		key := filepath.ToSlash(rel)
-		if !strings.HasPrefix(key, prefix) {
-			return nil
-		}
-		stat, err := d.Info()
-		if err != nil {
-			return err
-		}
-		objects = append(objects, StoreObject{Key: key, Size: stat.Size()})
-		return nil
-	})
-	return objects, err
-}
-
-func (s *fileBackupStore) DeleteObject(_ context.Context, key string) error {
-	path, err := s.pathForKey(key)
-	if err != nil {
-		return err
-	}
-	return os.Remove(path)
-}
-
-func (s *fileBackupStore) pathForKey(key string) (string, error) {
-	clean := filepath.Clean(filepath.FromSlash(key))
-	if clean == "." || strings.HasPrefix(clean, ".."+string(filepath.Separator)) || filepath.IsAbs(clean) {
-		return "", fmt.Errorf("invalid object key %q", key)
-	}
-	path := filepath.Join(s.root, clean)
-	rel, err := filepath.Rel(s.root, path)
-	if err != nil {
-		return "", err
-	}
-	if rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
-		return "", fmt.Errorf("invalid object key %q", key)
-	}
-	return path, nil
-}
-
-var _ Store = (*fileBackupStore)(nil)

@@ -14,11 +14,12 @@ import (
 )
 
 type fakeWALRepo struct {
-	records         map[string]WALSegment
-	recordErr       error
-	getErr          error
-	listRangeErr    error
-	listRangeResult []WALSegment
+	records           map[string]WALSegment
+	recordErr         error
+	getErr            error
+	missingReturnsNil bool
+	listRangeErr      error
+	listRangeResult   []WALSegment
 }
 
 func newFakeWALRepo() *fakeWALRepo {
@@ -43,6 +44,9 @@ func (f *fakeWALRepo) GetByName(_ context.Context, projectID, databaseID string,
 	}
 	seg, ok := f.records[walRecordKey(projectID, databaseID, timeline, segmentName)]
 	if !ok {
+		if f.missingReturnsNil {
+			return nil, nil
+		}
 		return nil, fmt.Errorf("not found")
 	}
 	return &seg, nil
@@ -281,6 +285,70 @@ func TestWALShipperShipChecksumMismatch(t *testing.T) {
 	}
 	if store.putCalled != 0 {
 		t.Fatalf("putCalled = %d; want 0 when checksum mismatches", store.putCalled)
+	}
+}
+
+func TestWALShipperShipPostgresArchiveArtifacts(t *testing.T) {
+	tests := []struct {
+		name     string
+		fileName string
+		timeline int
+	}{
+		{name: "backup history", fileName: "000000010000000000000002.00000028.backup", timeline: 1},
+		{name: "timeline history", fileName: "00000002.history", timeline: 2},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			data := []byte("postgres archive artifact")
+			path := writeTempWALFile(t, data)
+			store := newFakeStore()
+			repo := newFakeWALRepo()
+			shipper := NewWALShipper(store, repo, PITRConfig{ArchivePrefix: "pitr"}, "proj1", "db1", NoopNotifier{})
+
+			if err := shipper.Ship(context.Background(), path, tt.fileName); err != nil {
+				t.Fatalf("Ship: %v", err)
+			}
+			if err := shipper.Ship(context.Background(), path, tt.fileName); err != nil {
+				t.Fatalf("Ship idempotent retry: %v", err)
+			}
+
+			key := WALSegmentKey("pitr", "proj1", "db1", tt.timeline, tt.fileName)
+			if got := string(store.objects[key]); got != string(data) {
+				t.Fatalf("archived object %q = %q, want %q", key, got, data)
+			}
+			if len(repo.records) != 0 {
+				t.Fatalf("non-segment artifact created WAL metadata: %#v", repo.records)
+			}
+			if store.putCalled != 1 {
+				t.Fatalf("putCalled = %d; want 1 across idempotent retry", store.putCalled)
+			}
+		})
+	}
+}
+
+func TestWALShipperShipRepairsMissingMetadataAfterUpload(t *testing.T) {
+	const name = "000000010000000000000005"
+	data := []byte("already uploaded WAL bytes")
+	path := writeTempWALFile(t, data)
+	store := newFakeStore()
+	store.objects[WALSegmentKey("pitr", "proj1", "db1", 1, name)] = append([]byte(nil), data...)
+	repo := newFakeWALRepo()
+	repo.missingReturnsNil = true
+	shipper := NewWALShipper(store, repo, PITRConfig{ArchivePrefix: "pitr"}, "proj1", "db1", NoopNotifier{})
+
+	if err := shipper.Ship(context.Background(), path, name); err != nil {
+		t.Fatalf("Ship: %v", err)
+	}
+
+	record, ok := repo.records[walRecordKey("proj1", "db1", 1, name)]
+	if !ok {
+		t.Fatal("missing metadata was not repaired")
+	}
+	if record.Checksum != sha256Hex(data) || record.SizeBytes != int64(len(data)) {
+		t.Fatalf("repaired metadata = %#v", record)
+	}
+	if store.putCalled != 0 {
+		t.Fatalf("putCalled = %d; want 0 for verified existing object", store.putCalled)
 	}
 }
 

@@ -10,7 +10,7 @@ test.describe("FDW Error Flows (Browser Mocked)", () => {
       listServersResponder: () => ({ status: 500, body: { message: "fdw extension not available" } }),
     });
     await page.goto("/admin/");
-    await page.getByRole("button", { name: /^FDW$/i }).click();
+    await page.getByRole("button", { name: /^FDW Management$/i }).click();
 
     await expect(page.getByText(/fdw extension not available/i)).toBeVisible();
   });
@@ -20,7 +20,7 @@ test.describe("FDW Error Flows (Browser Mocked)", () => {
       listTablesResponder: () => ({ status: 500, body: { message: "table scan failed" } }),
     });
     await page.goto("/admin/");
-    await page.getByRole("button", { name: /^FDW$/i }).click();
+    await page.getByRole("button", { name: /^FDW Management$/i }).click();
 
     await expect(page.getByText(/table scan failed/i)).toBeVisible();
   });
@@ -30,7 +30,7 @@ test.describe("FDW Error Flows (Browser Mocked)", () => {
       dropServerResponder: () => ({ status: 500, body: { message: "cascade drop failed" } }),
     });
     await page.goto("/admin/");
-    await page.getByRole("button", { name: /^FDW$/i }).click();
+    await page.getByRole("button", { name: /^FDW Management$/i }).click();
     await expect(page.getByRole("button", { name: "Drop remote_pg" })).toBeVisible();
 
     await page.getByRole("button", { name: "Drop remote_pg" }).click();
@@ -44,7 +44,7 @@ test.describe("FDW Error Flows (Browser Mocked)", () => {
       importTablesResponder: () => ({ status: 500, body: { message: "import failed" } }),
     });
     await page.goto("/admin/");
-    await page.getByRole("button", { name: /^FDW$/i }).click();
+    await page.getByRole("button", { name: /^FDW Management$/i }).click();
     await expect(page.getByRole("button", { name: "Drop remote_pg" })).toBeVisible();
 
     await page.getByRole("button", { name: "Import Tables" }).click();
@@ -61,7 +61,7 @@ test.describe("FDW Error Flows (Browser Mocked)", () => {
       listTablesResponder: () => ({ status: 200, body: { tables: [] } }),
     });
     await page.goto("/admin/");
-    await page.getByRole("button", { name: /^FDW$/i }).click();
+    await page.getByRole("button", { name: /^FDW Management$/i }).click();
 
     await expect(page.getByText(/No foreign servers/i)).toBeVisible();
     await expect(page.getByText(/No foreign tables/i)).toBeVisible();

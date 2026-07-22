@@ -2,6 +2,7 @@ import { render, screen, waitFor, act, fireEvent } from "@testing-library/react"
 import userEvent from "@testing-library/user-event";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { MockApiError } from "../../test-utils";
+import { docsUrl } from "../../lib/docs_url";
 
 // Mock CodeMirror as a controlled textarea so we can test the component logic
 // without fighting with CodeMirror's complex DOM in jsdom.
@@ -153,21 +154,25 @@ describe("SqlEditor", () => {
     });
   });
 
-  it("shows error on query failure", async () => {
+  it.each([
+    ["RF-013 invalid SQL", 'syntax error at or near "FROM"'],
+    ["RF-014 duplicate-key SQL", "duplicate key value violates unique constraint users_email_key"],
+  ])("shows recoverable guidance for %s", async (_scenario, backendError) => {
     const { ApiError } = await import("../../api");
-    mockExecuteSQL.mockRejectedValueOnce(
-      new ApiError(400, 'relation "nonexistent" does not exist'),
-    );
+    mockExecuteSQL.mockRejectedValueOnce(new ApiError(400, backendError));
     const user = userEvent.setup();
 
     render(<SqlEditor />);
     await user.click(screen.getByRole("button", { name: /Execute/ }));
 
     await waitFor(() => {
-      expect(
-        screen.getByText('relation "nonexistent" does not exist'),
-      ).toBeInTheDocument();
+      expect(screen.getByText(backendError)).toBeInTheDocument();
     });
+    expect(screen.getByRole("button", { name: "Execute" })).toBeEnabled();
+    expect(screen.getByRole("link", { name: "View guide" })).toHaveAttribute(
+      "href",
+      docsUrl("/guide/patterns"),
+    );
   });
 
   it("renders null cells as italic null", async () => {

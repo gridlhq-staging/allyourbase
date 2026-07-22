@@ -123,25 +123,20 @@ func (h *Handler) parseUploadRequest(w http.ResponseWriter, r *http.Request) (*u
 	r.Body = http.MaxBytesReader(w, r.Body, h.maxFileSize)
 	if err := r.ParseMultipartForm(h.maxFileSize); err != nil {
 		httputil.WriteErrorWithDocURL(w, http.StatusBadRequest, "invalid multipart form or file too large",
-			"https://allyourbase.io/guide/file-storage")
+			httputil.DocURL("/guide/file-storage"))
 		return nil, false
 	}
 
 	file, header, err := r.FormFile("file")
 	if err != nil {
 		httputil.WriteErrorWithDocURL(w, http.StatusBadRequest, "missing \"file\" field in multipart form",
-			"https://allyourbase.io/guide/file-storage")
+			httputil.DocURL("/guide/file-storage"))
 		return nil, false
 	}
 
 	name := r.FormValue("name")
 	if name == "" {
 		name = header.Filename
-	}
-	if name == "" {
-		file.Close()
-		httputil.WriteErrorWithDocURL(w, http.StatusBadRequest, "file name is required", httputil.DocURL("/guide/file-storage"))
-		return nil, false
 	}
 
 	contentType := mime.TypeByExtension(filepath.Ext(name))

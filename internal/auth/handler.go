@@ -226,10 +226,10 @@ func (h *Handler) handleRegister(w http.ResponseWriter, r *http.Request) {
 			// Strip the "validation error: " sentinel prefix from user-facing message.
 			msg := strings.TrimPrefix(err.Error(), ErrValidation.Error()+": ")
 			httputil.WriteErrorWithDocURL(w, http.StatusBadRequest, msg,
-				"https://allyourbase.io/guide/authentication")
+				httputil.DocURL("/guide/authentication"))
 		case errors.Is(err, ErrEmailTaken):
 			httputil.WriteErrorWithDocURL(w, http.StatusConflict, "email already registered",
-				"https://allyourbase.io/guide/authentication")
+				httputil.DocURL("/guide/authentication"))
 		default:
 			h.logger.Error("register error", "error", err)
 			httputil.WriteError(w, http.StatusInternalServerError, "internal error")
@@ -255,7 +255,7 @@ func (h *Handler) handleLogin(w http.ResponseWriter, r *http.Request) {
 		if errors.Is(err, ErrInvalidCredentials) {
 			httputil.WriteErrorWithDocURL(w, http.StatusUnauthorized,
 				"invalid email or password",
-				"https://allyourbase.io/guide/authentication")
+				httputil.DocURL("/guide/authentication"))
 			return
 		}
 		h.logger.Error("login error", "error", err)
@@ -330,7 +330,7 @@ func (h *Handler) handleRefresh(w http.ResponseWriter, r *http.Request) {
 		if errors.Is(err, ErrInvalidRefreshToken) {
 			httputil.WriteErrorWithDocURL(w, http.StatusUnauthorized,
 				"invalid or expired refresh token",
-				"https://allyourbase.io/guide/authentication")
+				httputil.DocURL("/guide/authentication"))
 			return
 		}
 		h.logger.Error("refresh error", "error", err)

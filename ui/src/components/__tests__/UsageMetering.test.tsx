@@ -123,13 +123,21 @@ describe("UsageMetering", () => {
     mockFetchUsageTrends.mockReturnValue(new Promise(() => {}));
     mockFetchUsageBreakdown.mockReturnValue(new Promise(() => {}));
 
-    renderWithProviders(<UsageMetering />);
+    renderWithProviders(<UsageMetering screenLabel="Usage Metering" />);
 
     expect(screen.getByText(/loading usage metering/i)).toBeInTheDocument();
   });
 
+  it("uses the injected registry label as the primary heading", async () => {
+    renderWithProviders(<UsageMetering screenLabel="Registry Usage Label" />);
+
+    expect(
+      await screen.findByRole("heading", { name: "Registry Usage Label" }),
+    ).toBeInTheDocument();
+  });
+
   it("header helper text uses WCAG AA compliant contrast token", async () => {
-    renderWithProviders(<UsageMetering />);
+    renderWithProviders(<UsageMetering screenLabel="Usage Metering" />);
     await expect(
       screen.findByText(
         "Shared usage contract across aggregate list, trends, breakdown, and per-tenant limits.",
@@ -143,7 +151,7 @@ describe("UsageMetering", () => {
   });
 
   it("renders aggregate table, trend chart, breakdown chart, and tenant limits", async () => {
-    renderWithProviders(<UsageMetering />);
+    renderWithProviders(<UsageMetering screenLabel="Usage Metering" />);
 
     await expect(screen.findAllByText("Tenant One")).resolves.toHaveLength(2);
     expect(screen.getAllByText("Tenant Two")).toHaveLength(2);
@@ -159,7 +167,7 @@ describe("UsageMetering", () => {
   });
 
   it("usage breakdown bars expose valid ARIA semantics", async () => {
-    renderWithProviders(<UsageMetering />);
+    renderWithProviders(<UsageMetering screenLabel="Usage Metering" />);
     await expect(screen.findAllByText("Tenant One")).resolves.toHaveLength(2);
 
     const breakdownBars = screen.getAllByRole("img", { name: "Usage breakdown chart" });
@@ -171,7 +179,7 @@ describe("UsageMetering", () => {
     mockFetchUsageTrends.mockResolvedValueOnce(makeTrendResponse({ items: [] }));
     mockFetchUsageBreakdown.mockResolvedValueOnce(makeBreakdownResponse({ items: [] }));
 
-    renderWithProviders(<UsageMetering />);
+    renderWithProviders(<UsageMetering screenLabel="Usage Metering" />);
 
     await expect(screen.findByText(/no tenant usage rows/i)).resolves.toBeInTheDocument();
     expect(screen.getByText(/no trend data/i)).toBeInTheDocument();
@@ -183,7 +191,7 @@ describe("UsageMetering", () => {
   it("renders error state when initial load fails", async () => {
     mockFetchUsageList.mockRejectedValueOnce(new Error("usage list failed"));
 
-    renderWithProviders(<UsageMetering />);
+    renderWithProviders(<UsageMetering screenLabel="Usage Metering" />);
 
     await expect(screen.findByText("usage list failed")).resolves.toBeInTheDocument();
     expect(screen.getByRole("button", { name: /retry usage data/i })).toBeInTheDocument();
@@ -192,7 +200,7 @@ describe("UsageMetering", () => {
   it("keeps filters in sync and enforces backend-safe combinations", async () => {
     const user = userEvent.setup();
 
-    renderWithProviders(<UsageMetering />);
+    renderWithProviders(<UsageMetering screenLabel="Usage Metering" />);
     await expect(screen.findAllByText("Tenant One")).resolves.toHaveLength(2);
 
     await user.selectOptions(screen.getByLabelText("Granularity"), "hour");
@@ -236,7 +244,7 @@ describe("UsageMetering", () => {
       return makeTrendResponse();
     });
 
-    renderWithProviders(<UsageMetering />);
+    renderWithProviders(<UsageMetering screenLabel="Usage Metering" />);
     await expect(screen.findAllByText("Tenant One")).resolves.toHaveLength(2);
 
     await user.selectOptions(screen.getByLabelText("Granularity"), "hour");
@@ -252,7 +260,7 @@ describe("UsageMetering", () => {
 
   it("updates list sort and pagination through shared query state", async () => {
     const user = userEvent.setup();
-    renderWithProviders(<UsageMetering />);
+    renderWithProviders(<UsageMetering screenLabel="Usage Metering" />);
 
     await expect(screen.findAllByText("Tenant One")).resolves.toHaveLength(2);
 
@@ -307,7 +315,7 @@ describe("UsageMetering", () => {
 
   it("applies period filter across all usage endpoints", async () => {
     const user = userEvent.setup();
-    renderWithProviders(<UsageMetering />);
+    renderWithProviders(<UsageMetering screenLabel="Usage Metering" />);
 
     await expect(screen.findAllByText("Tenant One")).resolves.toHaveLength(2);
 
@@ -331,7 +339,7 @@ describe("UsageMetering", () => {
 
   it("re-fetches all usage data when the Refresh button is clicked", async () => {
     const user = userEvent.setup();
-    renderWithProviders(<UsageMetering />);
+    renderWithProviders(<UsageMetering screenLabel="Usage Metering" />);
 
     await expect(screen.findAllByText("Tenant One")).resolves.toHaveLength(2);
     await expect(screen.findByText("Plan: pro")).resolves.toBeInTheDocument();
@@ -374,7 +382,7 @@ describe("UsageMetering", () => {
       }),
     );
 
-    renderWithProviders(<UsageMetering />);
+    renderWithProviders(<UsageMetering screenLabel="Usage Metering" />);
 
     await expect(screen.findByText("Plan: tenant-one-plan")).resolves.toBeInTheDocument();
     await user.click(screen.getByRole("cell", { name: "Tenant Two" }));
@@ -404,7 +412,7 @@ describe("UsageMetering", () => {
       return Promise.resolve(makeLimitsResponse({ plan: "starter" }));
     });
 
-    renderWithProviders(<UsageMetering />);
+    renderWithProviders(<UsageMetering screenLabel="Usage Metering" />);
 
     await expect(screen.findByText("Plan: starter")).resolves.toBeInTheDocument();
 

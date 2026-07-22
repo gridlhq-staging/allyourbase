@@ -46,7 +46,7 @@ test.describe("SAML Provider Lifecycle (Full E2E)", () => {
     await page.goto("/admin/");
     await waitForDashboard(page);
 
-    await page.locator("aside").getByRole("button", { name: /^SAML$/i }).click();
+    await page.locator("aside").getByRole("button", { name: /^SAML Configuration$/i }).click();
     await expect(page.getByRole("heading", { name: /SAML Configuration/i })).toBeVisible({ timeout: 5000 });
 
     // Verify seeded provider

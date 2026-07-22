@@ -5,33 +5,9 @@ import {
   seedReplica,
   cleanupReplicaByName,
   fetchReplicaStatuses,
+  resolveReplicaSeedTarget,
   waitForDashboard,
 } from "../fixtures";
-
-function resolveReplicaSeedTarget():
-  | { host: string; port: number; database: string; sslMode: string }
-  | null {
-  const replicaURL = process.env.AYB_DATABASE_REPLICA_URLS
-    ?.split(",")
-    .map((value) => value.trim())
-    .find((value) => value.length > 0);
-  if (!replicaURL) {
-    return null;
-  }
-
-  try {
-    const parsed = new URL(replicaURL);
-    const database = parsed.pathname.replace(/^\/+/, "");
-    return {
-      host: parsed.hostname,
-      port: parsed.port ? Number(parsed.port) : 5432,
-      database: database || "postgres",
-      sslMode: parsed.searchParams.get("sslmode") || "disable",
-    };
-  } catch {
-    return null;
-  }
-}
 
 /**
  * SMOKE TEST: Replicas

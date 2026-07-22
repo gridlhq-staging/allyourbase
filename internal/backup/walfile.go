@@ -17,6 +17,38 @@ type WALFileName struct {
 	OriginalName string
 }
 
+type postgresArchiveFileName struct {
+	Timeline     int
+	OriginalName string
+	Segment      *WALFileName
+}
+
+// parsePostgresArchiveFileName accepts every complete file PostgreSQL passes
+// to archive_command while preserving strict WAL-segment parsing for metadata.
+func parsePostgresArchiveFileName(name string) (*postgresArchiveFileName, error) {
+	if segment, err := ParseWALFileName(name); err == nil {
+		return &postgresArchiveFileName{Timeline: segment.Timeline, OriginalName: name, Segment: segment}, nil
+	}
+
+	if len(name) == 40 && name[24] == '.' && strings.HasSuffix(name, ".backup") {
+		segment, err := ParseWALFileName(name[:24])
+		if err == nil {
+			if _, err := parseHexUint32(name[25:33]); err == nil {
+				return &postgresArchiveFileName{Timeline: segment.Timeline, OriginalName: name}, nil
+			}
+		}
+	}
+
+	if len(name) == 16 && strings.HasSuffix(name, ".history") {
+		timeline, err := parseHexUint32(name[:8])
+		if err == nil {
+			return &postgresArchiveFileName{Timeline: int(timeline), OriginalName: name}, nil
+		}
+	}
+
+	return nil, fmt.Errorf("invalid PostgreSQL archive filename %q", name)
+}
+
 // ParseWALFileName validates and parses a WAL filename.
 func ParseWALFileName(name string) (*WALFileName, error) {
 	if name == "" {

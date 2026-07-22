@@ -11,12 +11,14 @@ export default function BoardList({ onSelectBoard }: Props) {
   const [loading, setLoading] = useState(true);
   const [newTitle, setNewTitle] = useState("");
   const [creating, setCreating] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     loadBoards();
   }, []);
 
   async function loadBoards() {
+    setError(null);
     try {
       const res = await ayb.records.list<Board>("boards", {
         sort: "-created_at",
@@ -34,6 +36,7 @@ export default function BoardList({ onSelectBoard }: Props) {
       });
     } catch (err) {
       console.error("Failed to load boards:", err);
+      setError(err instanceof Error ? err.message : "Failed to load boards");
     } finally {
       setLoading(false);
     }
@@ -43,6 +46,7 @@ export default function BoardList({ onSelectBoard }: Props) {
     e.preventDefault();
     if (!newTitle.trim()) return;
     setCreating(true);
+    setError(null);
     try {
       const me = await ayb.auth.me();
       const board = await ayb.records.create<Board>("boards", {
@@ -53,6 +57,7 @@ export default function BoardList({ onSelectBoard }: Props) {
       setNewTitle("");
     } catch (err) {
       console.error("Failed to create board:", err);
+      setError(err instanceof Error ? err.message : "Failed to create board");
     } finally {
       setCreating(false);
     }
@@ -61,11 +66,13 @@ export default function BoardList({ onSelectBoard }: Props) {
   async function deleteBoard(board: Board, e: React.MouseEvent) {
     e.stopPropagation();
     if (!confirm(`Delete "${board.title}"?`)) return;
+    setError(null);
     try {
       await ayb.records.delete("boards", board.id);
       setBoards((prev) => prev.filter((existing) => existing.id !== board.id));
     } catch (err) {
       console.error("Failed to delete board:", err);
+      setError(err instanceof Error ? err.message : "Failed to delete board");
     }
   }
 
@@ -80,6 +87,12 @@ export default function BoardList({ onSelectBoard }: Props) {
   return (
     <div className="max-w-2xl mx-auto py-8 px-4">
       <h2 className="text-xl font-bold text-gray-900 mb-6">Your Boards</h2>
+
+      {error && (
+        <p role="alert" className="mb-4 text-sm text-red-600">
+          {error}
+        </p>
+      )}
 
       <form onSubmit={createBoard} className="flex gap-2 mb-6">
         <input

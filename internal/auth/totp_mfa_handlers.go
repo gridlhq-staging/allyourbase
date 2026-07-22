@@ -18,7 +18,7 @@ func (h *Handler) requireTOTPEnabled(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if !h.totpEnabled {
 			httputil.WriteErrorWithDocURL(w, http.StatusNotFound, "TOTP MFA is not enabled",
-				"https://allyourbase.io/guide/authentication#totp")
+				httputil.DocURL("/guide/authentication#totp"))
 			return
 		}
 		next.ServeHTTP(w, r)

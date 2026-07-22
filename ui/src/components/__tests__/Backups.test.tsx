@@ -97,8 +97,16 @@ beforeEach(() => {
 });
 
 describe("Backups", () => {
+  it("uses the injected registry label as the primary heading", async () => {
+    renderWithProviders(<Backups screenLabel="Registry Backups Label" />);
+
+    expect(
+      await screen.findByRole("heading", { name: "Registry Backups Label" }),
+    ).toBeInTheDocument();
+  });
+
   it("renders backup list with status badges", async () => {
-    renderWithProviders(<Backups />);
+    renderWithProviders(<Backups screenLabel="Backups & PITR" />);
     await waitFor(() => {
       expect(screen.getByText("completed")).toBeInTheDocument();
       expect(screen.getByText("running")).toBeInTheDocument();
@@ -112,7 +120,7 @@ describe("Backups", () => {
       backup_id: "b-3",
       status: "started",
     });
-    renderWithProviders(<Backups />);
+    renderWithProviders(<Backups screenLabel="Backups & PITR" />);
     await waitFor(() => {
       expect(screen.getByText("completed")).toBeInTheDocument();
     });
@@ -123,7 +131,7 @@ describe("Backups", () => {
   });
 
   it("loads restore jobs using project and database context", async () => {
-    renderWithProviders(<Backups />);
+    renderWithProviders(<Backups screenLabel="Backups & PITR" />);
     await waitFor(() => {
       expect(api.listRestoreJobs).toHaveBeenCalledWith("project-1", "db-1");
     });
@@ -144,7 +152,7 @@ describe("Backups", () => {
       total: 2,
     });
 
-    renderWithProviders(<Backups />);
+    renderWithProviders(<Backups screenLabel="Backups & PITR" />);
 
     const contextSelect = await screen.findByLabelText("Restore Context");
     expect(api.listRestoreJobs).not.toHaveBeenCalled();
@@ -198,7 +206,7 @@ describe("Backups", () => {
       })
       .mockImplementationOnce(() => nextContextJobs);
 
-    renderWithProviders(<Backups />);
+    renderWithProviders(<Backups screenLabel="Backups & PITR" />);
 
     const contextSelect = await screen.findByLabelText("Restore Context");
     fireEvent.change(contextSelect, { target: { value: "project-1:db-1" } });
@@ -263,7 +271,7 @@ describe("Backups", () => {
       count: 1,
     });
 
-    renderWithProviders(<Backups />);
+    renderWithProviders(<Backups screenLabel="Backups & PITR" />);
     await waitFor(() => {
       expect(screen.getByText("Restore Jobs")).toBeInTheDocument();
     });
@@ -280,7 +288,7 @@ describe("Backups", () => {
   });
 
   it("only reapplies backup filters after Apply is clicked", async () => {
-    renderWithProviders(<Backups />);
+    renderWithProviders(<Backups screenLabel="Backups & PITR" />);
     await waitFor(() => {
       expect(api.listBackups).toHaveBeenCalledTimes(1);
     });
@@ -302,7 +310,7 @@ describe("Backups", () => {
   });
 
   it("applies the backup type filter after Apply is clicked", async () => {
-    renderWithProviders(<Backups />);
+    renderWithProviders(<Backups screenLabel="Backups & PITR" />);
     await waitFor(() => {
       expect(api.listBackups).toHaveBeenCalledTimes(1);
     });
@@ -340,7 +348,7 @@ describe("Backups", () => {
       total: 2,
     });
 
-    renderWithProviders(<Backups />);
+    renderWithProviders(<Backups screenLabel="Backups & PITR" />);
     const contextSelect = await screen.findByLabelText("Restore Context");
 
     fireEvent.change(screen.getByLabelText("Type"), {
@@ -381,7 +389,7 @@ describe("Backups", () => {
         total: 2,
       });
 
-    renderWithProviders(<Backups />);
+    renderWithProviders(<Backups screenLabel="Backups & PITR" />);
 
     await waitFor(() => {
       expect(screen.getByText("otherdb")).toBeInTheDocument();
@@ -398,7 +406,7 @@ describe("Backups", () => {
   });
 
   it("validates PITR target time and displays recovery window", async () => {
-    renderWithProviders(<Backups />);
+    renderWithProviders(<Backups screenLabel="Backups & PITR" />);
     await waitFor(() => {
       expect(screen.getByText("completed")).toBeInTheDocument();
     });
@@ -420,7 +428,7 @@ describe("Backups", () => {
   });
 
   it("starts PITR restore after validation and respects dry run toggle", async () => {
-    renderWithProviders(<Backups />);
+    renderWithProviders(<Backups screenLabel="Backups & PITR" />);
     await waitFor(() => {
       expect(screen.getByText("completed")).toBeInTheDocument();
     });
@@ -468,7 +476,7 @@ describe("Backups", () => {
       count: 1,
     });
 
-    renderWithProviders(<Backups />);
+    renderWithProviders(<Backups screenLabel="Backups & PITR" />);
     await waitFor(() => {
       expect(screen.getByText("restoring")).toBeInTheDocument();
     });
@@ -485,7 +493,7 @@ describe("Backups", () => {
     (api.listBackups as ReturnType<typeof vi.fn>).mockRejectedValue(
       new Error("Network error"),
     );
-    renderWithProviders(<Backups />);
+    renderWithProviders(<Backups screenLabel="Backups & PITR" />);
     await waitFor(() => {
       expect(screen.getByText("Network error")).toBeInTheDocument();
     });
@@ -496,7 +504,7 @@ describe("Backups", () => {
       backups: [],
       total: 0,
     });
-    renderWithProviders(<Backups />);
+    renderWithProviders(<Backups screenLabel="Backups & PITR" />);
     await waitFor(() => {
       expect(screen.getByText(/no backups/i)).toBeInTheDocument();
     });

@@ -4,6 +4,14 @@ import type { Attachment, Card } from "../types";
 
 const ATTACHMENT_BUCKET = "card-attachments";
 
+function sanitizeAttachmentObjectComponent(fileName: string): string {
+  const normalized = fileName
+    .replace(/[\\/]/g, "_")
+    .replace(/[\u0000-\u001f\u007f]/g, "")
+    .trim();
+  return normalized || "attachment";
+}
+
 interface Props {
   card: Card;
   onClose: () => void;
@@ -20,6 +28,7 @@ export default function CardModal({ card, onClose, onUpdate, onDelete }: Props) 
   const [uploading, setUploading] = useState(false);
   const [deletingAttachmentId, setDeletingAttachmentId] = useState<string | null>(null);
   const [attachmentError, setAttachmentError] = useState<string | null>(null);
+  const [cardError, setCardError] = useState<string | null>(null);
 
   useEffect(() => {
     function handleEsc(e: KeyboardEvent) {
@@ -58,6 +67,7 @@ export default function CardModal({ card, onClose, onUpdate, onDelete }: Props) 
   async function handleSave() {
     if (!title.trim()) return;
     setSaving(true);
+    setCardError(null);
     try {
       const updated = await ayb.records.update<Card>("cards", card.id, {
         title: title.trim(),
@@ -67,6 +77,7 @@ export default function CardModal({ card, onClose, onUpdate, onDelete }: Props) 
       onClose();
     } catch (err) {
       console.error("Failed to update card:", err);
+      setCardError(err instanceof Error ? err.message : "Failed to update card");
     } finally {
       setSaving(false);
     }
@@ -74,19 +85,21 @@ export default function CardModal({ card, onClose, onUpdate, onDelete }: Props) 
 
   async function handleDelete() {
     if (!confirm("Delete this card?")) return;
+    setCardError(null);
     try {
       await ayb.records.delete("cards", card.id);
       onDelete(card.id);
       onClose();
     } catch (err) {
       console.error("Failed to delete card:", err);
+      setCardError(err instanceof Error ? err.message : "Failed to delete card");
     }
   }
 
   async function handleAttachmentUpload(file: File) {
     setUploading(true);
     setAttachmentError(null);
-    const objectName = `${card.id}/${crypto.randomUUID()}-${file.name}`;
+    const objectName = `${card.id}/${crypto.randomUUID()}-${sanitizeAttachmentObjectComponent(file.name)}`;
     let objectUploaded = false;
 
     try {
@@ -199,6 +212,12 @@ export default function CardModal({ card, onClose, onUpdate, onDelete }: Props) 
         </div>
 
         <div className="space-y-4">
+          {cardError && (
+            <p role="alert" className="text-sm text-red-600">
+              {cardError}
+            </p>
+          )}
+
           <div>
             <label htmlFor="card-title" className="block text-sm font-medium text-gray-700 mb-1">
               Title

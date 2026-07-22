@@ -74,7 +74,7 @@ func handleCreateRlsPolicyWithQuerier(q rlsQuerier) http.HandlerFunc {
 		validCommands := map[string]bool{"ALL": true, "SELECT": true, "INSERT": true, "UPDATE": true, "DELETE": true}
 		if !validCommands[cmd] {
 			httputil.WriteErrorWithDocURL(w, http.StatusBadRequest, "command must be one of: ALL, SELECT, INSERT, UPDATE, DELETE",
-				"https://allyourbase.io/guide/authentication#row-level-security-rls")
+				httputil.DocURL("/guide/authentication#row-level-security-rls"))
 			return
 		}
 

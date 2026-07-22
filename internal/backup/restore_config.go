@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/allyourbase/ayb/internal/pgconf"
 )
 
 const recoveryTargetTimeLayout = "2006-01-02 15:04:05.000000+00"
@@ -24,9 +26,9 @@ func WriteRecoveryConfig(dataDir string, targetTime time.Time, walArchiveDir str
 
 	timestamp := targetTime.UTC().Format(recoveryTargetTimeLayout)
 	confLines := []string{
-		fmt.Sprintf("recovery_target_time = '%s'", escapePGConfLiteral(timestamp)),
+		fmt.Sprintf("recovery_target_time = '%s'", pgconf.EscapeStringLiteral(timestamp)),
 		"recovery_target_action = 'promote'",
-		fmt.Sprintf("restore_command = 'cp %s/%%f %%p'", escapePGConfLiteral(walArchiveDir)),
+		fmt.Sprintf("restore_command = 'cp %s/%%f %%p'", pgconf.EscapeStringLiteral(walArchiveDir)),
 	}
 	confPayload := strings.Join(confLines, "\n") + "\n"
 
@@ -57,8 +59,4 @@ func appendConfig(path, payload string) error {
 		return err
 	}
 	return f.Close()
-}
-
-func escapePGConfLiteral(v string) string {
-	return strings.ReplaceAll(v, "'", "''")
 }

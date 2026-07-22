@@ -17,7 +17,7 @@ test.describe("Smoke: Materialized Views", () => {
     await page.goto("/admin/");
     await waitForDashboard(page);
 
-    await page.locator("aside").getByRole("button", { name: /^Matviews$/i }).click();
+    await page.locator("aside").getByRole("button", { name: /^Materialized Views$/i }).click();
     await expect(page.getByRole("heading", { name: /Materialized Views/i })).toBeVisible({ timeout: 15_000 });
 
     // Register action should always be available

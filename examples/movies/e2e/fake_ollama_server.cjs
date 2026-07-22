@@ -30,6 +30,39 @@ function writeJSON(res, statusCode, payload) {
   res.end(body);
 }
 
+function writeOllamaStreamLine(res, payload) {
+  res.write(`${JSON.stringify(payload)}\n`);
+}
+
+function streamOllamaChat(res, body, content) {
+  const model = body.model || "llama3.2";
+  res.writeHead(200, {
+    "content-type": "application/x-ndjson",
+    "cache-control": "no-cache",
+    connection: "keep-alive",
+  });
+
+  const [firstWord, ...rest] = content.split(" ");
+  const chunks = [
+    "Local stub response:",
+    ` ${firstWord}`,
+    rest.length > 0 ? ` ${rest.join(" ")}` : "",
+  ].filter((chunk) => chunk.length > 0);
+  chunks.forEach((chunk, index) => {
+    setTimeout(() => {
+      writeOllamaStreamLine(res, {
+        model,
+        message: { role: "assistant", content: chunk },
+        done: false,
+      });
+      if (index === chunks.length - 1) {
+        writeOllamaStreamLine(res, { model, done: true, done_reason: "stop" });
+        res.end();
+      }
+    }, 150 * (index + 1));
+  });
+}
+
 const server = http.createServer((req, res) => {
   if (req.method === "GET" && req.url === "/health") {
     writeJSON(res, 200, { ok: true });
@@ -67,6 +100,10 @@ const server = http.createServer((req, res) => {
       const messages = Array.isArray(body.messages) ? body.messages : [];
       const last = messages[messages.length - 1];
       const content = typeof last?.content === "string" ? last.content : "stub response";
+      if (body.stream === true) {
+        streamOllamaChat(res, body, content);
+        return;
+      }
       writeJSON(res, 200, {
         model: body.model || "llama3.2",
         message: {

@@ -69,13 +69,7 @@ func TestApexLandingDirmapMatchesIndexHTML(t *testing.T) {
 
 	repoRoot := findRepoRoot(t)
 	indexDemos := extractApexDemoNames(readApexLandingFile(t, repoRoot, "index.html"))
-	dirmapContent, ok := readOptionalApexLandingFile(t, repoRoot, "DIRMAP.md")
-	if !ok {
-		if _, err := os.Stat(filepath.Join(repoRoot, ".debbie.toml")); errors.Is(err, fs.ErrNotExist) {
-			t.Skip("public mirrors strip generated DIRMAP metadata")
-		}
-		t.Fatal("examples/apex_landing/DIRMAP.md is required in the dev tree")
-	}
+	dirmapContent := readApexLandingFile(t, repoRoot, "DIRMAP.md")
 	dirmapDemos := extractApexDirmapOwnerDemos(dirmapContent)
 
 	if len(indexDemos) == 0 {
@@ -334,20 +328,6 @@ func readApexLandingFile(t *testing.T, repoRoot, name string) string {
 		t.Fatalf("read %s: %v", path, err)
 	}
 	return string(content)
-}
-
-func readOptionalApexLandingFile(t *testing.T, repoRoot, name string) (string, bool) {
-	t.Helper()
-
-	path := filepath.Join(repoRoot, "examples", "apex_landing", name)
-	content, err := os.ReadFile(path)
-	if errors.Is(err, fs.ErrNotExist) {
-		return "", false
-	}
-	if err != nil {
-		t.Fatalf("read %s: %v", path, err)
-	}
-	return string(content), true
 }
 
 func extractApexGitHubIdentities(page string) map[string]struct{} {

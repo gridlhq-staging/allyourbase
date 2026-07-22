@@ -111,6 +111,8 @@ const TAB_LABELS: Record<DetailTab, string> = {
   audit: "Audit",
 };
 
+const DELETABLE_TENANT_STATES = new Set<Tenant["state"]>(["active", "suspended", "provisioning"]);
+
 export function TenantDetailHeader({
   tenant,
   activeTab,
@@ -119,6 +121,8 @@ export function TenantDetailHeader({
   onResume,
   onDelete,
 }: TenantDetailHeaderProps) {
+  const canDeleteTenant = DELETABLE_TENANT_STATES.has(tenant.state);
+
   return (
     <div className="mb-4">
       <div className="flex items-center justify-between mb-3">
@@ -140,7 +144,7 @@ export function TenantDetailHeader({
               Resume
             </button>
           )}
-          {(tenant.state === "active" || tenant.state === "suspended") && (
+          {canDeleteTenant && (
             <button
               onClick={onDelete}
               className="px-3 py-1 text-xs rounded bg-red-100 text-red-700 hover:bg-red-200 dark:bg-red-900 dark:text-red-300"

@@ -374,6 +374,15 @@ else
   fail "Goreleaser prerelease metadata rule not found in .goreleaser.yaml"
 fi
 
+# Test: Goreleaser stamps archive binaries with the full immutable commit SHA
+if grep -Fq 'main.commit={{.ShortCommit}}' "$REPO_DIR/.goreleaser.yaml"; then
+  fail "Goreleaser archive provenance uses ShortCommit"
+elif grep -Fq 'main.commit={{.FullCommit}}' "$REPO_DIR/.goreleaser.yaml"; then
+  pass "Goreleaser archive provenance uses FullCommit"
+else
+  fail "Goreleaser archive provenance commit template not found in .goreleaser.yaml"
+fi
+
 # ── Unit Tests: Install to User Directory ───────────────────────────────────
 
 section "Install Location"

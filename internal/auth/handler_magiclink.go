@@ -15,7 +15,7 @@ type magicLinkRequest struct {
 func (h *Handler) handleMagicLinkRequest(w http.ResponseWriter, r *http.Request) {
 	if !h.magicLinkEnabled {
 		httputil.WriteErrorWithDocURL(w, http.StatusNotFound, "magic link authentication is not enabled",
-			"https://allyourbase.io/guide/authentication#magic-link")
+			httputil.DocURL("/guide/authentication#magic-link"))
 		return
 	}
 
@@ -40,7 +40,7 @@ func (h *Handler) handleMagicLinkRequest(w http.ResponseWriter, r *http.Request)
 func (h *Handler) handleMagicLinkConfirm(w http.ResponseWriter, r *http.Request) {
 	if !h.magicLinkEnabled {
 		httputil.WriteErrorWithDocURL(w, http.StatusNotFound, "magic link authentication is not enabled",
-			"https://allyourbase.io/guide/authentication#magic-link")
+			httputil.DocURL("/guide/authentication#magic-link"))
 		return
 	}
 
@@ -57,7 +57,7 @@ func (h *Handler) handleMagicLinkConfirm(w http.ResponseWriter, r *http.Request)
 	if err != nil {
 		if errors.Is(err, ErrInvalidMagicLinkToken) {
 			httputil.WriteErrorWithDocURL(w, http.StatusBadRequest, "invalid or expired magic link token",
-				"https://allyourbase.io/guide/authentication#magic-link")
+				httputil.DocURL("/guide/authentication#magic-link"))
 			return
 		}
 		h.logger.Error("magic link confirm error", "error", err)
@@ -81,7 +81,7 @@ func (h *Handler) requireSMSEnabled(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if !h.smsEnabled {
 			httputil.WriteErrorWithDocURL(w, http.StatusNotFound, "SMS MFA is not enabled",
-				"https://allyourbase.io/guide/authentication#sms")
+				httputil.DocURL("/guide/authentication#sms"))
 			return
 		}
 		next.ServeHTTP(w, r)

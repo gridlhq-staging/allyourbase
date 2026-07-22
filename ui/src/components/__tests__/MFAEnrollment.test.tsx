@@ -113,7 +113,7 @@ describe("MFAEnrollment", () => {
 
     render(
       <CapabilityProvider state={knownCapabilityState({ auth_anonymous: false })}>
-        <MFAEnrollment />
+        <MFAEnrollment screenLabel="Multi-Factor Authentication" />
       </CapabilityProvider>,
     );
 
@@ -139,7 +139,7 @@ describe("MFAEnrollment", () => {
 
     render(
       <CapabilityProvider state={knownCapabilityState({ auth_anonymous: false })}>
-        <MFAEnrollment />
+        <MFAEnrollment screenLabel="Multi-Factor Authentication" />
       </CapabilityProvider>,
     );
 
@@ -156,7 +156,7 @@ describe("MFAEnrollment", () => {
 
     render(
       <CapabilityProvider state={knownCapabilityState({ auth_webauthn: false })}>
-        <MFAEnrollment />
+        <MFAEnrollment screenLabel="Multi-Factor Authentication" />
       </CapabilityProvider>,
     );
 
@@ -173,11 +173,19 @@ describe("MFAEnrollment", () => {
   });
 
   it("renders heading and shows no enrolled factors initially", async () => {
-    render(<MFAEnrollment />);
+    render(<MFAEnrollment screenLabel="Multi-Factor Authentication" />);
     await waitFor(() => {
       expect(screen.getByRole("heading", { name: /multi-factor authentication/i })).toBeInTheDocument();
     });
     expect(screen.getByText(/no mfa methods enrolled/i)).toBeInTheDocument();
+  });
+
+  it("uses the injected registry label as the primary heading", async () => {
+    render(<MFAEnrollment screenLabel="Registry MFA Label" />);
+
+    expect(
+      await screen.findByRole("heading", { name: "Registry MFA Label" }),
+    ).toBeInTheDocument();
   });
 
   it("shows enrolled factors when they exist", async () => {
@@ -186,7 +194,7 @@ describe("MFAEnrollment", () => {
       { id: "f2", method: "sms", phone: "***1234" },
     ];
     mockGetMFAFactors.mockResolvedValue({ factors });
-    render(<MFAEnrollment />);
+    render(<MFAEnrollment screenLabel="Multi-Factor Authentication" />);
     await waitFor(() => {
       const enrolled = screen.getByTestId("mfa-enrolled-methods");
       expect(within(enrolled).getByText(/authenticator app/i)).toBeInTheDocument();
@@ -195,7 +203,7 @@ describe("MFAEnrollment", () => {
   });
 
   it("scopes enrolled email factor assertions to enrolled methods container", async () => {
-    render(<MFAEnrollment />);
+    render(<MFAEnrollment screenLabel="Multi-Factor Authentication" />);
     await waitFor(() => {
       expect(screen.getByRole("button", { name: /set up email mfa/i })).toBeInTheDocument();
     });
@@ -208,7 +216,7 @@ describe("MFAEnrollment", () => {
     it("starts TOTP enrollment and shows secret + QR URI", async () => {
       mockEnrollTOTP.mockResolvedValue(TOTP_ENROLLMENT);
       const user = userEvent.setup();
-      render(<MFAEnrollment />);
+      render(<MFAEnrollment screenLabel="Multi-Factor Authentication" />);
       await waitFor(() => expect(mockGetMFAFactors).toHaveBeenCalled());
 
       const enrollButton = screen.getByRole("button", { name: /set up authenticator/i });
@@ -224,7 +232,7 @@ describe("MFAEnrollment", () => {
       mockEnrollTOTP.mockResolvedValue(TOTP_ENROLLMENT);
       mockConfirmTOTPEnroll.mockResolvedValue({ message: "TOTP MFA enrollment confirmed" });
       const user = userEvent.setup();
-      render(<MFAEnrollment />);
+      render(<MFAEnrollment screenLabel="Multi-Factor Authentication" />);
       await waitFor(() => expect(mockGetMFAFactors).toHaveBeenCalled());
 
       await user.click(screen.getByRole("button", { name: /set up authenticator/i }));
@@ -245,7 +253,7 @@ describe("MFAEnrollment", () => {
     it("shows error when TOTP enrollment fails", async () => {
       mockEnrollTOTP.mockRejectedValue(new Error("TOTP MFA already enrolled"));
       const user = userEvent.setup();
-      render(<MFAEnrollment />);
+      render(<MFAEnrollment screenLabel="Multi-Factor Authentication" />);
       await waitFor(() => expect(mockGetMFAFactors).toHaveBeenCalled());
 
       await user.click(screen.getByRole("button", { name: /set up authenticator/i }));
@@ -258,7 +266,7 @@ describe("MFAEnrollment", () => {
       mockEnrollTOTP.mockResolvedValue(TOTP_ENROLLMENT);
       mockConfirmTOTPEnroll.mockRejectedValue(new Error("invalid TOTP code"));
       const user = userEvent.setup();
-      render(<MFAEnrollment />);
+      render(<MFAEnrollment screenLabel="Multi-Factor Authentication" />);
       await waitFor(() => expect(mockGetMFAFactors).toHaveBeenCalled());
 
       await user.click(screen.getByRole("button", { name: /set up authenticator/i }));
@@ -278,7 +286,7 @@ describe("MFAEnrollment", () => {
     it("starts email MFA enrollment and shows code input", async () => {
       mockEnrollEmailMFA.mockResolvedValue({ message: "verification code sent to your email" });
       const user = userEvent.setup();
-      render(<MFAEnrollment />);
+      render(<MFAEnrollment screenLabel="Multi-Factor Authentication" />);
       await waitFor(() => expect(mockGetMFAFactors).toHaveBeenCalled());
 
       await user.click(screen.getByRole("button", { name: /set up email mfa/i }));
@@ -292,7 +300,7 @@ describe("MFAEnrollment", () => {
       mockEnrollEmailMFA.mockResolvedValue({ message: "verification code sent to your email" });
       mockConfirmEmailMFAEnroll.mockResolvedValue({ message: "email MFA enrollment confirmed" });
       const user = userEvent.setup();
-      render(<MFAEnrollment />);
+      render(<MFAEnrollment screenLabel="Multi-Factor Authentication" />);
       await waitFor(() => expect(mockGetMFAFactors).toHaveBeenCalled());
 
       await user.click(screen.getByRole("button", { name: /set up email mfa/i }));
@@ -317,7 +325,7 @@ describe("MFAEnrollment", () => {
       // Need at least one MFA factor enrolled to generate backup codes
       mockGetMFAFactors.mockResolvedValue({ factors: [{ id: "f1", method: "totp" }] });
       const user = userEvent.setup();
-      render(<MFAEnrollment />);
+      render(<MFAEnrollment screenLabel="Multi-Factor Authentication" />);
       await waitFor(() => expect(mockGetMFAFactors).toHaveBeenCalled());
 
       await user.click(screen.getByRole("button", { name: /generate backup codes/i }));
@@ -332,7 +340,7 @@ describe("MFAEnrollment", () => {
     it("shows remaining backup code count", async () => {
       mockGetMFAFactors.mockResolvedValue({ factors: [{ id: "f1", method: "totp" }] });
       mockGetBackupCodeCount.mockResolvedValue({ remaining: 8 });
-      render(<MFAEnrollment />);
+      render(<MFAEnrollment screenLabel="Multi-Factor Authentication" />);
       await waitFor(() => {
         expect(screen.getByText(/8.*remaining/i)).toBeInTheDocument();
       });
@@ -343,7 +351,7 @@ describe("MFAEnrollment", () => {
       mockGetBackupCodeCount.mockResolvedValue({ remaining: 5 });
       mockRegenerateBackupCodes.mockResolvedValue({ codes: BACKUP_CODES });
       const user = userEvent.setup();
-      render(<MFAEnrollment />);
+      render(<MFAEnrollment screenLabel="Multi-Factor Authentication" />);
       await waitFor(() => expect(screen.getByText(/5.*remaining/i)).toBeInTheDocument());
 
       await user.click(screen.getByRole("button", { name: /regenerate/i }));
@@ -360,7 +368,7 @@ describe("MFAEnrollment", () => {
       mockGetBackupCodeCount.mockResolvedValue({ remaining: 0 });
       mockGenerateBackupCodes.mockResolvedValue({ codes: BACKUP_CODES });
       const user = userEvent.setup();
-      render(<MFAEnrollment />);
+      render(<MFAEnrollment screenLabel="Multi-Factor Authentication" />);
 
       await waitFor(() => expect(screen.getByText(/0.*remaining/i)).toBeInTheDocument());
 
@@ -385,7 +393,7 @@ describe("MFAEnrollment", () => {
       mockRegenerateBackupCodes.mockResolvedValue({ codes: BACKUP_CODES });
 
       const user = userEvent.setup();
-      render(<MFAEnrollment />);
+      render(<MFAEnrollment screenLabel="Multi-Factor Authentication" />);
       await waitFor(() => expect(screen.getByText(/5.*remaining/i)).toBeInTheDocument());
 
       await user.click(screen.getByRole("button", { name: /regenerate/i }));
@@ -400,20 +408,20 @@ describe("MFAEnrollment", () => {
 
   it("shows loading state while fetching factors", () => {
     mockGetMFAFactors.mockReturnValue(new Promise(() => {})); // never resolves
-    render(<MFAEnrollment />);
+    render(<MFAEnrollment screenLabel="Multi-Factor Authentication" />);
     expect(screen.getByText(/loading/i)).toBeInTheDocument();
   });
 
   it("keeps page heading visible while initial data is loading", () => {
     mockGetMFAFactors.mockReturnValue(new Promise(() => {})); // never resolves
-    render(<MFAEnrollment />);
+    render(<MFAEnrollment screenLabel="Multi-Factor Authentication" />);
     expect(screen.getByRole("heading", { name: /multi-factor authentication/i })).toBeInTheDocument();
     expect(screen.getByText(/loading/i)).toBeInTheDocument();
   });
 
   it("shows error state when factor fetch fails", async () => {
     mockGetMFAFactors.mockRejectedValue(new Error("network error"));
-    render(<MFAEnrollment />);
+    render(<MFAEnrollment screenLabel="Multi-Factor Authentication" />);
     await waitFor(() => {
       expect(screen.getByText(/network error/i)).toBeInTheDocument();
     });
@@ -421,7 +429,7 @@ describe("MFAEnrollment", () => {
 
   it("treats null factors payload as empty list instead of crashing", async () => {
     mockGetMFAFactors.mockResolvedValue({ factors: null as unknown as MFAFactor[] });
-    render(<MFAEnrollment />);
+    render(<MFAEnrollment screenLabel="Multi-Factor Authentication" />);
     await waitFor(() => {
       expect(screen.getByRole("heading", { name: /multi-factor authentication/i })).toBeInTheDocument();
     });
@@ -431,7 +439,7 @@ describe("MFAEnrollment", () => {
   it("reuses linked auth tokens that omit the optional anonymous-session claim", async () => {
     mockGetAuthToken.mockReturnValue(buildAuthToken({ sub: "linked-user", aal: "aal1" }));
 
-    render(<MFAEnrollment />);
+    render(<MFAEnrollment screenLabel="Multi-Factor Authentication" />);
 
     await waitFor(() => {
       expect(mockGetMFAFactors).toHaveBeenCalledTimes(1);
