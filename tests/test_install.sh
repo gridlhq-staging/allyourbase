@@ -18,8 +18,9 @@ INSTALL_SCRIPT="${REPO_DIR}/install.sh"
 if [ "${1:-}" = "--clean-container" ]; then
   installer_url="${2:-}"
   expected_version="${3:-}"
+  expected_commit="${4:-}"
   if [ -z "$installer_url" ] || [ -z "$expected_version" ]; then
-    printf "Usage: sh tests/test_install.sh --clean-container <installer-url> <expected-version>\n" >&2
+    printf "Usage: sh tests/test_install.sh --clean-container <installer-url> <expected-version> [expected-commit]\n" >&2
     exit 2
   fi
   command -v docker >/dev/null 2>&1 || {
@@ -29,6 +30,7 @@ if [ "${1:-}" = "--clean-container" ]; then
   docker run --rm \
     -e "AYB_INSTALLER_URL=$installer_url" \
     -e "AYB_EXPECTED_VERSION=$expected_version" \
+    -e "AYB_EXPECTED_COMMIT=$expected_commit" \
     -e HOME=/tmp/ayb-home \
     debian:bookworm-slim sh -eu -c '
       export DEBIAN_FRONTEND=noninteractive
@@ -40,12 +42,18 @@ if [ "${1:-}" = "--clean-container" ]; then
       NO_MODIFY_PATH=1 AYB_INSTALL="$install_dir" sh "$installer_path" "v$AYB_EXPECTED_VERSION" >/tmp/ayb-install.log 2>&1
       version_json=$("$install_dir/bin/ayb" version --json)
       actual_version=$(printf "%s" "$version_json" | sed -n "s/.*\"version\"[[:space:]]*:[[:space:]]*\"\([^\"]*\)\".*/\1/p")
+      actual_commit=$(printf "%s" "$version_json" | sed -n "s/.*\"commit\"[[:space:]]*:[[:space:]]*\"\([^\"]*\)\".*/\1/p")
       if [ "$actual_version" != "$AYB_EXPECTED_VERSION" ]; then
         printf "expected installer version=%s actual=%s\n" "$AYB_EXPECTED_VERSION" "$actual_version" >&2
         cat /tmp/ayb-install.log >&2
         exit 1
       fi
-      printf "clean-container installer version=%s\n" "$actual_version"
+      if [ -n "$AYB_EXPECTED_COMMIT" ] && [ "$actual_commit" != "$AYB_EXPECTED_COMMIT" ]; then
+        printf "expected installer commit=%s actual=%s\n" "$AYB_EXPECTED_COMMIT" "$actual_commit" >&2
+        cat /tmp/ayb-install.log >&2
+        exit 1
+      fi
+      printf "clean-container installer version=%s commit=%s\n" "$actual_version" "$actual_commit"
     '
   exit $?
 fi
@@ -79,8 +87,23 @@ allowlisted_github_repo_slug() {
   printf '%s\n' "$1" | grep -Eq '^[A-Za-z0-9][A-Za-z0-9._-]*/[A-Za-z0-9][A-Za-z0-9._-]*$'
 }
 
+trusted_release_repo() {
+  case "$1" in
+    AllyourbaseHQ/allyourbase|gridlhq-staging/allyourbase)
+      return 0
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+}
+
 install_script_matches() {
   grep "$@" "$INSTALL_SCRIPT" >/dev/null 2>&1
+}
+
+test_file_matches() {
+  grep "$@" "$0" >/dev/null 2>&1
 }
 
 assert_install_script_match() {
@@ -89,6 +112,18 @@ assert_install_script_match() {
   shift 2
 
   if install_script_matches "$@"; then
+    pass "$assert_pass_message"
+  else
+    fail "$assert_fail_message"
+  fi
+}
+
+assert_test_file_match() {
+  assert_pass_message="$1"
+  assert_fail_message="$2"
+  shift 2
+
+  if test_file_matches "$@"; then
     pass "$assert_pass_message"
   else
     fail "$assert_fail_message"
@@ -383,6 +418,11 @@ else
   fail "Goreleaser archive provenance commit template not found in .goreleaser.yaml"
 fi
 
+# Test: Clean-container proof can enforce commit provenance when the caller knows the release SHA
+assert_test_file_match "Clean-container proof accepts optional expected commit" "Clean-container proof does not accept optional expected commit" 'expected-version> \[expected-commit\]'
+assert_test_file_match "Clean-container proof forwards expected commit into the container" "Clean-container proof does not forward expected commit" 'AYB_EXPECTED_COMMIT'
+assert_test_file_match "Clean-container proof validates installer commit provenance" "Clean-container proof does not validate installer commit provenance" 'expected installer commit='
+
 # ── Unit Tests: Install to User Directory ───────────────────────────────────
 
 section "Install Location"
@@ -407,15 +447,15 @@ section "Release API Reachability"
 # Extract the default REPO from install.sh
 default_repo=$(grep 'AYB_REPO:-' "$INSTALL_SCRIPT" | sed 's/.*AYB_REPO:-//;s/}.*//;s/"//g')
 
-# Test: install.sh default repo stays constrained to a GitHub owner/repo slug
-if allowlisted_github_repo_slug "$default_repo"; then
-  pass "Default REPO uses a safe GitHub owner/repo slug"
+# Test: install.sh default repo stays pinned to an expected trusted release repo
+if trusted_release_repo "$default_repo"; then
+  pass "Default REPO uses a trusted GitHub release repo"
 else
-  fail "Default REPO must be a safe GitHub owner/repo slug" "$default_repo"
+  fail "Default REPO must stay pinned to a trusted GitHub release repo" "$default_repo"
 fi
 
 # Test: GitHub API /releases list contains an AYB app release tag
-if allowlisted_github_repo_slug "$default_repo"; then
+if trusted_release_repo "$default_repo"; then
   if [ -n "${GITHUB_TOKEN:-}" ]; then
     api_resp=$(curl -fsSL -H "Authorization: token ${GITHUB_TOKEN}" "https://api.github.com/repos/${default_repo}/releases?per_page=20" 2>&1) || true
   else
@@ -435,11 +475,11 @@ else
   # No release yet is acceptable (staging may not have any)
   if [ -n "${api_resp:-}" ] && echo "$api_resp" | grep -q '"message".*"Not Found"'; then
     pass "GitHub API reachable (no releases yet for ${default_repo})"
-  elif allowlisted_github_repo_slug "$default_repo"; then
+  elif trusted_release_repo "$default_repo"; then
     fail "GitHub API releases list for ${default_repo} failed" \
       "Got: $(echo "$api_resp" | head -3)"
   else
-    fail "Skipped GitHub API releases list due to unsafe default REPO" "$default_repo"
+    fail "Skipped GitHub API releases list due to untrusted default REPO" "$default_repo"
   fi
 fi
 
@@ -465,8 +505,8 @@ fi
 
 if [ -z "${GITHUB_TOKEN:-}" ]; then
   printf "  \033[1;33mSkipped\033[0m (set GITHUB_TOKEN or install gh CLI for integration tests)\n"
-elif ! allowlisted_github_repo_slug "$default_repo"; then
-  printf "  \033[1;33mSkipped\033[0m (default REPO is not a safe GitHub owner/repo slug)\n"
+elif ! trusted_release_repo "$default_repo"; then
+  printf "  \033[1;33mSkipped\033[0m (default REPO is not a trusted GitHub release repo)\n"
 else
   # Resolve a pinned version dynamically from the latest AYB app release tag.
   PIN_VERSION=$(curl -fsSL -H "Authorization: token ${GITHUB_TOKEN}" \
