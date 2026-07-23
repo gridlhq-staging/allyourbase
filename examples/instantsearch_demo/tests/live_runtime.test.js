@@ -14,12 +14,17 @@ describe("instantsearch live runtime helper", () => {
     const operatorHome = process.env.HOME;
     const runtimeHome = mkdtempSync(join(tmpdir(), "ayb-instantsearch-test-"));
 
-    const env = createInstantSearchProcessEnv(runtimeHome);
+    const env = createInstantSearchProcessEnv(runtimeHome, {
+      goCacheEnv: {
+        GOMODCACHE: "/tmp/operator-go/pkg/mod",
+        GOCACHE: "/tmp/operator-go/build",
+      },
+    });
 
     expect(env.HOME).toBe(runtimeHome);
     expect(env.HOME).not.toBe(operatorHome);
-    expect(env.GOMODCACHE ?? "").not.toContain(runtimeHome);
-    expect(env.GOCACHE ?? "").not.toContain(runtimeHome);
+    expect(env.GOMODCACHE).toBe("/tmp/operator-go/pkg/mod");
+    expect(env.GOCACHE).toBe("/tmp/operator-go/build");
     expect(env.AYB_ADMIN_TOKEN).toBeUndefined();
     expect(env.DATABASE_URL).toBeUndefined();
     rmSync(runtimeHome, { recursive: true, force: true });

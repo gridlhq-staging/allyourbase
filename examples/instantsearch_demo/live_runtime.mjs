@@ -77,10 +77,10 @@ export async function startInstantSearchRuntime(options = {}) {
   }
 }
 
-export function createInstantSearchProcessEnv(runtimeHome) {
+export function createInstantSearchProcessEnv(runtimeHome, options = {}) {
   const env = {
     ...process.env,
-    ...resolveGoCacheEnv(),
+    ...(options.goCacheEnv ?? resolveGoCacheEnv()),
     HOME: runtimeHome,
     AYB_DATABASE_EMBEDDED_PORT: String(MANAGED_PG_PORT),
     // Lift the API rate limits for the isolated test server. The browser suite
