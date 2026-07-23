@@ -6,6 +6,7 @@ import {
   BROWSER_RUNTIME_SETUP_TIMEOUT_MS,
   READINESS_TIMEOUT_MS,
   createInstantSearchProcessEnv,
+  resolveViteCommand,
 } from "../live_runtime.mjs";
 
 describe("instantsearch live runtime helper", () => {
@@ -59,5 +60,18 @@ describe("instantsearch live runtime helper", () => {
     );
     expect(fixtureSource).toContain("timeout: BROWSER_RUNTIME_SETUP_TIMEOUT_MS");
     expect(fixtureSource).not.toContain("timeout: 90_000");
+  });
+
+  it("launches Vite directly so teardown owns the listening process", () => {
+    const viteCommand = resolveViteCommand();
+
+    expect(viteCommand.command).toBe(process.execPath);
+    expect(viteCommand.args[0]).toMatch(/node_modules[/\\]vite[/\\]bin[/\\]vite\.js$/);
+    expect(viteCommand.args.slice(1)).toEqual([
+      "--host",
+      "127.0.0.1",
+      "--port",
+      process.env.AYB_APP_PORT ?? "8096",
+    ]);
   });
 });

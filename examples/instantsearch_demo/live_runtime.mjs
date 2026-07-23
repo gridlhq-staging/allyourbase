@@ -50,10 +50,11 @@ export async function startInstantSearchRuntime(options = {}) {
     seedInstantSearchDemo(aybCommand, runtimeEnv);
 
     if (includeApp) {
+      const viteCommand = resolveViteCommand();
       const appProcess = spawnManagedProcess(
         "app",
-        "npm",
-        ["run", "dev", "--", "--host", "127.0.0.1", "--port", String(APP_PORT)],
+        viteCommand.command,
+        viteCommand.args,
         DEMO_ROOT,
         { ...runtimeEnv, VITE_AYB_URL: API_URL },
       );
@@ -97,6 +98,19 @@ export function createInstantSearchProcessEnv(runtimeHome) {
   delete env.AYB_DATABASE_URL;
   delete env.DATABASE_URL;
   return env;
+}
+
+export function resolveViteCommand() {
+  return {
+    command: process.execPath,
+    args: [
+      join(DEMO_ROOT, "node_modules", "vite", "bin", "vite.js"),
+      "--host",
+      "127.0.0.1",
+      "--port",
+      String(APP_PORT),
+    ],
+  };
 }
 
 function parseConfiguredPort(envName, fallbackValue) {
