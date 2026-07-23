@@ -45,7 +45,7 @@ function CopyButton({ value }: { value: string }) {
       tabIndex={0}
       onClick={handleCopy}
       onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") handleCopy(e as unknown as React.MouseEvent); }}
-      className="p-0.5 rounded hover:bg-gray-600 text-gray-500 hover:text-gray-300 transition-colors cursor-pointer inline-flex"
+      className="p-0.5 rounded hover:bg-gray-600 text-gray-400 hover:text-gray-300 transition-colors cursor-pointer inline-flex"
       title={copied ? "Copied!" : "Copy"}
     >
       {copied ? <CheckIcon className="text-green-400" /> : <CopyIcon />}
@@ -184,7 +184,7 @@ export default function AuthForm({ onAuth }: Props) {
 
         {mode === "login" && (
           <div className="mt-5 border-t border-gray-700 pt-4">
-            <p className="text-[11px] uppercase tracking-wider text-gray-500 font-semibold mb-2">
+            <p className="text-[11px] uppercase tracking-wider text-gray-400 font-semibold mb-2">
               Demo accounts
             </p>
             <div className="flex flex-col gap-1">
@@ -195,13 +195,13 @@ export default function AuthForm({ onAuth }: Props) {
                       suggestion={{ label: acct.email, email: acct.email, password: acct.password }}
                       onSelect={fillAccount}
                     />
-                    <span className="text-[11px] font-mono text-gray-500">{acct.password}</span>
+                    <span className="text-[11px] font-mono text-gray-400">{acct.password}</span>
                   </div>
                   <CopyButton value={`${acct.email}\t${acct.password}`} />
                 </div>
               ))}
             </div>
-            <p className="text-[10px] text-gray-600 mt-2 text-center">
+            <p className="text-[10px] text-gray-400 mt-2 text-center">
               Click to fill, then sign in
             </p>
           </div>

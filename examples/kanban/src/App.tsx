@@ -102,7 +102,7 @@ export default function App() {
   }
 
   if (bootstrapping || loading) {
-    return <div className="min-h-screen flex items-center justify-center text-gray-500">Loading...</div>;
+    return <div className="min-h-screen flex items-center justify-center text-gray-600">Loading...</div>;
   }
 
   if (!token || !user) {
@@ -110,7 +110,7 @@ export default function App() {
   }
 
   if (!seedChecked) {
-    return <div className="min-h-screen flex items-center justify-center text-gray-500">Loading...</div>;
+    return <div className="min-h-screen flex items-center justify-center text-gray-600">Loading...</div>;
   }
 
   if (selectedBoard) {
@@ -127,13 +127,13 @@ export default function App() {
       <header className="bg-white border-b px-6 py-3 flex items-center justify-between">
         <div className="flex items-center gap-3">
           <h1 className="text-lg font-bold text-gray-900">Kanban Board</h1>
-          <span className="text-xs text-gray-400">
+          <span className="text-xs text-gray-500">
             powered by Allyourbase
           </span>
         </div>
         <div className="flex items-center gap-3">
           {logoutError && (
-            <span role="alert" className="text-sm text-red-600">
+            <span role="alert" className="text-sm text-red-700">
               {logoutError}
             </span>
           )}

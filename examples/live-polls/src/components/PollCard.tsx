@@ -128,7 +128,7 @@ export default function PollCard({ poll, options, votes, currentUserId, onClose,
       </div>
 
       <div className="mt-2 flex justify-between items-center">
-        <span className="text-xs text-gray-500">
+        <span className="text-xs text-gray-400">
           {totalVotes} total {totalVotes === 1 ? "vote" : "votes"}
         </span>
         {error && <span className="text-xs text-red-400">{error}</span>}

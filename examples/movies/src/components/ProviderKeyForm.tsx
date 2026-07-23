@@ -45,6 +45,7 @@ export default function ProviderKeyForm({ onSet, onClear }: Props) {
     <div className="space-y-2">
       <div className="flex gap-2 items-center">
         <select
+          aria-labelledby="provider-keys-heading"
           value={provider}
           onChange={(e) => setProvider(e.target.value as BYOKProvider)}
           className="px-2 py-1.5 bg-gray-800 border border-gray-700 rounded-lg text-white text-sm focus:outline-none focus:border-purple-500"

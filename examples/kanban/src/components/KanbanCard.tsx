@@ -22,7 +22,7 @@ export default function KanbanCard({ card, index, onClick }: Props) {
         >
           <p className="text-sm text-gray-900 font-medium">{card.title}</p>
           {card.description && (
-            <p className="text-xs text-gray-400 mt-1 line-clamp-2">
+            <p className="text-xs text-gray-500 mt-1 line-clamp-2">
               {card.description}
             </p>
           )}

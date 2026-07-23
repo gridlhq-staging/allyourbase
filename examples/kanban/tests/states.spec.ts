@@ -6,6 +6,7 @@ import {
   installFailingStorageUploadRoute,
   installMockKanbanApi,
 } from "./helpers";
+import { dragCardToColumn } from "./state_arrangements";
 
 const mockBoard = {
   id: "state-board-1",
@@ -200,24 +201,11 @@ test.describe("Kanban visible states", () => {
     await page.getByRole("button", { name: /Open board State Board/ }).click();
 
     const dragStateCardToDone = async () => {
-      const card = page.getByText("State Card");
-      const destination = page.locator("[data-rfd-droppable-id]").nth(1);
-      const cardBox = await card.boundingBox();
-      const destinationBox = await destination.boundingBox();
-      expect(cardBox).toBeTruthy();
-      expect(destinationBox).toBeTruthy();
-
-      await page.mouse.move(
-        cardBox!.x + cardBox!.width / 2,
-        cardBox!.y + cardBox!.height / 2,
+      await dragCardToColumn(
+        page,
+        page.getByText("State Card"),
+        page.locator("[data-rfd-droppable-id]").nth(1),
       );
-      await page.mouse.down();
-      await page.mouse.move(
-        destinationBox!.x + destinationBox!.width / 2,
-        destinationBox!.y + destinationBox!.height / 2,
-        { steps: 10 },
-      );
-      await page.mouse.up();
     };
 
     const failedMove = await installFailingCollectionRoute(

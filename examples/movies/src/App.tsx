@@ -226,7 +226,7 @@ export default function App() {
   }
 
   if (bootstrapping || loading) {
-    return <div className="min-h-screen flex items-center justify-center text-gray-500">Loading...</div>;
+    return <div className="min-h-screen flex items-center justify-center text-gray-400">Loading...</div>;
   }
 
   if (!token || !user || user.isAnonymous) {
@@ -249,7 +249,7 @@ export default function App() {
       <header className="bg-gray-900 border-b border-gray-800 px-6 py-3 flex items-center justify-between">
         <div className="flex items-center gap-3">
           <h1 className="text-lg font-bold">Movies Demo</h1>
-          <span className="text-xs text-gray-500">powered by Allyourbase</span>
+          <span className="text-xs text-gray-400">powered by Allyourbase</span>
         </div>
         <div className="flex items-center gap-3">
           {logoutError && (
@@ -284,7 +284,7 @@ export default function App() {
           {!corpusEmpty && (
             <div className="mt-4 space-y-3">
               <div>
-                <span className="text-xs uppercase tracking-wider text-gray-500">Primary genre</span>
+                <span className="text-xs uppercase tracking-wider text-gray-400">Primary genre</span>
                 <div
                   role="group"
                   aria-label="Primary genre"
@@ -315,7 +315,7 @@ export default function App() {
               </div>
 
               <div>
-                <label htmlFor="decade-filter" className="text-xs uppercase tracking-wider text-gray-500">
+                <label htmlFor="decade-filter" className="text-xs uppercase tracking-wider text-gray-400">
                   Decade
                 </label>
                 <select
@@ -408,7 +408,7 @@ export default function App() {
         </section>
 
         <section data-testid="provider-keys-section">
-          <h2 className="text-sm font-semibold text-gray-400 uppercase tracking-wider mb-3">Provider Keys (BYOK)</h2>
+          <h2 id="provider-keys-heading" className="text-sm font-semibold text-gray-400 uppercase tracking-wider mb-3">Provider Keys (BYOK)</h2>
           <ProviderKeyForm onSet={handleSetBYOK} onClear={handleClearBYOK} />
         </section>
       </main>

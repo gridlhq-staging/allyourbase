@@ -213,7 +213,7 @@ export default function BoardView({ board, onBack }: Props) {
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64">
-        <p className="text-gray-500">Loading board...</p>
+        <p className="text-gray-600">Loading board...</p>
       </div>
     );
   }
@@ -225,7 +225,7 @@ export default function BoardView({ board, onBack }: Props) {
         <button
           onClick={onBack}
           aria-label="Back to boards"
-          className="text-gray-500 hover:text-gray-700 transition-colors"
+          className="text-gray-600 hover:text-gray-800 transition-colors"
         >
           <svg
             className="w-5 h-5"
@@ -250,12 +250,12 @@ export default function BoardView({ board, onBack }: Props) {
       {/* Board */}
       <div className="flex-1 overflow-x-auto p-6">
         {loadError && (
-          <p role="alert" className="mb-4 text-sm text-red-600">
+          <p role="alert" className="mb-4 text-sm text-red-700">
             {loadError}
           </p>
         )}
         {mutationError && (
-          <p role="alert" className="mb-4 text-sm text-red-600">
+          <p role="alert" className="mb-4 text-sm text-red-700">
             {mutationError}
           </p>
         )}

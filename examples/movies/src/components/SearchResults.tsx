@@ -8,7 +8,7 @@ interface Props {
 
 export default function SearchResults({ items, selectedSlug, onSelect }: Props) {
   if (items.length === 0) {
-    return <p className="text-gray-500 text-sm py-4">No results found.</p>;
+    return <p className="text-gray-400 text-sm py-4">No results found.</p>;
   }
 
   return (
@@ -26,7 +26,7 @@ export default function SearchResults({ items, selectedSlug, onSelect }: Props) 
         >
           <div className="flex items-baseline justify-between gap-2">
             <h3 data-testid={`search-result-title-${item.slug}`} className="font-medium text-white truncate">{item.title}</h3>
-            <span data-testid={`search-result-year-${item.slug}`} className="text-xs text-gray-500 shrink-0">{item.release_year}</span>
+            <span data-testid={`search-result-year-${item.slug}`} className="text-xs text-gray-400 shrink-0">{item.release_year}</span>
           </div>
           <div className="flex items-center gap-2 mt-1">
             <span

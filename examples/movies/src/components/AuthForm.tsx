@@ -136,7 +136,7 @@ export default function AuthForm({ onAuth }: Props) {
 
         {mode === "login" && !isAnonymous && (
           <div className="mt-5 border-t border-gray-700 pt-4">
-            <p className="text-[11px] uppercase tracking-wider text-gray-500 font-semibold mb-2">
+            <p className="text-[11px] uppercase tracking-wider text-gray-400 font-semibold mb-2">
               Demo accounts
             </p>
             <div className="flex flex-col gap-1">

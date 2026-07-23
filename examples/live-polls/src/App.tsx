@@ -385,14 +385,14 @@ export default function App() {
               </span>
             )}
             {userEmail && (
-              <span data-testid="user-email" className="text-xs text-gray-500 hidden sm:block">
+              <span data-testid="user-email" className="text-xs text-gray-400 hidden sm:block">
                 {userEmail}
               </span>
             )}
             {canCreatePolls && (
               <button
                 onClick={() => setShowCreate(!showCreate)}
-                className="bg-blue-600 hover:bg-blue-500 rounded px-3 py-1.5 text-sm font-semibold"
+                className="bg-blue-700 hover:bg-blue-600 rounded px-3 py-1.5 text-sm font-semibold"
               >
                 {showCreate ? "Cancel" : "+ New Poll"}
               </button>
@@ -411,7 +411,7 @@ export default function App() {
           {showCreate && canCreatePolls && userId && <CreatePoll userId={userId} onCreated={handlePollCreated} />}
 
           {polls.length === 0 && !showCreate && (
-            <div className="text-center text-gray-500 py-12">
+            <div className="text-center text-gray-400 py-12">
               <p className="text-lg mb-2">No polls yet</p>
               <p className="text-sm">Create the first one!</p>
             </div>

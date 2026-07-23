@@ -63,12 +63,12 @@ export default function KanbanColumn({
       <div className="flex items-center justify-between mb-3 px-1">
         <h3 className="font-semibold text-sm text-gray-700 uppercase tracking-wide">
           {column.title}
-          <span data-testid="card-count" className="ml-2 text-gray-400 font-normal">{cards.length}</span>
+          <span data-testid="card-count" className="ml-2 text-gray-500 font-normal">{cards.length}</span>
         </h3>
         <button
           onClick={handleDeleteColumn}
           aria-label={`Delete column ${column.title}`}
-          className="text-gray-300 hover:text-red-500 transition-colors"
+          className="text-gray-500 hover:text-red-700 transition-colors"
           title="Delete column"
         >
           <svg
@@ -111,7 +111,7 @@ export default function KanbanColumn({
 
       <div className="mt-2">
         {error && (
-          <p role="alert" className="mb-2 text-sm text-red-600">
+          <p role="alert" className="mb-2 text-sm text-red-700">
             {error}
           </p>
         )}
@@ -139,7 +139,7 @@ export default function KanbanColumn({
                   setShowAdd(false);
                   setNewTitle("");
                 }}
-                className="text-sm text-gray-500 hover:text-gray-700"
+                className="text-sm text-gray-600 hover:text-gray-800"
               >
                 Cancel
               </button>
@@ -148,7 +148,7 @@ export default function KanbanColumn({
         ) : (
           <button
             onClick={() => setShowAdd(true)}
-            className="w-full text-left text-sm text-gray-500 hover:text-gray-700 hover:bg-gray-200 rounded-lg px-3 py-2 transition-colors"
+            className="w-full text-left text-sm text-gray-600 hover:text-gray-800 hover:bg-gray-200 rounded-lg px-3 py-2 transition-colors"
           >
             + Add a card
           </button>

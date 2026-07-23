@@ -32,17 +32,17 @@ export default function ChatPanel({
     <div className="space-y-3">
       <div className="bg-gray-800 rounded-lg p-3 min-h-[120px] max-h-[300px] overflow-y-auto text-sm">
         {history.length === 0 && !streaming && (
-          <p className="text-gray-500">Ask a question about movies...</p>
+          <p className="text-gray-400">Ask a question about movies...</p>
         )}
         {history.map((msg, i) => (
           <div key={i} className={`mb-2 ${msg.role === "user" ? "text-purple-300" : "text-gray-300"}`}>
-            <span className="font-semibold text-xs uppercase text-gray-500 mr-1">{msg.role}:</span>
+            <span className="font-semibold text-xs uppercase text-gray-400 mr-1">{msg.role}:</span>
             {msg.content}
           </div>
         ))}
         {streaming && (
           <div className="text-gray-300">
-            <span className="font-semibold text-xs uppercase text-gray-500 mr-1">assistant:</span>
+            <span className="font-semibold text-xs uppercase text-gray-400 mr-1">assistant:</span>
             {streamedText}
             <span className="animate-pulse">|</span>
           </div>

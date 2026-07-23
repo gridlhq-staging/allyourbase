@@ -82,7 +82,7 @@ export default function CreatePoll({ userId, onCreated }: Props) {
               <button
                 type="button"
                 onClick={() => removeOption(i)}
-                className="text-gray-500 hover:text-red-400 text-sm px-2"
+                className="text-gray-400 hover:text-red-400 text-sm px-2"
               >
                 x
               </button>
@@ -103,7 +103,7 @@ export default function CreatePoll({ userId, onCreated }: Props) {
       <button
         type="submit"
         disabled={loading}
-        className="bg-blue-600 hover:bg-blue-500 disabled:opacity-50 rounded py-2 px-4 text-sm font-semibold"
+        className="bg-blue-700 hover:bg-blue-600 disabled:opacity-50 rounded py-2 px-4 text-sm font-semibold"
       >
         {loading ? "Creating..." : "Create Poll"}
       </button>

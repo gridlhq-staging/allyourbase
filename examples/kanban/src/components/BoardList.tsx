@@ -63,8 +63,7 @@ export default function BoardList({ onSelectBoard }: Props) {
     }
   }
 
-  async function deleteBoard(board: Board, e: React.MouseEvent) {
-    e.stopPropagation();
+  async function deleteBoard(board: Board) {
     if (!confirm(`Delete "${board.title}"?`)) return;
     setError(null);
     try {
@@ -89,7 +88,7 @@ export default function BoardList({ onSelectBoard }: Props) {
       <h2 className="text-xl font-bold text-gray-900 mb-6">Your Boards</h2>
 
       {error && (
-        <p role="alert" className="mb-4 text-sm text-red-600">
+        <p role="alert" className="mb-4 text-sm text-red-700">
           {error}
         </p>
       )}
@@ -114,30 +113,34 @@ export default function BoardList({ onSelectBoard }: Props) {
       {boards.length === 0 ? (
         <div className="text-center py-12 bg-white rounded-xl border-2 border-dashed border-gray-200">
           <p className="text-gray-500 text-lg">No boards yet</p>
-          <p className="text-gray-400 text-sm mt-1">
+          <p className="text-gray-500 text-sm mt-1">
             Create your first board above
           </p>
         </div>
       ) : (
         <div className="grid gap-3">
           {boards.map((board) => (
-            <button
+            <div
               key={board.id}
-              data-testid={`board-${board.id}`}
-              onClick={() => onSelectBoard(board)}
-              aria-label={`Open board ${board.title}`}
-              className="flex items-center justify-between bg-white p-4 rounded-xl shadow-sm hover:shadow-md transition-shadow text-left group"
+              className="flex items-center justify-between bg-white rounded-xl shadow-sm hover:shadow-md focus-within:shadow-md transition-shadow group"
             >
-              <div>
-                <h3 className="font-semibold text-gray-900">{board.title}</h3>
-                <p className="text-xs text-gray-400 mt-1">
-                  {new Date(board.created_at).toLocaleDateString()}
-                </p>
-              </div>
               <button
-                onClick={(e) => deleteBoard(board, e)}
+                type="button"
+                data-testid={`board-${board.id}`}
+                onClick={() => onSelectBoard(board)}
+                aria-label={`Open board ${board.title}`}
+                className="flex-1 p-4 text-left rounded-l-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-inset"
+              >
+                <span className="block font-semibold text-gray-900">{board.title}</span>
+                <span className="block text-xs text-gray-500 mt-1">
+                  {new Date(board.created_at).toLocaleDateString()}
+                </span>
+              </button>
+              <button
+                type="button"
+                onClick={() => void deleteBoard(board)}
                 aria-label={`Delete board ${board.title}`}
-                className="text-gray-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-all p-1"
+                className="mr-4 text-gray-500 hover:text-red-700 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-all p-1 rounded focus:opacity-100 focus:outline-none focus:ring-2 focus:ring-red-500"
                 title="Delete board"
               >
                 <svg
@@ -154,7 +157,7 @@ export default function BoardList({ onSelectBoard }: Props) {
                   />
                 </svg>
               </button>
-            </button>
+            </div>
           ))}
         </div>
       )}

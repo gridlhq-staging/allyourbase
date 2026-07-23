@@ -193,7 +193,7 @@ export default function CardModal({ card, onClose, onUpdate, onDelete }: Props) 
           <button
             onClick={onClose}
             aria-label="Close"
-            className="text-gray-400 hover:text-gray-600"
+            className="text-gray-500 hover:text-gray-700"
           >
             <svg
               className="w-5 h-5"
@@ -272,13 +272,13 @@ export default function CardModal({ card, onClose, onUpdate, onDelete }: Props) 
             </div>
 
             {loadingAttachments && (
-              <p className="text-sm text-gray-500">Loading attachments...</p>
+              <p className="text-sm text-gray-600">Loading attachments...</p>
             )}
             {uploading && (
-              <p className="text-sm text-gray-500">Uploading attachment...</p>
+              <p className="text-sm text-gray-600">Uploading attachment...</p>
             )}
             {!loadingAttachments && attachments.length === 0 && !uploading && (
-              <p className="text-sm text-gray-500">No attachments</p>
+              <p className="text-sm text-gray-600">No attachments</p>
             )}
             {attachments.length > 0 && (
               <ul className="divide-y divide-gray-200 rounded-lg border border-gray-200">
@@ -301,7 +301,7 @@ export default function CardModal({ card, onClose, onUpdate, onDelete }: Props) 
                         >
                           {attachment.file_name}
                         </a>
-                        <p className="text-xs text-gray-500">
+                        <p className="text-xs text-gray-600">
                           {attachment.content_type} · {attachment.size} bytes
                         </p>
                       </div>
@@ -320,7 +320,7 @@ export default function CardModal({ card, onClose, onUpdate, onDelete }: Props) 
               </ul>
             )}
             {attachmentError && (
-              <p role="alert" className="text-sm text-red-600">{attachmentError}</p>
+              <p role="alert" className="text-sm text-red-700">{attachmentError}</p>
             )}
           </section>
         </div>
@@ -328,7 +328,7 @@ export default function CardModal({ card, onClose, onUpdate, onDelete }: Props) 
         <div className="flex items-center justify-between mt-6">
           <button
             onClick={handleDelete}
-            className="text-red-600 hover:text-red-700 text-sm font-medium"
+            className="text-red-700 hover:text-red-800 text-sm font-medium"
           >
             Delete card
           </button>
