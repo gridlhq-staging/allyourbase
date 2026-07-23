@@ -102,6 +102,7 @@ test.describe("Organizations (Browser Mocked)", () => {
     });
 
     await page.getByRole("button", { name: "Delete", exact: true }).click();
+    await page.getByRole("button", { name: "Delete organization", exact: true }).click();
 
     await expect.poll(() => orgState.deleteConfirmTrueCalls).toBe(1);
     await expect(listPanel.getByRole("button", { name: /Acme Inc/i })).toHaveCount(0);

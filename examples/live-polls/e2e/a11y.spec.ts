@@ -98,8 +98,9 @@ test.describe("Live Polls accessibility states", () => {
 
   test("a11y: feed bootstrap error", async ({ page }) => {
     await registerUser(page);
-    await arrangePollBootstrapFailure(page);
+    const bootstrapFailure = await arrangePollBootstrapFailure(page);
     await page.reload();
+    await bootstrapFailure.intercepted;
     await expect(
       page.getByText("Could not load polls. Please refresh.", { exact: true }),
     ).toBeVisible();

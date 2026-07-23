@@ -44,9 +44,10 @@ test.describe("Storage Error Flows (Browser Mocked)", () => {
       buffer: Buffer.from("test upload body"),
     });
 
-    const toast = page.getByTestId("toast").filter({ hasText: "upload failed" });
-    await expect(toast).toBeVisible({ timeout: 5000 });
-    await expect(toast).toHaveClass(/bg-red-50/);
+    const uploadError = page.getByRole("alert").filter({ hasText: "upload failed" });
+    await expect(uploadError).toBeVisible({ timeout: 5000 });
+    await expect(uploadError.getByRole("link", { name: "View guide" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Upload", exact: true })).toBeEnabled();
   });
 
   test("blank-bucket: prompts for bucket name", async ({ page }) => {
