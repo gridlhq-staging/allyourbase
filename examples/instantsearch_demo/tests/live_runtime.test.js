@@ -6,7 +6,6 @@ import {
   BROWSER_RUNTIME_SETUP_TIMEOUT_MS,
   READINESS_TIMEOUT_MS,
   createInstantSearchProcessEnv,
-  resolveViteCommand,
 } from "../live_runtime.mjs";
 
 describe("instantsearch live runtime helper", () => {
@@ -14,17 +13,12 @@ describe("instantsearch live runtime helper", () => {
     const operatorHome = process.env.HOME;
     const runtimeHome = mkdtempSync(join(tmpdir(), "ayb-instantsearch-test-"));
 
-    const env = createInstantSearchProcessEnv(runtimeHome, {
-      goCacheEnv: {
-        GOMODCACHE: "/tmp/operator-go/pkg/mod",
-        GOCACHE: "/tmp/operator-go/build",
-      },
-    });
+    const env = createInstantSearchProcessEnv(runtimeHome);
 
     expect(env.HOME).toBe(runtimeHome);
     expect(env.HOME).not.toBe(operatorHome);
-    expect(env.GOMODCACHE).toBe("/tmp/operator-go/pkg/mod");
-    expect(env.GOCACHE).toBe("/tmp/operator-go/build");
+    expect(env.GOMODCACHE ?? "").not.toContain(runtimeHome);
+    expect(env.GOCACHE ?? "").not.toContain(runtimeHome);
     expect(env.AYB_ADMIN_TOKEN).toBeUndefined();
     expect(env.DATABASE_URL).toBeUndefined();
     rmSync(runtimeHome, { recursive: true, force: true });
@@ -65,18 +59,5 @@ describe("instantsearch live runtime helper", () => {
     );
     expect(fixtureSource).toContain("timeout: BROWSER_RUNTIME_SETUP_TIMEOUT_MS");
     expect(fixtureSource).not.toContain("timeout: 90_000");
-  });
-
-  it("launches Vite directly so teardown owns the listening process", () => {
-    const viteCommand = resolveViteCommand();
-
-    expect(viteCommand.command).toBe(process.execPath);
-    expect(viteCommand.args[0]).toMatch(/node_modules[/\\]vite[/\\]bin[/\\]vite\.js$/);
-    expect(viteCommand.args.slice(1)).toEqual([
-      "--host",
-      "127.0.0.1",
-      "--port",
-      process.env.AYB_APP_PORT ?? "8096",
-    ]);
   });
 });

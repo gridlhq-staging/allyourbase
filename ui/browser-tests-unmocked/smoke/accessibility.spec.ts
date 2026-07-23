@@ -3,7 +3,6 @@ import {
   expect,
   waitForDashboard,
   execSQL,
-  getAdminCapabilities,
   buildParallelSafeRunID,
   dropTableIfExists,
 } from "../fixtures";
@@ -353,19 +352,13 @@ test.describe("Smoke: Accessibility", () => {
     await navigateAndScan(page, /^Notifications$/i, "Notifications");
   });
 
-  test("admin: Incidents page is accessible", async ({ page, request, adminToken }) => {
-    const capabilities = await getAdminCapabilities(request, adminToken);
-    test.skip(!capabilities.status, "Status capability disabled");
-
+  test("admin: Incidents page is accessible", async ({ page }) => {
     await page.goto("/admin/");
     await waitForDashboard(page);
     await navigateAndScan(page, /^Incidents$/i, "Incidents");
   });
 
-  test("admin: Support tickets page is accessible", async ({ page, request, adminToken }) => {
-    const capabilities = await getAdminCapabilities(request, adminToken);
-    test.skip(!capabilities.support, "Support capability disabled");
-
+  test("admin: Support tickets page is accessible", async ({ page }) => {
     await page.goto("/admin/");
     await waitForDashboard(page);
     await navigateAndScan(page, /^Support Tickets$/i, "Support Tickets");

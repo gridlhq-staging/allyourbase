@@ -17,15 +17,14 @@ test("mobile anonymous starter board supports visible card creation", async ({ p
   await waitForAnonymousBoardShell(page);
 
   await expect(page.getByText("Your Boards")).toBeVisible();
+  await expect(page.getByText("My First Board")).toBeVisible({ timeout: 15_000 });
   await expectNoHorizontalOverflow(page, "board list");
 
   await expect.poll(async () => (await ownedBoardId(page)) ?? "", { timeout: 15_000 }).not.toBe("");
   const boardId = (await ownedBoardId(page)) ?? "";
   expect(boardId).not.toBe("");
-  const starterBoard = page.getByTestId(`board-${boardId}`);
-  await expect(starterBoard).toContainText("My First Board");
 
-  await starterBoard.click();
+  await page.getByTestId(`board-${boardId}`).click();
   await expect(page.getByRole("heading", { name: "My First Board" })).toBeVisible();
   const toDoColumn = page.getByTestId("column-To Do");
   await expect(toDoColumn).toBeVisible();

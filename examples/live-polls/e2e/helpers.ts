@@ -371,11 +371,6 @@ export interface HeldBootstrapRoute {
   release: () => void;
 }
 
-export interface ObservedPollBootstrapFailure {
-  /** Resolves once both the GraphQL request and records fallback have failed. */
-  intercepted: Promise<void>;
-}
-
 /** Hold anonymous sign-in until the test releases the first-load state. */
 export async function arrangeDelayedAnonymousBootstrap(page: Page): Promise<HeldBootstrapRoute> {
   const gate = createReleaseGate();
@@ -418,14 +413,8 @@ export async function arrangeEmptyPollBootstrap(page: Page): Promise<void> {
 }
 
 /** Fail both GraphQL bootstrap and its records fallback. */
-export async function arrangePollBootstrapFailure(
-  page: Page,
-): Promise<ObservedPollBootstrapFailure> {
-  const graphqlInterception = createReleaseGate();
-  const recordsInterception = createReleaseGate();
-
+export async function arrangePollBootstrapFailure(page: Page): Promise<void> {
   await page.route("**/api/graphql", async (route) => {
-    graphqlInterception.release();
     await route.fulfill({
       status: 503,
       contentType: "application/json",
@@ -433,20 +422,12 @@ export async function arrangePollBootstrapFailure(
     });
   });
   await page.route("**/api/collections/polls?*", async (route) => {
-    recordsInterception.release();
     await route.fulfill({
       status: 503,
       contentType: "application/json",
       body: JSON.stringify({ message: "bootstrap database unavailable" }),
     });
   });
-
-  return {
-    intercepted: Promise.all([
-      graphqlInterception.released,
-      recordsInterception.released,
-    ]).then(() => undefined),
-  };
 }
 
 /** Hold then fail one collection write so pending and failure UI are observable. */

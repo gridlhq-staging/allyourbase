@@ -287,7 +287,7 @@ export function RlsPolicies({ schema, screenLabel }: RlsPoliciesProps) {
                       "flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium",
                       rlsStatus.rlsEnabled
                         ? "bg-green-100 text-green-700"
-                        : "bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-200",
+                        : "bg-gray-100 dark:bg-gray-700 text-gray-500 dark:text-gray-300",
                     )}
                   >
                     {rlsStatus.rlsEnabled ? (
@@ -307,8 +307,8 @@ export function RlsPolicies({ schema, screenLabel }: RlsPoliciesProps) {
                   className={cn(
                     "px-3 py-1.5 text-xs font-medium rounded-lg border",
                     rlsStatus?.rlsEnabled
-                      ? "text-red-700 border-red-300 hover:bg-red-50"
-                      : "text-green-700 border-green-300 hover:bg-green-50",
+                      ? "text-red-600 border-red-200 hover:bg-red-50"
+                      : "text-green-600 border-green-200 hover:bg-green-50",
                     toggling && "opacity-50",
                   )}
                 >

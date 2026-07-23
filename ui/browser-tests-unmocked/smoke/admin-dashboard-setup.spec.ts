@@ -2,12 +2,10 @@ import {
   buildParallelSafeRunID,
   execSQL,
   expect,
-  getAdminCapabilities,
   test,
   waitForDashboard,
 } from "../fixtures";
 import type { Page } from "@playwright/test";
-import type { AdminCapabilities, AdminCapabilityName } from "../fixtures";
 
 /**
  * SMOKE TEST: Admin Dashboard Setup
@@ -21,57 +19,57 @@ import type { AdminCapabilities, AdminCapabilityName } from "../fixtures";
 
 test.describe("Smoke: Admin Dashboard Setup", () => {
   const pendingCleanup: string[] = [];
-  const expectedNavigationItems: Array<{ label: string; capability?: AdminCapabilityName }> = [
-    { label: "SQL Editor" },
-    { label: "GraphQL" },
-    { label: "Functions" },
-    { label: "RLS Policies" },
-    { label: "Search" },
-    { label: "Materialized Views" },
-    { label: "Schema Designer" },
-    { label: "FDW Management" },
-    { label: "Storage" },
-    { label: "Sites" },
-    { label: "Edge Functions" },
-    { label: "Webhooks" },
-    { label: "SMS Health" },
-    { label: "SMS Messages" },
-    { label: "Email Templates" },
-    { label: "Push Notifications" },
-    { label: "Users" },
-    { label: "Applications" },
-    { label: "API Keys" },
-    { label: "OAuth Clients" },
-    { label: "API Explorer" },
-    { label: "Jobs" },
-    { label: "Schedules" },
-    { label: "Realtime Inspector" },
-    { label: "Security Advisor" },
-    { label: "Performance Advisor" },
-    { label: "Backups & PITR" },
-    { label: "Analytics" },
-    { label: "Usage Metering" },
-    { label: "Replicas" },
-    { label: "Branches" },
-    { label: "Audit Logs" },
-    { label: "Admin Logs" },
-    { label: "Secrets" },
-    { label: "Custom Domains" },
-    { label: "Extensions" },
-    { label: "Vector Indexes" },
-    { label: "Log Drains" },
-    { label: "Stats" },
-    { label: "Notifications" },
-    { label: "Incidents", capability: "status" },
-    { label: "Support Tickets", capability: "support" },
-    { label: "Tenants" },
-    { label: "Organizations" },
-    { label: "AI Assistant" },
-    { label: "Auth Settings" },
-    { label: "Multi-Factor Authentication" },
-    { label: "Link Your Account" },
-    { label: "SAML Configuration" },
-    { label: "Auth Hooks" },
+  const expectedNavigationLabels = [
+    "SQL Editor",
+    "GraphQL",
+    "Functions",
+    "RLS Policies",
+    "Search",
+    "Materialized Views",
+    "Schema Designer",
+    "FDW Management",
+    "Storage",
+    "Sites",
+    "Edge Functions",
+    "Webhooks",
+    "SMS Health",
+    "SMS Messages",
+    "Email Templates",
+    "Push Notifications",
+    "Users",
+    "Applications",
+    "API Keys",
+    "OAuth Clients",
+    "API Explorer",
+    "Jobs",
+    "Schedules",
+    "Realtime Inspector",
+    "Security Advisor",
+    "Performance Advisor",
+    "Backups & PITR",
+    "Analytics",
+    "Usage Metering",
+    "Replicas",
+    "Branches",
+    "Audit Logs",
+    "Admin Logs",
+    "Secrets",
+    "Custom Domains",
+    "Extensions",
+    "Vector Indexes",
+    "Log Drains",
+    "Stats",
+    "Notifications",
+    "Incidents",
+    "Support Tickets",
+    "Tenants",
+    "Organizations",
+    "AI Assistant",
+    "Auth Settings",
+    "Multi-Factor Authentication",
+    "Link Your Account",
+    "SAML Configuration",
+    "Auth Hooks",
   ];
 
   test.afterEach(async ({ request, adminToken }) => {
@@ -85,30 +83,24 @@ test.describe("Smoke: Admin Dashboard Setup", () => {
     return labels.map((label) => label.trim().replace(/\s+/g, " ")).filter(Boolean);
   }
 
-  function expectedNavigationLabels(capabilities?: AdminCapabilities): string[] {
-    return expectedNavigationItems
-      .filter((item) => !item.capability || !capabilities || capabilities[item.capability])
-      .map((item) => item.label);
-  }
-
-  function navigationSpan(labels: string[], expectedLabels: string[]): string[] {
+  function navigationSpan(labels: string[]): string[] {
     const normalized = normalizeLabels(labels);
-    const firstIndex = normalized.indexOf(expectedLabels[0]);
-    const lastIndex = normalized.indexOf(expectedLabels[expectedLabels.length - 1]);
+    const firstIndex = normalized.indexOf(expectedNavigationLabels[0]);
+    const lastIndex = normalized.indexOf(expectedNavigationLabels[expectedNavigationLabels.length - 1]);
     expect(firstIndex).toBeGreaterThanOrEqual(0);
     expect(lastIndex).toBeGreaterThan(firstIndex);
     return normalized.slice(firstIndex, lastIndex + 1);
   }
 
-  async function sidebarNavigationLabels(page: Page, expectedLabels: string[]): Promise<string[]> {
+  async function sidebarNavigationLabels(page: Page): Promise<string[]> {
     const sidebarButtons = await page
       .getByRole("complementary")
       .getByRole("button")
       .allInnerTexts();
-    return navigationSpan(sidebarButtons, expectedLabels);
+    return navigationSpan(sidebarButtons);
   }
 
-  async function commandPaletteNavigationLabels(page: Page, expectedLabels: string[]): Promise<string[]> {
+  async function commandPaletteNavigationLabels(page: Page): Promise<string[]> {
     await page
       .getByRole("complementary")
       .getByRole("button", { name: "Search... K" })
@@ -116,13 +108,12 @@ test.describe("Smoke: Admin Dashboard Setup", () => {
     const dialog = page.getByRole("dialog", { name: "Command palette" });
     await expect(dialog).toBeVisible();
     const paletteButtons = await dialog.getByRole("button").allInnerTexts();
-    return navigationSpan(paletteButtons, expectedLabels);
+    return navigationSpan(paletteButtons);
   }
 
   async function expectFullNavigation(page: Page): Promise<void> {
-    const labels = expectedNavigationLabels();
-    expect(await sidebarNavigationLabels(page, labels)).toEqual(labels);
-    expect(await commandPaletteNavigationLabels(page, labels)).toEqual(labels);
+    expect(await sidebarNavigationLabels(page)).toEqual(expectedNavigationLabels);
+    expect(await commandPaletteNavigationLabels(page)).toEqual(expectedNavigationLabels);
   }
 
   async function expectDashboardWithoutCapabilityError(page: Page): Promise<void> {
@@ -131,9 +122,8 @@ test.describe("Smoke: Admin Dashboard Setup", () => {
     await expectFullNavigation(page);
   }
 
-  test("dashboard loads with shell chrome and command palette entry points", async ({ page, request, adminToken }) => {
+  test("dashboard loads with shell chrome and command palette entry points", async ({ page }) => {
     const commandPaletteShortcut = process.platform === "darwin" ? "Meta+K" : "Control+K";
-    const labels = expectedNavigationLabels(await getAdminCapabilities(request, adminToken));
 
     // Act: Navigate to admin dashboard
     await page.goto("/admin/");
@@ -165,8 +155,8 @@ test.describe("Smoke: Admin Dashboard Setup", () => {
     await expect(page.getByRole("dialog", { name: "Command palette" })).toBeVisible();
     await page.keyboard.press("Escape");
 
-    expect(await sidebarNavigationLabels(page, labels)).toEqual(labels);
-    expect(await commandPaletteNavigationLabels(page, labels)).toEqual(labels);
+    expect(await sidebarNavigationLabels(page)).toEqual(expectedNavigationLabels);
+    expect(await commandPaletteNavigationLabels(page)).toEqual(expectedNavigationLabels);
   });
 
   test("capability 401 keeps passwordless-compatible navigation fail-open", async ({ page }) => {

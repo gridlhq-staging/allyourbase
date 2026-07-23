@@ -72,7 +72,6 @@ test.describe("Organizations Lifecycle (Full E2E)", () => {
     expect(updatedOrgResult.rows[0]?.[1]).toBe(updatedOrgSlug);
 
     await page.getByRole("button", { name: "Delete" }).click();
-    await page.getByRole("button", { name: "Delete organization", exact: true }).click();
     await expect(page.getByRole("heading", { name: updatedOrgName })).not.toBeVisible({
       timeout: 5000,
     });

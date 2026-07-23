@@ -59,7 +59,7 @@ test.describe("Tenants (Browser Mocked)", () => {
     const lifecycleCases = [
       { tenantName: "Acme Labs", canSuspend: true, canResume: false, canDelete: true },
       { tenantName: "Beta Ops", canSuspend: false, canResume: true, canDelete: true },
-      { tenantName: "Gamma Provisioning", canSuspend: false, canResume: false, canDelete: true },
+      { tenantName: "Gamma Provisioning", canSuspend: false, canResume: false, canDelete: false },
       { tenantName: "Delta Deleting", canSuspend: false, canResume: false, canDelete: false },
       { tenantName: "Echo Deleted", canSuspend: false, canResume: false, canDelete: false },
     ];

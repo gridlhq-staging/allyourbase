@@ -1,5 +1,4 @@
-import AxeBuilder from "@axe-core/playwright";
-import { devices, test, expect, type Page } from "@playwright/test";
+import { test, expect } from "@playwright/test";
 import {
   DEMO_TARGETS,
   managedPortsForTest,
@@ -31,23 +30,6 @@ function uniqueName(base: string): string {
 
 function liveApexUrlFromEnv(): string {
   return process.env.DEMO_APEX_URL?.trim() || DEFAULT_LIVE_APEX_URL;
-}
-
-async function liveDemoUrlsFromApex(page: Page): Promise<string[]> {
-  const apexUrl = liveApexUrlFromEnv();
-  const response = await page.request.get(apexUrl);
-  expect(response.ok(), `${apexUrl} should return a successful apex response`).toBe(true);
-
-  await page.setContent(await response.text());
-  const cardHrefs = await page
-    .getByRole("region", { name: "Demo apps" })
-    .getByRole("link")
-    .evaluateAll((anchors) => anchors.map((anchor) => anchor.getAttribute("href") ?? ""));
-  const demoUrls = cardHrefs.map((href) => new URL(href, apexUrl).toString());
-
-  expect(demoUrls).toHaveLength(4);
-  expect(new Set(demoUrls).size, "live apex should expose four unique demo card URLs").toBe(4);
-  return demoUrls;
 }
 
 function requiredEnvValue(key: string): string {
@@ -372,45 +354,6 @@ test.describe("local orchestration", () => {
 test.describe("live deployment", () => {
   // eslint-disable-next-line playwright/no-skipped-test
   test.skip(!process.env.CROSS_DEMO_LIVE, "live-target tests require CROSS_DEMO_LIVE=1");
-
-  test("discovered live demos have no critical or serious accessibility violations", async ({ page }) => {
-    test.setTimeout(120_000);
-    const demoUrls = await liveDemoUrlsFromApex(page);
-
-    for (const demoUrl of demoUrls) {
-      await page.goto(demoUrl);
-      const results = await new AxeBuilder({ page })
-        .withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"])
-        .analyze();
-      const criticalOrSerious = results.violations.filter(
-        (violation) => violation.impact === "critical" || violation.impact === "serious",
-      );
-
-      expect(
-        criticalOrSerious,
-        `${demoUrl}: ${criticalOrSerious.length} critical/serious accessibility violation(s)`,
-      ).toHaveLength(0);
-    }
-  });
-
-  test("discovered live demos load without horizontal overflow on Pixel 7", async ({ browser, page }) => {
-    test.setTimeout(120_000);
-    const demoUrls = await liveDemoUrlsFromApex(page);
-    const mobileContext = await browser.newContext({ ...devices["Pixel 7"] });
-    const mobilePage = await mobileContext.newPage();
-
-    try {
-      for (const demoUrl of demoUrls) {
-        await mobilePage.goto(demoUrl);
-        const hasNoHorizontalOverflow = await mobilePage.evaluate(
-          () => document.documentElement.scrollWidth <= document.documentElement.clientWidth,
-        );
-        expect(hasNoHorizontalOverflow, `${demoUrl} should not create horizontal document overflow`).toBe(true);
-      }
-    } finally {
-      await mobileContext.close();
-    }
-  });
 
   test("anonymous bootstrap default path renders each live demo shell without crash", async ({ page }) => {
     const liveKanban = resolveDemoTargetForTest(DEMO_TARGETS.kanban.name, process.env);

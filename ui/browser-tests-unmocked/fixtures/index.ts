@@ -11,7 +11,6 @@ import {
 
 export * from "./core";
 export * from "./auth";
-export * from "./capabilities";
 export * from "./oauth";
 export * from "./sms";
 export * from "./push";
