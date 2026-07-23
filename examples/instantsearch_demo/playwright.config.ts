@@ -1,4 +1,4 @@
-import { defineConfig } from "@playwright/test";
+import { defineConfig, devices } from "@playwright/test";
 
 const appPort = process.env.AYB_APP_PORT ?? "8096";
 
@@ -16,7 +16,14 @@ export default defineConfig({
   projects: [
     {
       name: "instantsearch_demo",
+      testIgnore: "**/*mobile.spec.ts",
       use: { browserName: "chromium" },
+    },
+    {
+      name: "instantsearch_demo-mobile",
+      // Phone emulation is Chromium-only and intentionally does not run the desktop suite.
+      testMatch: "**/*mobile.spec.ts",
+      use: { ...devices["Pixel 7"] },
     },
   ],
   reporter: [["list"], ["json", { outputFile: "playwright-report/results.json" }]],

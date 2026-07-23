@@ -1,4 +1,4 @@
-import { defineConfig } from "@playwright/test";
+import { defineConfig, devices } from "@playwright/test";
 
 const testPort = Number(process.env.AYB_DEMO_APP_PORT) || 4173;
 export const kanbanPlaywrightDefaults = {
@@ -21,7 +21,14 @@ export default defineConfig({
   projects: [
     {
       name: "kanban",
+      testIgnore: "**/*mobile.spec.ts",
       use: { browserName: "chromium" },
+    },
+    {
+      name: "kanban-mobile",
+      // Phone emulation is Chromium-only and intentionally does not run the desktop suite.
+      testMatch: "**/*mobile.spec.ts",
+      use: { ...devices["Pixel 7"] },
     },
   ],
   reporter: [["list"], ["json", { outputFile: "playwright-report/results.json" }]],

@@ -1,4 +1,4 @@
-.PHONY: build dev test test-sdk test-sdk-go test-sdk-python test-sdk-dart test-sdk-swift test-sdk-kotlin test-sdk-react test-sdk-ssr test-sdk-all test-sdk-integration test-ui test-demos-unit test-quickstart-contract test-integration test-multinode test-cell test-demo-smoke test-demo-instantsearch test-demo-e2e test-demo-launch test-demo-cross-smoke test-demo-movies-real-provider test-push-smoke test-e2e test-smoke test-browser-full test-full test-all test-everything test-api-smoke test-api-journey lint check hygiene check-hygiene check-sizes check-screen-specs check-followups check-ui-bundle-size check-ui-lint check-browser-tests-lint check-func-sizes check-installer check-sdk-build launch-check adoption release-candidate-check clean ui demos release docker docker-runtime-smoke help sync-openapi build-postgres load-admin-status load-admin-status-local load-auth-request-path load-auth-request-path-local load-data-path load-data-path-local load-data-pool-pressure load-data-pool-pressure-local load-http-100 load-http-100-local load-http-500 load-http-500-local load-http-1000 load-http-1000-local load-realtime-ws load-realtime-ws-local load-realtime-ws-1000 load-realtime-ws-1000-local load-realtime-ws-5000 load-realtime-ws-5000-local load-realtime-ws-10000 load-realtime-ws-10000-local load-sustained-soak load-sustained-soak-local
+.PHONY: build dev test test-sdk test-sdk-go test-sdk-python test-sdk-dart test-sdk-swift test-sdk-kotlin test-sdk-react test-sdk-ssr test-sdk-all test-sdk-integration test-ui test-demos-unit test-quickstart-contract test-integration test-multinode test-cell test-demo-smoke test-demo-instantsearch test-demo-e2e test-demo-launch test-demo-cross-smoke test-demo-movies-real-provider test-push-smoke test-e2e test-smoke test-browser-full test-full test-all test-everything test-api-smoke test-api-journey lint check demo-check hygiene check-hygiene check-sizes check-screen-specs check-demo-specs check-followups check-ui-bundle-size check-ui-lint check-browser-tests-lint check-func-sizes check-installer check-sdk-build launch-check adoption release-candidate-check clean ui demos release docker docker-runtime-smoke help sync-openapi build-postgres load-admin-status load-admin-status-local load-auth-request-path load-auth-request-path-local load-data-path load-data-path-local load-data-pool-pressure load-data-pool-pressure-local load-http-100 load-http-100-local load-http-500 load-http-500-local load-http-1000 load-http-1000-local load-realtime-ws load-realtime-ws-local load-realtime-ws-1000 load-realtime-ws-1000-local load-realtime-ws-5000 load-realtime-ws-5000-local load-realtime-ws-10000 load-realtime-ws-10000-local load-sustained-soak load-sustained-soak-local
 
 # Build variables
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
@@ -398,6 +398,9 @@ check-sizes: ## Run source-size guardrail
 check-screen-specs: ## Run screen-spec format guard
 	bash scripts/check_screen_spec.sh docs/reference/screen_specs
 
+check-demo-specs: ## Run demo screen-spec format guard
+	bash scripts/check_screen_spec.sh docs/reference/demo_specs
+
 check-followups: ## Report follow-up ledger pollution without blocking aggregate gates
 	@status=0; \
 	if ! git show HEAD:chats/icg/_followups.md | bash scripts/check_followups.sh HEAD=-; then status=1; fi; \
@@ -428,7 +431,65 @@ check-browser-tests-lint: ## Lint browser test specs
 check-func-sizes: ## Run Go function-size guardrail test
 	go test ./internal/codehealth -run TestFunctionSizeAllowlist -count=1
 
-check: hygiene fmt lint check-sizes check-screen-specs check-ui-bundle-size check-ui-lint check-func-sizes ## Run local CI-equivalent quality checks
+check: hygiene fmt lint check-sizes check-screen-specs check-demo-specs check-ui-bundle-size check-ui-lint check-func-sizes ## Run local CI-equivalent quality checks
+
+demo-check: ## Run the complete demo validation aggregate
+	@set -euo pipefail; \
+	$(MAKE) check-demo-specs; \
+	printf 'DEMO-CHECK ARM check-demo-specs: PASS\n'; \
+	$(MAKE) test-demos-unit; \
+	printf 'DEMO-CHECK ARM test-demos-unit: PASS\n'; \
+	(cd examples/kanban && AYB_DEMO_APP_PORT=45173 npm run test:e2e -- --project=kanban --retries=0); \
+	bash scripts/check-playwright-executed.sh examples/kanban/playwright-report/results.json kanban; \
+	printf 'DEMO-CHECK ARM kanban-desktop: PASS\n'; \
+	(cd examples/live-polls && AYB_DEMO_APP_PORT=45175 npm run test:e2e -- --project=live-polls --retries=0); \
+	bash scripts/check-playwright-executed.sh examples/live-polls/playwright-report/results.json live-polls; \
+	printf 'DEMO-CHECK ARM live-polls-desktop: PASS\n'; \
+	(cd examples/movies && AYB_DEMO_APP_PORT=45177 npm run test:e2e -- --project=movies --retries=0); \
+	bash scripts/check-playwright-executed.sh examples/movies/playwright-report/results.json movies; \
+	printf 'DEMO-CHECK ARM movies-desktop: PASS\n'; \
+	(cd examples/kanban && AYB_DEMO_APP_PORT=45183 npm run test:e2e -- tests/a11y.spec.ts --project=kanban --retries=0); \
+	bash scripts/check-playwright-executed.sh examples/kanban/playwright-report/results.json kanban; \
+	printf 'DEMO-CHECK ARM kanban-a11y: PASS\n'; \
+	(cd examples/live-polls && AYB_DEMO_APP_PORT=45185 npm run test:e2e -- e2e/a11y.spec.ts --project=live-polls --retries=0); \
+	bash scripts/check-playwright-executed.sh examples/live-polls/playwright-report/results.json live-polls; \
+	printf 'DEMO-CHECK ARM live-polls-a11y: PASS\n'; \
+	(cd examples/movies && AYB_DEMO_APP_PORT=45187 npm run test:e2e -- e2e/a11y.spec.ts --project=movies --retries=0); \
+	bash scripts/check-playwright-executed.sh examples/movies/playwright-report/results.json movies; \
+	printf 'DEMO-CHECK ARM movies-a11y: PASS\n'; \
+	(cd examples/instantsearch_demo && AYB_APP_PORT=45196 npm run test:browser-tests -- browser-tests-unmocked/smoke/a11y.spec.ts --project=instantsearch_demo --retries=0); \
+	bash scripts/check-playwright-executed.sh examples/instantsearch_demo/playwright-report/results.json instantsearch_demo; \
+	printf 'DEMO-CHECK ARM instantsearch-a11y: PASS\n'; \
+	(cd examples/kanban && AYB_DEMO_APP_PORT=45193 npm run test:e2e -- --project=kanban-mobile --retries=0); \
+	bash scripts/check-playwright-executed.sh examples/kanban/playwright-report/results.json kanban-mobile; \
+	printf 'DEMO-CHECK ARM kanban-mobile: PASS\n'; \
+	(cd examples/live-polls && AYB_DEMO_APP_PORT=45195 npm run test:e2e -- --project=live-polls-mobile --retries=0); \
+	bash scripts/check-playwright-executed.sh examples/live-polls/playwright-report/results.json live-polls-mobile; \
+	printf 'DEMO-CHECK ARM live-polls-mobile: PASS\n'; \
+	(cd examples/movies && AYB_DEMO_APP_PORT=45197 npm run test:e2e -- --project=movies-mobile --retries=0); \
+	bash scripts/check-playwright-executed.sh examples/movies/playwright-report/results.json movies-mobile; \
+	printf 'DEMO-CHECK ARM movies-mobile: PASS\n'; \
+	(cd examples/instantsearch_demo && AYB_APP_PORT=45198 npm run test:browser-tests -- --project=instantsearch_demo-mobile --retries=0); \
+	bash scripts/check-playwright-executed.sh examples/instantsearch_demo/playwright-report/results.json instantsearch_demo-mobile; \
+	printf 'DEMO-CHECK ARM instantsearch-mobile: PASS\n'; \
+	$(MAKE) test-demo-instantsearch; \
+	printf 'DEMO-CHECK ARM test-demo-instantsearch: PASS\n'; \
+	$(MAKE) test-push-smoke; \
+	printf 'DEMO-CHECK ARM test-push-smoke: PASS\n'; \
+	bash scripts/demo_freshness_check.sh; \
+	printf 'DEMO-CHECK ARM freshness: PASS\n'; \
+	[ "$${DEMO_CHECK_SKIP_LIVE:-}" = "1" ] && printf 'DEMO-CHECK ARM live-workflow: SKIP\n' && exit 0; \
+	command -v gh >/dev/null || printf 'gh CLI is required for live workflow dispatch/watch\n' >&2; \
+	command -v gh >/dev/null; \
+	run_url_file="$$(mktemp -t ayb-demo-check-run-url.XXXXXX)"; \
+	gh workflow run cross_demo_live.yml -R AllyourbaseHQ/allyourbase | tee "$$run_url_file"; \
+	run_url="$$(cat "$$run_url_file")"; \
+	rm -f "$$run_url_file"; \
+	run_id="$$(printf '%s\n' "$$run_url" | sed -nE 's@.*[/ ]([0-9]+)[[:space:]]*$$@\1@p' | tail -n 1)"; \
+	printf '%s\n' "$$run_id" | grep -Eq '^[0-9]+$$' || printf 'Unable to extract numeric workflow run ID from gh dispatch output: %s\n' "$$run_url" >&2; \
+	printf '%s\n' "$$run_id" | grep -Eq '^[0-9]+$$'; \
+	gh run watch "$$run_id" -R AllyourbaseHQ/allyourbase --exit-status; \
+	printf 'DEMO-CHECK ARM live-workflow: PASS\n'
 
 check-installer: ## Run installer validation suite
 	sh tests/test_install.sh

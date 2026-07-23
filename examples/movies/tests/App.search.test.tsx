@@ -172,13 +172,40 @@ describe("App search", () => {
     expect(screen.getByTestId("search-result-genre-inception")).toHaveTextContent("Sci-Fi");
   });
 
-  it("renders highlight markup with accessible label", async () => {
+  it("renders highlight text with accessible label", async () => {
     render(<App />);
     await advanceDebounce();
 
     await screen.findByText("Inception");
     const highlight = screen.getByLabelText("Highlighted match");
-    expect(highlight.innerHTML).toContain("<b>dream</b>");
+    expect(highlight).toHaveTextContent(
+      "A thief who steals corporate secrets through <b>dream</b>-sharing technology.",
+    );
+    expect(highlight.querySelector("b")).toBeNull();
+  });
+
+  it("renders server-provided highlight HTML as inert text", async () => {
+    mockSearchMovies.mockResolvedValue(
+      listResponse([
+        {
+          slug: "hostile-highlight",
+          title: "Hostile Highlight",
+          overview: "A crafted highlight should not create DOM nodes.",
+          release_year: 2026,
+          primary_genre: "Thriller",
+          _highlight: 'Owned <img src=x onerror="window.__aybHighlightXss = true"> highlight',
+        },
+      ]),
+    );
+
+    render(<App />);
+    await advanceDebounce();
+
+    const overview = await screen.findByTestId("search-result-overview-hostile-highlight");
+    expect(overview).toHaveTextContent(
+      'Owned <img src=x onerror="window.__aybHighlightXss = true"> highlight',
+    );
+    expect(overview.querySelector("img")).toBeNull();
   });
 
   it("renders results summary with totalItems", async () => {

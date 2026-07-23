@@ -41,12 +41,7 @@ export default function SearchResults({ items, selectedSlug, onSelect }: Props) 
               data-testid={`search-result-overview-${item.slug}`}
               className="text-sm text-gray-400 mt-1 line-clamp-2"
             >
-              <span
-                aria-label="Highlighted match"
-                // ts_headline output from AYB backend wraps matches in <b> tags
-                // over server-controlled seed corpus; not user input.
-                dangerouslySetInnerHTML={{ __html: item._highlight }}
-              />
+              <span aria-label="Highlighted match">{item._highlight}</span>
             </p>
           ) : (
             <p
