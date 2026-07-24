@@ -1,4 +1,12 @@
-import { test, expect, execSQL, openTableFromSidebar, seedRecord, waitForDashboard } from "../fixtures";
+import {
+  buildParallelSafeRunID,
+  execSQL,
+  expect,
+  openTableFromSidebar,
+  seedRecord,
+  test,
+  waitForDashboard,
+} from "../fixtures";
 
 /**
  * FULL E2E TEST: Collections CRUD Operations
@@ -20,22 +28,23 @@ test.describe("Collections CRUD (Full E2E)", () => {
     pendingCleanup.length = 0;
   });
 
-  test("seeded record renders in table view", async ({ page, request, adminToken }) => {
-    const runId = Date.now();
+  test("seeded record renders in table view", async ({ page, request, adminToken }, testInfo) => {
+    const runID = buildParallelSafeRunID(testInfo);
+    const tableName = `crud_test_products_${runID}`;
 
-    pendingCleanup.push("DROP TABLE IF EXISTS crud_test_products;");
+    pendingCleanup.push(`DROP TABLE IF EXISTS ${tableName};`);
 
     // Arrange: create table and seed a record via API
     await execSQL(
       request,
       adminToken,
-      `CREATE TABLE IF NOT EXISTS crud_test_products (
+      `CREATE TABLE ${tableName} (
         id SERIAL PRIMARY KEY, name TEXT NOT NULL, price DECIMAL(10,2) NOT NULL,
         stock INTEGER DEFAULT 0, description TEXT, created_at TIMESTAMPTZ DEFAULT NOW()
       );`,
     );
-    await seedRecord(request, adminToken, "crud_test_products", {
-      name: `Seed Product ${runId}`,
+    await seedRecord(request, adminToken, tableName, {
+      name: `Seed Product ${runID}`,
       price: 49.99,
       stock: 5,
     });
@@ -43,16 +52,20 @@ test.describe("Collections CRUD (Full E2E)", () => {
     // Act: navigate to the table
     await page.goto("/admin/");
     await waitForDashboard(page);
-    await openTableFromSidebar(page, "crud_test_products");
+    await openTableFromSidebar(page, tableName);
 
     // Assert: seeded record appears in the table
-    await expect(page.getByRole("cell", { name: `Seed Product ${runId}` })).toBeVisible({ timeout: 5000 });
+    await expect(page.getByRole("cell", { name: `Seed Product ${runID}` })).toBeVisible({
+      timeout: 5000,
+    });
 
     // Cleanup handled by afterEach
   });
 
-  test("complete CRUD lifecycle via UI", async ({ page, request, adminToken }) => {
-    pendingCleanup.push("DROP TABLE IF EXISTS crud_test_products;");
+  test("complete CRUD lifecycle via UI", async ({ page }, testInfo) => {
+    const runID = buildParallelSafeRunID(testInfo);
+    const tableName = `crud_test_products_${runID}`;
+    pendingCleanup.push(`DROP TABLE IF EXISTS ${tableName};`);
 
     // ============================================================
     // Setup: Create test table
@@ -66,7 +79,7 @@ test.describe("Collections CRUD (Full E2E)", () => {
     const sqlInput = page.getByLabel("SQL query");
 
     const createTableSQL = `
-      CREATE TABLE IF NOT EXISTS crud_test_products (
+      CREATE TABLE ${tableName} (
         id SERIAL PRIMARY KEY,
         name TEXT NOT NULL,
         price DECIMAL(10,2) NOT NULL,
@@ -85,7 +98,7 @@ test.describe("Collections CRUD (Full E2E)", () => {
     // ============================================================
     await page.reload();
     await waitForDashboard(page);
-    await openTableFromSidebar(page, "crud_test_products");
+    await openTableFromSidebar(page, tableName);
 
     await page.getByRole("button", { name: "New Row" }).click();
     await expect(page.getByText("New Record")).toBeVisible();

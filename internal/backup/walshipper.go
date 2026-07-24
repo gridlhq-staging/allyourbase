@@ -4,10 +4,14 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"io"
 	"os"
+	"strings"
 	"time"
+
+	"github.com/jackc/pgx/v5/pgconn"
 )
 
 const (
@@ -93,6 +97,9 @@ func (w *WALShipper) acceptExistingArchiveFile(
 	if archiveFile.Segment != nil {
 		existing, err := w.walRepo.GetByName(ctx, w.projectID, w.databaseID, archiveFile.Timeline, archiveFile.OriginalName)
 		if err != nil {
+			if isMissingWALMetadataTableError(err) {
+				return w.verifyStoredArchiveFile(ctx, objectKey, archiveFile.OriginalName, checksum, sizeBytes)
+			}
 			return fmt.Errorf("WAL object already exists but metadata lookup failed: %w", err)
 		}
 		if existing != nil {
@@ -150,9 +157,19 @@ func (w *WALShipper) recordSegmentMetadata(
 		SizeBytes:   sizeBytes,
 		ArchivedAt:  time.Now().UTC(),
 	}); err != nil {
+		if isMissingWALMetadataTableError(err) {
+			return nil
+		}
 		return fmt.Errorf("recording WAL segment metadata: %w", err)
 	}
 	return nil
+}
+
+func isMissingWALMetadataTableError(err error) bool {
+	var pgErr *pgconn.PgError
+	return errors.As(err, &pgErr) &&
+		pgErr.Code == "42P01" &&
+		(pgErr.TableName == "_ayb_wal_segments" || strings.Contains(pgErr.Message, "_ayb_wal_segments"))
 }
 
 // DetectGaps scans archived WAL metadata for discontinuities.

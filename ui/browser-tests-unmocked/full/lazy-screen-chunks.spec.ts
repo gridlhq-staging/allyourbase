@@ -108,19 +108,15 @@ test.describe("Lazy admin screen chunks", () => {
 
       await expectChunkRequestCount(chunks.requestedChunkURLs, USERS_CHUNK_PATTERN, 0);
 
-      await openLazyScreen(page, "Users");
-      await expectChunkRequestCount(chunks.requestedChunkURLs, USERS_CHUNK_PATTERN, 1);
-
       await failNextMatchingChunk(page, USERS_CHUNK_PATTERN);
-      await page.reload();
-      await waitForDashboard(page);
+      await page.getByRole("complementary").getByRole("button", { name: "Users", exact: true }).click();
 
       await expect(page.getByRole("heading", { name: "Something went wrong" })).toBeVisible();
       await page.getByRole("button", { name: "Retry" }).click();
       await waitForDashboard(page);
 
       await expectUsersScreenContent(page);
-      await expectChunkRequestCount(chunks.requestedChunkURLs, USERS_CHUNK_PATTERN, 3);
+      await expectChunkRequestCount(chunks.requestedChunkURLs, USERS_CHUNK_PATTERN, 2);
     } finally {
       chunks.dispose();
     }

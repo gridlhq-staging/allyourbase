@@ -217,6 +217,7 @@ test-demos-unit: sdk/dist/.stamp sdk_react/dist/.stamp ## Run Vitest-only demo u
 	cd examples/instantsearch_demo && npm ci --prefer-offline --no-audit && npm test
 
 test-quickstart-contract: check-installer ## Run installer, documented-command coverage, and live first-run contracts
+	bash tests/test_run_with_ayb.sh
 	bash tests/test_extract_doc_block.sh
 	AYB_QUICKSTART_BIN="$(AYB_QUICKSTART_BIN)" bash tests/test_quickstart_e2e.sh
 

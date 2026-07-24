@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 )
 
 type fakeWALRepo struct {
@@ -349,6 +350,53 @@ func TestWALShipperShipRepairsMissingMetadataAfterUpload(t *testing.T) {
 	}
 	if store.putCalled != 0 {
 		t.Fatalf("putCalled = %d; want 0 for verified existing object", store.putCalled)
+	}
+}
+
+func TestWALShipperShipAcceptsExistingObjectDuringMetadataBootstrap(t *testing.T) {
+	const name = "000000010000000000000006"
+	data := []byte("bootstrap WAL bytes")
+	path := writeTempWALFile(t, data)
+	store := newFakeStore()
+	store.objects[WALSegmentKey("pitr", "proj1", "db1", 1, name)] = append([]byte(nil), data...)
+	repo := newFakeWALRepo()
+	repo.getErr = fmt.Errorf("scanning WAL segment: %w", &pgconn.PgError{
+		Code:    "42P01",
+		Message: `relation "_ayb_wal_segments" does not exist`,
+	})
+	shipper := NewWALShipper(store, repo, PITRConfig{ArchivePrefix: "pitr"}, "proj1", "db1", NoopNotifier{})
+
+	if err := shipper.Ship(context.Background(), path, name); err != nil {
+		t.Fatalf("Ship should accept byte-identical WAL object while metadata table is bootstrapping: %v", err)
+	}
+	if store.putCalled != 0 {
+		t.Fatalf("putCalled = %d; want 0 for existing object retry", store.putCalled)
+	}
+	if len(repo.records) != 0 {
+		t.Fatalf("metadata should not be recorded while table is unavailable: %#v", repo.records)
+	}
+}
+
+func TestWALShipperShipAcceptsNewObjectDuringMetadataBootstrap(t *testing.T) {
+	const name = "000000010000000000000007"
+	data := []byte("new bootstrap WAL bytes")
+	path := writeTempWALFile(t, data)
+	store := newFakeStore()
+	repo := newFakeWALRepo()
+	repo.recordErr = fmt.Errorf("recording WAL segment: %w", &pgconn.PgError{
+		Code:    "42P01",
+		Message: `relation "_ayb_wal_segments" does not exist`,
+	})
+	shipper := NewWALShipper(store, repo, PITRConfig{ArchivePrefix: "pitr"}, "proj1", "db1", NoopNotifier{})
+
+	if err := shipper.Ship(context.Background(), path, name); err != nil {
+		t.Fatalf("Ship should accept uploaded WAL object while metadata table is bootstrapping: %v", err)
+	}
+	if store.putCalled != 1 {
+		t.Fatalf("putCalled = %d; want 1 for new object upload", store.putCalled)
+	}
+	if got := string(store.objects[WALSegmentKey("pitr", "proj1", "db1", 1, name)]); got != string(data) {
+		t.Fatalf("uploaded WAL object = %q, want %q", got, data)
 	}
 }
 

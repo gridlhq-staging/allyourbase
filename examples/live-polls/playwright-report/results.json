@@ -1,7 +1,7 @@
 {
   "config": {
-    "configFile": "/Users/stuart/parallel_development/allyourbase_dev/jul21_6pm_3_demo_ux_state_depth/allyourbase_dev/examples/live-polls/playwright.config.ts",
-    "rootDir": "/Users/stuart/parallel_development/allyourbase_dev/jul21_6pm_3_demo_ux_state_depth/allyourbase_dev/examples/live-polls/e2e",
+    "configFile": "/Users/stuart/parallel_development/allyourbase_dev/jul23_pm_4_release_v0_0_20_beta_ship_continuation/allyourbase_dev/examples/live-polls/playwright.config.ts",
+    "rootDir": "/Users/stuart/parallel_development/allyourbase_dev/jul23_pm_4_release_v0_0_20_beta_ship_continuation/allyourbase_dev/examples/live-polls/e2e",
     "forbidOnly": false,
     "fullyParallel": false,
     "globalSetup": null,
@@ -16,7 +16,7 @@
     "preserveOutput": "always",
     "projects": [
       {
-        "outputDir": "/Users/stuart/parallel_development/allyourbase_dev/jul21_6pm_3_demo_ux_state_depth/allyourbase_dev/examples/live-polls/test-results",
+        "outputDir": "/Users/stuart/parallel_development/allyourbase_dev/jul23_pm_4_release_v0_0_20_beta_ship_continuation/allyourbase_dev/examples/live-polls/test-results",
         "repeatEach": 1,
         "retries": 0,
         "metadata": {
@@ -24,10 +24,28 @@
         },
         "id": "live-polls",
         "name": "live-polls",
-        "testDir": "/Users/stuart/parallel_development/allyourbase_dev/jul21_6pm_3_demo_ux_state_depth/allyourbase_dev/examples/live-polls/e2e",
-        "testIgnore": [],
+        "testDir": "/Users/stuart/parallel_development/allyourbase_dev/jul23_pm_4_release_v0_0_20_beta_ship_continuation/allyourbase_dev/examples/live-polls/e2e",
+        "testIgnore": [
+          "**/*mobile.spec.ts"
+        ],
         "testMatch": [
           "**/*.@(spec|test).?(c|m)[jt]s?(x)"
+        ],
+        "timeout": 30000
+      },
+      {
+        "outputDir": "/Users/stuart/parallel_development/allyourbase_dev/jul23_pm_4_release_v0_0_20_beta_ship_continuation/allyourbase_dev/examples/live-polls/test-results",
+        "repeatEach": 1,
+        "retries": 0,
+        "metadata": {
+          "actualWorkers": 9
+        },
+        "id": "live-polls-mobile",
+        "name": "live-polls-mobile",
+        "testDir": "/Users/stuart/parallel_development/allyourbase_dev/jul23_pm_4_release_v0_0_20_beta_ship_continuation/allyourbase_dev/examples/live-polls/e2e",
+        "testIgnore": [],
+        "testMatch": [
+          "**/*mobile.spec.ts"
         ],
         "timeout": 30000
       }
@@ -56,14 +74,638 @@
     "updateSourceMethod": "patch",
     "version": "1.58.2",
     "workers": 9,
-    "webServer": {
-      "command": "npm run dev",
-      "port": 45175,
-      "reuseExistingServer": true,
-      "timeout": 10000
-    }
+    "webServer": null
   },
   "suites": [
+    {
+      "title": "a11y.spec.ts",
+      "file": "a11y.spec.ts",
+      "column": 0,
+      "line": 0,
+      "specs": [],
+      "suites": [
+        {
+          "title": "Live Polls accessibility states",
+          "file": "a11y.spec.ts",
+          "line": 53,
+          "column": 6,
+          "specs": [
+            {
+              "title": "a11y: auth sign-in",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "live-polls",
+                  "projectName": "live-polls",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 384,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-07-24T09:40:57.946Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "aa3ad05f8c0e05077efb-b8a9fab9cda2a7bb6750",
+              "file": "a11y.spec.ts",
+              "line": 54,
+              "column": 3
+            },
+            {
+              "title": "a11y: auth register",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "live-polls",
+                  "projectName": "live-polls",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 344,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-07-24T09:40:58.853Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "aa3ad05f8c0e05077efb-768c8a42eae58517b65b",
+              "file": "a11y.spec.ts",
+              "line": 60,
+              "column": 3
+            },
+            {
+              "title": "a11y: auth error",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "live-polls",
+                  "projectName": "live-polls",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 487,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-07-24T09:40:59.203Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "aa3ad05f8c0e05077efb-034ab4ff95140e5773d1",
+              "file": "a11y.spec.ts",
+              "line": 67,
+              "column": 3
+            },
+            {
+              "title": "a11y: first-load loading",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "live-polls",
+                  "projectName": "live-polls",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 283,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-07-24T09:40:59.699Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "aa3ad05f8c0e05077efb-b4fcb9952f3e9bfe5208",
+              "file": "a11y.spec.ts",
+              "line": 76,
+              "column": 3
+            },
+            {
+              "title": "a11y: feed anonymous populated",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "live-polls",
+                  "projectName": "live-polls",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 375,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-07-24T09:40:59.988Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "aa3ad05f8c0e05077efb-10a5f8fdb960c8926eab",
+              "file": "a11y.spec.ts",
+              "line": 85,
+              "column": 3
+            },
+            {
+              "title": "a11y: feed empty",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "live-polls",
+                  "projectName": "live-polls",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 300,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-07-24T09:41:00.371Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "aa3ad05f8c0e05077efb-a3fb9242f1129639088c",
+              "file": "a11y.spec.ts",
+              "line": 92,
+              "column": 3
+            },
+            {
+              "title": "a11y: feed bootstrap error",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "live-polls",
+                  "projectName": "live-polls",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 481,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-07-24T09:41:00.681Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "aa3ad05f8c0e05077efb-dcbc929bfb2d6808d708",
+              "file": "a11y.spec.ts",
+              "line": 99,
+              "column": 3
+            },
+            {
+              "title": "a11y: create form default",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "live-polls",
+                  "projectName": "live-polls",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 640,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-07-24T09:41:01.169Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "aa3ad05f8c0e05077efb-1ed629243c6361f90d3b",
+              "file": "a11y.spec.ts",
+              "line": 110,
+              "column": 3
+            },
+            {
+              "title": "a11y: create form extra option",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "live-polls",
+                  "projectName": "live-polls",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 659,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-07-24T09:41:01.816Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "aa3ad05f8c0e05077efb-68a928036f0f05a65dce",
+              "file": "a11y.spec.ts",
+              "line": 117,
+              "column": 3
+            },
+            {
+              "title": "a11y: create validation error",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "live-polls",
+                  "projectName": "live-polls",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 618,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-07-24T09:41:02.484Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "aa3ad05f8c0e05077efb-21d4c64deb927932ecdc",
+              "file": "a11y.spec.ts",
+              "line": 125,
+              "column": 3
+            },
+            {
+              "title": "a11y: create pending",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "live-polls",
+                  "projectName": "live-polls",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 657,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-07-24T09:41:03.108Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "aa3ad05f8c0e05077efb-8e2e32027cb14b60f2f6",
+              "file": "a11y.spec.ts",
+              "line": 135,
+              "column": 3
+            },
+            {
+              "title": "a11y: create error",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "live-polls",
+                  "projectName": "live-polls",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 704,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-07-24T09:41:03.771Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "aa3ad05f8c0e05077efb-12cebed0ef6d81d51625",
+              "file": "a11y.spec.ts",
+              "line": 148,
+              "column": 3
+            },
+            {
+              "title": "a11y: poll open zero votes",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "live-polls",
+                  "projectName": "live-polls",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 680,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-07-24T09:41:04.479Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "aa3ad05f8c0e05077efb-e2f785d365b14420f7f3",
+              "file": "a11y.spec.ts",
+              "line": 163,
+              "column": 3
+            },
+            {
+              "title": "a11y: poll voted",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "live-polls",
+                  "projectName": "live-polls",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 798,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-07-24T09:41:05.163Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "aa3ad05f8c0e05077efb-7dc57051dd6d3d67065d",
+              "file": "a11y.spec.ts",
+              "line": 170,
+              "column": 3
+            },
+            {
+              "title": "a11y: vote pending",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "live-polls",
+                  "projectName": "live-polls",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 679,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-07-24T09:41:05.964Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "aa3ad05f8c0e05077efb-fa8879dc8194c6732934",
+              "file": "a11y.spec.ts",
+              "line": 178,
+              "column": 3
+            },
+            {
+              "title": "a11y: vote error",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "live-polls",
+                  "projectName": "live-polls",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 853,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-07-24T09:41:06.646Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "aa3ad05f8c0e05077efb-7765199946524ff5857e",
+              "file": "a11y.spec.ts",
+              "line": 189,
+              "column": 3
+            },
+            {
+              "title": "a11y: poll closed owner",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "live-polls",
+                  "projectName": "live-polls",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 826,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-07-24T09:41:07.503Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "aa3ad05f8c0e05077efb-0bd778b57cdccf9e1906",
+              "file": "a11y.spec.ts",
+              "line": 202,
+              "column": 3
+            },
+            {
+              "title": "a11y: poll closed non-owner",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "live-polls",
+                  "projectName": "live-polls",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 1428,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-07-24T09:41:08.334Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "aa3ad05f8c0e05077efb-e46168a466e494dbff7b",
+              "file": "a11y.spec.ts",
+              "line": 210,
+              "column": 3
+            }
+          ]
+        }
+      ]
+    },
     {
       "title": "auth-passkey-firstfactor.spec.ts",
       "file": "auth-passkey-firstfactor.spec.ts",
@@ -83,15 +725,15 @@
               "projectName": "live-polls",
               "results": [
                 {
-                  "workerIndex": 0,
-                  "parallelIndex": 0,
+                  "workerIndex": 1,
+                  "parallelIndex": 1,
                   "status": "passed",
-                  "duration": 720,
+                  "duration": 696,
                   "errors": [],
                   "stdout": [],
                   "stderr": [],
                   "retry": 0,
-                  "startTime": "2026-07-22T02:31:47.633Z",
+                  "startTime": "2026-07-24T09:40:57.919Z",
                   "annotations": [],
                   "attachments": []
                 }
@@ -132,15 +774,15 @@
                   "projectName": "live-polls",
                   "results": [
                     {
-                      "workerIndex": 1,
-                      "parallelIndex": 1,
+                      "workerIndex": 2,
+                      "parallelIndex": 2,
                       "status": "passed",
-                      "duration": 229,
+                      "duration": 151,
                       "errors": [],
                       "stdout": [],
                       "stderr": [],
                       "retry": 0,
-                      "startTime": "2026-07-22T02:31:47.626Z",
+                      "startTime": "2026-07-24T09:40:57.919Z",
                       "annotations": [],
                       "attachments": []
                     }
@@ -166,15 +808,15 @@
                   "projectName": "live-polls",
                   "results": [
                     {
-                      "workerIndex": 1,
-                      "parallelIndex": 1,
+                      "workerIndex": 2,
+                      "parallelIndex": 2,
                       "status": "passed",
-                      "duration": 117,
+                      "duration": 110,
                       "errors": [],
                       "stdout": [],
                       "stderr": [],
                       "retry": 0,
-                      "startTime": "2026-07-22T02:31:48.477Z",
+                      "startTime": "2026-07-24T09:40:58.627Z",
                       "annotations": [],
                       "attachments": []
                     }
@@ -200,15 +842,15 @@
                   "projectName": "live-polls",
                   "results": [
                     {
-                      "workerIndex": 1,
-                      "parallelIndex": 1,
+                      "workerIndex": 2,
+                      "parallelIndex": 2,
                       "status": "passed",
-                      "duration": 182,
+                      "duration": 151,
                       "errors": [],
                       "stdout": [],
                       "stderr": [],
                       "retry": 0,
-                      "startTime": "2026-07-22T02:31:48.603Z",
+                      "startTime": "2026-07-24T09:40:58.746Z",
                       "annotations": [],
                       "attachments": []
                     }
@@ -234,15 +876,15 @@
                   "projectName": "live-polls",
                   "results": [
                     {
-                      "workerIndex": 1,
-                      "parallelIndex": 1,
+                      "workerIndex": 2,
+                      "parallelIndex": 2,
                       "status": "passed",
-                      "duration": 279,
+                      "duration": 550,
                       "errors": [],
                       "stdout": [],
                       "stderr": [],
                       "retry": 0,
-                      "startTime": "2026-07-22T02:31:48.792Z",
+                      "startTime": "2026-07-24T09:40:58.904Z",
                       "annotations": [],
                       "attachments": []
                     }
@@ -268,15 +910,15 @@
                   "projectName": "live-polls",
                   "results": [
                     {
-                      "workerIndex": 1,
-                      "parallelIndex": 1,
+                      "workerIndex": 2,
+                      "parallelIndex": 2,
                       "status": "passed",
-                      "duration": 356,
+                      "duration": 697,
                       "errors": [],
                       "stdout": [],
                       "stderr": [],
                       "retry": 0,
-                      "startTime": "2026-07-22T02:31:49.078Z",
+                      "startTime": "2026-07-24T09:40:59.461Z",
                       "annotations": [],
                       "attachments": []
                     }
@@ -302,15 +944,15 @@
                   "projectName": "live-polls",
                   "results": [
                     {
-                      "workerIndex": 1,
-                      "parallelIndex": 1,
+                      "workerIndex": 2,
+                      "parallelIndex": 2,
                       "status": "passed",
-                      "duration": 162,
+                      "duration": 143,
                       "errors": [],
                       "stdout": [],
                       "stderr": [],
                       "retry": 0,
-                      "startTime": "2026-07-22T02:31:49.440Z",
+                      "startTime": "2026-07-24T09:41:00.168Z",
                       "annotations": [],
                       "attachments": []
                     }
@@ -336,15 +978,15 @@
                   "projectName": "live-polls",
                   "results": [
                     {
-                      "workerIndex": 1,
-                      "parallelIndex": 1,
+                      "workerIndex": 2,
+                      "parallelIndex": 2,
                       "status": "passed",
-                      "duration": 441,
+                      "duration": 803,
                       "errors": [],
                       "stdout": [],
                       "stderr": [],
                       "retry": 0,
-                      "startTime": "2026-07-22T02:31:49.611Z",
+                      "startTime": "2026-07-24T09:41:00.318Z",
                       "annotations": [],
                       "attachments": []
                     }
@@ -370,15 +1012,15 @@
                   "projectName": "live-polls",
                   "results": [
                     {
-                      "workerIndex": 1,
-                      "parallelIndex": 1,
+                      "workerIndex": 2,
+                      "parallelIndex": 2,
                       "status": "passed",
-                      "duration": 244,
+                      "duration": 150,
                       "errors": [],
                       "stdout": [],
                       "stderr": [],
                       "retry": 0,
-                      "startTime": "2026-07-22T02:31:50.060Z",
+                      "startTime": "2026-07-24T09:41:01.128Z",
                       "annotations": [],
                       "attachments": []
                     }
@@ -404,15 +1046,15 @@
                   "projectName": "live-polls",
                   "results": [
                     {
-                      "workerIndex": 1,
-                      "parallelIndex": 1,
+                      "workerIndex": 2,
+                      "parallelIndex": 2,
                       "status": "passed",
-                      "duration": 375,
+                      "duration": 407,
                       "errors": [],
                       "stdout": [],
                       "stderr": [],
                       "retry": 0,
-                      "startTime": "2026-07-22T02:31:50.311Z",
+                      "startTime": "2026-07-24T09:41:01.285Z",
                       "annotations": [],
                       "attachments": []
                     }
@@ -438,15 +1080,15 @@
                   "projectName": "live-polls",
                   "results": [
                     {
-                      "workerIndex": 1,
-                      "parallelIndex": 1,
+                      "workerIndex": 2,
+                      "parallelIndex": 2,
                       "status": "passed",
-                      "duration": 276,
+                      "duration": 273,
                       "errors": [],
                       "stdout": [],
                       "stderr": [],
                       "retry": 0,
-                      "startTime": "2026-07-22T02:31:50.694Z",
+                      "startTime": "2026-07-24T09:41:01.699Z",
                       "annotations": [],
                       "attachments": []
                     }
@@ -472,15 +1114,15 @@
                   "projectName": "live-polls",
                   "results": [
                     {
-                      "workerIndex": 1,
-                      "parallelIndex": 1,
+                      "workerIndex": 2,
+                      "parallelIndex": 2,
                       "status": "passed",
-                      "duration": 417,
+                      "duration": 688,
                       "errors": [],
                       "stdout": [],
                       "stderr": [],
                       "retry": 0,
-                      "startTime": "2026-07-22T02:31:50.977Z",
+                      "startTime": "2026-07-24T09:41:01.980Z",
                       "annotations": [],
                       "attachments": []
                     }
@@ -506,15 +1148,15 @@
                   "projectName": "live-polls",
                   "results": [
                     {
-                      "workerIndex": 1,
-                      "parallelIndex": 1,
+                      "workerIndex": 2,
+                      "parallelIndex": 2,
                       "status": "passed",
-                      "duration": 794,
+                      "duration": 819,
                       "errors": [],
                       "stdout": [],
                       "stderr": [],
                       "retry": 0,
-                      "startTime": "2026-07-22T02:31:51.398Z",
+                      "startTime": "2026-07-24T09:41:02.675Z",
                       "annotations": [],
                       "attachments": []
                     }
@@ -540,15 +1182,15 @@
                   "projectName": "live-polls",
                   "results": [
                     {
-                      "workerIndex": 1,
-                      "parallelIndex": 1,
+                      "workerIndex": 2,
+                      "parallelIndex": 2,
                       "status": "passed",
-                      "duration": 105,
+                      "duration": 167,
                       "errors": [],
                       "stdout": [],
                       "stderr": [],
                       "retry": 0,
-                      "startTime": "2026-07-22T02:31:52.196Z",
+                      "startTime": "2026-07-24T09:41:03.500Z",
                       "annotations": [],
                       "attachments": []
                     }
@@ -591,15 +1233,15 @@
                   "projectName": "live-polls",
                   "results": [
                     {
-                      "workerIndex": 2,
-                      "parallelIndex": 2,
+                      "workerIndex": 3,
+                      "parallelIndex": 3,
                       "status": "passed",
-                      "duration": 1237,
+                      "duration": 1404,
                       "errors": [],
                       "stdout": [],
                       "stderr": [],
                       "retry": 0,
-                      "startTime": "2026-07-22T02:31:47.636Z",
+                      "startTime": "2026-07-24T09:40:57.940Z",
                       "annotations": [],
                       "attachments": []
                     }
@@ -625,15 +1267,15 @@
                   "projectName": "live-polls",
                   "results": [
                     {
-                      "workerIndex": 2,
-                      "parallelIndex": 2,
+                      "workerIndex": 3,
+                      "parallelIndex": 3,
                       "status": "passed",
-                      "duration": 948,
+                      "duration": 1221,
                       "errors": [],
                       "stdout": [],
                       "stderr": [],
                       "retry": 0,
-                      "startTime": "2026-07-22T02:31:49.485Z",
+                      "startTime": "2026-07-24T09:40:59.875Z",
                       "annotations": [],
                       "attachments": []
                     }
@@ -676,15 +1318,15 @@
                   "projectName": "live-polls",
                   "results": [
                     {
-                      "workerIndex": 3,
-                      "parallelIndex": 3,
+                      "workerIndex": 4,
+                      "parallelIndex": 4,
                       "status": "passed",
-                      "duration": 744,
+                      "duration": 619,
                       "errors": [],
                       "stdout": [],
                       "stderr": [],
                       "retry": 0,
-                      "startTime": "2026-07-22T02:31:47.644Z",
+                      "startTime": "2026-07-24T09:40:57.919Z",
                       "annotations": [],
                       "attachments": []
                     }
@@ -710,15 +1352,15 @@
                   "projectName": "live-polls",
                   "results": [
                     {
-                      "workerIndex": 3,
-                      "parallelIndex": 3,
+                      "workerIndex": 4,
+                      "parallelIndex": 4,
                       "status": "passed",
-                      "duration": 564,
+                      "duration": 731,
                       "errors": [],
                       "stdout": [],
                       "stderr": [],
                       "retry": 0,
-                      "startTime": "2026-07-22T02:31:48.994Z",
+                      "startTime": "2026-07-24T09:40:59.017Z",
                       "annotations": [],
                       "attachments": []
                     }
@@ -744,15 +1386,15 @@
                   "projectName": "live-polls",
                   "results": [
                     {
-                      "workerIndex": 3,
-                      "parallelIndex": 3,
+                      "workerIndex": 4,
+                      "parallelIndex": 4,
                       "status": "passed",
-                      "duration": 859,
+                      "duration": 1330,
                       "errors": [],
                       "stdout": [],
                       "stderr": [],
                       "retry": 0,
-                      "startTime": "2026-07-22T02:31:49.568Z",
+                      "startTime": "2026-07-24T09:40:59.757Z",
                       "annotations": [],
                       "attachments": []
                     }
@@ -778,15 +1420,15 @@
                   "projectName": "live-polls",
                   "results": [
                     {
-                      "workerIndex": 3,
-                      "parallelIndex": 3,
+                      "workerIndex": 4,
+                      "parallelIndex": 4,
                       "status": "passed",
-                      "duration": 550,
+                      "duration": 692,
                       "errors": [],
                       "stdout": [],
                       "stderr": [],
                       "retry": 0,
-                      "startTime": "2026-07-22T02:31:50.434Z",
+                      "startTime": "2026-07-24T09:41:01.093Z",
                       "annotations": [],
                       "attachments": []
                     }
@@ -812,15 +1454,15 @@
                   "projectName": "live-polls",
                   "results": [
                     {
-                      "workerIndex": 3,
-                      "parallelIndex": 3,
+                      "workerIndex": 4,
+                      "parallelIndex": 4,
                       "status": "passed",
-                      "duration": 769,
+                      "duration": 847,
                       "errors": [],
                       "stdout": [],
                       "stderr": [],
                       "retry": 0,
-                      "startTime": "2026-07-22T02:31:50.991Z",
+                      "startTime": "2026-07-24T09:41:01.795Z",
                       "annotations": [],
                       "attachments": []
                     }
@@ -863,15 +1505,15 @@
                   "projectName": "live-polls",
                   "results": [
                     {
-                      "workerIndex": 4,
-                      "parallelIndex": 4,
+                      "workerIndex": 5,
+                      "parallelIndex": 5,
                       "status": "passed",
-                      "duration": 452,
+                      "duration": 336,
                       "errors": [],
                       "stdout": [],
                       "stderr": [],
                       "retry": 0,
-                      "startTime": "2026-07-22T02:31:47.636Z",
+                      "startTime": "2026-07-24T09:40:57.916Z",
                       "annotations": [],
                       "attachments": []
                     }
@@ -905,15 +1547,15 @@
                   "projectName": "live-polls",
                   "results": [
                     {
-                      "workerIndex": 4,
-                      "parallelIndex": 4,
+                      "workerIndex": 5,
+                      "parallelIndex": 5,
                       "status": "passed",
-                      "duration": 341,
+                      "duration": 318,
                       "errors": [],
                       "stdout": [],
                       "stderr": [],
                       "retry": 0,
-                      "startTime": "2026-07-22T02:31:48.706Z",
+                      "startTime": "2026-07-24T09:40:58.734Z",
                       "annotations": [],
                       "attachments": []
                     }
@@ -939,15 +1581,15 @@
                   "projectName": "live-polls",
                   "results": [
                     {
-                      "workerIndex": 4,
-                      "parallelIndex": 4,
+                      "workerIndex": 5,
+                      "parallelIndex": 5,
                       "status": "passed",
-                      "duration": 346,
+                      "duration": 304,
                       "errors": [],
                       "stdout": [],
                       "stderr": [],
                       "retry": 0,
-                      "startTime": "2026-07-22T02:31:49.060Z",
+                      "startTime": "2026-07-24T09:40:59.062Z",
                       "annotations": [],
                       "attachments": []
                     }
@@ -973,15 +1615,15 @@
                   "projectName": "live-polls",
                   "results": [
                     {
-                      "workerIndex": 4,
-                      "parallelIndex": 4,
+                      "workerIndex": 5,
+                      "parallelIndex": 5,
                       "status": "passed",
-                      "duration": 353,
+                      "duration": 355,
                       "errors": [],
                       "stdout": [],
                       "stderr": [],
                       "retry": 0,
-                      "startTime": "2026-07-22T02:31:49.416Z",
+                      "startTime": "2026-07-24T09:40:59.374Z",
                       "annotations": [],
                       "attachments": []
                     }
@@ -1007,15 +1649,15 @@
                   "projectName": "live-polls",
                   "results": [
                     {
-                      "workerIndex": 4,
-                      "parallelIndex": 4,
+                      "workerIndex": 5,
+                      "parallelIndex": 5,
                       "status": "passed",
-                      "duration": 330,
+                      "duration": 326,
                       "errors": [],
                       "stdout": [],
                       "stderr": [],
                       "retry": 0,
-                      "startTime": "2026-07-22T02:31:49.777Z",
+                      "startTime": "2026-07-24T09:40:59.737Z",
                       "annotations": [],
                       "attachments": []
                     }
@@ -1041,15 +1683,15 @@
                   "projectName": "live-polls",
                   "results": [
                     {
-                      "workerIndex": 4,
-                      "parallelIndex": 4,
+                      "workerIndex": 5,
+                      "parallelIndex": 5,
                       "status": "passed",
-                      "duration": 433,
+                      "duration": 443,
                       "errors": [],
                       "stdout": [],
                       "stderr": [],
                       "retry": 0,
-                      "startTime": "2026-07-22T02:31:50.114Z",
+                      "startTime": "2026-07-24T09:41:00.073Z",
                       "annotations": [],
                       "attachments": []
                     }
@@ -1075,15 +1717,15 @@
                   "projectName": "live-polls",
                   "results": [
                     {
-                      "workerIndex": 4,
-                      "parallelIndex": 4,
+                      "workerIndex": 5,
+                      "parallelIndex": 5,
                       "status": "passed",
-                      "duration": 463,
+                      "duration": 498,
                       "errors": [],
                       "stdout": [],
                       "stderr": [],
                       "retry": 0,
-                      "startTime": "2026-07-22T02:31:50.556Z",
+                      "startTime": "2026-07-24T09:41:00.526Z",
                       "annotations": [],
                       "attachments": []
                     }
@@ -1109,15 +1751,15 @@
                   "projectName": "live-polls",
                   "results": [
                     {
-                      "workerIndex": 4,
-                      "parallelIndex": 4,
+                      "workerIndex": 5,
+                      "parallelIndex": 5,
                       "status": "passed",
-                      "duration": 551,
+                      "duration": 600,
                       "errors": [],
                       "stdout": [],
                       "stderr": [],
                       "retry": 0,
-                      "startTime": "2026-07-22T02:31:51.026Z",
+                      "startTime": "2026-07-24T09:41:01.034Z",
                       "annotations": [],
                       "attachments": []
                     }
@@ -1143,15 +1785,15 @@
                   "projectName": "live-polls",
                   "results": [
                     {
-                      "workerIndex": 4,
-                      "parallelIndex": 4,
+                      "workerIndex": 5,
+                      "parallelIndex": 5,
                       "status": "passed",
-                      "duration": 397,
+                      "duration": 437,
                       "errors": [],
                       "stdout": [],
                       "stderr": [],
                       "retry": 0,
-                      "startTime": "2026-07-22T02:31:51.586Z",
+                      "startTime": "2026-07-24T09:41:01.641Z",
                       "annotations": [],
                       "attachments": []
                     }
@@ -1177,15 +1819,15 @@
                   "projectName": "live-polls",
                   "results": [
                     {
-                      "workerIndex": 4,
-                      "parallelIndex": 4,
+                      "workerIndex": 5,
+                      "parallelIndex": 5,
                       "status": "passed",
-                      "duration": 503,
+                      "duration": 552,
                       "errors": [],
                       "stdout": [],
                       "stderr": [],
                       "retry": 0,
-                      "startTime": "2026-07-22T02:31:51.988Z",
+                      "startTime": "2026-07-24T09:41:02.085Z",
                       "annotations": [],
                       "attachments": []
                     }
@@ -1228,15 +1870,15 @@
                   "projectName": "live-polls",
                   "results": [
                     {
-                      "workerIndex": 5,
-                      "parallelIndex": 5,
+                      "workerIndex": 6,
+                      "parallelIndex": 6,
                       "status": "passed",
-                      "duration": 1054,
+                      "duration": 1239,
                       "errors": [],
                       "stdout": [],
                       "stderr": [],
                       "retry": 0,
-                      "startTime": "2026-07-22T02:31:47.640Z",
+                      "startTime": "2026-07-24T09:40:57.918Z",
                       "annotations": [],
                       "attachments": []
                     }
@@ -1262,15 +1904,15 @@
                   "projectName": "live-polls",
                   "results": [
                     {
-                      "workerIndex": 5,
-                      "parallelIndex": 5,
+                      "workerIndex": 6,
+                      "parallelIndex": 6,
                       "status": "passed",
-                      "duration": 806,
+                      "duration": 829,
                       "errors": [],
                       "stdout": [],
                       "stderr": [],
                       "retry": 0,
-                      "startTime": "2026-07-22T02:31:49.299Z",
+                      "startTime": "2026-07-24T09:40:59.709Z",
                       "annotations": [],
                       "attachments": []
                     }
@@ -1313,15 +1955,15 @@
                   "projectName": "live-polls",
                   "results": [
                     {
-                      "workerIndex": 6,
-                      "parallelIndex": 6,
+                      "workerIndex": 7,
+                      "parallelIndex": 7,
                       "status": "passed",
-                      "duration": 1526,
+                      "duration": 1619,
                       "errors": [],
                       "stdout": [],
                       "stderr": [],
                       "retry": 0,
-                      "startTime": "2026-07-22T02:31:47.640Z",
+                      "startTime": "2026-07-24T09:40:57.932Z",
                       "annotations": [],
                       "attachments": []
                     }
@@ -1347,15 +1989,15 @@
                   "projectName": "live-polls",
                   "results": [
                     {
-                      "workerIndex": 6,
-                      "parallelIndex": 6,
+                      "workerIndex": 7,
+                      "parallelIndex": 7,
                       "status": "passed",
-                      "duration": 1244,
+                      "duration": 1401,
                       "errors": [],
                       "stdout": [],
                       "stderr": [],
                       "retry": 0,
-                      "startTime": "2026-07-22T02:31:49.775Z",
+                      "startTime": "2026-07-24T09:41:00.092Z",
                       "annotations": [],
                       "attachments": []
                     }
@@ -1381,15 +2023,15 @@
                   "projectName": "live-polls",
                   "results": [
                     {
-                      "workerIndex": 6,
-                      "parallelIndex": 6,
+                      "workerIndex": 7,
+                      "parallelIndex": 7,
                       "status": "passed",
-                      "duration": 659,
+                      "duration": 623,
                       "errors": [],
                       "stdout": [],
                       "stderr": [],
                       "retry": 0,
-                      "startTime": "2026-07-22T02:31:51.026Z",
+                      "startTime": "2026-07-24T09:41:01.501Z",
                       "annotations": [],
                       "attachments": []
                     }
@@ -1415,15 +2057,15 @@
                   "projectName": "live-polls",
                   "results": [
                     {
-                      "workerIndex": 6,
-                      "parallelIndex": 6,
+                      "workerIndex": 7,
+                      "parallelIndex": 7,
                       "status": "passed",
-                      "duration": 737,
+                      "duration": 829,
                       "errors": [],
                       "stdout": [],
                       "stderr": [],
                       "retry": 0,
-                      "startTime": "2026-07-22T02:31:51.692Z",
+                      "startTime": "2026-07-24T09:41:02.130Z",
                       "annotations": [],
                       "attachments": []
                     }
@@ -1449,15 +2091,15 @@
                   "projectName": "live-polls",
                   "results": [
                     {
-                      "workerIndex": 6,
-                      "parallelIndex": 6,
+                      "workerIndex": 7,
+                      "parallelIndex": 7,
                       "status": "passed",
-                      "duration": 717,
+                      "duration": 998,
                       "errors": [],
                       "stdout": [],
                       "stderr": [],
                       "retry": 0,
-                      "startTime": "2026-07-22T02:31:52.433Z",
+                      "startTime": "2026-07-24T09:41:02.964Z",
                       "annotations": [],
                       "attachments": []
                     }
@@ -1483,15 +2125,15 @@
                   "projectName": "live-polls",
                   "results": [
                     {
-                      "workerIndex": 6,
-                      "parallelIndex": 6,
+                      "workerIndex": 7,
+                      "parallelIndex": 7,
                       "status": "passed",
-                      "duration": 598,
+                      "duration": 630,
                       "errors": [],
                       "stdout": [],
                       "stderr": [],
                       "retry": 0,
-                      "startTime": "2026-07-22T02:31:53.153Z",
+                      "startTime": "2026-07-24T09:41:03.966Z",
                       "annotations": [],
                       "attachments": []
                     }
@@ -1534,15 +2176,15 @@
                   "projectName": "live-polls",
                   "results": [
                     {
-                      "workerIndex": 7,
-                      "parallelIndex": 7,
+                      "workerIndex": 8,
+                      "parallelIndex": 8,
                       "status": "passed",
-                      "duration": 290,
+                      "duration": 249,
                       "errors": [],
                       "stdout": [],
                       "stderr": [],
                       "retry": 0,
-                      "startTime": "2026-07-22T02:31:47.640Z",
+                      "startTime": "2026-07-24T09:40:57.911Z",
                       "annotations": [],
                       "attachments": []
                     }
@@ -1568,15 +2210,15 @@
                   "projectName": "live-polls",
                   "results": [
                     {
-                      "workerIndex": 7,
-                      "parallelIndex": 7,
+                      "workerIndex": 8,
+                      "parallelIndex": 8,
                       "status": "passed",
-                      "duration": 110,
+                      "duration": 97,
                       "errors": [],
                       "stdout": [],
                       "stderr": [],
                       "retry": 0,
-                      "startTime": "2026-07-22T02:31:48.539Z",
+                      "startTime": "2026-07-24T09:40:58.645Z",
                       "annotations": [],
                       "attachments": []
                     }
@@ -1602,15 +2244,15 @@
                   "projectName": "live-polls",
                   "results": [
                     {
-                      "workerIndex": 7,
-                      "parallelIndex": 7,
+                      "workerIndex": 8,
+                      "parallelIndex": 8,
                       "status": "passed",
-                      "duration": 406,
+                      "duration": 301,
                       "errors": [],
                       "stdout": [],
                       "stderr": [],
                       "retry": 0,
-                      "startTime": "2026-07-22T02:31:48.658Z",
+                      "startTime": "2026-07-24T09:40:58.750Z",
                       "annotations": [],
                       "attachments": []
                     }
@@ -1636,15 +2278,15 @@
                   "projectName": "live-polls",
                   "results": [
                     {
-                      "workerIndex": 7,
-                      "parallelIndex": 7,
+                      "workerIndex": 8,
+                      "parallelIndex": 8,
                       "status": "passed",
-                      "duration": 459,
+                      "duration": 342,
                       "errors": [],
                       "stdout": [],
                       "stderr": [],
                       "retry": 0,
-                      "startTime": "2026-07-22T02:31:49.075Z",
+                      "startTime": "2026-07-24T09:40:59.058Z",
                       "annotations": [],
                       "attachments": []
                     }
@@ -1654,7 +2296,7 @@
               ],
               "id": "be092eae759d55e55094-aaf3092b96c86d4b13ec",
               "file": "states.spec.ts",
-              "line": 49,
+              "line": 50,
               "column": 3
             },
             {
@@ -1670,15 +2312,15 @@
                   "projectName": "live-polls",
                   "results": [
                     {
-                      "workerIndex": 7,
-                      "parallelIndex": 7,
+                      "workerIndex": 8,
+                      "parallelIndex": 8,
                       "status": "passed",
-                      "duration": 468,
+                      "duration": 478,
                       "errors": [],
                       "stdout": [],
                       "stderr": [],
                       "retry": 0,
-                      "startTime": "2026-07-22T02:31:49.543Z",
+                      "startTime": "2026-07-24T09:40:59.409Z",
                       "annotations": [],
                       "attachments": []
                     }
@@ -1688,7 +2330,7 @@
               ],
               "id": "be092eae759d55e55094-d3a7b90d0ef24bbc2bcb",
               "file": "states.spec.ts",
-              "line": 67,
+              "line": 68,
               "column": 3
             }
           ]
@@ -1721,15 +2363,15 @@
                   "projectName": "live-polls",
                   "results": [
                     {
-                      "workerIndex": 8,
-                      "parallelIndex": 8,
+                      "workerIndex": 1,
+                      "parallelIndex": 1,
                       "status": "passed",
-                      "duration": 736,
+                      "duration": 558,
                       "errors": [],
                       "stdout": [],
                       "stderr": [],
                       "retry": 0,
-                      "startTime": "2026-07-22T02:31:47.641Z",
+                      "startTime": "2026-07-24T09:40:59.102Z",
                       "annotations": [],
                       "attachments": []
                     }
@@ -1755,15 +2397,15 @@
                   "projectName": "live-polls",
                   "results": [
                     {
-                      "workerIndex": 8,
-                      "parallelIndex": 8,
+                      "workerIndex": 1,
+                      "parallelIndex": 1,
                       "status": "passed",
-                      "duration": 704,
+                      "duration": 949,
                       "errors": [],
                       "stdout": [],
                       "stderr": [],
                       "retry": 0,
-                      "startTime": "2026-07-22T02:31:48.987Z",
+                      "startTime": "2026-07-24T09:40:59.669Z",
                       "annotations": [],
                       "attachments": []
                     }
@@ -1789,15 +2431,15 @@
                   "projectName": "live-polls",
                   "results": [
                     {
-                      "workerIndex": 8,
-                      "parallelIndex": 8,
+                      "workerIndex": 1,
+                      "parallelIndex": 1,
                       "status": "passed",
-                      "duration": 1115,
+                      "duration": 1526,
                       "errors": [],
                       "stdout": [],
                       "stderr": [],
                       "retry": 0,
-                      "startTime": "2026-07-22T02:31:49.700Z",
+                      "startTime": "2026-07-24T09:41:00.626Z",
                       "annotations": [],
                       "attachments": []
                     }
@@ -1823,15 +2465,15 @@
                   "projectName": "live-polls",
                   "results": [
                     {
-                      "workerIndex": 8,
-                      "parallelIndex": 8,
+                      "workerIndex": 1,
+                      "parallelIndex": 1,
                       "status": "passed",
-                      "duration": 519,
+                      "duration": 545,
                       "errors": [],
                       "stdout": [],
                       "stderr": [],
                       "retry": 0,
-                      "startTime": "2026-07-22T02:31:50.823Z",
+                      "startTime": "2026-07-24T09:41:02.159Z",
                       "annotations": [],
                       "attachments": []
                     }
@@ -1847,13 +2489,55 @@
           ]
         }
       ]
+    },
+    {
+      "title": "polls_mobile.spec.ts",
+      "file": "polls_mobile.spec.ts",
+      "column": 0,
+      "line": 0,
+      "specs": [
+        {
+          "title": "mobile registered user creates and votes in a poll",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "live-polls-mobile",
+              "projectName": "live-polls-mobile",
+              "results": [
+                {
+                  "workerIndex": 9,
+                  "parallelIndex": 8,
+                  "status": "passed",
+                  "duration": 626,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-24T09:41:00.825Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "e5164b031f2f53497dc0-91525cba449b96673532",
+          "file": "polls_mobile.spec.ts",
+          "line": 17,
+          "column": 1
+        }
+      ]
     }
   ],
   "errors": [],
   "stats": {
-    "startTime": "2026-07-22T02:31:47.081Z",
-    "duration": 6695.833,
-    "expected": 48,
+    "startTime": "2026-07-24T09:40:57.269Z",
+    "duration": 12528.983,
+    "expected": 67,
     "skipped": 0,
     "unexpected": 0,
     "flaky": 0

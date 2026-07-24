@@ -129,14 +129,14 @@ if ! PATH="${ISOLATED_BIN_DIR}:$PATH" \
   AYB_START_COMMAND="python3 -m http.server \"\$AYB_SERVER_PORT\" --bind 127.0.0.1 --directory \"${ISOLATED_DIR}/www\"" \
   AYB_ADMIN_PASSWORD='unused-for-test' \
   AYB_TEST_RUNTIME_CAPTURE="$ISOLATED_CAPTURE_PATH" \
-  bash scripts/run-with-ayb.sh 'printf "%s %s %s\n" "$AYB_SERVER_PORT" "$AYB_DATABASE_EMBEDDED_PORT" "$PLAYWRIGHT_BASE_URL" > "$AYB_TEST_RUNTIME_CAPTURE"'; then
+  bash scripts/run-with-ayb.sh 'printf "%s %s %s %s\n" "$AYB_SERVER_PORT" "$AYB_DATABASE_EMBEDDED_PORT" "$PLAYWRIGHT_BASE_URL" "$AYB_SERVER_SITE_URL" > "$AYB_TEST_RUNTIME_CAPTURE"'; then
   echo "FAIL: scripts/run-with-ayb.sh did not select isolated runtime ports"
   exit 1
 fi
 
-if [[ "$(cat "$ISOLATED_CAPTURE_PATH")" != "49092 46434 http://localhost:49092" ]]; then
-  echo "FAIL: expected isolated fallback ports and matching Playwright URL, got $(cat "$ISOLATED_CAPTURE_PATH")"
+if [[ "$(cat "$ISOLATED_CAPTURE_PATH")" != "49092 46434 http://localhost:49092 http://localhost:49092" ]]; then
+  echo "FAIL: expected isolated fallback ports plus matching Playwright/WebAuthn public URLs, got $(cat "$ISOLATED_CAPTURE_PATH")"
   exit 1
 fi
 
-echo "PASS: scripts/run-with-ayb.sh isolates default AYB and managed Postgres ports"
+echo "PASS: scripts/run-with-ayb.sh isolates default AYB and keeps browser public origins aligned"

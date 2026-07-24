@@ -83,6 +83,14 @@ describe("browser-unmocked test hygiene", () => {
     expect(barrel).toMatch(/export \*.*core/);
   });
 
+  it("collections CRUD tests isolate table names across parallel workers", () => {
+    const collectionsCRUD = readProjectFile("browser-tests-unmocked/full/collections-crud.spec.ts");
+
+    expect(collectionsCRUD).toContain("buildParallelSafeRunID");
+    expect(collectionsCRUD.match(/buildParallelSafeRunID\(testInfo\)/g)).toHaveLength(2);
+    expect(collectionsCRUD).not.toContain("DROP TABLE IF EXISTS crud_test_products;");
+  });
+
   it("virtual authenticator helper is exported from auth fixtures and top-level barrel", () => {
     const authFixtures = readProjectFile("browser-tests-unmocked/fixtures/auth.ts");
     const topLevelFixtures = readProjectFile("browser-tests-unmocked/fixtures.ts");

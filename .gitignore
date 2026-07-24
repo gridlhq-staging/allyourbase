@@ -93,6 +93,7 @@ ui/test-results-unmocked/
 ui/playwright-report/
 ui/browser-tests-unmocked/.auth/
 ui/browser-tests-unmocked/.skip-reason
+examples/*/playwright-report/
 examples/shareborough/test-results/
 examples/shareborough/playwright-report/
 

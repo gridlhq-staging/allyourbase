@@ -13,13 +13,15 @@ import (
 )
 
 type MinIOHarness struct {
-	Endpoint  string
-	Bucket    string
-	AccessKey string
-	SecretKey string
-	Region    string
-	UseSSL    bool
-	Cleanup   func()
+	Endpoint     string
+	Bucket       string
+	AccessKey    string
+	SecretKey    string
+	Region       string
+	UseSSL       bool
+	Cleanup      func()
+	dockerBinary string
+	containerID  string
 }
 
 func (h MinIOHarness) S3Config() storage.S3Config {
@@ -54,13 +56,15 @@ func StartMinIOHarness(ctx context.Context, t *testing.T) *MinIOHarness {
 	t.Cleanup(cleanup)
 
 	harness := &MinIOHarness{
-		Endpoint:  shared.Endpoint,
-		Bucket:    shared.Bucket,
-		AccessKey: shared.AccessKey,
-		SecretKey: shared.SecretKey,
-		Region:    shared.Region,
-		UseSSL:    shared.UseSSL,
-		Cleanup:   cleanup,
+		Endpoint:     shared.Endpoint,
+		Bucket:       shared.Bucket,
+		AccessKey:    shared.AccessKey,
+		SecretKey:    shared.SecretKey,
+		Region:       shared.Region,
+		UseSSL:       shared.UseSSL,
+		Cleanup:      cleanup,
+		dockerBinary: shared.DockerBinary(),
+		containerID:  shared.ContainerID(),
 	}
 	if _, err := storage.NewS3Backend(ctx, harness.S3Config()); err != nil {
 		t.Fatalf("verify storage.NewS3Backend against bucket %q: %v", harness.Bucket, err)

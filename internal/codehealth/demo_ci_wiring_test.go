@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"gopkg.in/yaml.v3"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	"sort"
@@ -58,6 +59,28 @@ func TestDemoPackageManagerOwnership(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestDemoPlaywrightReportsStayUntrackedRuntimeArtifacts(t *testing.T) {
+	t.Parallel()
+	repoRoot := findRepoRoot(t)
+	gitignore := readRepoText(t, filepath.Join(repoRoot, ".gitignore"))
+	requireContainsAll(t, gitignore, []string{"examples/*/playwright-report/"})
+
+	reportPaths := make([]string, 0, len(demoCIWiringDemoDirs))
+	for _, demo := range demoCIWiringDemoDirs {
+		reportPaths = append(reportPaths, filepath.Join("examples", demo, "playwright-report", "results.json"))
+	}
+	args := append([]string{"ls-files", "--"}, reportPaths...)
+	cmd := exec.Command("git", args...)
+	cmd.Dir = repoRoot
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("git %s failed: %v\n%s", strings.Join(args, " "), err, output)
+	}
+	if tracked := strings.TrimSpace(string(output)); tracked != "" {
+		t.Fatalf("demo Playwright JSON reports are runtime artifacts and must not be tracked:\n%s", tracked)
 	}
 }
 

@@ -394,12 +394,48 @@ export async function arrangeDelayedAnonymousBootstrap(page: Page): Promise<Held
 export async function arrangeEmptyPollBootstrap(page: Page): Promise<void> {
   await page.addInitScript(() => {
     sessionStorage.setItem("ayb_live_polls_bootstrap_seeded", "1");
+    const SilentEventSource = class extends EventTarget {
+      static readonly CONNECTING = 0;
+      static readonly OPEN = 1;
+      static readonly CLOSED = 2;
+      readonly CONNECTING = 0;
+      readonly OPEN = 1;
+      readonly CLOSED = 2;
+      readonly readyState = 2;
+      readonly url: string;
+      readonly withCredentials: boolean;
+      onerror: ((this: EventSource, ev: Event) => unknown) | null = null;
+      onmessage: ((this: EventSource, ev: MessageEvent) => unknown) | null = null;
+      onopen: ((this: EventSource, ev: Event) => unknown) | null = null;
+
+      constructor(url: string | URL, eventSourceInitDict?: EventSourceInit) {
+        super();
+        this.url = String(url);
+        this.withCredentials = Boolean(eventSourceInitDict?.withCredentials);
+      }
+
+      close() {}
+    };
+    window.EventSource = SilentEventSource as unknown as typeof EventSource;
   });
   await page.route("**/api/graphql", async (route) => {
     await route.fulfill({
       status: 200,
       contentType: "application/json",
       body: JSON.stringify({ data: { polls: [] } }),
+    });
+  });
+  await page.route("**/api/collections/polls?*", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        items: [],
+        page: 1,
+        perPage: 100,
+        totalItems: 0,
+        totalPages: 0,
+      }),
     });
   });
   await page.route("**/api/collections/votes?*", async (route) => {

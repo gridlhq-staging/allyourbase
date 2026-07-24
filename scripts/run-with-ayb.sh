@@ -74,6 +74,9 @@ fi
 if [[ -z "${PLAYWRIGHT_BASE_URL:-}" ]]; then
   export PLAYWRIGHT_BASE_URL="$AYB_BASE_URL"
 fi
+if [[ -z "${AYB_SERVER_SITE_URL:-}" ]]; then
+  export AYB_SERVER_SITE_URL="$AYB_BASE_URL"
+fi
 
 # Rate-limit overrides prevent load/browser tests from being throttled.
 export AYB_AUTH_RATE_LIMIT="${AYB_AUTH_RATE_LIMIT:-10000}"

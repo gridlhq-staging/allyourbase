@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -26,6 +27,7 @@ const (
 type MinIOHarnessOptions struct {
 	ContainerName string
 	Bucket        string
+	DataDir       string
 }
 
 // MinIOHarness describes a running isolated S3-compatible test service.
@@ -39,6 +41,8 @@ type MinIOHarness struct {
 
 	dockerBinary string
 	containerID  string
+	dataDir      string
+	removeData   bool
 	closeOnce    sync.Once
 	closeErr     error
 }
@@ -49,10 +53,18 @@ func StartMinIOHarness(ctx context.Context, options MinIOHarnessOptions) (*MinIO
 	if strings.TrimSpace(options.ContainerName) == "" || strings.TrimSpace(options.Bucket) == "" {
 		return nil, fmt.Errorf("minio harness requires non-empty container and bucket names")
 	}
+	dataDir, removeData, err := prepareMinIODataDir(options.DataDir)
+	if err != nil {
+		return nil, err
+	}
+	options.DataDir = dataDir
 
 	dockerBinary := minIODockerBinary()
 	containerID, port, err := startMinIOContainer(ctx, dockerBinary, options)
 	if err != nil {
+		if removeData {
+			_ = os.RemoveAll(dataDir)
+		}
 		return nil, err
 	}
 	harness := &MinIOHarness{
@@ -64,6 +76,8 @@ func StartMinIOHarness(ctx context.Context, options MinIOHarnessOptions) (*MinIO
 		UseSSL:       false,
 		dockerBinary: dockerBinary,
 		containerID:  containerID,
+		dataDir:      dataDir,
+		removeData:   removeData,
 	}
 	if err := waitForMinIOReady(ctx, harness.Endpoint); err != nil {
 		_ = harness.Close(context.Background())
@@ -85,8 +99,23 @@ func (h *MinIOHarness) Close(ctx context.Context) error {
 			h.closeErr = fmt.Errorf("minio harness: %s %s failed: %w: %s",
 				h.dockerBinary, strings.Join(args, " "), err, strings.TrimSpace(string(output)))
 		}
+		if h.removeData {
+			if err := os.RemoveAll(h.dataDir); err != nil && h.closeErr == nil {
+				h.closeErr = fmt.Errorf("minio harness: remove data dir %q: %w", h.dataDir, err)
+			}
+		}
 	})
 	return h.closeErr
+}
+
+// ContainerID returns the Docker container started for this harness.
+func (h *MinIOHarness) ContainerID() string {
+	return h.containerID
+}
+
+// DockerBinary returns the Docker executable used to start and clean up the harness.
+func (h *MinIOHarness) DockerBinary() string {
+	return h.dockerBinary
 }
 
 func minIODockerBinary() string {
@@ -94,6 +123,40 @@ func minIODockerBinary() string {
 		return dockerBinary
 	}
 	return "docker"
+}
+
+func prepareMinIODataDir(dataDir string) (string, bool, error) {
+	if strings.TrimSpace(dataDir) == "" {
+		root, err := minIODataRoot()
+		if err != nil {
+			return "", false, err
+		}
+		tempDir, err := os.MkdirTemp(root, "ayb-minio-data-*")
+		if err != nil {
+			return "", false, fmt.Errorf("minio harness: create data dir: %w", err)
+		}
+		return tempDir, true, nil
+	}
+	absDataDir, err := filepath.Abs(dataDir)
+	if err != nil {
+		return "", false, fmt.Errorf("minio harness: resolve data dir %q: %w", dataDir, err)
+	}
+	if err := os.MkdirAll(absDataDir, 0o700); err != nil {
+		return "", false, fmt.Errorf("minio harness: create data dir %q: %w", absDataDir, err)
+	}
+	return absDataDir, false, nil
+}
+
+func minIODataRoot() (string, error) {
+	root, err := os.UserCacheDir()
+	if err != nil || strings.TrimSpace(root) == "" {
+		root = os.TempDir()
+	}
+	root = filepath.Join(root, "allyourbase", "minio-harness")
+	if err := os.MkdirAll(root, 0o700); err != nil {
+		return "", fmt.Errorf("minio harness: create data root %q: %w", root, err)
+	}
+	return root, nil
 }
 
 func startMinIOContainer(ctx context.Context, dockerBinary string, options MinIOHarnessOptions) (string, int, error) {
@@ -125,14 +188,20 @@ func startMinIOContainer(ctx context.Context, dockerBinary string, options MinIO
 }
 
 func minIOContainerArgs(options MinIOHarnessOptions, port, attempt int) []string {
-	return []string{
+	args := []string{
 		"run", "-d", "--name", options.ContainerName + fmt.Sprintf("-%d", attempt),
 		"-p", fmt.Sprintf("127.0.0.1:%d:9000", port),
-		"-e", "MINIO_ROOT_USER=" + minIOAccessKey,
-		"-e", "MINIO_ROOT_PASSWORD=" + minIOSecretKey,
+	}
+	if options.DataDir != "" {
+		args = append(args, "--mount", fmt.Sprintf("type=bind,source=%s,target=/data", options.DataDir))
+	}
+	args = append(args,
+		"-e", "MINIO_ROOT_USER="+minIOAccessKey,
+		"-e", "MINIO_ROOT_PASSWORD="+minIOSecretKey,
 		minIOImage,
 		"server", "/data", "--address", ":9000",
-	}
+	)
+	return args
 }
 
 func minIOCleanupArgs(containerID string) []string {

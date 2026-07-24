@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.0.20-beta] - 2026-07-23
+
 ### Added
 
 - Demo verification now has a single default aggregate, `make demo-check`,
@@ -26,6 +28,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Push-notification runtime smoke coverage is now automated through
   `make test-push-smoke`, covering the persisted send path with the in-repo
   provider boundary while live APNs/FCM delivery remains operator-gated.
+- The bundled one-command `ayb demo instantsearch` experience now starts the
+  InstantSearch demo with its schema and seed data. The Algolia migration guide
+  now provides an AYB on-ramp for teams evaluating that search workflow.
 
 ### Changed
 
@@ -38,6 +43,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Launch and comparison documentation now reflects the current public release
   posture and updated competitor positioning without making launch posting an
   autonomous release gate.
+- PostGIS, SAML, and Firebase comparisons now qualify beta limits instead of
+  overstating shipped parity, and the README command count now matches the
+  current CLI surface.
 
 ### Fixed
 
@@ -47,6 +55,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Public docs and error links now share the same `doc_url` base owner, so
   actionable backend errors route to durable guide URLs without duplicating
   the URL construction contract.
+- When managed PostgreSQL cannot preload PostGIS, startup now logs a non-fatal
+  WARN that links `/guide/postgis`; the extension is skipped and server startup
+  continues.
 
 ## [0.0.19-beta] - 2026-07-20
 
