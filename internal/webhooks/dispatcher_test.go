@@ -384,15 +384,13 @@ func TestDeliverConnectionError(t *testing.T) {
 	// testDispatcher uses fastBackoff — no global mutation, safe to run in parallel.
 	t.Parallel()
 
-	// Use a server that we immediately close — connection will be refused.
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
-	url := srv.URL
-	srv.Close()
-
 	lister := &mockLister{hooks: []Webhook{{
-		ID: "wh1", URL: url, Events: []string{"create"}, Tables: []string{}, Enabled: true,
+		ID: "wh1", URL: "http://webhook.invalid", Events: []string{"create"}, Tables: []string{}, Enabled: true,
 	}}}
 	d := testDispatcher(lister)
+	d.client.Transport = roundTripFunc(func(*http.Request) (*http.Response, error) {
+		return nil, fmt.Errorf("connect: connection refused")
+	})
 
 	// Add a delivery store so we can verify delivery records.
 	ds := newMockDeliveryStore()
