@@ -27,6 +27,7 @@ var demoSeedUsers = []seedAccount{
 
 type demoInfo struct {
 	Name           string
+	Dir            string
 	Title          string
 	Description    string
 	Port           int
@@ -34,7 +35,28 @@ type demoInfo struct {
 	NeedsAdminAuth bool
 }
 
+func (demo demoInfo) assetDir() string {
+	if demo.Dir != "" {
+		return demo.Dir
+	}
+	return demo.Name
+}
+
 var demoRegistry = map[string]demoInfo{
+	"instantsearch": {
+		Name:           "instantsearch",
+		Dir:            "instantsearch_demo",
+		Title:          "InstantSearch",
+		Description:    "Algolia-compatible product search with facets, highlighting, and pagination",
+		Port:           5179,
+		NeedsAdminAuth: false,
+		TrySteps: []string{
+			"Open http://localhost:5179",
+			"Search for products and inspect highlighted matches",
+			"Filter results by category, brand, or price",
+			"Move between pages while keeping the active search refinements",
+		},
+	},
 	"kanban": {
 		Name:        "kanban",
 		Title:       "Kanban Board",
@@ -97,12 +119,21 @@ func effectiveDemoPort(demo demoInfo) int {
 	return demo.Port
 }
 
+func demoStopArgs(baseURL string) []string {
+	args := []string{"stop"}
+	if port := demoServerPort(baseURL); port != demoDefaultServerPort {
+		args = append(args, "--port", port)
+	}
+	return args
+}
+
 var demoCmd = &cobra.Command{
 	Use:   "demo <name>",
 	Short: "Run a demo app (one command, batteries included)",
 	Long: `Run one of the bundled AYB demo applications.
 
 Available demos:
+  instantsearch  Algolia-compatible faceted product search      (port 5179)
   kanban        Trello-lite Kanban board with drag-and-drop    (port 5173)
   live-polls    Slido-lite real-time polling app                (port 5175)
   movies        Semantic movie search with chat and BYOK        (port 5177)
@@ -117,11 +148,12 @@ Search docs:
   Algolia migration map:       https://allyourbase.io/guide/migrating-from-algolia
 
 Examples:
+  ayb demo instantsearch
   ayb demo kanban
   ayb demo live-polls
   ayb demo movies`,
 	Args:      cobra.ExactArgs(1),
-	ValidArgs: []string{"kanban", "live-polls", "movies"},
+	ValidArgs: []string{"instantsearch", "kanban", "live-polls", "movies"},
 	RunE:      runDemo,
 }
 
@@ -163,7 +195,7 @@ func runDemo(cmd *cobra.Command, args []string) error {
 	// Clean up server on exit if we started it.
 	if weStarted {
 		aybBin, _ := os.Executable()
-		defer exec.Command(aybBin, "stop").Run() //nolint:errcheck
+		defer exec.Command(aybBin, demoStopArgs(baseURL)...).Run() //nolint:errcheck
 	}
 
 	// Demos depend on the public auth routes for registration and login.

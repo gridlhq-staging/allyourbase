@@ -10,6 +10,14 @@ Managed PostgreSQL is the zero-config local path. If you need extensions beyond 
 
 `ayb migrate algolia` ships for one-index Algolia record imports into PostgreSQL, with dry-run planning, JSON output, and optional supported synonym import. Algolia query-code migration is documented through AYB's shipped collection list API: `search`, `fuzzy`, `filter`, `facets`, result highlighting, typo-threshold controls, and operator-defined synonyms. AYB does not translate Algolia ranking rules or hosted index operations.
 
+## SAML assertion-signature verification
+
+SAML login is available, but SAML assertion-signature verification is not yet performed. Deployments that require signed assertion enforcement should keep an upstream identity gateway in front of AYB until that verification path ships.
+
+## Firebase migration and offline sync
+
+The Firebase importer is retired; use PostgreSQL ingest paths or a custom migration. AYB does not provide Firestore-style offline/local-first sync.
+
 ## Passkey resident-key registration
 
 First-factor passkey login is shipped through the JavaScript SDK and React SDK, but resident-key / discoverable-credential registration is not yet enabled. The backend registration owner still calls `BeginRegistration` without resident-key options, so usernameless passkey login remains open.

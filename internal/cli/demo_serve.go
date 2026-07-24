@@ -19,13 +19,17 @@ import (
 	"github.com/allyourbase/ayb/examples"
 )
 
+func demoListenAddr(port int) string {
+	return fmt.Sprintf("127.0.0.1:%d", port)
+}
+
 // serveDemoApp starts a Go HTTP server that serves pre-built static assets
 // from the embedded FS and reverse-proxies /api requests to the AYB server.
 // When adminToken is non-empty, the proxy injects an Authorization header for
 // /api/admin/ requests (needed by demos with admin-gated routes like movies).
 // Blocks until SIGINT/SIGTERM is received.
 func serveDemoApp(name string, port int, aybServerURL string, adminToken string) error {
-	distFS, err := examples.DemoDist(name)
+	distFS, err := examples.DemoDist(demoRegistry[name].assetDir())
 	if err != nil {
 		return fmt.Errorf("loading demo assets: %w", err)
 	}
@@ -33,7 +37,7 @@ func serveDemoApp(name string, port int, aybServerURL string, adminToken string)
 	mux := buildDemoMux(distFS, aybServerURL, adminToken)
 
 	srv := &http.Server{
-		Addr:    fmt.Sprintf(":%d", port),
+		Addr:    demoListenAddr(port),
 		Handler: mux,
 	}
 

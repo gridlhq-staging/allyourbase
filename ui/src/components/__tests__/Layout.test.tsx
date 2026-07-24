@@ -765,4 +765,24 @@ describe("Layout", () => {
       mutableRegistry.sections = originalSections;
     }
   });
+
+  it("hides capability-gated registry entries when capability state is unknown", async () => {
+    render(
+      <ThemeProvider>
+        <CapabilityProvider state={{ kind: "unknown" }}>
+          <Layout schema={makeSchema()} onLogout={onLogout} onRefresh={onRefresh} />
+        </CapabilityProvider>
+      </ThemeProvider>,
+    );
+
+    expect(screen.queryByRole("button", { name: "Incidents" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Support Tickets" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Users" })).toBeInTheDocument();
+
+    await userEvent.setup().click(screen.getByRole("button", { name: "Search...K" }));
+
+    expect(screen.queryByText("Incidents")).not.toBeInTheDocument();
+    expect(screen.queryByText("Support Tickets")).not.toBeInTheDocument();
+    expect(screen.getAllByText("Users").length).toBeGreaterThanOrEqual(2);
+  });
 });

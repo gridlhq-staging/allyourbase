@@ -9,6 +9,61 @@ import (
 
 const demoExternalServerEnv = "AYB_DEMO_EXTERNAL_SERVER"
 
+func TestViteDemoServersHonorSelectedAppPort(t *testing.T) {
+	t.Parallel()
+
+	repoRoot := findRepoRoot(t)
+	for _, demo := range []struct {
+		name        string
+		defaultPort string
+	}{
+		{name: "live-polls", defaultPort: "5175"},
+		{name: "movies", defaultPort: "5177"},
+	} {
+		demo := demo
+		t.Run(demo.name, func(t *testing.T) {
+			config := readRepoText(t, filepath.Join(repoRoot, "examples", demo.name, "vite.config.ts"))
+			requireContainsAll(t, config, []string{
+				"const port = Number(process.env.AYB_DEMO_APP_PORT) || " + demo.defaultPort,
+				"server:",
+				"port,",
+			})
+		})
+	}
+}
+
+func TestLivePollsFocusedConfigStartsDemoRuntime(t *testing.T) {
+	t.Parallel()
+
+	repoRoot := findRepoRoot(t)
+	config := readRepoText(t, filepath.Join(repoRoot, "examples", "live-polls", "playwright.config.ts"))
+	requireContainsAll(t, config, []string{
+		"webServer:",
+		"../../ayb",
+		"demo live-polls",
+		"AYB_SERVER_PORT",
+		"AYB_DATABASE_EMBEDDED_PORT",
+		"AYB_DATABASE_EMBEDDED_DATA_DIR",
+		"AYB_AUTH_RATE_LIMIT=10000",
+		"AYB_RATE_LIMIT_API=10000/min",
+		"demo_pid",
+		"trap cleanup EXIT INT TERM",
+		`gracefulShutdown: { signal: "SIGINT", timeout: 10000 }`,
+	})
+	requireDoesNotContainAny(t, config, []string{`command: "npm run dev"`})
+}
+
+func TestLivePollsViteProxyHonorsSelectedServerURL(t *testing.T) {
+	t.Parallel()
+
+	repoRoot := findRepoRoot(t)
+	config := readRepoText(t, filepath.Join(repoRoot, "examples", "live-polls", "vite.config.ts"))
+	requireContainsAll(t, config, []string{
+		`const aybServerURL = process.env.AYB_SERVER_URL || "http://localhost:8090"`,
+		`"/api": aybServerURL`,
+	})
+}
+
 func TestLiveDemoRunnerHasSingleAppServerOwnerInCI(t *testing.T) {
 	t.Parallel()
 

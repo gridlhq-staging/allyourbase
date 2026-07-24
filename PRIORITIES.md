@@ -6,17 +6,23 @@ mission and scope.
 
 ## Current Order
 
-1. **Make the release process trustworthy, then launch.** The release runbook
-   and gate-composition work now ship beta releases through documented gates,
-   but v0.0.19-beta has unresolved public-artifact verification gaps: GitHub
-   release metadata reports `isPrerelease=false`, and the installed archive
-   binary reports short commit `c23cc95` instead of the full public SHA. Keep
-   the discipline — published is not verified until the release-owner decisions
-   in `ROADMAP.md` are resolved and the runbook's artifact verification is
-   rerun. And face the deeper reality: a live traffic probe shows **0 stars / 0
-   forks / ~2 human views in 14 days** — AYB has never been launched. The
-   product is mature; the bottleneck is distribution, and the launch itself is
-   a human act no agent can perform.
+1. **Ship one honest, trustworthy release — then launch.** The v0.0.19-beta
+   public-artifact gaps are resolved or decided: the `isPrerelease=false` defect
+   was corrected across every release on 2026-07-22
+   (`docs/live-state/20260722T193943Z_release_prerelease_flag_correction.md`),
+   and the short-commit archive defect is fixed forward — `.goreleaser.yaml` now
+   carries `main.commit={{.FullCommit}}` (`fdaf30792`), so the **next** release is
+   the first with verifiable full-SHA provenance. 334 commits (109 first-parent)
+   sit unreleased. The jul23_pm batch therefore does two things before the launch: a
+   **claim⇄reality honesty pass** (so the marketed surface — comparison matrix,
+   README, guides — does not overclaim PostGIS/SAML/Firebase parity and survive
+   Show-HN scrutiny) and then **cuts v0.0.20-beta** through the documented gates,
+   verified from published artifacts. Face the deeper reality: a live traffic
+   probe shows **0 stars / 0 forks / ~2 human views in 14 days** — AYB has never
+   been launched. The product is mature; the bottleneck is distribution, and the
+   launch itself (`_dev/launch/launch_runbook.md`) is a human act no agent can
+   perform. Autonomous work does not wait on it — it prepares the artifact the
+   human launches.
 2. Keep core AYB server correctness stable across auth, API, realtime, storage,
    search, and operational runtime paths.
 3. Preserve automated validation as the release gate, and make sure the gate's

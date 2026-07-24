@@ -8,6 +8,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- Demo verification now has a single default aggregate, `make demo-check`,
+  covering screen specs, demo unit suites, desktop and mobile Chromium flows,
+  critical/serious accessibility scans, push smoke, freshness, and the live
+  production workflow arm.
+- Public demo screen specifications now cover the Kanban, Live Polls, Movies,
+  InstantSearch, and apex landing surfaces.
 - Managed PostgreSQL now enables automatic WAL archival during managed server
   startup by writing the effective `ayb wal-ship --config ... %p %f`
   `archive_command` into the generated PostgreSQL configuration when backup
@@ -27,12 +33,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   scrapers still require the configured bearer token.
 - The apex demo landing deployment path now has live-refresh verification and
   deploy automation evidence for the canonical `demo.allyourbase.io` page.
+- The cross-demo live workflow now runs daily with retries disabled and is
+  included in the default demo aggregate.
 - Launch and comparison documentation now reflects the current public release
   posture and updated competitor positioning without making launch posting an
   autonomous release gate.
 
 ### Fixed
 
+- Demo coverage now exercises deeper Movies, Kanban, Live Polls, and
+  InstantSearch states, including authenticated flows, loading/error states,
+  mobile overflow guards, and accessibility regressions.
 - Public docs and error links now share the same `doc_url` base owner, so
   actionable backend errors route to durable guide URLs without duplicating
   the URL construction contract.

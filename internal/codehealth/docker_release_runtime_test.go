@@ -92,7 +92,7 @@ func TestPublishedDockerImageBuildsAllEmbeddedDemoDistAssets(t *testing.T) {
 	}
 	embedContent := string(embedData)
 	requireContainsAll(t, embedContent, []string{
-		"//go:embed kanban/dist live-polls/dist movies/dist",
+		"//go:embed instantsearch_demo/dist kanban/dist live-polls/dist movies/dist",
 	})
 
 	dockerfilePath := filepath.Join(repoRoot, "Dockerfile")
@@ -103,6 +103,7 @@ func TestPublishedDockerImageBuildsAllEmbeddedDemoDistAssets(t *testing.T) {
 	dockerfileContent := string(dockerfileData)
 
 	requiredDemoDistDirs := []string{
+		"instantsearch_demo/dist",
 		"kanban/dist",
 		"live-polls/dist",
 		"movies/dist",

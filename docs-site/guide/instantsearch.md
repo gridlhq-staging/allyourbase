@@ -173,7 +173,15 @@ The adapter intentionally keeps InstantSearch's initial empty query as a real AY
 
 ## Example app
 
-The source-only reference app lives at `examples/instantsearch_demo/`. It runs on `http://127.0.0.1:8096`, points at a local AYB server on `http://127.0.0.1:8090`, and uses `react-instantsearch` widgets against the shipped adapter. Its browser-unmocked proof is `examples/instantsearch_demo/browser-tests-unmocked/smoke/search.spec.ts`.
+Run the bundled demo as the primary first-run path:
+
+```bash
+ayb demo instantsearch
+```
+
+The CLI serves the embedded app on `http://127.0.0.1:5179`, points it at a local AYB server on `http://127.0.0.1:8090`, and uses `react-instantsearch` widgets against the shipped adapter. Its browser-unmocked proof is `examples/instantsearch_demo/browser-tests-unmocked/smoke/search.spec.ts`.
+
+To develop the frontend itself, edit the React source app at `examples/instantsearch_demo/` and run that package directly.
 
 ## Related guides
 

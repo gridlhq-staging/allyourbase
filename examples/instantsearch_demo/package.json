@@ -8,7 +8,7 @@
     "build": "tsc && vite build",
     "build:local-sdk": "npm --prefix ../../sdk run build",
     "preview": "vite preview",
-    "test": "vitest run",
+    "test": "npm run build:local-sdk && vitest run",
     "test:watch": "vitest",
     "lint:browser-tests": "eslint browser-tests-unmocked/**/*.spec.ts --config browser-tests-unmocked/eslint.config.mjs",
     "test:node-probe": "npm run build:local-sdk && node node_probe.mjs",

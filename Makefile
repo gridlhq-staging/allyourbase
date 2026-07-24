@@ -1,4 +1,4 @@
-.PHONY: build dev test test-sdk test-sdk-go test-sdk-python test-sdk-dart test-sdk-swift test-sdk-kotlin test-sdk-react test-sdk-ssr test-sdk-all test-sdk-integration test-ui test-demos-unit test-quickstart-contract test-integration test-multinode test-cell test-demo-smoke test-demo-instantsearch test-demo-e2e test-demo-launch test-demo-cross-smoke test-demo-movies-real-provider test-push-smoke test-e2e test-smoke test-browser-full test-full test-all test-everything test-api-smoke test-api-journey lint check hygiene check-hygiene check-sizes check-screen-specs check-followups check-ui-bundle-size check-ui-lint check-browser-tests-lint check-func-sizes check-installer check-sdk-build launch-check adoption release-candidate-check clean ui demos release docker docker-runtime-smoke help sync-openapi build-postgres load-admin-status load-admin-status-local load-auth-request-path load-auth-request-path-local load-data-path load-data-path-local load-data-pool-pressure load-data-pool-pressure-local load-http-100 load-http-100-local load-http-500 load-http-500-local load-http-1000 load-http-1000-local load-realtime-ws load-realtime-ws-local load-realtime-ws-1000 load-realtime-ws-1000-local load-realtime-ws-5000 load-realtime-ws-5000-local load-realtime-ws-10000 load-realtime-ws-10000-local load-sustained-soak load-sustained-soak-local
+.PHONY: build dev test test-sdk test-sdk-go test-sdk-python test-sdk-dart test-sdk-swift test-sdk-kotlin test-sdk-react test-sdk-ssr test-sdk-all test-sdk-integration test-ui test-demos-unit test-quickstart-contract test-integration test-multinode test-cell test-demo-smoke test-demo-instantsearch test-demo-e2e test-demo-launch test-demo-cross-smoke test-demo-movies-real-provider test-push-smoke test-e2e test-smoke test-browser-full test-full test-all test-everything test-api-smoke test-api-journey lint check demo-check hygiene check-hygiene check-sizes check-screen-specs check-demo-specs check-followups check-ui-bundle-size check-ui-lint check-browser-tests-lint check-func-sizes check-installer check-sdk-build launch-check adoption release-candidate-check clean ui demos release docker docker-runtime-smoke help sync-openapi build-postgres load-admin-status load-admin-status-local load-auth-request-path load-auth-request-path-local load-data-path load-data-path-local load-data-pool-pressure load-data-pool-pressure-local load-http-100 load-http-100-local load-http-500 load-http-500-local load-http-1000 load-http-1000-local load-realtime-ws load-realtime-ws-local load-realtime-ws-1000 load-realtime-ws-1000-local load-realtime-ws-5000 load-realtime-ws-5000-local load-realtime-ws-10000 load-realtime-ws-10000-local load-sustained-soak load-sustained-soak-local
 
 # Build variables
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
@@ -22,7 +22,7 @@ LOAD_API_RATE_LIMIT_DEFAULT := 10000/min
 LOAD_API_ANON_RATE_LIMIT_DEFAULT := 10000/min
 BROWSER_AUTH_ENABLED_DEFAULT := true
 BROWSER_LOCAL_BASE_URL := http://localhost:8090
-BROWSER_LOCAL_AYB_START_COMMAND := ./ayb start --foreground --host 0.0.0.0
+BROWSER_LOCAL_AYB_START_COMMAND := ./ayb start --foreground --host 127.0.0.1
 LOAD_ADMIN_STATUS_K6_COMMAND := $(LOAD_K6_BIN) run --vus $${K6_VUS:-$(LOAD_DEFAULT_VUS)} --iterations $${K6_ITERATIONS:-$(LOAD_DEFAULT_ITERATIONS)} $(LOAD_ADMIN_STATUS_SCENARIO)
 LOAD_AUTH_REQUEST_PATH_K6_COMMAND := $(LOAD_K6_BIN) run --vus $${K6_VUS:-$(LOAD_DEFAULT_VUS)} --iterations $${K6_ITERATIONS:-$(LOAD_DEFAULT_ITERATIONS)} $(LOAD_AUTH_REQUEST_PATH_SCENARIO)
 LOAD_DATA_PATH_K6_COMMAND := $(LOAD_K6_BIN) run --vus $${K6_VUS:-$(LOAD_DEFAULT_VUS)} --iterations $${K6_ITERATIONS:-$(LOAD_DEFAULT_ITERATIONS)} $(LOAD_DATA_PATH_SCENARIO)
@@ -127,6 +127,10 @@ MOVIES_DEPS := $(shell find examples/movies/src -type f) \
 	examples/movies/index.html examples/movies/package.json examples/movies/package-lock.json \
 	examples/movies/vite.config.ts examples/movies/tsconfig.json \
 	examples/movies/tailwind.config.js examples/movies/postcss.config.js
+INSTANTSEARCH_DEPS := $(shell find examples/instantsearch_demo/src -type f) \
+	examples/instantsearch_demo/index.html examples/instantsearch_demo/package.json \
+	examples/instantsearch_demo/package-lock.json examples/instantsearch_demo/vite.config.ts \
+	examples/instantsearch_demo/tsconfig.json
 UI_DEPS := $(shell find ui/src -type f) \
 	ui/index.html ui/package.json ui/pnpm-lock.yaml \
 	ui/vite.config.ts ui/tsconfig.json ui/postcss.config.js ui/tailwind.config.ts
@@ -151,11 +155,15 @@ examples/movies/dist/.stamp: $(MOVIES_DEPS) sdk/dist/.stamp sdk_react/dist/.stam
 	cd examples/movies && npm ci && VITE_AYB_URL="" npx vite build
 	@touch $@
 
+examples/instantsearch_demo/dist/.stamp: $(INSTANTSEARCH_DEPS) sdk/dist/.stamp
+	cd examples/instantsearch_demo && npm ci && VITE_AYB_URL="" npm run build
+	@touch $@
+
 ui/dist/.stamp: $(UI_DEPS)
 	cd ui && pnpm install && pnpm build
 	@touch $@
 
-build: ui/dist/.stamp examples/kanban/dist/.stamp examples/live-polls/dist/.stamp examples/movies/dist/.stamp ## Build the ayb binary (rebuilds UI + demos if sources changed)
+build: ui/dist/.stamp examples/kanban/dist/.stamp examples/live-polls/dist/.stamp examples/movies/dist/.stamp examples/instantsearch_demo/dist/.stamp ## Build the ayb binary (rebuilds UI + demos if sources changed)
 	go build $(LDFLAGS) -o ayb ./cmd/ayb
 
 build-postgres: ## Build AYB-managed Postgres binaries for the current platform
@@ -398,6 +406,9 @@ check-sizes: ## Run source-size guardrail
 check-screen-specs: ## Run screen-spec format guard
 	bash scripts/check_screen_spec.sh docs/reference/screen_specs
 
+check-demo-specs: ## Run demo screen-spec format guard
+	bash scripts/check_screen_spec.sh docs/reference/demo_specs
+
 check-followups: ## Report follow-up ledger pollution without blocking aggregate gates
 	@status=0; \
 	if ! git show HEAD:chats/icg/_followups.md | bash scripts/check_followups.sh HEAD=-; then status=1; fi; \
@@ -428,7 +439,77 @@ check-browser-tests-lint: ## Lint browser test specs
 check-func-sizes: ## Run Go function-size guardrail test
 	go test ./internal/codehealth -run TestFunctionSizeAllowlist -count=1
 
-check: hygiene fmt lint check-sizes check-screen-specs check-ui-bundle-size check-ui-lint check-func-sizes ## Run local CI-equivalent quality checks
+check: hygiene fmt lint check-sizes check-screen-specs check-demo-specs check-ui-bundle-size check-ui-lint check-func-sizes ## Run local CI-equivalent quality checks
+
+demo-check: build ## Run the complete demo validation aggregate
+	@set -euo pipefail; \
+	source tests/port_helpers.sh; \
+	$(MAKE) check-demo-specs; \
+	printf 'DEMO-CHECK ARM check-demo-specs: PASS\n'; \
+	$(MAKE) test-demos-unit; \
+	printf 'DEMO-CHECK ARM test-demos-unit: PASS\n'; \
+	kanban_desktop_port="$$(pick_free_port 45173 46173 47173 48173 49173)" || { printf 'No free isolated app port available for kanban desktop\n' >&2; exit 1; }; \
+	(cd examples/kanban && AYB_DEMO_APP_PORT="$$kanban_desktop_port" npm run test:e2e -- --project=kanban --retries=0); \
+	bash scripts/check-playwright-executed.sh examples/kanban/playwright-report/results.json kanban; \
+	printf 'DEMO-CHECK ARM kanban-desktop: PASS\n'; \
+	live_polls_desktop_port="$$(pick_free_port 45175 46175 47175 48175 49175)" || { printf 'No free isolated app port available for live-polls desktop\n' >&2; exit 1; }; \
+	(cd examples/live-polls && AYB_DEMO_APP_PORT="$$live_polls_desktop_port" npm run test:e2e -- --project=live-polls --retries=0); \
+	bash scripts/check-playwright-executed.sh examples/live-polls/playwright-report/results.json live-polls; \
+	printf 'DEMO-CHECK ARM live-polls-desktop: PASS\n'; \
+	movies_desktop_port="$$(pick_free_port 45177 46177 47177 48177 49177)" || { printf 'No free isolated app port available for movies desktop\n' >&2; exit 1; }; \
+	(cd examples/movies && AYB_DEMO_APP_PORT="$$movies_desktop_port" npm run test:e2e -- --project=movies --retries=0); \
+	bash scripts/check-playwright-executed.sh examples/movies/playwright-report/results.json movies; \
+	printf 'DEMO-CHECK ARM movies-desktop: PASS\n'; \
+	kanban_a11y_port="$$(pick_free_port 45183 46183 47183 48183 49183)" || { printf 'No free isolated app port available for kanban a11y\n' >&2; exit 1; }; \
+	(cd examples/kanban && AYB_DEMO_APP_PORT="$$kanban_a11y_port" npm run test:e2e -- tests/a11y.spec.ts --project=kanban --retries=0); \
+	bash scripts/check-playwright-executed.sh examples/kanban/playwright-report/results.json kanban; \
+	printf 'DEMO-CHECK ARM kanban-a11y: PASS\n'; \
+	live_polls_a11y_port="$$(pick_free_port 45185 46185 47185 48185 49185)" || { printf 'No free isolated app port available for live-polls a11y\n' >&2; exit 1; }; \
+	(cd examples/live-polls && AYB_DEMO_APP_PORT="$$live_polls_a11y_port" npm run test:e2e -- e2e/a11y.spec.ts --project=live-polls --retries=0); \
+	bash scripts/check-playwright-executed.sh examples/live-polls/playwright-report/results.json live-polls; \
+	printf 'DEMO-CHECK ARM live-polls-a11y: PASS\n'; \
+	movies_a11y_port="$$(pick_free_port 45187 46187 47187 48187 49187)" || { printf 'No free isolated app port available for movies a11y\n' >&2; exit 1; }; \
+	(cd examples/movies && AYB_DEMO_APP_PORT="$$movies_a11y_port" npm run test:e2e -- e2e/a11y.spec.ts --project=movies --retries=0); \
+	bash scripts/check-playwright-executed.sh examples/movies/playwright-report/results.json movies; \
+	printf 'DEMO-CHECK ARM movies-a11y: PASS\n'; \
+	instantsearch_a11y_port="$$(pick_free_port 45196 46196 47196 48196 49196)" || { printf 'No free isolated app port available for InstantSearch a11y\n' >&2; exit 1; }; \
+	(cd examples/instantsearch_demo && AYB_APP_PORT="$$instantsearch_a11y_port" npm run test:browser-tests -- browser-tests-unmocked/smoke/a11y.spec.ts --project=instantsearch_demo --retries=0); \
+	bash scripts/check-playwright-executed.sh examples/instantsearch_demo/playwright-report/results.json instantsearch_demo; \
+	printf 'DEMO-CHECK ARM instantsearch-a11y: PASS\n'; \
+	kanban_mobile_port="$$(pick_free_port 45193 46193 47193 48193 49193)" || { printf 'No free isolated app port available for kanban mobile\n' >&2; exit 1; }; \
+	(cd examples/kanban && AYB_DEMO_APP_PORT="$$kanban_mobile_port" npm run test:e2e -- --project=kanban-mobile --retries=0); \
+	bash scripts/check-playwright-executed.sh examples/kanban/playwright-report/results.json kanban-mobile; \
+	printf 'DEMO-CHECK ARM kanban-mobile: PASS\n'; \
+	live_polls_mobile_port="$$(pick_free_port 45195 46195 47195 48195 49195)" || { printf 'No free isolated app port available for live-polls mobile\n' >&2; exit 1; }; \
+	(cd examples/live-polls && AYB_DEMO_APP_PORT="$$live_polls_mobile_port" npm run test:e2e -- --project=live-polls-mobile --retries=0); \
+	bash scripts/check-playwright-executed.sh examples/live-polls/playwright-report/results.json live-polls-mobile; \
+	printf 'DEMO-CHECK ARM live-polls-mobile: PASS\n'; \
+	movies_mobile_port="$$(pick_free_port 45197 46197 47197 48197 49197)" || { printf 'No free isolated app port available for movies mobile\n' >&2; exit 1; }; \
+	(cd examples/movies && AYB_DEMO_APP_PORT="$$movies_mobile_port" npm run test:e2e -- --project=movies-mobile --retries=0); \
+	bash scripts/check-playwright-executed.sh examples/movies/playwright-report/results.json movies-mobile; \
+	printf 'DEMO-CHECK ARM movies-mobile: PASS\n'; \
+	instantsearch_mobile_port="$$(pick_free_port 45198 46198 47198 48198 49198)" || { printf 'No free isolated app port available for InstantSearch mobile\n' >&2; exit 1; }; \
+	(cd examples/instantsearch_demo && AYB_APP_PORT="$$instantsearch_mobile_port" npm run test:browser-tests -- --project=instantsearch_demo-mobile --retries=0); \
+	bash scripts/check-playwright-executed.sh examples/instantsearch_demo/playwright-report/results.json instantsearch_demo-mobile; \
+	printf 'DEMO-CHECK ARM instantsearch-mobile: PASS\n'; \
+	$(MAKE) test-demo-instantsearch; \
+	printf 'DEMO-CHECK ARM test-demo-instantsearch: PASS\n'; \
+	$(MAKE) test-push-smoke; \
+	printf 'DEMO-CHECK ARM test-push-smoke: PASS\n'; \
+	bash scripts/demo_freshness_check.sh; \
+	printf 'DEMO-CHECK ARM freshness: PASS\n'; \
+	[ "$${DEMO_CHECK_SKIP_LIVE:-}" = "1" ] && printf 'DEMO-CHECK ARM live-workflow: SKIP\n' && exit 0; \
+	command -v gh >/dev/null || printf 'gh CLI is required for live workflow dispatch/watch\n' >&2; \
+	command -v gh >/dev/null; \
+	run_url_file="$$(mktemp -t ayb-demo-check-run-url.XXXXXX)"; \
+	gh workflow run cross_demo_live.yml -R AllyourbaseHQ/allyourbase | tee "$$run_url_file"; \
+	run_url="$$(cat "$$run_url_file")"; \
+	rm -f "$$run_url_file"; \
+	run_id="$$(printf '%s\n' "$$run_url" | sed -nE 's@.*[/ ]([0-9]+)[[:space:]]*$$@\1@p' | tail -n 1)"; \
+	printf '%s\n' "$$run_id" | grep -Eq '^[0-9]+$$' || printf 'Unable to extract numeric workflow run ID from gh dispatch output: %s\n' "$$run_url" >&2; \
+	printf '%s\n' "$$run_id" | grep -Eq '^[0-9]+$$'; \
+	gh run watch "$$run_id" -R AllyourbaseHQ/allyourbase --exit-status; \
+	printf 'DEMO-CHECK ARM live-workflow: PASS\n'
 
 check-installer: ## Run installer validation suite
 	sh tests/test_install.sh
@@ -448,8 +529,8 @@ ui: ## Build the admin dashboard SPA
 	cd ui && pnpm install && pnpm build
 
 demos: ## Build demo apps (force rebuild, pre-built for go:embed)
-	rm -f examples/kanban/dist/.stamp examples/live-polls/dist/.stamp examples/movies/dist/.stamp
-	$(MAKE) examples/kanban/dist/.stamp examples/live-polls/dist/.stamp examples/movies/dist/.stamp
+	rm -f examples/kanban/dist/.stamp examples/live-polls/dist/.stamp examples/movies/dist/.stamp examples/instantsearch_demo/dist/.stamp
+	$(MAKE) examples/kanban/dist/.stamp examples/live-polls/dist/.stamp examples/movies/dist/.stamp examples/instantsearch_demo/dist/.stamp
 
 docker: ## Build Docker image locally
 	docker build -t allyourbase/ayb:latest -t allyourbase/ayb:$(VERSION) .
@@ -460,7 +541,7 @@ docker-runtime-smoke: ## Run the published-image Docker runtime smoke using /tmp
 clean: ## Remove build artifacts
 	rm -f ayb
 	rm -rf dist/
-	rm -f ui/dist/.stamp examples/kanban/dist/.stamp examples/live-polls/dist/.stamp examples/movies/dist/.stamp
+	rm -f ui/dist/.stamp examples/kanban/dist/.stamp examples/live-polls/dist/.stamp examples/movies/dist/.stamp examples/instantsearch_demo/dist/.stamp
 
 release: ## Build release binaries via goreleaser (dry run)
 	goreleaser release --snapshot --clean

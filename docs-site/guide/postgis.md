@@ -15,10 +15,10 @@ When you connect AYB to a PostgreSQL database with PostGIS installed, AYB automa
 
 When using an external PostgreSQL instance with PostGIS already installed, no additional AYB configuration is required — spatial columns just work.
 
-When using AYB's managed PostgreSQL mode, set `managed_pg.postgis = true` in your `ayb.toml` to include PostGIS in the managed instance's extension list. This prepends `"postgis"` to the `managed_pg.extensions` array at startup.
+When using AYB's managed PostgreSQL mode, set `managed_pg.postgis = true` to request the PostGIS extension. This prepends `"postgis"` to the `managed_pg.extensions` array at startup. `managed_pg.postgis` only queues `CREATE EXTENSION postgis`; it does not add PostGIS binaries to the default managed PostgreSQL build.
 
 ::: info Embedded mode limitation
-AYB's embedded PostgreSQL mode does not bundle the PostGIS extension binaries. If you need geospatial features, use an external PostgreSQL instance with PostGIS installed, or use managed PostgreSQL mode with the `postgis` toggle enabled.
+AYB's embedded PostgreSQL mode does not bundle the PostGIS extension binaries. Use external PostgreSQL with PostGIS installed unless your managed build already contains the PostGIS binaries.
 :::
 
 ## Setting up PostGIS

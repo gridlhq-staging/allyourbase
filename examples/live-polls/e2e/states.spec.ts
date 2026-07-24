@@ -37,9 +37,10 @@ test.describe("Live poll states", () => {
 
   test("shows a stable bootstrap failure message", async ({ page }) => {
     await registerUser(page);
-    await arrangePollBootstrapFailure(page);
+    const bootstrapFailure = await arrangePollBootstrapFailure(page);
 
     await page.reload();
+    await bootstrapFailure.intercepted;
 
     await expect(
       page.getByText("Could not load polls. Please refresh.", { exact: true }),

@@ -1,9 +1,11 @@
 package pgmanager
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
 	"fmt"
+	"log/slog"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -28,16 +30,48 @@ type fakeResult struct{}
 func (fakeResult) LastInsertId() (int64, error) { return 0, nil }
 func (fakeResult) RowsAffected() (int64, error) { return 0, nil }
 
+type fakeRows struct {
+	values []string
+	index  int
+	err    error
+}
+
+func (r *fakeRows) Next() bool {
+	return r.index < len(r.values)
+}
+
+func (r *fakeRows) Scan(dest ...any) error {
+	value, ok := dest[0].(*string)
+	if !ok {
+		return sql.ErrNoRows
+	}
+	*value = r.values[r.index]
+	r.index++
+	return nil
+}
+
+func (r *fakeRows) Err() error {
+	return r.err
+}
+
+func (r *fakeRows) Close() error {
+	return nil
+}
+
 type fakeDatabaseClient struct {
-	query            string
-	queryArgs        []any
-	execQuery        string
-	execCalled       bool
-	closeCalled      bool
-	databaseExists   bool
-	queryErr         error
-	execErr          error
-	connectionString string
+	query               string
+	queryArgs           []any
+	rowsQuery           string
+	execQuery           string
+	execCalled          bool
+	closeCalled         bool
+	databaseExists      bool
+	availableExtensions []string
+	queryErr            error
+	queryRowsErr        error
+	rowsErr             error
+	execErr             error
+	connectionString    string
 }
 
 func (db *fakeDatabaseClient) QueryRowContext(_ context.Context, query string, args ...any) rowScanner {
@@ -56,6 +90,17 @@ func (db *fakeDatabaseClient) QueryRowContext(_ context.Context, query string, a
 			return nil
 		},
 	}
+}
+
+func (db *fakeDatabaseClient) QueryContext(_ context.Context, query string, _ ...any) (rowsScanner, error) {
+	db.rowsQuery = query
+	if db.queryRowsErr != nil {
+		return nil, db.queryRowsErr
+	}
+	return &fakeRows{
+		values: append([]string(nil), db.availableExtensions...),
+		err:    db.rowsErr,
+	}, nil
 }
 
 func (db *fakeDatabaseClient) ExecContext(_ context.Context, query string, _ ...any) (sql.Result, error) {
@@ -209,12 +254,105 @@ func TestInitExtensionsEmptyList(t *testing.T) {
 	testutil.NoError(t, err)
 }
 
+func TestInitExtensionsWarnsWithPostGISDocURLWhenUnavailable(t *testing.T) {
+	originalOpen := openDatabaseClient
+	defer func() { openDatabaseClient = originalOpen }()
+
+	client := &fakeDatabaseClient{}
+	openDatabaseClient = func(_ context.Context, _ string) (databaseClient, error) {
+		return client, nil
+	}
+
+	var logs bytes.Buffer
+	logger := slog.New(slog.NewTextHandler(&logs, nil))
+
+	err := initExtensions(context.Background(), "postgresql://unused", []string{"postgis"}, logger)
+	testutil.NoError(t, err)
+	testutil.True(t, !client.execCalled, "unavailable postgis extension should not be created")
+
+	logText := logs.String()
+	testutil.Contains(t, logText, "level=WARN")
+	testutil.Contains(t, logText, "extension=postgis")
+	testutil.Contains(t, logText, "https://allyourbase.io/guide/postgis")
+}
+
+func TestInitExtensionsWarnsWithoutPostGISDocURLForOtherUnavailableExtensions(t *testing.T) {
+	originalOpen := openDatabaseClient
+	defer func() { openDatabaseClient = originalOpen }()
+
+	client := &fakeDatabaseClient{}
+	openDatabaseClient = func(_ context.Context, _ string) (databaseClient, error) {
+		return client, nil
+	}
+
+	var logs bytes.Buffer
+	logger := slog.New(slog.NewTextHandler(&logs, nil))
+
+	err := initExtensions(context.Background(), "postgresql://unused", []string{"pg_trgm"}, logger)
+	testutil.NoError(t, err)
+	testutil.True(t, !client.execCalled, "unavailable pg_trgm extension should not be created")
+
+	logText := logs.String()
+	testutil.Contains(t, logText, "level=WARN")
+	testutil.Contains(t, logText, "extension=pg_trgm")
+	testutil.True(t, !strings.Contains(logText, "https://allyourbase.io/guide/postgis"),
+		"non-postgis extension warning should not point to the PostGIS guide")
+}
+
+func TestInitExtensionsNormalizesConfiguredExtensionNames(t *testing.T) {
+	originalOpen := openDatabaseClient
+	defer func() { openDatabaseClient = originalOpen }()
+
+	client := &fakeDatabaseClient{availableExtensions: []string{"pg_trgm"}}
+	openDatabaseClient = func(_ context.Context, _ string) (databaseClient, error) {
+		return client, nil
+	}
+
+	err := initExtensions(context.Background(), "postgresql://unused", []string{" PG_TRGM "}, testutil.DiscardLogger())
+	testutil.NoError(t, err)
+	testutil.True(t, client.execCalled, "normalized extension name should be created when available")
+	testutil.Equal(t, `CREATE EXTENSION IF NOT EXISTS "pg_trgm"`, client.execQuery)
+}
+
 func TestManagedExtensionName(t *testing.T) {
 	t.Parallel()
 
 	testutil.Equal(t, "vector", managedExtensionName("pgvector"))
 	testutil.Equal(t, "vector", managedExtensionName(" vector "))
+	testutil.Equal(t, "postgis", managedExtensionName(" PostGIS "))
 	testutil.Equal(t, "pg_cron", managedExtensionName("pg_cron"))
+	testutil.Equal(t, "pg_cron", managedExtensionName(" PG_CRON "))
+}
+
+func TestWritePostgresConfIncludesCronDatabaseNameForMixedCasePgCron(t *testing.T) {
+	t.Parallel()
+
+	dataDir := t.TempDir()
+	runtimeDir := t.TempDir()
+
+	err := writePostgresConf(dataDir, 15432, runtimeDir, []string{"pg_stat_statements", " PG_CRON "}, "")
+	testutil.NoError(t, err)
+
+	content, readErr := os.ReadFile(filepath.Join(dataDir, "postgresql.conf"))
+	testutil.NoError(t, readErr)
+	testutil.Contains(t, string(content), "cron.database_name = 'ayb'")
+}
+
+func TestWritePostgresConfEscapesSharedPreloadLibraries(t *testing.T) {
+	t.Parallel()
+
+	dataDir := t.TempDir()
+	runtimeDir := t.TempDir()
+
+	err := writePostgresConf(dataDir, 15432, runtimeDir, []string{"pg_cron',archive_mode=off,#"}, "")
+	testutil.NoError(t, err)
+
+	content, readErr := os.ReadFile(filepath.Join(dataDir, "postgresql.conf"))
+	testutil.NoError(t, readErr)
+	testutil.Contains(t, string(content),
+		"shared_preload_libraries = 'pg_cron'',archive_mode=off,#'")
+	testutil.True(t, !strings.Contains(string(content), "shared_preload_libraries = 'pg_cron',archive_mode=off"),
+		"shared_preload_libraries should escape quotes before writing postgresql.conf")
 }
 
 func TestStartPostgresDoesNotHangWhenPgCtlChildKeepsLogFDOpen(t *testing.T) {

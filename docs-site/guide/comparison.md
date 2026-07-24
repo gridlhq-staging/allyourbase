@@ -19,7 +19,7 @@ For measured binary size, startup time, memory usage, and API benchmark methodol
 | **Admin dashboard surface** | Core admin UI | Full admin UI | **Comprehensive built-in admin views + dynamic table browser** |
 | **OAuth providers (built-in)** | Limited set | Configurable via GoTrue/providers | Google, GitHub, Microsoft, Apple, Discord, Twitter, Facebook, LinkedIn, Spotify, Twitch, GitLab, Bitbucket, Slack, Zoom, Figma, Notion |
 | **Row-level security (RLS)** | No | Yes | Yes |
-| **SAML / SSO** | No | Available with self-host setup constraints | ✅ ([Guide](/guide/saml)) |
+| **SAML / SSO** | No | Available with self-host setup constraints | Shipped for login, but assertion-signature verification is not yet performed ([Guide](/guide/saml)) |
 | **Read replicas** | No | Manual PostgreSQL operations | ✅ |
 | **Database branching** | No | Not built-in for self-host | ✅ |
 | **Backups + PITR** | External tooling | PostgreSQL/infra dependent | ✅ |
@@ -29,8 +29,8 @@ For measured binary size, startup time, memory usage, and API benchmark methodol
 | **Log drains** | External tooling | External tooling | ✅ ([Guide](/guide/log-drains)) |
 | **Audit logging** | Basic logs | Partial | ✅ |
 | **MCP server** | No | No | ✅ |
-| **Migration tools (source importers)** | No built-in import suite | SQL migration workflow | ✅ (Built-in importers for PocketBase, Supabase, Firebase, Directus, Appwrite, and Nhost) |
-| **PostGIS spatial** | No | Yes | ✅ |
+| **Migration tools (source importers)** | No built-in import suite | SQL migration workflow | PocketBase, Supabase, Directus, Appwrite, Nhost, and one-index Algolia imports; Firebase importer is retired |
+| **PostGIS spatial** | No | Yes | Requires external PostgreSQL with PostGIS; the default managed build excludes PostGIS binaries |
 | **Push notifications** | No | External integration | ✅ |
 | **SMS operations** | No | Auth OTP focused | ✅ |
 | **Email templates** | No | Auth templates | ✅ |
@@ -44,10 +44,11 @@ AYB ships built-in migration/import flows for these source platforms:
 - PocketBase
 - Supabase
 - Algolia (`ayb migrate algolia` for one-index record imports)
-- Firebase
 - Directus
 - Appwrite
 - Nhost
+
+Firebase importer is retired.
 
 ## Leaving PocketBase for Allyourbase
 
@@ -64,9 +65,7 @@ every Supabase-hosted service, so inventory service dependencies separately.
 
 ## Leaving Firebase for Allyourbase
 
-Use the [Firebase migration guide](/guide/migrations#firebase) for Firestore
-collection and Firebase Auth imports. Rehearse the generated relational schema
-and identity mapping against a non-production export first.
+Firebase importer is retired. AYB does not provide Firestore-style offline/local-first sync. Use the [Firebase migration guide](/guide/migrations#firebase) for historical migration notes, then plan a custom export into PostgreSQL and rehearse the relational schema and identity mapping against a non-production export first.
 
 ## Leaving Algolia for Allyourbase
 
@@ -113,7 +112,7 @@ For an Algolia-oriented migration map, see [Migrating from Algolia](/guide/migra
 
 ## When to use Allyourbase
 
-Choose AYB when you want a PostgreSQL backend platform that runs as a single binary while still shipping advanced admin capabilities (RLS, branching, replicas, backups/PITR, AI/vector tooling, SAML, audit logs, and operational controls).
+Choose AYB when you want a PostgreSQL backend platform that runs as a single binary while still shipping advanced admin capabilities (RLS, branching, replicas, backups/PITR, AI/vector tooling, audit logs, and operational controls). SAML login is available, but assertion-signature verification is not yet performed.
 
 ## When to use PocketBase
 

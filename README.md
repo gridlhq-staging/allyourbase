@@ -178,7 +178,9 @@ ayb mcp                  Start MCP server for AI tools
 ```
 
 Run `ayb --help` or `ayb <command> --help` for the full command list.
-32 commands total.
+41 commands total.
+
+Counted as top-level commands registered through `rootCmd.AddCommand`, excluding Cobra's auto-generated `help` and `completion`.
 
 ## Migrate from PocketBase, Supabase, or Algolia
 

@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/allyourbase/ayb/internal/httputil"
 	"github.com/allyourbase/ayb/internal/pgconf"
 	"github.com/allyourbase/ayb/internal/sqlutil"
 )
@@ -32,7 +33,8 @@ func writePostgresConf(dataDir string, port uint32, runtimeDir string, sharedPre
 	}
 
 	if len(sharedPreloadLibraries) > 0 {
-		fmt.Fprintf(&buf, "shared_preload_libraries = '%s'\n", strings.Join(sharedPreloadLibraries, ","))
+		preloadList := pgconf.EscapeStringLiteral(strings.Join(sharedPreloadLibraries, ","))
+		fmt.Fprintf(&buf, "shared_preload_libraries = '%s'\n", preloadList)
 	}
 	if managedExtensionNameListContains(sharedPreloadLibraries, "pg_cron") {
 		fmt.Fprintf(&buf, "cron.database_name = '%s'\n", dbName)
@@ -162,7 +164,7 @@ func initExtensions(ctx context.Context, connURL string, extensions []string, lo
 		return nil
 	}
 
-	db, err := openPgx(ctx, connURL)
+	db, err := openDatabaseClient(ctx, connURL)
 	if err != nil {
 		return fmt.Errorf("connecting for extension init: %w", err)
 	}
@@ -189,10 +191,14 @@ func initExtensions(ctx context.Context, connURL string, extensions []string, lo
 	for _, ext := range extensions {
 		dbExt := managedExtensionName(ext)
 		if !available[dbExt] {
+			warnAttrs := []any{"extension", ext}
+			if dbExt == "postgis" {
+				warnAttrs = append(warnAttrs, "doc_url", httputil.DocURL("/guide/postgis"))
+			}
 			logger.Warn("extension not available in this PostgreSQL installation — "+
 				"connect to an external PostgreSQL with the extension installed, "+
 				"or verify the managed PG build includes it",
-				"extension", ext)
+				warnAttrs...)
 			continue
 		}
 		// Extension names are from our config, not user input, so safe to interpolate.
@@ -207,11 +213,12 @@ func initExtensions(ctx context.Context, connURL string, extensions []string, lo
 }
 
 func managedExtensionName(ext string) string {
-	switch strings.TrimSpace(strings.ToLower(ext)) {
+	normalized := strings.TrimSpace(strings.ToLower(ext))
+	switch normalized {
 	case "pgvector", "vector":
 		return "vector"
 	default:
-		return strings.TrimSpace(ext)
+		return normalized
 	}
 }
 

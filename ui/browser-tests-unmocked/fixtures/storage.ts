@@ -2,6 +2,39 @@
 import type { APIRequestContext } from "@playwright/test";
 import { validateResponse } from "./core";
 
+const SEED_RECORD_RETRY_DELAYS_MS = [100, 200, 400, 800, 1200];
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function responseErrorMessage(
+  res: Awaited<ReturnType<APIRequestContext["post"]>>,
+  context: string,
+): Promise<string> {
+  const status = res.status();
+  let errorMsg = `${context} failed with status ${status}`;
+  try {
+    const body = await res.json();
+    if (body.message) {
+      errorMsg += `: ${body.message}`;
+    }
+    if (body.code) {
+      errorMsg += ` (code: ${body.code})`;
+    }
+  } catch {
+    const text = await res.text();
+    if (text) {
+      errorMsg += `: ${text}`;
+    }
+  }
+  return errorMsg;
+}
+
+function isTransientCollectionLookup(status: number, message: string): boolean {
+  return status === 404 && message.includes("collection not found");
+}
+
 /** Creates a webhook for the given URL and returns its id and URL. */
 export async function seedWebhook(
   request: APIRequestContext,
@@ -139,12 +172,28 @@ export async function seedRecord(
   table: string,
   data: Record<string, unknown>,
 ): Promise<Record<string, unknown>> {
-  const res = await request.post(`/api/collections/${encodeURIComponent(table)}`, {
-    headers: { Authorization: `Bearer ${token}` },
-    data,
-  });
-  await validateResponse(res, `Create record in table ${table}`);
-  return await res.json();
+  const context = `Create record in table ${table}`;
+  let lastError = "";
+  for (let attempt = 0; attempt <= SEED_RECORD_RETRY_DELAYS_MS.length; attempt += 1) {
+    const res = await request.post(`/api/collections/${encodeURIComponent(table)}`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data,
+    });
+    if (res.ok()) {
+      return await res.json();
+    }
+    const errorMessage = await responseErrorMessage(res, context);
+    lastError = errorMessage;
+    if (!isTransientCollectionLookup(res.status(), errorMessage)) {
+      throw new Error(errorMessage);
+    }
+    const delay = SEED_RECORD_RETRY_DELAYS_MS[attempt];
+    if (delay === undefined) {
+      break;
+    }
+    await sleep(delay);
+  }
+  throw new Error(lastError || `${context} failed before receiving a response`);
 }
 
 export async function listRecords(

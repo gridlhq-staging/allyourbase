@@ -38,6 +38,12 @@ RUN npm ci
 COPY examples/movies/ .
 RUN VITE_AYB_URL="" npx vite build
 
+WORKDIR /src/examples/instantsearch_demo
+COPY examples/instantsearch_demo/package*.json ./
+RUN npm ci
+COPY examples/instantsearch_demo/ .
+RUN VITE_AYB_URL="" npx vite build
+
 FROM alpine:3.22 AS pg-builder
 
 RUN apk add --no-cache \
@@ -81,6 +87,7 @@ COPY --from=ui-builder /src/ui/dist ./ui/dist
 COPY --from=demo-builder /src/examples/kanban/dist ./examples/kanban/dist
 COPY --from=demo-builder /src/examples/live-polls/dist ./examples/live-polls/dist
 COPY --from=demo-builder /src/examples/movies/dist ./examples/movies/dist
+COPY --from=demo-builder /src/examples/instantsearch_demo/dist ./examples/instantsearch_demo/dist
 
 ARG AYB_VERSION=dev
 ARG AYB_COMMIT=none

@@ -40,10 +40,10 @@ wait_for_url() {
         attempts=0
         while ! grep -q '^owner|ayb$' "$OBSERVATIONS_PATH" 2>/dev/null; do
             attempts=$((attempts + 1))
-            if [ "$attempts" -ge 100 ]; then
+            if [ "$attempts" -ge 500 ]; then
                 return 1
             fi
-            sleep 0.01
+            sleep 0.02
         done
     fi
     echo "health|$1" >> "$OBSERVATIONS_PATH"

@@ -12,8 +12,16 @@ type rowScanner interface {
 	Scan(dest ...any) error
 }
 
+type rowsScanner interface {
+	Next() bool
+	Scan(dest ...any) error
+	Err() error
+	Close() error
+}
+
 type databaseClient interface {
 	QueryRowContext(ctx context.Context, query string, args ...any) rowScanner
+	QueryContext(ctx context.Context, query string, args ...any) (rowsScanner, error)
 	ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error)
 	Close() error
 }
@@ -24,6 +32,10 @@ type sqlDBClient struct {
 
 func (db sqlDBClient) QueryRowContext(ctx context.Context, query string, args ...any) rowScanner {
 	return db.DB.QueryRowContext(ctx, query, args...)
+}
+
+func (db sqlDBClient) QueryContext(ctx context.Context, query string, args ...any) (rowsScanner, error) {
+	return db.DB.QueryContext(ctx, query, args...)
 }
 
 // openPgx opens a database/sql connection using the pgx driver.

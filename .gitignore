@@ -169,6 +169,7 @@ composer.lock
 
 # Demo build output is committed (used by go:embed)
 !examples/kanban/dist/
+!examples/instantsearch_demo/dist/
 !examples/live-polls/dist/
 !examples/movies/dist/
 
@@ -215,6 +216,8 @@ node_modules
 # Keep embedded demo dist fixtures in git for go:embed and CLI demo tests.
 !examples/kanban/dist/
 !examples/kanban/dist/**
+!examples/instantsearch_demo/dist/
+!examples/instantsearch_demo/dist/**
 !examples/live-polls/dist/
 !examples/live-polls/dist/**
 !examples/movies/dist/

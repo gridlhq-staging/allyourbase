@@ -29,9 +29,10 @@ func TestDemoCommandRegistered(t *testing.T) {
 
 func TestDemoRegistryComplete(t *testing.T) {
 	expected := map[string]int{
-		"kanban":     5173,
-		"live-polls": 5175,
-		"movies":     5177,
+		"instantsearch": 5179,
+		"kanban":        5173,
+		"live-polls":    5175,
+		"movies":        5177,
 	}
 	for name, port := range expected {
 		demo, ok := demoRegistry[name]
@@ -75,8 +76,103 @@ func TestDemoRequiresName(t *testing.T) {
 	}
 }
 
+func TestDemoInstantsearchRegistered(t *testing.T) {
+	const name = "instantsearch"
+
+	foundValidArg := false
+	for _, arg := range demoCmd.ValidArgs {
+		if arg == name {
+			foundValidArg = true
+			break
+		}
+	}
+	if !foundValidArg {
+		t.Errorf("demoCmd.ValidArgs is missing %q", name)
+	}
+
+	demo, ok := demoRegistry[name]
+	if !ok {
+		t.Fatalf("demoRegistry is missing %q", name)
+	}
+	if demo.Name != name {
+		t.Errorf("demoRegistry[%q].Name = %q, want %q", name, demo.Name, name)
+	}
+	if demo.Port == 0 {
+		t.Errorf("demoRegistry[%q].Port = 0, want non-zero", name)
+	}
+	if demo.NeedsAdminAuth {
+		t.Errorf("demoRegistry[%q].NeedsAdminAuth = true, want false", name)
+	}
+
+	if demo.Dir != "instantsearch_demo" {
+		t.Fatalf("demoRegistry[%q].Dir = %q, want %q", name, demo.Dir, "instantsearch_demo")
+	}
+	if demo.assetDir() != demo.Dir {
+		t.Fatalf("demoRegistry[%q].assetDir() = %q, want %q", name, demo.assetDir(), demo.Dir)
+	}
+	for existingName, existingDemo := range demoRegistry {
+		if existingName == name {
+			continue
+		}
+		if existingDemo.Dir != "" {
+			t.Errorf("demoRegistry[%q].Dir = %q, want empty fallback", existingName, existingDemo.Dir)
+		}
+		if existingDemo.assetDir() != existingDemo.Name {
+			t.Errorf("demoRegistry[%q].assetDir() = %q, want logical name %q", existingName, existingDemo.assetDir(), existingDemo.Name)
+		}
+	}
+
+	distFS, err := examples.DemoDist(demo.assetDir())
+	if err != nil {
+		t.Fatalf("DemoDist(demoRegistry[%q].Dir): %v", name, err)
+	}
+	if distFS == nil {
+		t.Fatalf("DemoDist(demoRegistry[%q].Dir) returned a nil filesystem", name)
+	}
+	index, err := fs.ReadFile(distFS, "index.html")
+	if err != nil {
+		t.Fatalf("reading demoRegistry[%q].Dir dist/index.html: %v", name, err)
+	}
+	if len(index) == 0 {
+		t.Fatalf("demoRegistry[%q].Dir dist/index.html is empty", name)
+	}
+}
+
+func TestDemoStopArgs(t *testing.T) {
+	tests := []struct {
+		name    string
+		baseURL string
+		want    []string
+	}{
+		{
+			name:    "default port",
+			baseURL: "http://127.0.0.1:8090",
+			want:    []string{"stop"},
+		},
+		{
+			name:    "custom port",
+			baseURL: "http://127.0.0.1:49173",
+			want:    []string{"stop", "--port", "49173"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := demoStopArgs(tt.baseURL)
+			if len(got) != len(tt.want) {
+				t.Fatalf("demoStopArgs(%q) len = %d, want %d (%q)", tt.baseURL, len(got), len(tt.want), tt.want)
+			}
+			for i := range tt.want {
+				if got[i] != tt.want[i] {
+					t.Fatalf("demoStopArgs(%q)[%d] = %q, want %q", tt.baseURL, i, got[i], tt.want[i])
+				}
+			}
+		})
+	}
+}
+
 func TestEmbeddedDemoFSContainsSchemas(t *testing.T) {
-	for _, name := range []string{"kanban", "live-polls", "movies"} {
+	for _, name := range []string{"instantsearch_demo", "kanban", "live-polls", "movies"} {
 		data, err := fs.ReadFile(examples.FS, name+"/schema.sql")
 		if err != nil {
 			t.Errorf("reading embedded %s/schema.sql: %v", name, err)
@@ -355,8 +451,8 @@ func TestEmbeddedSchemasHaveRLS(t *testing.T) {
 
 // TestDemoDistContainsIndexHTML verifies each demo's dist/ has an index.html.
 func TestDemoDistContainsIndexHTML(t *testing.T) {
-	for _, name := range []string{"kanban", "live-polls", "movies"} {
-		distFS, err := examples.DemoDist(name)
+	for name, demo := range demoRegistry {
+		distFS, err := examples.DemoDist(demo.assetDir())
 		if err != nil {
 			t.Fatalf("DemoDist(%q): %v", name, err)
 		}
@@ -373,8 +469,8 @@ func TestDemoDistContainsIndexHTML(t *testing.T) {
 
 // TestDemoDistContainsAssets verifies each demo's dist/ has at least one JS and CSS file.
 func TestDemoDistContainsAssets(t *testing.T) {
-	for _, name := range []string{"kanban", "live-polls", "movies"} {
-		distFS, err := examples.DemoDist(name)
+	for name, demo := range demoRegistry {
+		distFS, err := examples.DemoDist(demo.assetDir())
 		if err != nil {
 			t.Fatalf("DemoDist(%q): %v", name, err)
 		}
@@ -559,6 +655,12 @@ func TestDemoAppPortOverrideIgnoresInvalid(t *testing.T) {
 		if got := effectiveDemoPort(demo); got != demo.Port {
 			t.Errorf("override %q: expected fallback to default %d, got %d", bad, demo.Port, got)
 		}
+	}
+}
+
+func TestDemoListenAddrUsesLoopback(t *testing.T) {
+	if got := demoListenAddr(5179); got != "127.0.0.1:5179" {
+		t.Fatalf("demoListenAddr(5179) = %q, want %q", got, "127.0.0.1:5179")
 	}
 }
 

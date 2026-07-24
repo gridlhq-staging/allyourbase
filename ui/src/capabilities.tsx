@@ -21,7 +21,7 @@ function canUseCapability(
   capability: AdminCapabilityName,
 ): boolean {
   if (state.kind === "unknown") {
-    return true;
+    return false;
   }
   return state.capabilities[capability];
 }

@@ -54,9 +54,10 @@ jobs:
       - name: Create and push tag (workflow_dispatch only)
         if: github.event_name == 'workflow_dispatch'
         run: |
+          set -euo pipefail
           VERSION="v${{ github.event.inputs.version }}"
-          git tag "$VERSION" || true
-          git push origin "$VERSION" || true
+          git tag "$VERSION"
+          git push origin "$VERSION"
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 

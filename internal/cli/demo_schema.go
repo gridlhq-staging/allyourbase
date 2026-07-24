@@ -20,7 +20,8 @@ func applyDemoSchema(baseURL, name string) (string, error) {
 		return "", fmt.Errorf("authenticating with server: %w", err)
 	}
 
-	schemaSQL, err := fs.ReadFile(examples.FS, name+"/schema.sql")
+	assetDir := demoRegistry[name].assetDir()
+	schemaSQL, err := fs.ReadFile(examples.FS, assetDir+"/schema.sql")
 	if err != nil {
 		return "", fmt.Errorf("reading embedded schema.sql: %w", err)
 	}
@@ -29,7 +30,7 @@ func applyDemoSchema(baseURL, name string) (string, error) {
 		return "", err
 	}
 
-	seedSQL, err := fs.ReadFile(examples.FS, name+"/seed.sql")
+	seedSQL, err := fs.ReadFile(examples.FS, assetDir+"/seed.sql")
 	if err != nil {
 		if !errors.Is(err, fs.ErrNotExist) {
 			return "", fmt.Errorf("reading embedded seed.sql: %w", err)

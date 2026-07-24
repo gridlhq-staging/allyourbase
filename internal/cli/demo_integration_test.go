@@ -307,6 +307,10 @@ func TestDemoHTTPEndToEnd_Movies(t *testing.T) {
 	testDemoHTTPEndToEnd(t, "movies")
 }
 
+func TestDemoInstantsearchOneCommandSmoke(t *testing.T) {
+	testDemoInstantsearchOneCommandSmoke(t)
+}
+
 func testDemoHTTPEndToEnd(t *testing.T, demoName string) {
 	ts := newDemoServer(t)
 	defer ts.Close()

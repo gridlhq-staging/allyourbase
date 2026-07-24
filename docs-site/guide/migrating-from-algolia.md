@@ -6,6 +6,16 @@ This guide maps common Algolia search concepts to AYB's shipped PostgreSQL-backe
 
 For the canonical AYB search behavior, examples, response shape, and RLS notes, use [Search](/guide/search). This page is a migration map, not a second search reference.
 
+## Try the bundled demo
+
+Start with the bundled InstantSearch demo to see the AYB-backed path before moving your own Algolia data:
+
+```bash
+ayb demo instantsearch
+```
+
+The demo serves an embedded `react-instantsearch` app through the CLI and seeds the `instantsearch_products` table/index that the widgets search, filter, facet, highlight, and page through AYB's collection list API.
+
 ## Migration map
 
 | Algolia concept | AYB path today |
