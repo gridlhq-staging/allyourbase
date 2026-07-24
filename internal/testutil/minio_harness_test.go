@@ -19,10 +19,11 @@ func TestMinIOContainerArgsUsePinnedImageAndIsolatedState(t *testing.T) {
 		DataDir:       "/tmp/ayb-testpg-run-one-data",
 	}
 
-	got := minIOContainerArgs(options, 19000, 2)
+	got := minIOContainerArgs(options, 19000, 2, "501:20")
 	want := []string{
 		"run", "-d", "--name", "ayb-testpg-run-one-2",
 		"-p", "127.0.0.1:19000:9000",
+		"--user", "501:20",
 		"--mount", "type=bind,source=/tmp/ayb-testpg-run-one-data,target=/data",
 		"-e", "MINIO_ROOT_USER=aybminio",
 		"-e", "MINIO_ROOT_PASSWORD=aybminiosecret",
@@ -87,7 +88,7 @@ exit 2
 	containerID, port, err := startMinIOContainer(ctx, dockerPath, MinIOHarnessOptions{
 		ContainerName: "ayb-minio-retry",
 		Bucket:        "ayb-minio-retry",
-	})
+	}, "501:20")
 	if err != nil {
 		t.Fatalf("startMinIOContainer returned error: %v", err)
 	}

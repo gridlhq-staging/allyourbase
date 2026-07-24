@@ -6,7 +6,9 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"os/user"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -53,6 +55,10 @@ func StartMinIOHarness(ctx context.Context, options MinIOHarnessOptions) (*MinIO
 	if strings.TrimSpace(options.ContainerName) == "" || strings.TrimSpace(options.Bucket) == "" {
 		return nil, fmt.Errorf("minio harness requires non-empty container and bucket names")
 	}
+	containerUser, err := minIOContainerUser()
+	if err != nil {
+		return nil, err
+	}
 	dataDir, removeData, err := prepareMinIODataDir(options.DataDir)
 	if err != nil {
 		return nil, err
@@ -60,7 +66,7 @@ func StartMinIOHarness(ctx context.Context, options MinIOHarnessOptions) (*MinIO
 	options.DataDir = dataDir
 
 	dockerBinary := minIODockerBinary()
-	containerID, port, err := startMinIOContainer(ctx, dockerBinary, options)
+	containerID, port, err := startMinIOContainer(ctx, dockerBinary, options, containerUser)
 	if err != nil {
 		if removeData {
 			_ = os.RemoveAll(dataDir)
@@ -159,14 +165,33 @@ func minIODataRoot() (string, error) {
 	return root, nil
 }
 
-func startMinIOContainer(ctx context.Context, dockerBinary string, options MinIOHarnessOptions) (string, int, error) {
+func minIOContainerUser() (string, error) {
+	currentUser, err := user.Current()
+	if err != nil {
+		return "", fmt.Errorf("minio harness: resolve current user: %w", err)
+	}
+	uid, uidErr := strconv.ParseUint(currentUser.Uid, 10, 32)
+	gid, gidErr := strconv.ParseUint(currentUser.Gid, 10, 32)
+	if uidErr != nil || gidErr != nil {
+		return "", fmt.Errorf("minio harness: current user has non-numeric uid %q or gid %q",
+			currentUser.Uid, currentUser.Gid)
+	}
+	return fmt.Sprintf("%d:%d", uid, gid), nil
+}
+
+func startMinIOContainer(
+	ctx context.Context,
+	dockerBinary string,
+	options MinIOHarnessOptions,
+	containerUser string,
+) (string, int, error) {
 	const maxAttempts = 5
 	for attempt := 1; attempt <= maxAttempts; attempt++ {
 		port, err := FreePort()
 		if err != nil {
 			return "", 0, fmt.Errorf("minio harness: allocate host port: %w", err)
 		}
-		args := minIOContainerArgs(options, port, attempt)
+		args := minIOContainerArgs(options, port, attempt, containerUser)
 		output, runErr := exec.CommandContext(ctx, dockerBinary, args...).CombinedOutput()
 		if runErr == nil {
 			containerID := strings.TrimSpace(string(output))
@@ -187,10 +212,11 @@ func startMinIOContainer(ctx context.Context, dockerBinary string, options MinIO
 	return "", 0, fmt.Errorf("minio harness: exhausted container start attempts")
 }
 
-func minIOContainerArgs(options MinIOHarnessOptions, port, attempt int) []string {
+func minIOContainerArgs(options MinIOHarnessOptions, port, attempt int, containerUser string) []string {
 	args := []string{
 		"run", "-d", "--name", options.ContainerName + fmt.Sprintf("-%d", attempt),
 		"-p", fmt.Sprintf("127.0.0.1:%d:9000", port),
+		"--user", containerUser,
 	}
 	if options.DataDir != "" {
 		args = append(args, "--mount", fmt.Sprintf("type=bind,source=%s,target=/data", options.DataDir))
