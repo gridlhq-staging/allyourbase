@@ -2,7 +2,7 @@
  * @module ui/browser-tests-mocked/fixtures/auth.ts
  */
 import type { Page, Route } from "@playwright/test";
-import { json, type MockApiResponse } from "./core";
+import { json, handleCommonAdminRoutes, type MockApiResponse } from "./core";
 
 /**
  * Optional response overrides for MFA mock endpoints. Customize API behavior for factors listing, TOTP/email/backup enrollment and verification, backup code generation and regeneration, anonymous sign-up, and email linking. Each property accepts {status, body}.
@@ -102,6 +102,9 @@ function createMFAMockState(): MFAMockState {
 
 async function registerMockedAuthShellRoutes(page: Page): Promise<void> {
   await page.route("**/api/admin/status", async (route) => json(route, 200, { auth: true }));
+  await page.route("**/api/admin/capabilities", async (route) => {
+    await handleCommonAdminRoutes(route, "GET", "/api/admin/capabilities");
+  });
   await page.route("**/api/schema", async (route) =>
     json(route, 200, {
       tables: {},
@@ -408,19 +411,7 @@ async function handleAuthProviderShellRoute(
   context: AuthRouteContext,
   options: AuthProviderMockOptions,
 ): Promise<boolean> {
-  if (context.method === "GET" && context.path === "/api/admin/status") {
-    await json(context.route, 200, { auth: true });
-    return true;
-  }
-
-  if (context.method === "GET" && context.path === "/api/schema") {
-    await json(context.route, 200, {
-      tables: {},
-      schemas: ["public"],
-      builtAt: "2026-02-24T00:00:00Z",
-    });
-    return true;
-  }
+  if (await handleCommonAdminRoutes(context.route, context.method, context.path)) return true;
 
   if (context.method === "GET" && context.path === "/api/admin/auth-settings") {
     const response = options.authSettingsResponse ?? { status: 200, body: defaultAuthSettings };

@@ -28,15 +28,37 @@ export function unhandledMockedApiRoute(
 
 const defaultSchemaBody = { tables: {}, schemas: ["public"], builtAt: "2026-02-28T00:00:00Z" };
 const defaultStatusBody = { auth: true };
+const defaultCapabilitiesBody = {
+  auth: true,
+  auth_anonymous: true,
+  auth_email_mfa: true,
+  auth_magic_link: true,
+  auth_oauth_provider: true,
+  auth_sms: true,
+  auth_totp: true,
+  auth_webauthn: true,
+  billing: true,
+  edge_functions: true,
+  jobs: true,
+  push: true,
+  status: true,
+  storage: true,
+  support: true,
+};
 
 export async function handleCommonAdminRoutes(
   route: Route,
   method: string,
   path: string,
-  options?: { schemaBody?: unknown; statusBody?: unknown },
+  options?: { schemaBody?: unknown; statusBody?: unknown; capabilitiesBody?: unknown },
 ): Promise<boolean> {
   if (method === "GET" && path === "/api/admin/status") {
     await json(route, 200, options?.statusBody ?? defaultStatusBody);
+    return true;
+  }
+
+  if (method === "GET" && path === "/api/admin/capabilities") {
+    await json(route, 200, options?.capabilitiesBody ?? defaultCapabilitiesBody);
     return true;
   }
 
