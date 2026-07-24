@@ -1,0 +1,1 @@
+import{A as e}from"./index-DyrH5dWf.js";function n(r){return r instanceof e?r.status===401?"Unauthorized. Please sign in again.":r.status>=500?"Server error while loading telemetry.":r.message||"Request failed.":r instanceof Error?r.message||"Network error.":"Unknown error."}export{n as t};

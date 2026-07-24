@@ -98,6 +98,19 @@ export function CommandPalette({
     }
   }, [open]);
 
+  useEffect(() => {
+    if (!open) return;
+
+    const handleWindowKeyDown = (event: KeyboardEvent) => {
+      if (event.defaultPrevented || event.key !== "Escape") return;
+      event.preventDefault();
+      onClose();
+    };
+
+    window.addEventListener("keydown", handleWindowKeyDown);
+    return () => window.removeEventListener("keydown", handleWindowKeyDown);
+  }, [open, onClose]);
+
   // Scroll active item into view
   useEffect(() => {
     if (!listRef.current) return;

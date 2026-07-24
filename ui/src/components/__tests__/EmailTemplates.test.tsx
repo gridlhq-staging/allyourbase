@@ -151,7 +151,7 @@ describe("EmailTemplates", () => {
   it("selected template metadata uses WCAG AA compliant contrast token", async () => {
     renderWithProviders(<EmailTemplates />);
     await waitFor(() => {
-      expect(screen.getByText("auth.password_reset")).toBeInTheDocument();
+      expect(screen.getByRole("heading", { name: "auth.password_reset" })).toBeInTheDocument();
     });
 
     const selectedTemplateButton = screen.getByRole("button", { name: /auth\.password_reset/i });

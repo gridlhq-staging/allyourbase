@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { CommandPalette, CommandPaletteHint } from "../CommandPalette";
@@ -278,6 +278,15 @@ describe("CommandPalette", () => {
 
     const input = screen.getByPlaceholderText("Search tables, pages...");
     await user.type(input, "{Escape}");
+    expect(onClose).toHaveBeenCalledOnce();
+  });
+
+  it("closes on Escape key before input focus settles", () => {
+    render(
+      <CommandPalette open={true} onClose={onClose} onSelect={onSelect} tables={tables} />,
+    );
+
+    fireEvent.keyDown(window, { key: "Escape" });
     expect(onClose).toHaveBeenCalledOnce();
   });
 

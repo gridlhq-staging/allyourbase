@@ -109,11 +109,13 @@ test.describe("Smoke: Admin Dashboard Setup", () => {
   }
 
   async function commandPaletteNavigationLabels(page: Page, expectedLabels: string[]): Promise<string[]> {
-    await page
-      .getByRole("complementary")
-      .getByRole("button", { name: "Search... K" })
-      .click();
     const dialog = page.getByRole("dialog", { name: "Command palette" });
+    if (!(await dialog.isVisible())) {
+      await page
+        .getByRole("complementary")
+        .getByRole("button", { name: "Search... K" })
+        .click();
+    }
     await expect(dialog).toBeVisible();
     const paletteButtons = await dialog.getByRole("button").allInnerTexts();
     return navigationSpan(paletteButtons, expectedLabels);
@@ -164,6 +166,7 @@ test.describe("Smoke: Admin Dashboard Setup", () => {
     await page.keyboard.press(commandPaletteShortcut);
     await expect(page.getByRole("dialog", { name: "Command palette" })).toBeVisible();
     await page.keyboard.press("Escape");
+    await expect(page.getByRole("dialog", { name: "Command palette" })).toBeHidden();
 
     expect(await sidebarNavigationLabels(page, labels)).toEqual(labels);
     expect(await commandPaletteNavigationLabels(page, labels)).toEqual(labels);
