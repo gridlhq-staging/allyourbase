@@ -12,13 +12,14 @@ func TestDebbieHooksRemoveIgnoredDemoRuntimeArtifacts(t *testing.T) {
 	t.Parallel()
 
 	repoRoot := findRepoRoot(t)
-	debbieRoot := filepath.Join(repoRoot, ".debbie")
-	if _, err := os.Stat(debbieRoot); os.IsNotExist(err) {
-		t.Skip(".debbie is intentionally omitted from public mirrors")
+	debbieConfig := filepath.Join(repoRoot, ".debbie.toml")
+	if _, err := os.Stat(debbieConfig); os.IsNotExist(err) {
+		t.Skip(".debbie.toml and its source-only hooks are intentionally omitted from public mirrors")
 	} else if err != nil {
 		t.Fatalf("inspect Debbie configuration: %v", err)
 	}
 
+	debbieRoot := filepath.Join(repoRoot, ".debbie")
 	targetRoot := t.TempDir()
 	runtimePaths := []string{
 		filepath.Join("examples", "instantsearch_demo", "playwright-report", "results.json"),
