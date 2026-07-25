@@ -196,6 +196,19 @@ const testSAMLSigningCertificate = [
   "cnSGjQ==",
 ].join("");
 
+export function buildTestSAMLMetadataXML(options: { name: string; entity_id: string }): string {
+  return `<EntityDescriptor xmlns="urn:oasis:names:tc:SAML:2.0:metadata" entityID="${options.entity_id}">
+  <IDPSSODescriptor>
+    <KeyDescriptor use="signing">
+      <KeyInfo xmlns="http://www.w3.org/2000/09/xmldsig#">
+        <X509Data><X509Certificate>${testSAMLSigningCertificate}</X509Certificate></X509Data>
+      </KeyInfo>
+    </KeyDescriptor>
+    <SingleSignOnService Binding="urn:oasis:names:tc:SAML:2.0:bindings:HTTP-Redirect" Location="https://idp.example.test/${options.name}/sso"/>
+  </IDPSSODescriptor>
+</EntityDescriptor>`;
+}
+
 /** Creates a SAML provider with generated XML metadata and returns its name and entity_id. */
 export async function seedSAMLProvider(
   request: APIRequestContext,
@@ -211,17 +224,7 @@ export async function seedSAMLProvider(
   const name = options.name || `test-saml-${Date.now()}`;
   const entityId = options.entity_id || `urn:test:${name}`;
   const idpMetadataXML =
-    options.idp_metadata_xml ||
-    `<EntityDescriptor xmlns="urn:oasis:names:tc:SAML:2.0:metadata" entityID="${entityId}">
-  <IDPSSODescriptor>
-    <KeyDescriptor use="signing">
-      <KeyInfo xmlns="http://www.w3.org/2000/09/xmldsig#">
-        <X509Data><X509Certificate>${testSAMLSigningCertificate}</X509Certificate></X509Data>
-      </KeyInfo>
-    </KeyDescriptor>
-    <SingleSignOnService Binding="urn:oasis:names:tc:SAML:2.0:bindings:HTTP-Redirect" Location="https://idp.example.test/${name}/sso"/>
-  </IDPSSODescriptor>
-</EntityDescriptor>`;
+    options.idp_metadata_xml || buildTestSAMLMetadataXML({ name, entity_id: entityId });
   const idpMetadataURL = options.idp_metadata_url || options.metadata_url;
   const res = await request.post("/api/admin/auth/saml", {
     headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },

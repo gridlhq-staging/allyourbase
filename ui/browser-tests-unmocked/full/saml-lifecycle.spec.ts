@@ -1,11 +1,35 @@
+import type { Page } from "@playwright/test";
 import {
   test,
   expect,
   probeEndpoint,
   seedSAMLProvider,
   cleanupSAMLProvider,
+  buildTestSAMLMetadataXML,
   waitForDashboard,
 } from "../fixtures";
+
+async function expectSAMLMutationResponse(
+  page: Page,
+  methods: readonly string[],
+  pathname: string,
+  trigger: () => Promise<void>,
+): Promise<void> {
+  const responsePromise = page.waitForResponse((response) => {
+    const url = new URL(response.url());
+    return url.pathname === pathname && methods.includes(response.request().method());
+  });
+
+  await trigger();
+
+  const response = await responsePromise;
+  if (!response.ok()) {
+    const body = await response.text().catch(() => "");
+    throw new Error(
+      `${methods.join("/")} ${pathname} failed with ${response.status()}${body ? `: ${body}` : ""}`,
+    );
+  }
+}
 
 /**
  * FULL E2E TEST: SAML Provider Lifecycle
@@ -57,15 +81,16 @@ test.describe("SAML Provider Lifecycle (Full E2E)", () => {
     // Create new SAML provider via UI
     await page.getByRole("button", { name: /Add Provider/i }).click();
 
-    const createdMetadataXML = `<EntityDescriptor xmlns="urn:oasis:names:tc:SAML:2.0:metadata" entityID="${createdEntityId}">
-  <IDPSSODescriptor>
-    <SingleSignOnService Binding="urn:oasis:names:tc:SAML:2.0:bindings:HTTP-Redirect" Location="https://idp.example.test/${createdName}/sso"/>
-  </IDPSSODescriptor>
-</EntityDescriptor>`;
+    const createdMetadataXML = buildTestSAMLMetadataXML({
+      name: createdName,
+      entity_id: createdEntityId,
+    });
     await page.getByLabel("Name").fill(createdName);
     await page.getByLabel("Entity ID").fill(createdEntityId);
     await page.getByLabel("Metadata XML").fill(createdMetadataXML);
-    await page.getByRole("button", { name: /^Create$/i }).click();
+    await expectSAMLMutationResponse(page, ["POST"], "/api/admin/auth/saml", async () => {
+      await page.getByRole("button", { name: /^Create$/i }).click();
+    });
     providerNames.push(createdName);
 
     const createdRow = page.getByRole("row", { name: new RegExp(createdName) }).first();
@@ -79,14 +104,28 @@ test.describe("SAML Provider Lifecycle (Full E2E)", () => {
     const updatedEntityId = `urn:test:updated-${runId}`;
     await entityIdInput.clear();
     await entityIdInput.fill(updatedEntityId);
-    await page.getByRole("button", { name: /^Update$/i }).click();
+    await expectSAMLMutationResponse(
+      page,
+      ["PUT", "PATCH"],
+      `/api/admin/auth/saml/${encodeURIComponent(createdName)}`,
+      async () => {
+        await page.getByRole("button", { name: /^Update$/i }).click();
+      },
+    );
 
     await expect(createdRow).toContainText(updatedEntityId, { timeout: 5000 });
 
     // Delete the created provider
     await createdRow.getByRole("button", { name: /Delete/i }).click();
     await expect(page.getByText(/Delete Provider/i)).toBeVisible({ timeout: 5000 });
-    await page.getByRole("button", { name: /^Delete$/i }).click();
+    await expectSAMLMutationResponse(
+      page,
+      ["DELETE"],
+      `/api/admin/auth/saml/${encodeURIComponent(createdName)}`,
+      async () => {
+        await page.getByRole("button", { name: /^Delete$/i }).click();
+      },
+    );
 
     await expect(page.getByRole("row", { name: new RegExp(createdName) })).toHaveCount(0, { timeout: 5000 });
   });

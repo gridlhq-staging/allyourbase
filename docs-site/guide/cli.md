@@ -79,7 +79,7 @@ Authentication resolution for SQL/admin API calls:
 
 1. `--admin-token`
 2. `AYB_ADMIN_TOKEN`
-3. `~/.ayb/admin-token` (saved by `ayb start`)
+3. `~/.ayb/admin-token` (auto-saved by `ayb start`, used for local loopback servers only)
 
 ### `ayb query <table>`
 
