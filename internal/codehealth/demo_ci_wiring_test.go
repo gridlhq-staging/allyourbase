@@ -105,7 +105,7 @@ func TestDemoBuildArtifactsAreGuardedByLaunchJob(t *testing.T) {
 		}
 		job.Steps = []githubActionsStep{job.Steps[index+1]}
 		workflow.Jobs["demo-launch"] = job
-		if !workflowJobHasRunStep(workflow, "demo-launch", "git diff --exit-code -- examples/kanban/dist examples/live-polls/dist examples/movies/dist") {
+		if !workflowJobHasRunStep(workflow, "demo-launch", "git diff --exit-code -- examples/kanban/dist examples/live-polls/dist examples/movies/dist examples/instantsearch_demo/dist") {
 			t.Fatal("demo-launch Build demo apps must be immediately followed by the blocking demo dist guard")
 		}
 		return

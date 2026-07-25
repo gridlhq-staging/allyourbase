@@ -359,7 +359,7 @@ jobs:
         run: make demos
 
       - name: Verify demo build artifacts are current
-        run: git diff --exit-code -- examples/kanban/dist examples/live-polls/dist examples/movies/dist
+        run: git diff --exit-code -- examples/kanban/dist examples/live-polls/dist examples/movies/dist examples/instantsearch_demo/dist
 
       - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
         with:

@@ -11,6 +11,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/s3 v1.96.2
 	github.com/aws/aws-sdk-go-v2/service/sns v1.39.11
 	github.com/aws/smithy-go v1.24.1
+	github.com/beevik/etree v1.6.0
 	github.com/briandowns/spinner v1.23.2
 	github.com/caddyserver/certmagic v0.25.1
 	github.com/chai2010/webp v1.4.0
@@ -37,6 +38,7 @@ require (
 	github.com/pelletier/go-toml/v2 v2.2.4
 	github.com/prometheus/client_golang v1.23.2
 	github.com/riandyrn/otelchi v0.12.2
+	github.com/russellhaering/goxmldsig v1.6.0
 	github.com/spf13/cobra v1.10.2
 	github.com/spf13/pflag v1.0.9
 	github.com/stretchr/testify v1.11.1
@@ -108,6 +110,7 @@ require (
 	github.com/jackc/pgservicefile v0.0.0-20240606120523-5a60cdf6a761 // indirect
 	github.com/jackc/puddle/v2 v2.2.2 // indirect
 	github.com/jmespath/go-jmespath v0.4.0 // indirect
+	github.com/jonboulle/clockwork v0.5.0 // indirect
 	github.com/klauspost/cpuid/v2 v2.3.0 // indirect
 	github.com/klauspost/crc32 v1.3.0 // indirect
 	github.com/libdns/libdns v1.1.1 // indirect

@@ -16,9 +16,16 @@ import (
 const samlIDPMetadataTemplate = `<?xml version="1.0"?>
 <EntityDescriptor xmlns="urn:oasis:names:tc:SAML:2.0:metadata" entityID="https://idp.example.com/metadata">
   <IDPSSODescriptor protocolSupportEnumeration="urn:oasis:names:tc:SAML:2.0:protocol">
+    <KeyDescriptor use="signing">
+      <KeyInfo xmlns="http://www.w3.org/2000/09/xmldsig#">
+        <X509Data><X509Certificate>%s</X509Certificate></X509Data>
+      </KeyInfo>
+    </KeyDescriptor>
     <SingleSignOnService Binding="urn:oasis:names:tc:SAML:2.0:bindings:HTTP-Redirect" Location="%s"/>
   </IDPSSODescriptor>
 </EntityDescriptor>`
+
+const testSAMLSigningCertB64 = "MIIDJzCCAg+gAwIBAgIUdF2pLOFwCZ0wgaHe9ZKu8MN6tZ8wDQYJKoZIhvcNAQELBQAwIzEhMB8GA1UEAwwYQVlCIHNoYXJlZCB0ZXN0IFNBTUwgSWRQMB4XDTI2MDcyNTAyNDUzNFoXDTM2MDcyMjAyNDUzNFowIzEhMB8GA1UEAwwYQVlCIHNoYXJlZCB0ZXN0IFNBTUwgSWRQMIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAqf+jAc+fabuM61lmIL+WgqWHYR7wCFNJULBJ/48qWN/rx3SSWpgXdByyP7ur20PMK+Sm8yiZvp2QGUCCv/3jzB1R/AH1S6R3PPfy9fabDTEuWrWz/HNXZ+GzY36UeB+TAcKZycJgptCvZKkEncuQcgu2d7G3uFE6NB6KDbASNhM9Fci54kQshdhUOe0D28p+Pjni4OBEgngf2BOln/xBUl5K1djcSUHP9QygNn95ESy4deynHwnejmO47MLktr7oIi1LGv+nNFSdIxIfZCuuDStgZEJEz1TL8tinOhxQ/o936vXQ/ied6hTuMECrz+cOI4T2G9RfiCrf0rFsb+EOzwIDAQABo1MwUTAdBgNVHQ4EFgQURkeI2vHjEjkTN54WT0EB5y7islkwHwYDVR0jBBgwFoAURkeI2vHjEjkTN54WT0EB5y7islkwDwYDVR0TAQH/BAUwAwEB/zANBgkqhkiG9w0BAQsFAAOCAQEAUPxeVZTPA8yXPENGR+41YyWXzR2VzaXPU0C+rtrXw2T4La0E7JhGUl/iEIY3U4xyC9fwb/W7hh3MjeaSayisN62EYfCf4aPLq6YROwFJco2d5e8E7D83RFE8EApwLbYhl8xT/CUUmz5yRQaYcnwtNIiiwkeNTjl+WoFsEHHWFML3EWMdme2eVOd8J06SfA0iBbmoXgr5TZKWr73Juo4pPFGe3DVIjbXfKm01dz9rMXgllHgU5xgRg0RLk7M/aUUNWYnM2jUENCFhsxbpbVezIlJY/rASMifuY9ktnB4hfEjR1+G3AfaM0tBahhK5rK1Oz74GkfH9V1twim5acnSGjQ=="
 
 func newTestSAMLService(t *testing.T) *SAMLService {
 	t.Helper()
@@ -44,7 +51,7 @@ func registerSAMLProvider(t *testing.T, samlSvc *SAMLService, name string) {
 }
 
 func testSAMLIDPMetadataXML(ssoURL string) string {
-	return fmt.Sprintf(samlIDPMetadataTemplate, ssoURL)
+	return fmt.Sprintf(samlIDPMetadataTemplate, testSAMLSigningCertB64, ssoURL)
 }
 
 func TestSAMLServiceInitiateLoginRedirectsToIDP(t *testing.T) {
@@ -69,19 +76,20 @@ func TestSAMLServiceHandleCallbackCallsOAuthLogin(t *testing.T) {
 
 	var gotProvider string
 	var gotInfo *OAuthUserInfo
+	var reqID string
 	samlSvc.oauthLoginFn = func(_ context.Context, provider string, info *OAuthUserInfo) (*User, string, string, error) {
 		gotProvider = provider
 		gotInfo = info
 		return &User{ID: "u_123", Email: "saml-user@example.com"}, "access-token", "refresh-token", nil
 	}
 	samlSvc.parseAssertionFn = func(_ *http.Request) (*SAMLAssertion, error) {
-		return &SAMLAssertion{
+		return testBoundSAMLAssertion(samlSvc, "okta", reqID, &SAMLAssertion{
 			SubjectNameID: "idp-user-1",
 			Attributes: map[string]string{
 				"email": "saml-user@example.com",
 				"name":  "SAML User",
 			},
-		}, nil
+		}), nil
 	}
 
 	_, reqID, err := samlSvc.InitiateLogin("okta", "https://app.example.com/home")
@@ -145,8 +153,12 @@ func TestSAMLAuthRoutesLoginMetadataAndACS(t *testing.T) {
 	samlSvc.oauthLoginFn = func(_ context.Context, _ string, _ *OAuthUserInfo) (*User, string, string, error) {
 		return &User{ID: "u_123", Email: "saml-route@example.com"}, "route-access", "route-refresh", nil
 	}
+	var requestID string
 	samlSvc.parseAssertionFn = func(_ *http.Request) (*SAMLAssertion, error) {
-		return &SAMLAssertion{SubjectNameID: "sub-1", Attributes: map[string]string{"email": "saml-route@example.com"}}, nil
+		return testBoundSAMLAssertion(samlSvc, "okta", requestID, &SAMLAssertion{
+			SubjectNameID: "sub-1",
+			Attributes:    map[string]string{"email": "saml-route@example.com"},
+		}), nil
 	}
 
 	routes := h.Routes()
@@ -177,6 +189,22 @@ func TestSAMLAuthRoutesLoginMetadataAndACS(t *testing.T) {
 	testutil.Equal(t, http.StatusOK, w.Code)
 	testutil.Contains(t, w.Body.String(), "route-access")
 	testutil.Contains(t, w.Body.String(), "route-refresh")
+}
+
+func testBoundSAMLAssertion(samlSvc *SAMLService, providerName, requestID string, assertion *SAMLAssertion) *SAMLAssertion {
+	state := &samlProviderState{
+		name:        providerName,
+		entityID:    "https://sp.example.com/" + providerName,
+		idpEntityID: "https://idp.example.com/metadata",
+	}
+	assertion.Issuer = state.idpEntityID
+	assertion.SubjectConfirmations = []SAMLSubjectConfirmation{{
+		Method:    samlBearerConfirmationMethod,
+		RequestID: requestID,
+		Recipient: samlSvc.assertionConsumerServiceURL(state),
+	}}
+	assertion.AudienceRestrictions = [][]string{{state.entityID}}
+	return assertion
 }
 
 func TestValidateSAMLProviderName(t *testing.T) {

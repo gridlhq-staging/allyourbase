@@ -2,6 +2,7 @@ package server_test
 
 import (
 	"context"
+	"crypto/tls"
 	"io"
 	"log/slog"
 	"net/http"
@@ -436,14 +437,62 @@ func TestSecurityHeaders(t *testing.T) {
 	testutil.Equal(t, "strict-origin-when-cross-origin", w.Header().Get("Referrer-Policy"))
 	testutil.Equal(t, "camera=(), microphone=(), geolocation=()", w.Header().Get("Permissions-Policy"))
 	testutil.Equal(t, "none", w.Header().Get("X-Permitted-Cross-Domain-Policies"))
+	testutil.Equal(t, "", w.Header().Get("Content-Security-Policy"))
+
+	cspReportOnly := w.Header().Get("Content-Security-Policy-Report-Only")
+	if cspReportOnly == "" {
+		t.Fatalf("expected Content-Security-Policy-Report-Only header to be set")
+	}
+	testutil.Contains(t, cspReportOnly, "default-src 'self'")
+	testutil.Contains(t, cspReportOnly, "object-src 'none'")
+	testutil.Contains(t, cspReportOnly, "frame-ancestors 'none'")
+	testutil.Contains(t, cspReportOnly, "base-uri 'self'")
+
+	scriptSrc := ""
+	for _, segment := range strings.Split(cspReportOnly, ";") {
+		directive := strings.TrimSpace(segment)
+		if directive == "script-src" || strings.HasPrefix(directive, "script-src ") {
+			scriptSrc = directive
+			break
+		}
+	}
+	if scriptSrc == "" {
+		t.Fatalf("expected Content-Security-Policy-Report-Only to include script-src directive: %q", cspReportOnly)
+	}
+	testutil.False(t, strings.Contains(scriptSrc, "'unsafe-inline'"))
+	testutil.False(t, strings.Contains(scriptSrc, "'unsafe-eval'"))
 
 	// HSTS should NOT be set for plain HTTP requests.
 	testutil.Equal(t, "", w.Header().Get("Strict-Transport-Security"))
 
-	// HSTS should be set when X-Forwarded-Proto indicates HTTPS.
+	// HSTS should NOT trust X-Forwarded-Proto from a direct public client.
 	req2 := httptest.NewRequest(http.MethodGet, "/health", nil)
 	req2.Header.Set("X-Forwarded-Proto", "https")
+	req2.RemoteAddr = "198.51.100.20:1234"
 	w2 := httptest.NewRecorder()
 	srv.Router().ServeHTTP(w2, req2)
-	testutil.Equal(t, "max-age=63072000; includeSubDomains", w2.Header().Get("Strict-Transport-Security"))
+	testutil.Equal(t, "", w2.Header().Get("Strict-Transport-Security"))
+
+	// HSTS should be set when a trusted private/loopback reverse proxy reports HTTPS.
+	reqProxy := httptest.NewRequest(http.MethodGet, "/health", nil)
+	reqProxy.Header.Set("X-Forwarded-Proto", "https")
+	reqProxy.RemoteAddr = "127.0.0.1:1234"
+	wProxy := httptest.NewRecorder()
+	srv.Router().ServeHTTP(wProxy, reqProxy)
+	testutil.Equal(t, "max-age=63072000; includeSubDomains", wProxy.Header().Get("Strict-Transport-Security"))
+
+	// HSTS should also be set when a trusted private-network reverse proxy reports HTTPS.
+	reqPrivateProxy := httptest.NewRequest(http.MethodGet, "/health", nil)
+	reqPrivateProxy.Header.Set("X-Forwarded-Proto", "https")
+	reqPrivateProxy.RemoteAddr = "10.0.0.8:1234"
+	wPrivateProxy := httptest.NewRecorder()
+	srv.Router().ServeHTTP(wPrivateProxy, reqPrivateProxy)
+	testutil.Equal(t, "max-age=63072000; includeSubDomains", wPrivateProxy.Header().Get("Strict-Transport-Security"))
+
+	// HSTS should also be set for requests that terminate TLS directly.
+	req3 := httptest.NewRequest(http.MethodGet, "/health", nil)
+	req3.TLS = &tls.ConnectionState{}
+	w3 := httptest.NewRecorder()
+	srv.Router().ServeHTTP(w3, req3)
+	testutil.Equal(t, "max-age=63072000; includeSubDomains", w3.Header().Get("Strict-Transport-Security"))
 }

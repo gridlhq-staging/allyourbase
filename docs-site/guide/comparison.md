@@ -19,7 +19,7 @@ For measured binary size, startup time, memory usage, and API benchmark methodol
 | **Admin dashboard surface** | Core admin UI | Full admin UI | **Comprehensive built-in admin views + dynamic table browser** |
 | **OAuth providers (built-in)** | Limited set | Configurable via GoTrue/providers | Google, GitHub, Microsoft, Apple, Discord, Twitter, Facebook, LinkedIn, Spotify, Twitch, GitLab, Bitbucket, Slack, Zoom, Figma, Notion |
 | **Row-level security (RLS)** | No | Yes | Yes |
-| **SAML / SSO** | No | Available with self-host setup constraints | Shipped for login, but assertion-signature verification is not yet performed ([Guide](/guide/saml)) |
+| **SAML / SSO** | No | Available with self-host setup constraints | Shipped for login; assertion signatures are verified against IdP signing certificates from provider metadata ([Guide](/guide/saml)) |
 | **Read replicas** | No | Manual PostgreSQL operations | ✅ |
 | **Database branching** | No | Not built-in for self-host | ✅ |
 | **Backups + PITR** | External tooling | PostgreSQL/infra dependent | ✅ |
@@ -112,7 +112,7 @@ For an Algolia-oriented migration map, see [Migrating from Algolia](/guide/migra
 
 ## When to use Allyourbase
 
-Choose AYB when you want a PostgreSQL backend platform that runs as a single binary while still shipping advanced admin capabilities (RLS, branching, replicas, backups/PITR, AI/vector tooling, audit logs, and operational controls). SAML login is available, but assertion-signature verification is not yet performed.
+Choose AYB when you want a PostgreSQL backend platform that runs as a single binary while still shipping advanced admin capabilities (RLS, branching, replicas, backups/PITR, AI/vector tooling, audit logs, and operational controls). SAML login is available, and assertion signatures are verified against the IdP signing certificates from provider metadata.
 
 ## When to use PocketBase
 

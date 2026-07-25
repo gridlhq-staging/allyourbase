@@ -3,6 +3,7 @@ package server
 
 import (
 	"log/slog"
+	"net"
 	"net/http"
 	"strconv"
 	"strings"
@@ -54,6 +55,31 @@ func passesThroughCORSPreflight(r *http.Request) bool {
 	return r != nil && strings.TrimSpace(r.Header.Get("Tus-Resumable")) != ""
 }
 
+// cspReportOnlyPolicy is the Content-Security-Policy served in Report-Only
+// (shadow) mode so we can validate violation reports against the real admin
+// dashboard before switching to an enforcing Content-Security-Policy header.
+// The dashboard is the embedded ui/dist bundle: its index.html loads a
+// same-origin module script and a same-origin stylesheet from /admin/assets,
+// so no non-'self' script or style origins are required. Directives:
+//   - default-src 'self'      same-origin fallback (covers connect-src for the
+//     same-origin API and realtime WebSocket)
+//   - img-src 'self' data:    'data:' allows inline base64 icons/images the UI
+//     embeds; no external image origins are used
+//   - style-src 'self' 'unsafe-inline'  the React UI applies inline element
+//     styles, which CSP treats as inline styles; scripts
+//     stay strict (no 'unsafe-inline'/'unsafe-eval')
+//   - script-src 'self'       only the bundled module script executes
+//   - object-src 'none'       no plugins/embeds
+//   - base-uri 'self'         block <base> tag hijacking
+//   - frame-ancestors 'none'  no framing (clickjacking defense alongside XFO)
+const cspReportOnlyPolicy = "default-src 'self'; " +
+	"img-src 'self' data:; " +
+	"style-src 'self' 'unsafe-inline'; " +
+	"script-src 'self'; " +
+	"object-src 'none'; " +
+	"base-uri 'self'; " +
+	"frame-ancestors 'none'"
+
 // securityHeaders adds standard security headers to all responses.
 func securityHeaders(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -62,15 +88,37 @@ func securityHeaders(next http.Handler) http.Handler {
 		w.Header().Set("Referrer-Policy", "strict-origin-when-cross-origin")
 		w.Header().Set("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
 		w.Header().Set("X-Permitted-Cross-Domain-Policies", "none")
+		w.Header().Set("Content-Security-Policy-Report-Only", cspReportOnlyPolicy)
 
 		// HSTS: only advertise when the request arrived over TLS (direct or
-		// via a trusted reverse proxy that sets X-Forwarded-Proto).
-		if r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https" {
+		// via a trusted reverse proxy on a private/loopback hop).
+		if requestArrivedOverTrustedHTTPS(r) {
 			w.Header().Set("Strict-Transport-Security", "max-age=63072000; includeSubDomains")
 		}
 
 		next.ServeHTTP(w, r)
 	})
+}
+
+func requestArrivedOverTrustedHTTPS(r *http.Request) bool {
+	if r == nil {
+		return false
+	}
+	if r.TLS != nil {
+		return true
+	}
+	if !trustedProxyPeer(r.RemoteAddr) {
+		return false
+	}
+	return strings.EqualFold(strings.TrimSpace(r.Header.Get("X-Forwarded-Proto")), "https")
+}
+
+func trustedProxyPeer(remoteAddr string) bool {
+	host := remoteAddr
+	if hostAndPort, _, err := net.SplitHostPort(host); err == nil {
+		host = hostAndPort
+	}
+	return httputil.IsPrivateIP(host)
 }
 
 // --- Rate limiting and IP allowlist middleware ---

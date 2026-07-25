@@ -9,7 +9,7 @@ Source of truth:
 - `internal/server/saml_handler.go`, `internal/server/routes_auth.go`, `internal/server/routes_admin.go`
 - `internal/config/config_types.go::SAMLProvider`, `internal/config/config_validate_auth.go`
 - `internal/config/config_default_toml.go` SAML examples
-- Tests: `internal/auth/saml_test.go`, `internal/server/saml_handler_test.go`, `internal/config/config_test.go`
+- Tests: `internal/auth/saml_test.go`, `internal/auth/saml_signature_test.go`, `internal/server/saml_handler_test.go`, `internal/config/config_test.go`
 
 ## What AYB supports
 
@@ -138,7 +138,10 @@ AYB validates request/provider state, assertion validity window, then calls auth
 Current implementation detail:
 
 - AYB validates request binding (`request_id` + provider), request TTL, and assertion time bounds (`NotBefore`, `NotOnOrAfter`).
-- AYB does not currently perform XML signature or certificate-chain verification on `SAMLResponse` assertions.
+- AYB verifies the signature of the exact identity-bearing assertion it consumes against the IdP signing certificates from provider metadata, and rejects any assertion whose signature is missing, malformed, signed by the wrong key, or otherwise unverifiable. Identity attributes are decoded only from the signature-verified element.
+- AYB requires SHA-256-or-stronger XML signature and reference-digest algorithms, accepts IdP signing keys only at RSA-2048 / ECDSA P-256 strength or higher, and binds the verified assertion issuer to the IdP `entityID` in provider metadata.
+- The metadata signing certificates act as direct trust anchors, not as leaves of a separately validated public certificate chain. When provider metadata publishes more than one eligible signing certificate, any of the overlapping certificates can verify an assertion, which is what lets an IdP rotate signing keys without downtime.
+- Because trust is anchored in the parsed metadata, replacing IdP signing material requires a provider metadata refresh / re-registration so AYB picks up the new certificates.
 
 Response shape:
 

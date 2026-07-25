@@ -42,6 +42,7 @@ type githubActionsStep struct {
 	Name             string            `yaml:"name"`
 	Uses             string            `yaml:"uses"`
 	Run              string            `yaml:"run"`
+	Env              map[string]string `yaml:"env"`
 	With             map[string]string `yaml:"with"`
 	ContinueOnError  yaml.Node         `yaml:"continue-on-error"`
 	If               string            `yaml:"if"`

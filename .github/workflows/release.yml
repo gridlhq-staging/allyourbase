@@ -11,9 +11,9 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
 
-      - uses: actions/setup-node@v6
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38
         with:
           node-version: "22"
 
@@ -27,7 +27,7 @@ jobs:
       - name: Build demo apps
         run: make demos
 
-      - uses: actions/setup-go@v6
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16
         with:
           go-version: "1.25"
 
@@ -47,46 +47,61 @@ jobs:
       contents: write
       actions: write
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
         with:
           fetch-depth: 0
+
+      - name: Validate workflow_dispatch version
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          INPUT_VERSION: ${{ github.event.inputs.version }}
+        run: |
+          set -euo pipefail
+          case "$INPUT_VERSION" in
+            ''|*[!0-9A-Za-z._-]*)
+              echo "version must match [0-9A-Za-z._-]+" >&2
+              exit 1
+              ;;
+          esac
+          echo "RELEASE_VERSION=v$INPUT_VERSION" >> "$GITHUB_ENV"
 
       - name: Create and push tag (workflow_dispatch only)
         if: github.event_name == 'workflow_dispatch'
         run: |
           set -euo pipefail
-          VERSION="v${{ github.event.inputs.version }}"
-          git tag "$VERSION"
-          git push origin "$VERSION"
+          git tag "$RELEASE_VERSION"
+          git push origin "$RELEASE_VERSION"
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Set GORELEASER_CURRENT_TAG
         run: |
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            echo "GORELEASER_CURRENT_TAG=v${{ github.event.inputs.version }}" >> "$GITHUB_ENV"
+            echo "GORELEASER_CURRENT_TAG=$RELEASE_VERSION" >> "$GITHUB_ENV"
           fi
 
-      - uses: actions/setup-node@v6
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38
         with:
           node-version: "22"
 
       - name: Enable pnpm
         run: corepack enable pnpm
 
-      - uses: actions/setup-go@v6
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16
         with:
           go-version: "1.25"
 
-      - uses: goreleaser/goreleaser-action@v7
+      - uses: goreleaser/goreleaser-action@f06c13b6b1a9625abc9e6e439d9c05a8f2190e94
         with:
           version: latest
           args: release --clean
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Docker publishes from the pushed tag
+      - name: Dispatch Docker workflow at release tag
         if: github.event_name == 'workflow_dispatch'
-        run: echo "docker.yml runs from push.tags on the v-tag pushed above; no manual dispatch here."
+        run: |
+          set -euo pipefail
+          gh workflow run docker.yml --repo "${GITHUB_REPOSITORY}" --ref "$RELEASE_VERSION"
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

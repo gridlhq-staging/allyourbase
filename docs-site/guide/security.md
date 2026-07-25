@@ -157,7 +157,14 @@ From `internal/server/middleware.go`:
   - `X-Content-Type-Options: nosniff`
   - `X-Frame-Options: DENY`
   - `Referrer-Policy: strict-origin-when-cross-origin`
-- AYB does not currently set CSP, HSTS, or other browser hardening headers in this middleware path.
+  - `Permissions-Policy: camera=(), microphone=(), geolocation=()`
+  - `X-Permitted-Cross-Domain-Policies: none`
+- `Strict-Transport-Security` (HSTS) is emitted for requests that arrive over TLS,
+  either directly or via a private/loopback reverse-proxy hop that sets
+  `X-Forwarded-Proto: https`.
+- A Content Security Policy is currently emitted in Report-Only (shadow) mode via
+  the `Content-Security-Policy-Report-Only` header, pending browser-smoke promotion
+  evidence before it becomes an enforcing `Content-Security-Policy` header.
 
 ### CORS in production
 

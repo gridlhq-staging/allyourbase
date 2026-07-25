@@ -3,6 +3,9 @@ package auth
 
 import (
 	"context"
+	"crypto/ecdsa"
+	"crypto/rsa"
+	"crypto/x509"
 	"encoding/base64"
 	"encoding/pem"
 	"errors"
@@ -27,19 +30,46 @@ var errSAMLProviderNotFound = errors.New("saml provider not configured")
 var samlProviderNameRE = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}$`)
 
 type SAMLAssertion struct {
-	SubjectNameID string
-	Attributes    map[string]string
-	NotBefore     *time.Time
-	NotOnOrAfter  *time.Time
+	Issuer               string
+	SubjectNameID        string
+	Attributes           map[string]string
+	NotBefore            *time.Time
+	NotOnOrAfter         *time.Time
+	SubjectConfirmations []SAMLSubjectConfirmation
+	AudienceRestrictions [][]string
+}
+
+type SAMLSubjectConfirmation struct {
+	Method    string
+	RequestID string
+	Recipient string
+}
+
+func validateIDPSigningPublicKey(cert *x509.Certificate) error {
+	switch publicKey := cert.PublicKey.(type) {
+	case *rsa.PublicKey:
+		if publicKey.N.BitLen() < 2048 {
+			return fmt.Errorf("IdP RSA public key must be at least 2048 bits")
+		}
+	case *ecdsa.PublicKey:
+		if publicKey.Curve.Params().BitSize < 256 {
+			return fmt.Errorf("IdP ECDSA public key must be at least 256 bits")
+		}
+	default:
+		return fmt.Errorf("unsupported IdP signing public key type")
+	}
+	return nil
 }
 
 type samlProviderState struct {
 	name             string
 	entityID         string
+	idpEntityID      string
 	idpMetadataXML   string
 	ssoURL           string
 	attributeMapping map[string]string
 	certPEM          string
+	idpSigningCerts  []*x509.Certificate
 }
 
 type samlRequestState struct {
@@ -129,9 +159,13 @@ func (s *SAMLService) UpsertProvider(_ context.Context, p config.SAMLProvider) e
 	if metadata == "" {
 		return fmt.Errorf("idp_metadata_xml is required")
 	}
-	ssoURL, err := extractSSOURL(metadata)
+	ssoURL, idpEntityID, err := extractIDPMetadata(metadata)
 	if err != nil {
 		return fmt.Errorf("invalid idp metadata: %w", err)
+	}
+	idpSigningCerts, err := extractIDPSigningCertificates(metadata)
+	if err != nil {
+		return fmt.Errorf("invalid idp signing certificate material: %w", err)
 	}
 	certPEM, _, err := s.ensureSPCertKey(name, p.SPCertFile, p.SPKeyFile)
 	if err != nil {
@@ -148,10 +182,12 @@ func (s *SAMLService) UpsertProvider(_ context.Context, p config.SAMLProvider) e
 	s.providers[name] = &samlProviderState{
 		name:             name,
 		entityID:         entityID,
+		idpEntityID:      idpEntityID,
 		idpMetadataXML:   metadata,
 		ssoURL:           ssoURL,
 		attributeMapping: mapping,
 		certPEM:          certPEM,
+		idpSigningCerts:  idpSigningCerts,
 	}
 	return nil
 }
@@ -182,11 +218,11 @@ func (s *SAMLService) InitiateLogin(providerName, relayState string) (*url.URL, 
 	}
 	s.pruneExpiredLocked()
 
-	requestXML := fmt.Sprintf(`<AuthnRequest ID="%s" Version="2.0" IssueInstant="%s" AssertionConsumerServiceURL="%s/api/auth/saml/%s/acs"><Issuer>%s</Issuer></AuthnRequest>`,
+	acsURL := s.assertionConsumerServiceURL(state)
+	requestXML := fmt.Sprintf(`<AuthnRequest ID="%s" Version="2.0" IssueInstant="%s" AssertionConsumerServiceURL="%s"><Issuer>%s</Issuer></AuthnRequest>`,
 		requestID,
 		s.now().UTC().Format(time.RFC3339),
-		s.baseURL,
-		url.PathEscape(state.name),
+		xmlEscape(acsURL),
 		xmlEscape(state.entityID),
 	)
 	reqB64 := base64.StdEncoding.EncodeToString([]byte(requestXML))
@@ -206,23 +242,23 @@ func (s *SAMLService) InitiateLogin(providerName, relayState string) (*url.URL, 
 
 // Processes the SAML assertion callback from the IdP after user authentication. Validates the request, parses and validates the assertion, maps attributes to email and name, then delegates to the auth service to create or link a user account. Returns the authenticated user, access token, refresh token, and relay state, or an error if validation fails.
 func (s *SAMLService) HandleCallback(r *http.Request, providerName, requestID string) (*User, string, string, string, error) {
+	requestID = strings.TrimSpace(requestID)
 	state, err := s.validateRequest(providerName, requestID)
 	if err != nil {
 		return nil, "", "", "", err
 	}
-	assertion, err := s.parseAssertion(r)
+	assertion, err := s.parseAssertion(r, state, requestID)
 	if err != nil {
 		return nil, "", "", "", err
 	}
 	if assertion == nil {
 		return nil, "", "", "", fmt.Errorf("missing SAML assertion")
 	}
-	now := s.now()
-	if assertion.NotBefore != nil && now.Before(assertion.NotBefore.Add(-30*time.Second)) {
-		return nil, "", "", "", fmt.Errorf("assertion is not yet valid")
+	if err := s.validateAssertionBinding(assertion, state, requestID); err != nil {
+		return nil, "", "", "", err
 	}
-	if assertion.NotOnOrAfter != nil && !now.Before(*assertion.NotOnOrAfter) {
-		return nil, "", "", "", fmt.Errorf("assertion is expired")
+	if err := validateSAMLAssertionTime(assertion, s.now()); err != nil {
+		return nil, "", "", "", err
 	}
 
 	emailKey := "email"
@@ -261,6 +297,69 @@ func (s *SAMLService) HandleCallback(r *http.Request, providerName, requestID st
 	return user, accessToken, refreshToken, r.FormValue("RelayState"), nil
 }
 
+func (s *SAMLService) validateAssertionBinding(assertion *SAMLAssertion, state *samlProviderState, requestID string) error {
+	expectedRecipient := s.assertionConsumerServiceURL(state)
+	// Request and audience binding are signed assertion data; validate them
+	// before consuming subject or attributes to prevent assertion replay.
+	if !hasMatchingSAMLSubjectConfirmation(assertion.SubjectConfirmations, requestID, expectedRecipient) {
+		return fmt.Errorf("assertion subject confirmation does not match SAML request")
+	}
+	if !hasSAMLAudienceRestrictions(assertion.AudienceRestrictions, state.entityID) {
+		return fmt.Errorf("assertion audience does not match service provider")
+	}
+	if strings.TrimSpace(assertion.Issuer) != state.idpEntityID {
+		return fmt.Errorf("assertion issuer does not match identity provider")
+	}
+	return nil
+}
+
+func validateSAMLAssertionTime(assertion *SAMLAssertion, now time.Time) error {
+	if assertion.NotBefore != nil && now.Before(assertion.NotBefore.Add(-30*time.Second)) {
+		return fmt.Errorf("assertion is not yet valid")
+	}
+	if assertion.NotOnOrAfter != nil && !now.Before(*assertion.NotOnOrAfter) {
+		return fmt.Errorf("assertion is expired")
+	}
+	return nil
+}
+
+func (s *SAMLService) assertionConsumerServiceURL(state *samlProviderState) string {
+	return s.baseURL + "/api/auth/saml/" + url.PathEscape(state.name) + "/acs"
+}
+
+func hasMatchingSAMLSubjectConfirmation(confirmations []SAMLSubjectConfirmation, requestID, recipient string) bool {
+	for _, confirmation := range confirmations {
+		if strings.TrimSpace(confirmation.Method) != samlBearerConfirmationMethod {
+			continue
+		}
+		if strings.TrimSpace(confirmation.RequestID) == requestID && strings.TrimSpace(confirmation.Recipient) == recipient {
+			return true
+		}
+	}
+	return false
+}
+
+func hasSAMLAudienceRestrictions(restrictions [][]string, entityID string) bool {
+	if len(restrictions) == 0 {
+		return false
+	}
+	for _, restriction := range restrictions {
+		if !hasSAMLAudience(restriction, entityID) {
+			return false
+		}
+	}
+	return true
+}
+
+func hasSAMLAudience(audiences []string, entityID string) bool {
+	for _, audience := range audiences {
+		if strings.TrimSpace(audience) == entityID {
+			return true
+		}
+	}
+	return false
+}
+
 // Generates SAML Service Provider metadata XML. Returns the SP's entity descriptor including the signing certificate and assertion consumer service endpoint. Returns an error if the provider is not found or the certificate is invalid.
 func (s *SAMLService) SPMetadataXML(providerName string) ([]byte, error) {
 	s.mu.RLock()
@@ -275,6 +374,7 @@ func (s *SAMLService) SPMetadataXML(providerName string) ([]byte, error) {
 		return nil, fmt.Errorf("invalid SP certificate")
 	}
 	certB64 := base64.StdEncoding.EncodeToString(certBlock.Bytes)
+	acsURL := s.assertionConsumerServiceURL(state)
 	metadata := fmt.Sprintf(`<?xml version="1.0"?>
 <EntityDescriptor xmlns="urn:oasis:names:tc:SAML:2.0:metadata" entityID="%s">
   <SPSSODescriptor protocolSupportEnumeration="urn:oasis:names:tc:SAML:2.0:protocol" WantAssertionsSigned="true">
@@ -283,8 +383,8 @@ func (s *SAMLService) SPMetadataXML(providerName string) ([]byte, error) {
         <X509Data><X509Certificate>%s</X509Certificate></X509Data>
       </KeyInfo>
     </KeyDescriptor>
-    <AssertionConsumerService Binding="urn:oasis:names:tc:SAML:2.0:bindings:HTTP-POST" Location="%s/api/auth/saml/%s/acs" index="1"/>
+    <AssertionConsumerService Binding="urn:oasis:names:tc:SAML:2.0:bindings:HTTP-POST" Location="%s" index="1"/>
   </SPSSODescriptor>
-</EntityDescriptor>`, xmlEscape(state.entityID), certB64, s.baseURL, url.PathEscape(state.name))
+</EntityDescriptor>`, xmlEscape(state.entityID), certB64, xmlEscape(acsURL))
 	return []byte(metadata), nil
 }
