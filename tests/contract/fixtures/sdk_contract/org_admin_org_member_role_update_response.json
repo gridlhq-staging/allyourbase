@@ -1,0 +1,7 @@
+{
+  "createdAt": "<timestamp>",
+  "id": "<id>",
+  "orgId": "<orgId>",
+  "role": "member",
+  "userId": "<userId>"
+}

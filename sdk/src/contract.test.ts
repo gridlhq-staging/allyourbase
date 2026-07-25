@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import { readFileSync, readdirSync } from "node:fs";
 import { basename, resolve } from "node:path";
 import { AYBClient } from "./client";
@@ -34,11 +34,20 @@ import type {
 } from "./index";
 import { mockFetchSequence } from "./test_utils/mockFetchSequence";
 import type {
+  AddOrgMemberRequest,
+  AddTeamMemberRequest,
+  AssignOrgTenantRequest,
+  CreateOrganizationRequest,
+  CreateTeamRequest,
   AuthResponse,
   FacetValueSearchHit,
   FacetValueSearchParams,
   FacetValueSearchResponse,
   ListResponse,
+  UpdateOrganizationRequest,
+  UpdateOrgMemberRoleRequest,
+  UpdateTeamMemberRoleRequest,
+  UpdateTeamRequest,
   SearchSynonymsRequest,
   SearchSynonymsResponse,
   SearchHit,
@@ -77,6 +86,216 @@ interface OAuthStartURLFixtureCase {
   expected_path_query: string;
 }
 
+type OrgAdminFixtureCase = {
+  name: string;
+  requestFixture?: string;
+  responseFixture: string;
+  expectedPath: string;
+  expectedMethod: string;
+  exercise: (client: AYBClient, requestFixture: unknown) => Promise<unknown>;
+};
+
+const orgAdminFixtureCases: OrgAdminFixtureCase[] = [
+  {
+    name: "create organization",
+    requestFixture: "org_admin_org_create_request.json",
+    responseFixture: "org_admin_org_create_response.json",
+    expectedPath: "/api/admin/orgs",
+    expectedMethod: "POST",
+    exercise: (client, requestFixture) =>
+      client
+        .admin("admin-token")
+        .orgs.create(requestFixture as CreateOrganizationRequest),
+  },
+  {
+    name: "list organizations",
+    responseFixture: "org_admin_org_list_response.json",
+    expectedPath: "/api/admin/orgs",
+    expectedMethod: "GET",
+    exercise: (client) => client.admin("admin-token").orgs.list(),
+  },
+  {
+    name: "get organization",
+    responseFixture: "org_admin_org_get_response.json",
+    expectedPath: "/api/admin/orgs/org-fixture-id",
+    expectedMethod: "GET",
+    exercise: (client) => client.admin("admin-token").orgs.get("org-fixture-id"),
+  },
+  {
+    name: "update organization",
+    requestFixture: "org_admin_org_update_request.json",
+    responseFixture: "org_admin_org_update_response.json",
+    expectedPath: "/api/admin/orgs/org-fixture-id",
+    expectedMethod: "PUT",
+    exercise: (client, requestFixture) =>
+      client
+        .admin("admin-token")
+        .orgs.update("org-fixture-id", requestFixture as UpdateOrganizationRequest),
+  },
+  {
+    name: "organization usage",
+    responseFixture: "org_admin_org_usage_response.json",
+    expectedPath: "/api/admin/orgs/org-fixture-id/usage",
+    expectedMethod: "GET",
+    exercise: (client) => client.admin("admin-token").orgs.usage("org-fixture-id"),
+  },
+  {
+    name: "organization audit",
+    responseFixture: "org_admin_org_audit_response.json",
+    expectedPath: "/api/admin/orgs/org-fixture-id/audit",
+    expectedMethod: "GET",
+    exercise: (client) => client.admin("admin-token").orgs.audit("org-fixture-id"),
+  },
+  {
+    name: "create team",
+    requestFixture: "org_admin_team_create_request.json",
+    responseFixture: "org_admin_team_create_response.json",
+    expectedPath: "/api/admin/orgs/org-fixture-id/teams",
+    expectedMethod: "POST",
+    exercise: (client, requestFixture) =>
+      client
+        .admin("admin-token")
+        .orgs.teams.create("org-fixture-id", requestFixture as CreateTeamRequest),
+  },
+  {
+    name: "list teams",
+    responseFixture: "org_admin_team_list_response.json",
+    expectedPath: "/api/admin/orgs/org-fixture-id/teams",
+    expectedMethod: "GET",
+    exercise: (client) => client.admin("admin-token").orgs.teams.list("org-fixture-id"),
+  },
+  {
+    name: "get team",
+    responseFixture: "org_admin_team_get_response.json",
+    expectedPath: "/api/admin/orgs/org-fixture-id/teams/team-fixture-id",
+    expectedMethod: "GET",
+    exercise: (client) =>
+      client.admin("admin-token").orgs.teams.get("org-fixture-id", "team-fixture-id"),
+  },
+  {
+    name: "update team",
+    requestFixture: "org_admin_team_update_request.json",
+    responseFixture: "org_admin_team_update_response.json",
+    expectedPath: "/api/admin/orgs/org-fixture-id/teams/team-fixture-id",
+    expectedMethod: "PUT",
+    exercise: (client, requestFixture) =>
+      client
+        .admin("admin-token")
+        .orgs.teams.update(
+          "org-fixture-id",
+          "team-fixture-id",
+          requestFixture as UpdateTeamRequest,
+        ),
+  },
+  {
+    name: "add organization member",
+    requestFixture: "org_admin_org_member_add_request.json",
+    responseFixture: "org_admin_org_member_add_response.json",
+    expectedPath: "/api/admin/orgs/org-fixture-id/members",
+    expectedMethod: "POST",
+    exercise: (client, requestFixture) =>
+      client
+        .admin("admin-token")
+        .orgs.members.add("org-fixture-id", requestFixture as AddOrgMemberRequest),
+  },
+  {
+    name: "list organization members",
+    responseFixture: "org_admin_org_member_list_response.json",
+    expectedPath: "/api/admin/orgs/org-fixture-id/members",
+    expectedMethod: "GET",
+    exercise: (client) => client.admin("admin-token").orgs.members.list("org-fixture-id"),
+  },
+  {
+    name: "update organization member role",
+    requestFixture: "org_admin_org_member_role_update_request.json",
+    responseFixture: "org_admin_org_member_role_update_response.json",
+    expectedPath: "/api/admin/orgs/org-fixture-id/members/user-fixture-id/role",
+    expectedMethod: "PUT",
+    exercise: (client, requestFixture) =>
+      client
+        .admin("admin-token")
+        .orgs.members.updateRole(
+          "org-fixture-id",
+          "user-fixture-id",
+          requestFixture as UpdateOrgMemberRoleRequest,
+        ),
+  },
+  {
+    name: "add team member",
+    requestFixture: "org_admin_team_member_add_request.json",
+    responseFixture: "org_admin_team_member_add_response.json",
+    expectedPath: "/api/admin/orgs/org-fixture-id/teams/team-fixture-id/members",
+    expectedMethod: "POST",
+    exercise: (client, requestFixture) =>
+      client
+        .admin("admin-token")
+        .orgs.teamMembers.add(
+          "org-fixture-id",
+          "team-fixture-id",
+          requestFixture as AddTeamMemberRequest,
+        ),
+  },
+  {
+    name: "list team members",
+    responseFixture: "org_admin_team_member_list_response.json",
+    expectedPath: "/api/admin/orgs/org-fixture-id/teams/team-fixture-id/members",
+    expectedMethod: "GET",
+    exercise: (client) =>
+      client.admin("admin-token").orgs.teamMembers.list("org-fixture-id", "team-fixture-id"),
+  },
+  {
+    name: "update team member role",
+    requestFixture: "org_admin_team_member_role_update_request.json",
+    responseFixture: "org_admin_team_member_role_update_response.json",
+    expectedPath: "/api/admin/orgs/org-fixture-id/teams/team-fixture-id/members/user-fixture-id/role",
+    expectedMethod: "PUT",
+    exercise: (client, requestFixture) =>
+      client
+        .admin("admin-token")
+        .orgs.teamMembers.updateRole(
+          "org-fixture-id",
+          "team-fixture-id",
+          "user-fixture-id",
+          requestFixture as UpdateTeamMemberRoleRequest,
+        ),
+  },
+  {
+    name: "assign tenant",
+    requestFixture: "org_admin_tenant_assign_request.json",
+    responseFixture: "org_admin_tenant_assign_response.json",
+    expectedPath: "/api/admin/orgs/org-fixture-id/tenants",
+    expectedMethod: "POST",
+    exercise: (client, requestFixture) =>
+      client
+        .admin("admin-token")
+        .orgs.tenants.assign("org-fixture-id", requestFixture as AssignOrgTenantRequest),
+  },
+  {
+    name: "list tenants",
+    responseFixture: "org_admin_tenant_list_response.json",
+    expectedPath: "/api/admin/orgs/org-fixture-id/tenants",
+    expectedMethod: "GET",
+    exercise: (client) => client.admin("admin-token").orgs.tenants.list("org-fixture-id"),
+  },
+];
+
+function orgAdminFixtureInventory(): string[] {
+  const fixtureDir = resolve(__dirname, "../../tests/contract/fixtures/sdk_contract");
+  return readdirSync(fixtureDir)
+    .filter((fileName) => /^org_admin_.*\.json$/.test(fileName))
+    .sort();
+}
+
+function orgAdminFixtureTableNames(): string[] {
+  return orgAdminFixtureCases
+    .flatMap((fixtureCase) =>
+      fixtureCase.requestFixture
+        ? [fixtureCase.requestFixture, fixtureCase.responseFixture]
+        : [fixtureCase.responseFixture],
+    )
+    .sort();
+}
+
 describe("SDK contract fixtures", () => {
   it("rejects fixture paths outside the canonical sdk_contract directory", () => {
     expect(() => loadContractFixture("../auth_response.json")).toThrow(
@@ -95,6 +314,50 @@ describe("SDK contract fixtures", () => {
 
     expect(duplicateMagicLinkFixtures).toEqual([]);
   });
+
+  it("org-admin fixture table covers every committed org-admin fixture", () => {
+    expect(orgAdminFixtureTableNames()).toEqual(orgAdminFixtureInventory());
+  });
+
+  it.each(orgAdminFixtureCases)(
+    "org-admin fixture $name round trips through public typed helper",
+    async (fixtureCase) => {
+      const requestFixture = fixtureCase.requestFixture
+        ? loadContractFixture(fixtureCase.requestFixture)
+        : undefined;
+      const responseFixture = loadContractFixture(fixtureCase.responseFixture);
+      const fetchFn = mockFetchSequence([{ status: 200, body: responseFixture }]);
+      const client = new AYBClient("https://api.example.com", { fetch: fetchFn });
+      client.setTokens("user-session-token", "user-refresh-token");
+
+      const result = await fixtureCase.exercise(client, requestFixture);
+
+      expect(result).toEqual(responseFixture);
+      expect(client.token).toBe("user-session-token");
+      expect(client.refreshToken).toBe("user-refresh-token");
+
+      const calls = (fetchFn as ReturnType<typeof vi.fn>).mock.calls as [
+        string,
+        RequestInit,
+      ][];
+      expect(calls).toHaveLength(1);
+      const [url, init] = calls[0];
+      expect(url).toBe(`https://api.example.com${fixtureCase.expectedPath}`);
+      expect(init.method ?? "GET").toBe(fixtureCase.expectedMethod);
+      expect(init.headers).toMatchObject({
+        Authorization: "Bearer admin-token",
+      });
+
+      if (requestFixture !== undefined) {
+        expect(init.headers).toMatchObject({
+          "Content-Type": "application/json",
+        });
+        expect(JSON.parse(init.body as string)).toEqual(requestFixture);
+      } else {
+        expect(init.body).toBeUndefined();
+      }
+    },
+  );
 
   it("public barrel re-exports core client and canonical types", () => {
     const publicClient = new PublicAYBClient("https://api.example.com");

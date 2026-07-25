@@ -1,0 +1,11 @@
+{
+  "childOrgCount": 0,
+  "createdAt": "<timestamp>",
+  "id": "<id>",
+  "name": "Fixture Org",
+  "planTier": "pro",
+  "slug": "fixture-org",
+  "teamCount": 0,
+  "tenantCount": 0,
+  "updatedAt": "<timestamp>"
+}

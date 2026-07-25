@@ -1,0 +1,8 @@
+{
+  "createdAt": "<timestamp>",
+  "id": "<id>",
+  "name": "Fixture Org Renamed",
+  "planTier": "pro",
+  "slug": "fixture-org-renamed",
+  "updatedAt": "<timestamp>"
+}

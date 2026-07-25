@@ -1,0 +1,8 @@
+{
+  "createdAt": "<timestamp>",
+  "id": "<id>",
+  "name": "Fixture Team",
+  "orgId": "<orgId>",
+  "slug": "fixture-team",
+  "updatedAt": "<timestamp>"
+}

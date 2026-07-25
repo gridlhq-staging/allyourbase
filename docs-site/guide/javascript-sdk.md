@@ -248,9 +248,26 @@ if (result) {
 }
 ```
 
-MFA enrollment, challenge, and verification flows are not yet exposed as
-first-class methods on `ayb.auth`. See [Authentication](/guide/authentication)
-for the REST endpoint-level flows and payloads.
+WebAuthn passkey MFA is available through first-class methods on `ayb.auth`.
+Enrollment with `ayb.auth.enrollPasskey()` and verification with
+`ayb.auth.verifyPasskey(mfaToken)` run the full browser `navigator.credentials`
+ceremony. You can manage enrolled passkeys with `ayb.auth.listPasskeys()`,
+`ayb.auth.renamePasskey(id, name)`, and `ayb.auth.deletePasskey(id)`:
+
+```ts
+await ayb.auth.enrollPasskey("Laptop passkey");
+
+// Use the short-lived MFA token returned by the preceding sign-in attempt.
+const session = await ayb.auth.verifyPasskey(mfaToken);
+
+const passkeys = await ayb.auth.listPasskeys();
+await ayb.auth.renamePasskey(passkeys[0].credentialId, "Primary passkey");
+await ayb.auth.deletePasskey(passkeys[0].credentialId);
+```
+
+These first-class MFA methods cover WebAuthn passkeys. See
+[Authentication](/guide/authentication) for other MFA factor flows and their
+REST payloads.
 
 ### Token management
 

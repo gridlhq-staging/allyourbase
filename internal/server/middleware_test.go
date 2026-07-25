@@ -437,19 +437,19 @@ func TestSecurityHeaders(t *testing.T) {
 	testutil.Equal(t, "strict-origin-when-cross-origin", w.Header().Get("Referrer-Policy"))
 	testutil.Equal(t, "camera=(), microphone=(), geolocation=()", w.Header().Get("Permissions-Policy"))
 	testutil.Equal(t, "none", w.Header().Get("X-Permitted-Cross-Domain-Policies"))
-	testutil.Equal(t, "", w.Header().Get("Content-Security-Policy"))
-
-	cspReportOnly := w.Header().Get("Content-Security-Policy-Report-Only")
-	if cspReportOnly == "" {
-		t.Fatalf("expected Content-Security-Policy-Report-Only header to be set")
+	csp := w.Header().Get("Content-Security-Policy")
+	if csp == "" {
+		t.Fatalf("expected Content-Security-Policy header to be set")
 	}
-	testutil.Contains(t, cspReportOnly, "default-src 'self'")
-	testutil.Contains(t, cspReportOnly, "object-src 'none'")
-	testutil.Contains(t, cspReportOnly, "frame-ancestors 'none'")
-	testutil.Contains(t, cspReportOnly, "base-uri 'self'")
+	testutil.Equal(t, "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'", csp)
+	testutil.Equal(t, "", w.Header().Get("Content-Security-Policy-Report-Only"))
+	testutil.Contains(t, csp, "default-src 'self'")
+	testutil.Contains(t, csp, "object-src 'none'")
+	testutil.Contains(t, csp, "frame-ancestors 'none'")
+	testutil.Contains(t, csp, "base-uri 'self'")
 
 	scriptSrc := ""
-	for _, segment := range strings.Split(cspReportOnly, ";") {
+	for _, segment := range strings.Split(csp, ";") {
 		directive := strings.TrimSpace(segment)
 		if directive == "script-src" || strings.HasPrefix(directive, "script-src ") {
 			scriptSrc = directive
@@ -457,7 +457,7 @@ func TestSecurityHeaders(t *testing.T) {
 		}
 	}
 	if scriptSrc == "" {
-		t.Fatalf("expected Content-Security-Policy-Report-Only to include script-src directive: %q", cspReportOnly)
+		t.Fatalf("expected Content-Security-Policy to include script-src directive: %q", csp)
 	}
 	testutil.False(t, strings.Contains(scriptSrc, "'unsafe-inline'"))
 	testutil.False(t, strings.Contains(scriptSrc, "'unsafe-eval'"))

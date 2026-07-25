@@ -1,0 +1,11 @@
+{
+  "items": [
+    {
+      "createdAt": "<timestamp>",
+      "id": "<id>",
+      "role": "member",
+      "teamId": "<teamId>",
+      "userId": "<userId>"
+    }
+  ]
+}

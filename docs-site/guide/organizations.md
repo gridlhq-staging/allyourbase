@@ -100,52 +100,44 @@ These constraints are enforced in `org_handler.go`, `org_membership_handler.go`,
 
 ## SDK and curl examples
 
-### JavaScript admin workflow (fetch + admin token)
+### JavaScript admin workflow (`@allyourbase/js` + admin token)
 
-`@allyourbase/js` currently focuses on auth/data APIs and does not yet expose typed org-admin helpers. Organization admin routes are protected by the separate admin-token flow, so resolve an admin token from `/api/admin/auth`, then call org endpoints with `fetch`.
+The JavaScript SDK exposes typed org-admin helpers through `client.admin(adminToken).orgs`. The caller supplies an admin token obtained separately from the regular user-session flow, such as from `/api/admin/auth` or the local admin-token file.
 
 ```ts
+import { AYBClient } from "@allyourbase/js";
+
 const baseURL = "http://localhost:8090";
-const adminPassword = process.env.AYB_ADMIN_PASSWORD ?? "<admin-password>";
+const adminToken = process.env.AYB_ADMIN_TOKEN ?? "<admin-token>";
+const client = new AYBClient(baseURL);
+const adminOrgs = client.admin(adminToken).orgs;
 
-const adminAuth = await fetch(`${baseURL}/api/admin/auth`, {
-  method: "POST",
-  headers: { "Content-Type": "application/json" },
-  body: JSON.stringify({ password: adminPassword }),
+const org = await adminOrgs.create({
+  name: "Acme",
+  slug: "acme",
+  planTier: "pro",
 });
 
-if (!adminAuth.ok) {
-  throw new Error(`Admin auth failed: ${adminAuth.status}`);
-}
-
-const { token: adminToken } = (await adminAuth.json()) as { token: string };
-
-async function adminRequest<T>(path: string, init: RequestInit = {}): Promise<T> {
-  const response = await fetch(`${baseURL}${path}`, {
-    ...init,
-    headers: {
-      Authorization: `Bearer ${adminToken}`,
-      "Content-Type": "application/json",
-      ...(init.headers ?? {}),
-    },
-  });
-
-  if (!response.ok) {
-    throw new Error(`Admin request failed: ${response.status}`);
-  }
-
-  return response.status === 204 ? (undefined as T) : ((await response.json()) as T);
-}
-
-const org = await adminRequest<{ id: string }>("/api/admin/orgs", {
-  method: "POST",
-  body: JSON.stringify({ name: "Acme", slug: "acme", planTier: "pro" }),
+const team = await adminOrgs.teams.create(org.id, {
+  name: "Engineering",
+  slug: "engineering",
 });
 
-await adminRequest("/api/admin/orgs/" + org.id + "/members", {
-  method: "POST",
-  body: JSON.stringify({ userId: "00000000-0000-0000-0000-000000000001", role: "admin" }),
+await adminOrgs.members.add(org.id, {
+  userId: "00000000-0000-0000-0000-000000000001",
+  role: "admin",
 });
+
+await adminOrgs.teamMembers.add(org.id, team.id, {
+  userId: "00000000-0000-0000-0000-000000000001",
+  role: "lead",
+});
+
+await adminOrgs.tenants.assign(org.id, { tenantId: "<tenant-id>" });
+
+const detail = await adminOrgs.get(org.id);
+const usage = await adminOrgs.usage(org.id, { period: "month" });
+const audit = await adminOrgs.audit(org.id, { limit: 50, offset: 0 });
 ```
 
 ### curl: create org, add member, assign tenant

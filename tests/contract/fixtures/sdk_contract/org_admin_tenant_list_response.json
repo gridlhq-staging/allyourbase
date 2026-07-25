@@ -1,0 +1,17 @@
+{
+  "items": [
+    {
+      "createdAt": "<timestamp>",
+      "id": "<id>",
+      "isolationMode": "shared",
+      "name": "Fixture Tenant",
+      "orgId": "<orgId>",
+      "orgMetadata": {},
+      "planTier": "free",
+      "region": "us-east-1",
+      "slug": "fixture-tenant",
+      "state": "provisioning",
+      "updatedAt": "<timestamp>"
+    }
+  ]
+}

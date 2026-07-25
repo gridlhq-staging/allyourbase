@@ -96,15 +96,16 @@ export async function seedFile(
   token: string,
   bucket: string,
   fileName: string,
-  content: string,
+  content: string | Buffer,
+  options: { mimeType?: string } = {},
 ): Promise<{ name: string }> {
   const res = await request.post(`/api/storage/${encodeURIComponent(bucket)}`, {
     headers: { Authorization: `Bearer ${token}` },
     multipart: {
       file: {
         name: fileName,
-        mimeType: "text/plain",
-        buffer: Buffer.from(content),
+        mimeType: options.mimeType ?? "text/plain",
+        buffer: Buffer.isBuffer(content) ? content : Buffer.from(content),
       },
     },
   });

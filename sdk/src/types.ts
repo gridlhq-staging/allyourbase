@@ -287,6 +287,232 @@ export interface AdminAPIKey {
 /** Paginated admin API key list envelope. */
 export type AdminAPIKeyListResponse = ListResponse<AdminAPIKey>;
 
+/** Organization membership roles accepted by org-admin membership routes. */
+export type OrgRole = "owner" | "admin" | "member" | "viewer";
+
+/** Team membership roles accepted by org-admin team membership routes. */
+export type TeamRole = "lead" | "member";
+
+/** Organization record returned by org-admin organization routes. */
+export interface Organization {
+  id: string;
+  name: string;
+  slug: string;
+  parentOrgId?: string | null;
+  planTier: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** Detailed organization response with server-owned child resource counts. */
+export interface OrganizationDetail extends Organization {
+  childOrgCount: number;
+  teamCount: number;
+  tenantCount: number;
+}
+
+/** Team record returned by org-admin team routes. */
+export interface Team {
+  id: string;
+  orgId: string;
+  name: string;
+  slug: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** Organization membership record returned by org-admin member routes. */
+export interface OrgMembership {
+  id: string;
+  orgId: string;
+  userId: string;
+  role: OrgRole;
+  createdAt: string;
+}
+
+/** Team membership record returned by org-admin team member routes. */
+export interface TeamMembership {
+  id: string;
+  teamId: string;
+  userId: string;
+  role: TeamRole;
+  createdAt: string;
+}
+
+/** Tenant record returned by org-admin tenant assignment list routes. */
+export interface OrgTenant {
+  id: string;
+  name: string;
+  slug: string;
+  isolationMode: string;
+  planTier: string;
+  region: string;
+  orgId?: string | null;
+  orgMetadata: Record<string, unknown>;
+  state: "provisioning" | "active" | "suspended" | "deleting" | "deleted";
+  idempotencyKey?: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** Request body for creating an organization through org-admin routes. */
+export interface CreateOrganizationRequest {
+  name: string;
+  slug: string;
+  parentOrgId?: string | null;
+  planTier: string;
+}
+
+/** Request body for updating organization metadata through org-admin routes. */
+export interface UpdateOrganizationRequest {
+  name?: string;
+  slug?: string;
+  /**
+   * Omit to leave the parent unchanged. The server treats JSON null as an
+   * omitted update, so use the empty string "" — the server-owned removal
+   * sentinel — to detach the organization from its parent.
+   */
+  parentOrgId?: string;
+}
+
+/** Request body for creating a team through org-admin routes. */
+export interface CreateTeamRequest {
+  name: string;
+  slug: string;
+}
+
+/** Request body for updating a team through org-admin routes. */
+export interface UpdateTeamRequest {
+  name?: string;
+  slug?: string;
+}
+
+/** Request body for adding an organization member. */
+export interface AddOrgMemberRequest {
+  userId: string;
+  role: OrgRole;
+}
+
+/** Request body for updating an organization member role. */
+export interface UpdateOrgMemberRoleRequest {
+  role: OrgRole;
+}
+
+/** Request body for adding a team member. */
+export interface AddTeamMemberRequest {
+  userId: string;
+  role: TeamRole;
+}
+
+/** Request body for updating a team member role. */
+export interface UpdateTeamMemberRoleRequest {
+  role: TeamRole;
+}
+
+/** Request body for assigning an existing tenant to an organization. */
+export interface AssignOrgTenantRequest {
+  tenantId: string;
+}
+
+/** Response body returned when a tenant assignment succeeds. */
+export interface AssignOrgTenantResponse {
+  status: "assigned";
+}
+
+/** Required acknowledgement for destructive org deletion. */
+export interface DeleteOrganizationOptions {
+  confirm: true;
+}
+
+/** Organization list envelope returned by org-admin list routes. */
+export interface OrganizationListResponse {
+  items: Organization[];
+}
+
+/** Team list envelope returned by org-admin team list routes. */
+export interface TeamListResponse {
+  items: Team[];
+}
+
+/** Organization member list envelope returned by org-admin member list routes. */
+export interface OrgMembershipListResponse {
+  items: OrgMembership[];
+}
+
+/** Team member list envelope returned by org-admin team member list routes. */
+export interface TeamMembershipListResponse {
+  items: TeamMembership[];
+}
+
+/** Tenant assignment list envelope returned by org-admin tenant list routes. */
+export interface OrgTenantListResponse {
+  items: OrgTenant[];
+}
+
+/** One daily usage bucket returned by org-admin usage routes. */
+export interface OrgUsageDayEntry {
+  date: string;
+  apiRequests: number;
+  storageBytesUsed: number;
+  bandwidthBytes: number;
+  functionInvocations: number;
+}
+
+/** Aggregated usage totals returned by org-admin usage routes. */
+export interface OrgUsageTotals {
+  apiRequests: number;
+  storageBytesUsed: number;
+  bandwidthBytes: number;
+  functionInvocations: number;
+}
+
+/** Optional query params accepted by org-admin usage routes. */
+export interface OrgUsageOptions {
+  period?: "day" | "week" | "month";
+  from?: string;
+  to?: string;
+}
+
+/** Usage summary returned by org-admin usage routes. */
+export interface OrgUsageSummary {
+  orgId: string;
+  tenantCount: number;
+  period: string;
+  data: OrgUsageDayEntry[];
+  totals: OrgUsageTotals;
+}
+
+/** Optional query params accepted by org-admin audit routes. */
+export interface OrgAuditOptions {
+  from?: string;
+  to?: string;
+  action?: string;
+  result?: string;
+  actorId?: string;
+  limit?: number;
+  offset?: number;
+}
+
+/** Tenant audit event returned by org-admin audit routes. */
+export interface OrgAuditEvent {
+  id: string;
+  tenantId: string;
+  actorId?: string | null;
+  action: string;
+  result: string;
+  metadata: Record<string, unknown> | null;
+  ipAddress?: string | null;
+  createdAt: string;
+}
+
+/** Audit list envelope returned by org-admin audit routes. */
+export interface OrgAuditListResponse {
+  items: OrgAuditEvent[];
+  count: number;
+  limit: number;
+  offset: number;
+}
+
 /** Request body for creating an admin API key. */
 export interface CreateAdminAPIKeyRequest {
   userId: string;

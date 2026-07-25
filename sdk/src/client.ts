@@ -5,6 +5,7 @@ import { StorageClient } from "./storage";
 import { RealtimeClient } from "./realtime";
 import { GraphQLClient } from "./graphql";
 import { SearchSettingsClient } from "./search_settings";
+import { AdminClient } from "./admin_orgs";
 import { encodePathSegment } from "./helpers";
 import type {
   AuthPersistence,
@@ -195,6 +196,11 @@ export class AYBClient {
     return this.request<T>(`/api/rpc/${encodePathSegment(functionName)}`, {
       ...init,
     });
+  }
+
+  /** Create an explicit-token admin surface for routes guarded by s.requireAdminToken, distinct from user auth. */
+  admin(adminToken: string): AdminClient {
+    return new AdminClient(this, adminToken);
   }
 
   /** @internal */

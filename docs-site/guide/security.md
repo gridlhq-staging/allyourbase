@@ -162,9 +162,10 @@ From `internal/server/middleware.go`:
 - `Strict-Transport-Security` (HSTS) is emitted for requests that arrive over TLS,
   either directly or via a private/loopback reverse-proxy hop that sets
   `X-Forwarded-Proto: https`.
-- A Content Security Policy is currently emitted in Report-Only (shadow) mode via
-  the `Content-Security-Policy-Report-Only` header, pending browser-smoke promotion
-  evidence before it becomes an enforcing `Content-Security-Policy` header.
+- The server emits an enforcing `Content-Security-Policy` header with
+  `default-src 'self'`, `script-src 'self'`, `object-src 'none'`,
+  `base-uri 'self'`, and `frame-ancestors 'none'`. The former Report-Only
+  shadow stage was promoted after zero-violation shadow-browser evidence.
 
 ### CORS in production
 

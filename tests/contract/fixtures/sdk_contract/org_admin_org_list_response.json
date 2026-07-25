@@ -1,0 +1,12 @@
+{
+  "items": [
+    {
+      "createdAt": "<timestamp>",
+      "id": "<id>",
+      "name": "Fixture Org",
+      "planTier": "pro",
+      "slug": "fixture-org",
+      "updatedAt": "<timestamp>"
+    }
+  ]
+}

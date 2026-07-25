@@ -1,0 +1,12 @@
+{
+  "data": [],
+  "orgId": "<orgId>",
+  "period": "month",
+  "tenantCount": 0,
+  "totals": {
+    "apiRequests": 0,
+    "bandwidthBytes": 0,
+    "functionInvocations": 0,
+    "storageBytesUsed": 0
+  }
+}

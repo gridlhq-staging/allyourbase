@@ -55,24 +55,24 @@ func passesThroughCORSPreflight(r *http.Request) bool {
 	return r != nil && strings.TrimSpace(r.Header.Get("Tus-Resumable")) != ""
 }
 
-// cspReportOnlyPolicy is the Content-Security-Policy served in Report-Only
-// (shadow) mode so we can validate violation reports against the real admin
-// dashboard before switching to an enforcing Content-Security-Policy header.
-// The dashboard is the embedded ui/dist bundle: its index.html loads a
-// same-origin module script and a same-origin stylesheet from /admin/assets,
-// so no non-'self' script or style origins are required. Directives:
+// cspPolicy is the enforcing Content-Security-Policy for the embedded dashboard.
+// It was previously served in Report-Only (shadow) mode while violation reports
+// were validated against the real admin dashboard. The dashboard is the embedded
+// ui/dist bundle: its index.html loads a same-origin module script and a
+// same-origin stylesheet from /admin/assets, so no non-'self' script or style
+// origins are required. Directives:
 //   - default-src 'self'      same-origin fallback (covers connect-src for the
 //     same-origin API and realtime WebSocket)
 //   - img-src 'self' data:    'data:' allows inline base64 icons/images the UI
 //     embeds; no external image origins are used
 //   - style-src 'self' 'unsafe-inline'  the React UI applies inline element
-//     styles, which CSP treats as inline styles; scripts
-//     stay strict (no 'unsafe-inline'/'unsafe-eval')
-//   - script-src 'self'       only the bundled module script executes
+//     styles, which CSP treats as inline styles
+//   - script-src 'self'       deliberately permits only the bundled module
+//     script, with neither 'unsafe-inline' nor 'unsafe-eval'
 //   - object-src 'none'       no plugins/embeds
 //   - base-uri 'self'         block <base> tag hijacking
 //   - frame-ancestors 'none'  no framing (clickjacking defense alongside XFO)
-const cspReportOnlyPolicy = "default-src 'self'; " +
+const cspPolicy = "default-src 'self'; " +
 	"img-src 'self' data:; " +
 	"style-src 'self' 'unsafe-inline'; " +
 	"script-src 'self'; " +
@@ -88,7 +88,7 @@ func securityHeaders(next http.Handler) http.Handler {
 		w.Header().Set("Referrer-Policy", "strict-origin-when-cross-origin")
 		w.Header().Set("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
 		w.Header().Set("X-Permitted-Cross-Domain-Policies", "none")
-		w.Header().Set("Content-Security-Policy-Report-Only", cspReportOnlyPolicy)
+		w.Header().Set("Content-Security-Policy", cspPolicy)
 
 		// HSTS: only advertise when the request arrived over TLS (direct or
 		// via a trusted reverse proxy on a private/loopback hop).
