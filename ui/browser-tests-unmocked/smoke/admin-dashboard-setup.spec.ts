@@ -5,6 +5,7 @@ import {
   getAdminCapabilities,
   test,
   waitForDashboard,
+  waitForTableInSidebar,
 } from "../fixtures";
 import type { Page } from "@playwright/test";
 import type { AdminCapabilities, AdminCapabilityName } from "../fixtures";
@@ -302,9 +303,9 @@ test.describe("Smoke: Admin Dashboard Setup", () => {
     await runButton.click();
     await expect(page.getByText(/statement executed successfully/i)).toBeVisible({ timeout: 10000 });
 
-    // Step 6: Sidebar should refresh automatically after CREATE TABLE
+    // Step 6: Sidebar should surface the created table after schema refresh
+    await waitForTableInSidebar(page, tableName);
     const tableLink = sidebar.getByText(tableName, { exact: true });
-    await expect(tableLink).toBeVisible({ timeout: 15000 });
 
     // Step 7: Insert first row
     const insertSQL = `INSERT INTO ${tableName} (title) VALUES ('${rowTitle}');`;

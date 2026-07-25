@@ -177,6 +177,25 @@ export async function cleanupLogDrain(
   }
 }
 
+const testSAMLSigningCertificate = [
+  "MIIDJzCCAg+gAwIBAgIUdF2pLOFwCZ0wgaHe9ZKu8MN6tZ8wDQYJKoZIhvcNAQELBQAwIzEh",
+  "MB8GA1UEAwwYQVlCIHNoYXJlZCB0ZXN0IFNBTUwgSWRQMB4XDTI2MDcyNTAyNDUzNFoXDTM2",
+  "MDcyMjAyNDUzNFowIzEhMB8GA1UEAwwYQVlCIHNoYXJlZCB0ZXN0IFNBTUwgSWRQMIIBIjAN",
+  "BgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAqf+jAc+fabuM61lmIL+WgqWHYR7wCFNJULB",
+  "J/48qWN/rx3SSWpgXdByyP7ur20PMK+Sm8yiZvp2QGUCCv/3jzB1R/AH1S6R3PPfy9fabDT",
+  "EuWrWz/HNXZ+GzY36UeB+TAcKZycJgptCvZKkEncuQcgu2d7G3uFE6NB6KDbASNhM9Fci54k",
+  "QshdhUOe0D28p+Pjni4OBEgngf2BOln/xBUl5K1djcSUHP9QygNn95ESy4deynHwnejmO47",
+  "MLktr7oIi1LGv+nNFSdIxIfZCuuDStgZEJEz1TL8tinOhxQ/o936vXQ/ied6hTuMECrz+cOI",
+  "4T2G9RfiCrf0rFsb+EOzwIDAQABo1MwUTAdBgNVHQ4EFgQURkeI2vHjEjkTN54WT0EB5y7i",
+  "slkwHwYDVR0jBBgwFoAURkeI2vHjEjkTN54WT0EB5y7islkwDwYDVR0TAQH/BAUwAwEB/zAN",
+  "BgkqhkiG9w0BAQsFAAOCAQEAUPxeVZTPA8yXPENGR+41YyWXzR2VzaXPU0C+rtrXw2T4La0E",
+  "7JhGUl/iEIY3U4xyC9fwb/W7hh3MjeaSayisN62EYfCf4aPLq6YROwFJco2d5e8E7D83RFE8",
+  "EApwLbYhl8xT/CUUmz5yRQaYcnwtNIiiwkeNTjl+WoFsEHHWFML3EWMdme2eVOd8J06SfA0i",
+  "BbmoXgr5TZKWr73Juo4pPFGe3DVIjbXfKm01dz9rMXgllHgU5xgRg0RLk7M/aUUNWYnM2jUE",
+  "NCFhsxbpbVezIlJY/rASMifuY9ktnB4hfEjR1+G3AfaM0tBahhK5rK1Oz74GkfH9V1twim5a",
+  "cnSGjQ==",
+].join("");
+
 /** Creates a SAML provider with generated XML metadata and returns its name and entity_id. */
 export async function seedSAMLProvider(
   request: APIRequestContext,
@@ -195,6 +214,11 @@ export async function seedSAMLProvider(
     options.idp_metadata_xml ||
     `<EntityDescriptor xmlns="urn:oasis:names:tc:SAML:2.0:metadata" entityID="${entityId}">
   <IDPSSODescriptor>
+    <KeyDescriptor use="signing">
+      <KeyInfo xmlns="http://www.w3.org/2000/09/xmldsig#">
+        <X509Data><X509Certificate>${testSAMLSigningCertificate}</X509Certificate></X509Data>
+      </KeyInfo>
+    </KeyDescriptor>
     <SingleSignOnService Binding="urn:oasis:names:tc:SAML:2.0:bindings:HTTP-Redirect" Location="https://idp.example.test/${name}/sso"/>
   </IDPSSODescriptor>
 </EntityDescriptor>`;
