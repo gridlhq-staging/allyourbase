@@ -5,7 +5,7 @@ REPO="AllyourbaseHQ/allyourbase"
 WORKFLOW_NAME="CI"
 IMAGE_REPO="ghcr.io/allyourbasehq/allyourbase"
 INSTALLER_URL="https://install.allyourbase.io/install.sh"
-SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+SCRIPT_DIR=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
 URLS="
 https://allyourbase.io
 https://install.allyourbase.io/install.sh
@@ -19,6 +19,7 @@ https://api.allyourbase.io/health
 
 TEMP_DIR=""
 
+# shellcheck disable=SC1091
 . "$SCRIPT_DIR/release_helpers.sh"
 
 cleanup() {
@@ -85,12 +86,18 @@ if missing:
 }
 
 check_image() {
+  docker_host="${DOCKER_HOST:-}"
+  if [ -z "$docker_host" ]; then
+    docker_host=$(docker context inspect --format '{{ .Endpoints.docker.Host }}' 2>/dev/null) \
+      || fail_arm image "docker context host probe failed"
+    [ -n "$docker_host" ] || fail_arm image "empty docker context host"
+  fi
   TEMP_DIR=$(mktemp -d)
   mkdir -p "$TEMP_DIR/docker-config"
   image_ref="$IMAGE_REPO:$version"
-  DOCKER_CONFIG="$TEMP_DIR/docker-config" docker pull "$image_ref" >/dev/null \
+  DOCKER_CONFIG="$TEMP_DIR/docker-config" DOCKER_HOST="$docker_host" docker pull "$image_ref" >/dev/null \
     || fail_arm image "pull failed image=$image_ref"
-  version_json=$(DOCKER_CONFIG="$TEMP_DIR/docker-config" docker run --rm "$image_ref" ayb version --json) \
+  version_json=$(DOCKER_CONFIG="$TEMP_DIR/docker-config" DOCKER_HOST="$docker_host" docker run --rm "$image_ref" ayb version --json) \
     || fail_arm image-version "version command failed image=$image_ref"
   image_version=$(printf '%s' "$version_json" | json_query '
 import json, sys

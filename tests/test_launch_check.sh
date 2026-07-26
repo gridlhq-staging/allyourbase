@@ -11,8 +11,7 @@ FAKE_BIN="$TEST_DIR/bin"
 mkdir -p "$FAKE_BIN"
 LOG_FILE="$TEST_DIR/commands.log"
 : >"$LOG_FILE"
-
-FULL_SHA=0123456789abcdef0123456789abcdef01234567
+SELECTED_DOCKER_HOST="unix:///tmp/ayb-selected-docker.sock"
 
 write_fake_commands() {
   cat >"$FAKE_BIN/gh" <<'GH'
@@ -111,10 +110,48 @@ CURL
   cat >"$FAKE_BIN/docker" <<'DOCKER'
 #!/bin/sh
 set -eu
-printf 'docker %s DOCKER_CONFIG=%s DOCKER_HOST=%s\n' "$*" "${DOCKER_CONFIG:-}" "${DOCKER_HOST:-}" >>"$LAUNCH_CHECK_FAKE_LOG"
 scenario="${LAUNCH_CHECK_SCENARIO:-success}"
+selected_host="${LAUNCH_CHECK_SELECTED_DOCKER_HOST:-unix:///tmp/ayb-selected-docker.sock}"
+default_host="unix:///var/run/docker.sock"
+effective_host="${DOCKER_HOST:-}"
+if [ -z "$effective_host" ]; then
+  if [ -n "${DOCKER_CONFIG:-}" ]; then
+    effective_host="$default_host"
+  else
+    effective_host="$selected_host"
+  fi
+fi
+printf 'docker %s DOCKER_CONFIG=%s DOCKER_HOST=%s EFFECTIVE_DOCKER_HOST=%s\n' "$*" "${DOCKER_CONFIG:-}" "${DOCKER_HOST:-}" "$effective_host" >>"$LAUNCH_CHECK_FAKE_LOG"
+
+require_selected_host() {
+  if [ "$effective_host" != "$selected_host" ]; then
+    printf 'expected Docker endpoint %s actual %s for %s\n' "$selected_host" "$effective_host" "$1" >&2
+    exit 69
+  fi
+}
+
+require_isolated_config() {
+  case "${DOCKER_CONFIG:-}" in
+    */docker-config) ;;
+    *)
+      printf 'expected isolated Docker config ending in /docker-config actual %s for %s\n' "${DOCKER_CONFIG:-}" "$1" >&2
+      exit 70
+      ;;
+  esac
+}
+
 case "$1" in
+  context)
+    [ "$2" = "inspect" ] && [ "$3" = "--format" ] || exit 64
+    case "$scenario" in
+      docker_context_probe_fail) exit 68 ;;
+      docker_context_empty) printf '\n' ;;
+      *) printf '%s\n' "$selected_host" ;;
+    esac
+    ;;
   pull)
+    require_isolated_config pull
+    require_selected_host pull
     [ "$2" = "ghcr.io/allyourbasehq/allyourbase:0.0.17-beta" ] || exit 65
     if [ "$scenario" = "docker_pull" ]; then
       exit 66
@@ -122,6 +159,8 @@ case "$1" in
     ;;
   run)
     if [ "$2" = "--rm" ] && [ "$3" = "ghcr.io/allyourbasehq/allyourbase:0.0.17-beta" ]; then
+      require_isolated_config run
+      require_selected_host run
       if [ "$scenario" = "docker_version_bad" ]; then
         printf '%s\n' '{"version":"0.0.16-beta"}'
         exit 0
@@ -158,10 +197,25 @@ assert_contains() {
 run_case() {
   scenario="$1"
   expected_status="$2"
+  caller_docker_host="${3:-}"
   output="$TEST_DIR/${scenario}.out"
   : >"$LOG_FILE"
+  mkdir -p "$TEST_DIR/tmp" "$TEST_DIR/caller-docker-config"
   set +e
-  PATH="$FAKE_BIN:$PATH" LAUNCH_CHECK_FAKE_LOG="$LOG_FILE" LAUNCH_CHECK_SCENARIO="$scenario" \
+  selected_docker_host="$SELECTED_DOCKER_HOST"
+  if [ -n "$caller_docker_host" ]; then
+    selected_docker_host="$caller_docker_host"
+    DOCKER_HOST="$caller_docker_host"
+    export DOCKER_HOST
+  else
+    unset DOCKER_HOST
+  fi
+  PATH="$FAKE_BIN:$PATH" \
+    DOCKER_CONFIG="$TEST_DIR/caller-docker-config" \
+    LAUNCH_CHECK_FAKE_LOG="$LOG_FILE" \
+    LAUNCH_CHECK_SCENARIO="$scenario" \
+    LAUNCH_CHECK_SELECTED_DOCKER_HOST="$selected_docker_host" \
+    TMPDIR="$TEST_DIR/tmp" \
     sh "$CHECKER" >"$output" 2>&1
   status=$?
   set -e
@@ -189,15 +243,26 @@ assert_contains "$success_out" 'health json={"status":"ok","database":"ok"}'
 assert_contains "$success_out" 'sha=0123456789abcdef0123456789abcdef01234567'
 assert_contains "$success_out" 'run id=602 status=completed conclusion=success'
 assert_contains "$LOG_FILE" 'gh release view v0.0.17-beta -R AllyourbaseHQ/allyourbase --json assets'
-assert_contains "$LOG_FILE" 'docker pull ghcr.io/allyourbasehq/allyourbase:0.0.17-beta'
-assert_contains "$LOG_FILE" 'docker run --rm ghcr.io/allyourbasehq/allyourbase:0.0.17-beta ayb version --json'
+assert_contains "$LOG_FILE" "docker context inspect --format {{ .Endpoints.docker.Host }} DOCKER_CONFIG=$TEST_DIR/caller-docker-config"
+assert_contains "$LOG_FILE" 'docker pull ghcr.io/allyourbasehq/allyourbase:0.0.17-beta DOCKER_CONFIG='
+assert_contains "$LOG_FILE" "docker-config DOCKER_HOST=$SELECTED_DOCKER_HOST EFFECTIVE_DOCKER_HOST=$SELECTED_DOCKER_HOST"
+assert_contains "$LOG_FILE" 'docker run --rm ghcr.io/allyourbasehq/allyourbase:0.0.17-beta ayb version --json DOCKER_CONFIG='
+
+EXPLICIT_DOCKER_HOST="unix:///tmp/ayb-explicit-docker.sock"
+run_case explicit_docker_host pass "$EXPLICIT_DOCKER_HOST"
+assert_contains "$LOG_FILE" "docker pull ghcr.io/allyourbasehq/allyourbase:0.0.17-beta DOCKER_CONFIG="
+assert_contains "$LOG_FILE" "DOCKER_HOST=$EXPLICIT_DOCKER_HOST EFFECTIVE_DOCKER_HOST=$EXPLICIT_DOCKER_HOST"
+if grep -Fq 'docker context inspect' "$LOG_FILE"; then
+  fail 'explicit DOCKER_HOST should skip docker context inspection'
+fi
 
 for case_name in \
   no_app_release release_row_not_object release_trailing_row_not_object release_missing_tag release_missing_is_draft \
   missing_asset malformed_release_view docker_pull docker_version_bad \
   docker_version_malformed install_fail url_docs url_installer url_demo url_kanban \
   url_polls url_movies url_instantsearch url_health health_bad_json ci_short_sha \
-  ci_zero ci_malformed ci_empty ci_duplicate ci_mismatched_head ci_in_progress ci_failure
+  ci_zero ci_malformed ci_empty ci_duplicate ci_mismatched_head ci_in_progress ci_failure \
+  docker_context_probe_fail docker_context_empty
 do
   run_case "$case_name" fail
 done
@@ -214,6 +279,8 @@ assert_contains "$TEST_DIR/release_missing_is_draft.out" 'arm=release'
 assert_contains "$TEST_DIR/missing_asset.out" 'arm=release-assets'
 assert_contains "$TEST_DIR/missing_asset.out" 'ayb_0.0.17-beta_windows_arm64.zip'
 assert_contains "$TEST_DIR/docker_pull.out" 'arm=image'
+assert_contains "$TEST_DIR/docker_context_probe_fail.out" 'arm=image'
+assert_contains "$TEST_DIR/docker_context_empty.out" 'arm=image'
 assert_contains "$TEST_DIR/docker_version_bad.out" 'arm=image-version'
 assert_contains "$TEST_DIR/install_fail.out" 'arm=installer'
 assert_contains "$TEST_DIR/url_docs.out" 'arm=https'
