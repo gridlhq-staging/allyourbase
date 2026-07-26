@@ -1323,7 +1323,9 @@ func TestSearchRankResponseCollision(t *testing.T) {
 	testutil.Equal(t, 1, len(cursorItems))
 	testutil.Equal(t, "Rank Collision", jsonStr(t, cursorItems[0]["title"]))
 	testutil.Equal(t, 73.25, jsonNum(t, cursorItems[0]["_rank"]))
-	testutil.Equal(t, "", jsonStr(t, cursorBody["nextCursor"]))
+	if _, ok := cursorBody["nextCursor"]; ok {
+		t.Fatal("terminal cursor response must omit nextCursor")
+	}
 }
 
 func TestSearchRankExcludedFromAggregateAndExport(t *testing.T) {

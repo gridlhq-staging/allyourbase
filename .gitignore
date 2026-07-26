@@ -249,3 +249,6 @@ node_modules/
 .hashbrown
 
 chatting/
+
+# backup files must never sync to public mirrors
+*.bak
