@@ -27,6 +27,16 @@
       .card:hover { border-color: var(--accent); transform: translateY(-2px); }
       .card h2 { margin: 0 0 8px; font-size: 20px; }
       .card p { margin: 0; color: var(--muted); font-size: 14px; line-height: 1.5; }
+      .try-card { grid-column: 1 / -1; border-color: var(--accent); }
+      .try-card:hover { transform: none; }
+      .try-form { margin-top: 20px; }
+      button, .launch-link { border: 0; border-radius: 8px; background: var(--accent); color: #0b0f1a; cursor: pointer; display: inline-block; font: inherit; font-weight: 700; padding: 11px 16px; text-decoration: none; }
+      button:disabled { cursor: wait; opacity: 0.65; }
+      .launch-status { margin-top: 16px; }
+      .launch-status[hidden] { display: none; }
+      .launch-status p { margin: 8px 0; }
+      .password { background: var(--bg); border: 1px solid var(--border); border-radius: 6px; color: var(--fg); display: inline-block; font-family: ui-monospace, monospace; margin: 8px 0; padding: 8px; word-break: break-all; }
+      .error { color: #fca5a5; }
       footer { margin-top: 64px; text-align: center; color: var(--muted); font-size: 13px; }
       footer a { color: inherit; }
     </style>
@@ -38,6 +48,15 @@
         <p>Reference apps and examples backed by AYB, including the shared API at <code>https://api.allyourbase.io</code>.</p>
       </header>
       <section class="grid" aria-label="Demo apps">
+        <article class="card try-card">
+          <h2>Try Allyourbase</h2>
+          <p>Launch your own private Allyourbase instance in the browser. Nothing to install; it is automatically destroyed after 30 minutes.</p>
+          <form class="try-form" id="try-form" action="/api/try" method="post">
+            <div class="cf-turnstile" data-sitekey="0x4AAAAAAD-dT3Tqhu_jPAca" data-callback="turnstileReady" data-expired-callback="turnstileExpired"></div>
+            <button type="submit" disabled>Launch my private instance</button>
+          </form>
+          <div class="launch-status" id="launch-status" role="status" aria-live="polite" hidden></div>
+        </article>
         <a class="card" href="https://kanban.demo.allyourbase.io" rel="noopener">
           <h2>Kanban</h2>
           <p>Collaborative boards with realtime card updates across users.</p>
@@ -59,5 +78,7 @@
         <p>Open source at <a href="https://github.com/AllyourbaseHQ/allyourbase" rel="noopener">github.com/AllyourbaseHQ/allyourbase</a>.</p>
       </footer>
     </main>
+    <script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>
+    <script type="module" src="/try.js"></script>
   </body>
 </html>

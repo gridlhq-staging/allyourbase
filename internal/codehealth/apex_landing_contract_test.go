@@ -19,9 +19,10 @@ const apexLandingIndexPath = "examples/apex_landing/index.html"
 const apexLandingDirmapPath = "examples/apex_landing/DIRMAP.md"
 
 const (
-	apexCheckoutAction = "actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd"
-	apexSetupGoAction  = "actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16"
-	apexWranglerAction = "cloudflare/wrangler-action@9acf94ace14e7dc412b076f2c5c20b8ce93c79cd"
+	apexCheckoutAction  = "actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd"
+	apexSetupGoAction   = "actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16"
+	apexSetupNodeAction = "actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e"
+	apexWranglerAction  = "cloudflare/wrangler-action@9acf94ace14e7dc412b076f2c5c20b8ce93c79cd"
 )
 
 var (
@@ -153,6 +154,12 @@ func TestApexLandingDeployWorkflow(t *testing.T) {
 	if !workflowJobHasRunStep(workflow, "test-apex", "go test ./internal/codehealth -run ^TestApexLanding -count=1") {
 		t.Fatal("test-apex must run the focused apex contract from the repository root without being skippable")
 	}
+	if !workflowJobHasRunStep(workflow, "test-apex", "npm --prefix examples/apex_landing test") {
+		t.Fatal("test-apex must run the Daytona launcher unit contracts")
+	}
+	if !workflowJobHasRunStep(workflow, "test-apex", "npm --prefix tests/e2e exec -- playwright test --config tests/e2e/try_allyourbase.config.ts") {
+		t.Fatal("test-apex must run the one-click browser contract")
+	}
 	if githubActionsPermissionGrantsWrite(workflow.Permissions, "deployments") {
 		t.Fatal("deploy_apex_landing.yml must not grant deployments: write at workflow scope")
 	}
@@ -197,11 +204,13 @@ func requireApexWorkflowActionPins(t *testing.T, testJob, deployJob githubAction
 
 	requireJobUsesAction(t, testJob, apexCheckoutAction)
 	requireJobUsesAction(t, testJob, apexSetupGoAction)
+	requireJobUsesAction(t, testJob, apexSetupNodeAction)
 	requireJobUsesAction(t, deployJob, apexCheckoutAction)
 	requireJobUsesAction(t, deployJob, apexWranglerAction)
 	requireApexExactStrings(t, "test-apex action refs", githubActionsJobActionRefs(testJob), []string{
 		apexCheckoutAction,
 		apexSetupGoAction,
+		apexSetupNodeAction,
 	})
 	requireApexExactStrings(t, "deploy-apex action refs", githubActionsJobActionRefs(deployJob), []string{
 		apexCheckoutAction,
@@ -219,7 +228,7 @@ func requireApexArtifactStep(t *testing.T, deployJob githubActionsJob) {
 		if step.WorkingDirectory != "examples/apex_landing" {
 			t.Fatalf("Prepare apex artifact working-directory = %q, want examples/apex_landing", step.WorkingDirectory)
 		}
-		if got, want := strings.TrimSpace(step.Run), "mkdir -p dist\ncp index.html dist/index.html"; got != want {
+		if got, want := strings.TrimSpace(step.Run), "mkdir -p dist\ncp index.html try.js _routes.json dist/"; got != want {
 			t.Fatalf("Prepare apex artifact run = %q, want %q", got, want)
 		}
 		if githubActionsContinueOnErrorEnabled(step.ContinueOnError) || strings.TrimSpace(step.If) != "" {

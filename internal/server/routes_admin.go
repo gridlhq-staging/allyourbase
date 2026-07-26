@@ -263,7 +263,11 @@ func (s *Server) registerAdminServicesRoutes(r chi.Router) {
 	s.registerAdminLoggingDrainRoutes(r)
 	s.registerAdminAuditRoutes(r)
 	s.registerAdminAnalyticsRoutes(r)
-	// PARITY: 6.4 — Dashboard lacks a dedicated rich request/query logs viewer workflow; backend analytics APIs are present.
+	// PARITY: 6.4 — Request/query logs viewer shipped (table + detail drawer,
+	// status-class and latency filters, true total-match count, JSON/CSV export)
+	// in ui/src/components/Analytics.tsx + AnalyticsRequestLogs.tsx, backed by
+	// registerAdminAnalyticsRoutes above. Remaining depth gaps (tracked in
+	// ROADMAP): aggregation charts, _ayb_request_logs.tenant_id, SSE live-tail.
 
 	s.registerAdminStatsRoutes(r)
 

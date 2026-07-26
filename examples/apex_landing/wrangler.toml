@@ -1,0 +1,13 @@
+name = "ayb-demo-apex"
+pages_build_output_dir = "dist"
+compatibility_date = "2026-07-26"
+
+[vars]
+DAYTONA_API_URL = "https://app.daytona.io/api"
+TRY_AYB_IMAGE = "ghcr.io/allyourbasehq/allyourbase@sha256:03a5f4b06bdc1d467bb664a4ae7fdb85e1ebafe36995df522855ff712cc17b71"
+TRY_MAX_ACTIVE = "3"
+TRY_TTL_MINUTES = "30"
+
+[[kv_namespaces]]
+binding = "TRY_STATE"
+id = "c2a6d3d0340e43f58a8e00058002bc7e"

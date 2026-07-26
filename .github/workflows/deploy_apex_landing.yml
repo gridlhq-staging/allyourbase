@@ -23,8 +23,23 @@ jobs:
         with:
           go-version: "1.25"
 
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6
+        with:
+          node-version: "22"
+
       - name: Test apex landing
         run: go test ./internal/codehealth -run '^TestApexLanding' -count=1
+
+      - name: Test private launcher
+        run: npm --prefix examples/apex_landing test
+
+      - name: Install browser test dependencies
+        run: |
+          npm ci --prefix tests/e2e
+          npm --prefix tests/e2e exec -- playwright install --with-deps chromium
+
+      - name: Test one-click browser flow
+        run: npm --prefix tests/e2e exec -- playwright test --config tests/e2e/try_allyourbase.config.ts
 
   deploy-apex:
     runs-on: ubuntu-latest
@@ -40,7 +55,7 @@ jobs:
       - name: Prepare apex artifact
         run: |
           mkdir -p dist
-          cp index.html dist/index.html
+          cp index.html try.js _routes.json dist/
         working-directory: examples/apex_landing
 
       - name: Deploy to Cloudflare Pages
