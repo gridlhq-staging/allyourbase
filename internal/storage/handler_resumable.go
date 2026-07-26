@@ -24,6 +24,8 @@ type resumableCreateResponse struct {
 	UploadType string `json:"uploadType"`
 }
 
+// HandleResumableCreate validates TUS creation metadata, reserves upload
+// quota, and creates a resumable upload session.
 func (h *Handler) HandleResumableCreate(w http.ResponseWriter, r *http.Request) {
 	if !requireTusVersion(w, r) {
 		return
@@ -105,6 +107,8 @@ func (h *Handler) HandleResumableCreate(w http.ResponseWriter, r *http.Request) 
 	})
 }
 
+// HandleResumablePatch appends a TUS chunk and finalizes the object when the
+// declared upload length is reached.
 func (h *Handler) HandleResumablePatch(w http.ResponseWriter, r *http.Request) {
 	if !requireTusVersion(w, r) {
 		return

@@ -33,6 +33,8 @@ func staticSPAHandler(adminPath string) http.HandlerFunc {
 	}
 }
 
+// serveEmbeddedFile writes an embedded static asset and reports whether it
+// exists, optionally sending a 404 instead of allowing SPA fallback.
 func serveEmbeddedFile(w http.ResponseWriter, path string, mustExist bool) bool {
 	f, err := ui.DistDirFS.Open(path)
 	if err != nil {

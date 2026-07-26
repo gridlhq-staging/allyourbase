@@ -54,6 +54,7 @@ type Settings struct {
 	CustomRanking []CustomRanking `json:"customRanking,omitempty"`
 }
 
+// Validate trims, deduplicates, and bounds-checks search settings independent of table schema.
 func Validate(settings Settings) (Settings, error) {
 	if len(settings.Attributes) > maxAttributes {
 		return Settings{}, fmt.Errorf("search settings may include at most %d attributes", maxAttributes)
@@ -129,6 +130,7 @@ func normalizeRankingOrder(order RankingOrder) (RankingOrder, error) {
 	}
 }
 
+// ValidateForTable validates settings and rejects columns that cannot participate in table search.
 func ValidateForTable(tbl *schema.Table, settings Settings) (Settings, error) {
 	normalized, err := Validate(settings)
 	if err != nil {

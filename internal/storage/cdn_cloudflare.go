@@ -36,6 +36,8 @@ type CloudflareCDNProvider struct {
 	backoffConfig backoff.Config
 }
 
+// NewCloudflareCDNProvider constructs a Cloudflare cache-purge provider from
+// the supplied credentials, HTTP client, and retry settings.
 func NewCloudflareCDNProvider(opts CloudflareCDNOptions) *CloudflareCDNProvider {
 	httpClient := opts.HTTPClient
 	if httpClient == nil {

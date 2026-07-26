@@ -29,6 +29,7 @@ func NewOllamaProvider(baseURL string) *OllamaProvider {
 	}
 }
 
+// GenerateText fulfills the Provider contract using Ollama's chat API.
 func (p *OllamaProvider) GenerateText(ctx context.Context, req GenerateTextRequest) (GenerateTextResponse, error) {
 	body := buildOllamaChatRequest(req, false)
 
@@ -101,6 +102,7 @@ func buildOllamaMessages(req GenerateTextRequest) []ollamaMessage {
 	return msgs
 }
 
+// buildOllamaChatRequest shapes a chat request and includes only explicitly configured options.
 func buildOllamaChatRequest(req GenerateTextRequest, stream bool) ollamaRequest {
 	body := ollamaRequest{
 		Model:    req.Model,
@@ -146,6 +148,7 @@ type ollamaResponse struct {
 	EvalCount       int           `json:"eval_count"`
 }
 
+// GenerateEmbedding fulfills the EmbeddingProvider contract using Ollama's embed API.
 func (p *OllamaProvider) GenerateEmbedding(ctx context.Context, req EmbeddingRequest) (EmbeddingResponse, error) {
 	body := ollamaEmbedRequest(req)
 

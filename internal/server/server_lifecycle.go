@@ -66,6 +66,8 @@ func (s *Server) startRuntimeServices(ctx context.Context) {
 	s.startStoragePoller(ctx)
 }
 
+// startStoragePoller records aggregate storage usage immediately and every
+// 15 seconds until the server begins shutting down.
 func (s *Server) startStoragePoller(ctx context.Context) {
 	if s.pool == nil || s.infraMetrics == nil || s.storagePollerCancel != nil {
 		return
@@ -168,6 +170,8 @@ func (s *Server) Shutdown(ctx context.Context) error {
 	return shutdownErr
 }
 
+// stopRequestRateLimiters stops every server- and auth-handler-owned limiter
+// before the HTTP server begins draining requests.
 func (s *Server) stopRequestRateLimiters() {
 	if s.authRL != nil {
 		stopServerRateLimiter(s.authRL)
@@ -198,6 +202,8 @@ func (s *Server) stopRequestRateLimiters() {
 	}
 }
 
+// stopBackgroundServices stops runtime workers before the HTTP server begins
+// draining requests.
 func (s *Server) stopBackgroundServices() {
 	if s.jobService != nil {
 		s.jobService.Stop()
@@ -234,6 +240,8 @@ func (s *Server) stopDrainManager() {
 	}
 }
 
+// shutdownTelemetry flushes tracing and HTTP metrics after the request logger
+// and drain manager have stopped.
 func (s *Server) shutdownTelemetry(ctx context.Context) error {
 	var shutdownErr error
 	if s.tracerProvider != nil {

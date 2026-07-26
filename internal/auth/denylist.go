@@ -50,6 +50,10 @@ func (d *TokenDenyList) Add(sessionID string, ttl time.Duration) error {
 	return d.AddContext(context.Background(), sessionID, ttl)
 }
 
+// AddContext denies a session until now+ttl, persisting it to the revoked-session
+// store when one is configured and publishing the revocation to other nodes over
+// the bus. An empty session id is a no-op, and a cancelled context is returned
+// before any write.
 func (d *TokenDenyList) AddContext(ctx context.Context, sessionID string, ttl time.Duration) error {
 	if sessionID == "" {
 		return nil

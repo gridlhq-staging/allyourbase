@@ -45,6 +45,7 @@ func schemaCapabilities(cache *schema.SchemaCache) []string {
 	return capabilities
 }
 
+// appendSchemaTables writes tables in stable order until the character budget is exhausted.
 func appendSchemaTables(builder *strings.Builder, cache *schema.SchemaCache, maxChars int) bool {
 	tableKeys := make([]string, 0, len(cache.Tables))
 	for key := range cache.Tables {
@@ -65,6 +66,7 @@ func appendSchemaTables(builder *strings.Builder, cache *schema.SchemaCache, max
 	return false
 }
 
+// appendSchemaFunctions writes functions in stable order until the character budget is exhausted.
 func appendSchemaFunctions(builder *strings.Builder, cache *schema.SchemaCache, maxChars int) bool {
 	functionKeys := make([]string, 0, len(cache.Functions))
 	for key := range cache.Functions {
@@ -83,6 +85,7 @@ func appendSchemaFunctions(builder *strings.Builder, cache *schema.SchemaCache, 
 	return false
 }
 
+// schemaTableChunks renders a table as independently budgeted metadata sections.
 func schemaTableChunks(table *schema.Table) []string {
 	chunks := []string{
 		fmt.Sprintf("table %s.%s (%s) pk=[%s] RLS=%t\n", table.Schema, table.Name, table.Kind, strings.Join(table.PrimaryKey, ","), table.RLSEnabled),

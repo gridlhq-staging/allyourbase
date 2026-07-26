@@ -72,6 +72,8 @@ func currentArgon2Config() (memory uint32, time uint32, threads uint8) {
 	return argonMemory, argonTime, argonThreads
 }
 
+// Service is the authentication domain: it owns user credentials, JWT issuance
+// and validation, sessions, MFA enrollment and challenges, and session revocation.
 type Service struct {
 	pool                  *pgxpool.Pool
 	jwtSecret             []byte
@@ -220,6 +222,11 @@ func NewService(pool *pgxpool.Pool, jwtSecret string, tokenDuration, refreshDura
 	return svc
 }
 
+// ConfigureSessionRevocation installs the persisted store and event bus used to
+// revoke active sessions, reconciles the currently revoked set immediately, and
+// starts the revocation subscription and periodic reconciler when a bus or store
+// is provided. It replaces any previous configuration and returns an error if the
+// initial reconcile or listener startup fails.
 func (s *Service) ConfigureSessionRevocation(ctx context.Context, opts RevocationOptions) error {
 	if s.denyList == nil {
 		s.denyList = NewTokenDenyList()

@@ -40,6 +40,7 @@ type Config struct {
 	EncryptedColumns []EncryptedColumnConfig `toml:"encrypted_columns"`
 }
 
+// Default returns a Config populated with AYB's built-in runtime defaults.
 func Default() *Config {
 	return &Config{
 		Server:        defaultServerConfig(),

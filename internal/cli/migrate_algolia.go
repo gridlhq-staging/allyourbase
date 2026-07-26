@@ -176,6 +176,8 @@ func confirmAlgoliaMigration(yes bool, dryRun bool) (bool, error) {
 	return true, nil
 }
 
+// Analyze browses the configured Algolia source, caches the import plan, and
+// returns the analysis report used for confirmation and validation.
 func (a *algoliaCLIAdapter) Analyze(ctx context.Context) (*migrate.AnalysisReport, error) {
 	if a.report != nil {
 		return a.report, nil
@@ -196,6 +198,8 @@ func (a *algoliaCLIAdapter) Analyze(ctx context.Context) (*migrate.AnalysisRepor
 	return a.report, nil
 }
 
+// Migrate reuses the analysis path before importing records, or validates the
+// target and returns planned stats when dry-run mode is enabled.
 func (a *algoliaCLIAdapter) Migrate(ctx context.Context) (*algoliamigrate.ImportStats, error) {
 	if _, err := a.Analyze(ctx); err != nil {
 		return nil, err

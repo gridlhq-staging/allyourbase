@@ -105,6 +105,7 @@ func hasMoviesDemoCorpusIdentity(ctx context.Context, pool *pgxpool.Pool, artifa
 	return idx == len(artifact.Records), nil
 }
 
+// AIUsageAggregationJobHandler aggregates the requested UTC day, defaulting to yesterday.
 func AIUsageAggregationJobHandler(aggregator AIUsageAggregator) JobHandler {
 	return func(ctx context.Context, payload json.RawMessage) error {
 		targetDay := time.Now().UTC().AddDate(0, 0, -1)
@@ -211,6 +212,7 @@ func StaleSessionCleanupHandler(pool *pgxpool.Pool, logger *slog.Logger) JobHand
 	}
 }
 
+// WebhookDeliveryPruneHandler deletes delivered webhook records older than the requested retention period.
 func WebhookDeliveryPruneHandler(pool *pgxpool.Pool, logger *slog.Logger) JobHandler {
 	return func(ctx context.Context, payload json.RawMessage) error {
 		var p webhookPrunePayload
@@ -281,6 +283,7 @@ func ExpiredAuthCleanupHandler(pool *pgxpool.Pool, logger *slog.Logger) JobHandl
 	}
 }
 
+// ResumableUploadCleanupHandler deletes expired resumable uploads through the storage service.
 func ResumableUploadCleanupHandler(storageSvc *storage.Service, logger *slog.Logger) JobHandler {
 	return func(ctx context.Context, _ json.RawMessage) error {
 		if storageSvc == nil {
@@ -297,6 +300,7 @@ func ResumableUploadCleanupHandler(storageSvc *storage.Service, logger *slog.Log
 	}
 }
 
+// AuditLogRetentionHandler deletes audit entries older than the payload or configured retention period.
 func AuditLogRetentionHandler(pool *pgxpool.Pool, defaultRetentionDays int, logger *slog.Logger) JobHandler {
 	return func(ctx context.Context, payload json.RawMessage) error {
 		retentionDays := defaultRetentionDays
@@ -328,6 +332,7 @@ func AuditLogRetentionHandler(pool *pgxpool.Pool, defaultRetentionDays int, logg
 	}
 }
 
+// JobRunsRetentionHandler deletes finished job-run history older than the payload or configured retention period.
 func JobRunsRetentionHandler(pool *pgxpool.Pool, defaultRetentionDays int, logger *slog.Logger) JobHandler {
 	return func(ctx context.Context, payload json.RawMessage) error {
 		retentionDays := defaultRetentionDays
@@ -360,6 +365,7 @@ func JobRunsRetentionHandler(pool *pgxpool.Pool, defaultRetentionDays int, logge
 	}
 }
 
+// RequestLogRetentionHandler deletes request logs older than the payload or configured retention period.
 func RequestLogRetentionHandler(pool *pgxpool.Pool, defaultRetentionDays int, logger *slog.Logger) JobHandler {
 	return func(ctx context.Context, payload json.RawMessage) error {
 		retentionDays := defaultRetentionDays

@@ -42,6 +42,7 @@ type envelope struct {
 	Data   json.RawMessage `json:"d"`
 }
 
+// NewBus creates a PostgreSQL-backed notification bus.
 func NewBus(pool *pgxpool.Pool, connString string, logger *slog.Logger) *Bus {
 	if logger == nil {
 		logger = slog.New(slog.NewTextHandler(io.Discard, nil))
@@ -64,6 +65,7 @@ func (b *Bus) NodeID() string {
 	return b.nodeID
 }
 
+// Publish sends a notification to subscribers of a logical channel.
 func (b *Bus) Publish(ctx context.Context, name string, kind string, data any) error {
 	channel, err := physicalChannelName(name)
 	if err != nil {
@@ -82,6 +84,7 @@ func (b *Bus) Publish(ctx context.Context, name string, kind string, data any) e
 	return nil
 }
 
+// Subscribe listens for notifications from other bus instances on a logical channel.
 func (b *Bus) Subscribe(ctx context.Context, name string, handler func(kind string, data json.RawMessage)) error {
 	channel, err := physicalChannelName(name)
 	if err != nil {

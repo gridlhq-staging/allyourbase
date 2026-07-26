@@ -67,6 +67,7 @@ type replicationLagRow struct {
 	LagBytes        int64
 }
 
+// HealthChecker monitors replica availability and replication lag.
 type HealthChecker struct {
 	router    *PoolRouter
 	statuses  []*ReplicaStatus
@@ -87,6 +88,7 @@ type HealthChecker struct {
 	afterCycleHook    func()
 }
 
+// NewHealthChecker creates a health checker for the replicas managed by router.
 func NewHealthChecker(router *PoolRouter, interval time.Duration, logger *slog.Logger) *HealthChecker {
 	if interval <= 0 {
 		interval = defaultHealthCheckInterval
@@ -314,6 +316,7 @@ func (h *HealthChecker) RunCheck(ctx context.Context) {
 	h.runCheckCycle(ctx)
 }
 
+// Start begins periodic replica health checks.
 func (h *HealthChecker) Start() {
 	h.startOnce.Do(func() {
 		h.wg.Add(1)

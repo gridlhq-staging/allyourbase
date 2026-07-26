@@ -19,6 +19,8 @@ type WebAuthnCredentialMetadata struct {
 	LastUsedAt   *time.Time `json:"last_used_at,omitempty"`
 }
 
+// ListWebAuthnCredentials returns metadata for the user's enabled WebAuthn
+// credentials, ordered by creation time.
 func (s *Service) ListWebAuthnCredentials(ctx context.Context, userID string) ([]WebAuthnCredentialMetadata, error) {
 	if s.pool == nil {
 		return nil, errors.New("database pool is not configured")
@@ -51,6 +53,10 @@ func (s *Service) ListWebAuthnCredentials(ctx context.Context, userID string) ([
 	return credentials, nil
 }
 
+// RenameWebAuthnCredential sets the display name of a WebAuthn credential owned by
+// the user, returning the updated metadata and sending a credential-changed
+// notification email. It returns ErrWebAuthnCredentialNotFound when the user has
+// no matching enabled credential.
 func (s *Service) RenameWebAuthnCredential(
 	ctx context.Context,
 	userID string,
@@ -85,6 +91,10 @@ func (s *Service) RenameWebAuthnCredential(
 	return &credential, nil
 }
 
+// DeleteWebAuthnCredential removes a WebAuthn credential owned by the user. It
+// refuses to delete the user's last remaining passkey with ErrWebAuthnLastCredential
+// so the factor cannot be silently disabled, and sends a credential-changed
+// notification on success.
 func (s *Service) DeleteWebAuthnCredential(ctx context.Context, userID string, credentialID []byte) error {
 	if s.pool == nil {
 		return errors.New("database pool is not configured")

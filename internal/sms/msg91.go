@@ -34,6 +34,7 @@ func NewMSG91Provider(authKey, templateID, baseURL string) *MSG91Provider {
 	}
 }
 
+// Send submits the SMS through MSG91's flow API and returns the request ID.
 func (p *MSG91Provider) Send(ctx context.Context, to, body string) (*SendResult, error) {
 	endpoint := p.baseURL + "/api/v5/flow/"
 

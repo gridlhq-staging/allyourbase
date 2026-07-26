@@ -16,6 +16,10 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 )
 
+// CreateWebAuthnFirstFactorChallenge starts a passwordless WebAuthn login for the
+// account with the given email, returning a challenge id and assertion options for
+// the client. To avoid revealing whether an email is enrolled, it returns an
+// indistinguishable decoy challenge when the user is unknown or has no passkey.
 func (s *Service) CreateWebAuthnFirstFactorChallenge(ctx context.Context, email, ipAddress, publicBaseURL string) (string, *protocol.CredentialAssertion, error) {
 	if s.pool == nil {
 		return "", nil, errors.New("database pool is not configured")
@@ -45,6 +49,9 @@ const (
 	webAuthnChallengeScopeFirstFactor = "webauthn_first_factor"
 )
 
+// CreateWebAuthnChallenge starts a WebAuthn MFA challenge for an already-identified
+// user, returning a challenge id and the assertion options for the client. It
+// returns ErrWebAuthnNotEnrolled when the user has no enabled passkey.
 func (s *Service) CreateWebAuthnChallenge(ctx context.Context, userID, ipAddress, publicBaseURL string) (string, *protocol.CredentialAssertion, error) {
 	return s.createWebAuthnChallengeForScope(ctx, userID, ipAddress, publicBaseURL, webAuthnChallengeScopeMFA)
 }
@@ -98,6 +105,10 @@ func (s *Service) createWebAuthnChallengeForScope(ctx context.Context, userID, i
 	return challengeID, assertion, nil
 }
 
+// VerifyWebAuthnChallenge verifies the authenticator's assertion for an MFA
+// challenge, marks the challenge consumed so it cannot be replayed, and issues a
+// fully authenticated session. It returns the user with new access and refresh
+// tokens.
 func (s *Service) VerifyWebAuthnChallenge(ctx context.Context, userID, challengeID, publicBaseURL string, parsedAssertion *protocol.ParsedCredentialAssertionData, firstFactorMethod string) (*User, string, string, error) {
 	if s.pool == nil {
 		return nil, "", "", errors.New("database pool is not configured")
@@ -126,6 +137,10 @@ func (s *Service) VerifyWebAuthnChallenge(ctx context.Context, userID, challenge
 	return user, token, refreshToken, nil
 }
 
+// VerifyWebAuthnFirstFactorChallenge verifies the assertion for a passwordless
+// first-factor challenge, resolving the user from the challenge, consuming it so it
+// cannot be replayed, and issuing a session. It returns the user with new access
+// and refresh tokens.
 func (s *Service) VerifyWebAuthnFirstFactorChallenge(ctx context.Context, challengeID, publicBaseURL string, parsedAssertion *protocol.ParsedCredentialAssertionData) (*User, string, string, error) {
 	if s.pool == nil {
 		return nil, "", "", errors.New("database pool is not configured")

@@ -31,6 +31,7 @@ func (pg *PGContainer) Cleanup() {
 	}
 }
 
+// StartPostgresForTestMain creates an isolated database for an integration test package.
 func StartPostgresForTestMain(ctx context.Context) (*PGContainer, func()) {
 	baseURL := os.Getenv("TEST_DATABASE_URL")
 	if baseURL == "" {

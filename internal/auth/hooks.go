@@ -70,6 +70,9 @@ func (d *HookDispatcher) BeforeSignUp(ctx context.Context, email string, metadat
 	return nil
 }
 
+// AfterSignUp invokes the configured after_sign_up hook asynchronously and
+// best-effort: it returns immediately, does nothing when no hook is configured,
+// and logs (rather than propagates) panics and invocation errors.
 func (d *HookDispatcher) AfterSignUp(ctx context.Context, userID, email string, metadata map[string]any) {
 	if d.hooks.AfterSignUp == "" || d.inv == nil {
 		return

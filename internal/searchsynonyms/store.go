@@ -30,6 +30,7 @@ func NewStore(pool *pgxpool.Pool) Store {
 	return Store{pool: pool}
 }
 
+// LoadGroups returns the deterministically sorted synonym groups for a collection.
 func (s Store) LoadGroups(ctx context.Context, schemaName, tableName string) (Groups, error) {
 	rows, err := s.pool.Query(ctx, `
 		SELECT group_id::text, term
@@ -64,6 +65,7 @@ func (s Store) LoadGroups(ctx context.Context, schemaName, tableName string) (Gr
 	return groups, nil
 }
 
+// ReplaceGroups atomically replaces all synonym groups for a collection.
 func (s Store) ReplaceGroups(ctx context.Context, schemaName, tableName string, groups Groups) error {
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {

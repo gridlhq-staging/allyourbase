@@ -37,6 +37,7 @@ func NewTwilioProvider(accountSID, authToken, fromNumber, baseURL string) *Twili
 	}
 }
 
+// Send submits the SMS through Twilio and returns the provider message status.
 func (p *TwilioProvider) Send(ctx context.Context, to, body string) (*SendResult, error) {
 	endpoint := fmt.Sprintf("%s/2010-04-01/Accounts/%s/Messages.json", p.baseURL, p.accountSID)
 

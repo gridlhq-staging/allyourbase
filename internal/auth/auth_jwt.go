@@ -26,6 +26,10 @@ func (s *Service) readJWTSecret() ([]byte, error) {
 	return secret, nil
 }
 
+// ValidateToken parses and verifies a signed access token, enforcing the HMAC
+// signing method and expiry against the service clock, and returns its claims.
+// It rejects tokens whose session has been revoked via the deny list with
+// ErrTokenRevoked.
 func (s *Service) ValidateToken(tokenString string) (*Claims, error) {
 	if len(tokenString) > maxJWTTokenLength {
 		return nil, errors.New("token too large")

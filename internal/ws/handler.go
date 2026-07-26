@@ -81,6 +81,8 @@ func (h *Handler) pingIntervalDuration() time.Duration {
 	return pingInterval
 }
 
+// ServeHTTP upgrades a request to WebSocket, authenticates the connection, and
+// runs its read and write loops until disconnect.
 func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	wsConn, err := h.upgrader.Upgrade(w, r, nil)
 	if err != nil {

@@ -37,6 +37,7 @@ func newLineStreamReader(upstream io.ReadCloser, parseLine streamLineParser) io.
 	}
 }
 
+// Read returns decoded text deltas from the upstream line-oriented stream.
 func (r *lineStreamReader) Read(p []byte) (int, error) {
 	if len(p) == 0 {
 		return 0, nil
@@ -73,6 +74,7 @@ func (r *lineStreamReader) Close() error {
 	return r.upstream.Close()
 }
 
+// scanNextDelta advances to the next emitted delta or terminal stream state.
 func (r *lineStreamReader) scanNextDelta() {
 	for r.scanner.Scan() {
 		result, err := r.parseLine(r.scanner.Bytes())

@@ -59,6 +59,7 @@ func New(cfg Config) *Manager {
 	}
 }
 
+// Start initializes and starts managed PostgreSQL, returning its connection URL.
 func (m *Manager) Start(ctx context.Context) (string, error) {
 	if m.running {
 		return m.connURL, nil

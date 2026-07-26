@@ -30,6 +30,8 @@ type uploadRequestInput struct {
 	size        int64
 }
 
+// HandleUpload validates and stores a multipart file upload while enforcing
+// configured user and tenant quotas.
 func (h *Handler) HandleUpload(w http.ResponseWriter, r *http.Request) {
 	input, ok := h.parseUploadRequest(w, r)
 	if !ok {

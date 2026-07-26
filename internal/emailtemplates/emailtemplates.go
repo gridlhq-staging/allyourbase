@@ -75,6 +75,7 @@ type BuiltinTemplate struct {
 	Variables       []string
 }
 
+// DefaultBuiltins returns the built-in authentication email templates by key.
 func DefaultBuiltins() map[string]BuiltinTemplate {
 	systemVars, mfaVars := []string{"AppName", "ActionURL"}, []string{"AppName", "Code"}
 	passkeyVars := []string{"AppName", "Action", "CredentialName"}

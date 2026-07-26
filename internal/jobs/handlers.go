@@ -230,6 +230,7 @@ func RegisterAIUsageAggregationSchedule(ctx context.Context, svc *Service) error
 	return registerSchedule(ctx, svc, schedule)
 }
 
+// RegisterBillingUsageSyncSchedule registers the enabled UTC usage-sync schedule for the requested interval.
 func RegisterBillingUsageSyncSchedule(ctx context.Context, svc *Service, usageSyncIntervalSecs int) error {
 	cronExpr, err := usageSyncCronExpr(usageSyncIntervalSecs)
 	if err != nil {

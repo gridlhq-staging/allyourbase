@@ -29,6 +29,7 @@ func NewWebhookProvider(url, secret string) *WebhookProvider {
 	}
 }
 
+// Send posts the SMS payload to the configured webhook and returns its message ID.
 func (p *WebhookProvider) Send(ctx context.Context, to, body string) (*SendResult, error) {
 	reqBody, err := json.Marshal(map[string]string{
 		"to":        to,

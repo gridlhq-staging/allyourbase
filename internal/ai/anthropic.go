@@ -34,6 +34,7 @@ func NewAnthropicProvider(apiKey, baseURL string) *AnthropicProvider {
 	}
 }
 
+// GenerateText fulfills the Provider contract using the Anthropic Messages API.
 func (p *AnthropicProvider) GenerateText(ctx context.Context, req GenerateTextRequest) (GenerateTextResponse, error) {
 	payload, err := json.Marshal(buildAnthropicRequest(req, false))
 	if err != nil {
@@ -114,6 +115,7 @@ func buildAnthropicMessages(messages []Message) []anthropicMessage {
 	return result
 }
 
+// buildAnthropicRequest shapes a provider request and supplies Anthropic's required token limit.
 func buildAnthropicRequest(req GenerateTextRequest, stream bool) anthropicRequest {
 	anthReq := anthropicRequest{
 		Model:    req.Model,

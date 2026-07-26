@@ -41,6 +41,10 @@ func NewSessionActivityTracker(pool *pgxpool.Pool, debounce time.Duration, logge
 	return tracker
 }
 
+// Touch marks a session as recently active, updating its last_active_at
+// timestamp asynchronously and best-effort. Writes are debounced per session,
+// a nil tracker or empty session id is a no-op, and update failures are logged
+// rather than returned.
 func (t *SessionActivityTracker) Touch(ctx context.Context, sessionID string) {
 	if t == nil || sessionID == "" {
 		return

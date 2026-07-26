@@ -25,6 +25,7 @@ func NewStore(pool *pgxpool.Pool) Store {
 	return Store{pool: pool}
 }
 
+// Load returns validated search settings for a table, or empty settings when none are stored.
 func (s Store) Load(ctx context.Context, schemaName, tableName string) (Settings, error) {
 	var payload []byte
 	err := s.pool.QueryRow(ctx, `
@@ -46,6 +47,7 @@ func (s Store) Load(ctx context.Context, schemaName, tableName string) (Settings
 	return Validate(settings)
 }
 
+// Save validates and upserts search settings for a table.
 func (s Store) Save(ctx context.Context, schemaName, tableName string, settings Settings) error {
 	payload, err := settingsPayload(settings)
 	if err != nil {

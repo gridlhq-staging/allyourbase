@@ -177,6 +177,7 @@ func (h *Hub) PublishOAuth(clientID string, event *auth.OAuthEvent) {
 	h.publishOAuthEventToBus(clientID, event)
 }
 
+// deliverLocalOAuthEvent sends an event to the identified local OAuth client without blocking.
 func (h *Hub) deliverLocalOAuthEvent(clientID string, event *auth.OAuthEvent) {
 	h.mu.RLock()
 	client, ok := h.clients[clientID]
@@ -199,6 +200,7 @@ func (h *Hub) deliverLocalOAuthEvent(clientID string, event *auth.OAuthEvent) {
 	}
 }
 
+// publishOAuthEventToBus emits a targeted OAuth event for cross-node delivery.
 func (h *Hub) publishOAuthEventToBus(clientID string, event *auth.OAuthEvent) {
 	if h.tableEventBus == nil {
 		return
@@ -323,6 +325,7 @@ func tenantMatches(eventTenant, clientTenant string) bool {
 	return clientTenant == eventTenant
 }
 
+// publishTableEventToBus emits a table event for cross-node fanout.
 func (h *Hub) publishTableEventToBus(event *Event) {
 	if h.tableEventBus == nil {
 		return
@@ -375,6 +378,7 @@ func (h *Hub) handleTableEventBusMessage(kind string, data json.RawMessage) {
 	h.deliverLocalTableEvent(&event)
 }
 
+// startOAuthEventBus starts the cross-node OAuth listener and waits briefly for readiness.
 func (h *Hub) startOAuthEventBus() {
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
@@ -406,6 +410,7 @@ func (h *Hub) handleOAuthEventBusMessage(kind string, data json.RawMessage) {
 	h.deliverLocalOAuthEvent(envelope.ClientID, envelope.Event)
 }
 
+// stopOAuthEventBus cancels the OAuth listener and waits for its bounded shutdown.
 func (h *Hub) stopOAuthEventBus() {
 	h.mu.Lock()
 	cancel := h.oauthEventBusCancel
@@ -446,6 +451,7 @@ func (h *Hub) Close() {
 	}
 }
 
+// stopTableEventBus cancels the table-event listener and waits for its bounded shutdown.
 func (h *Hub) stopTableEventBus() {
 	h.mu.Lock()
 	cancel := h.tableEventBusCancel

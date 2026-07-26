@@ -9,6 +9,8 @@ import (
 	"github.com/go-chi/chi/v5"
 )
 
+// resolveAdminCollection finds the URL-named table, preferring the public
+// schema and rejecting ambiguous matches in other schemas.
 func resolveAdminCollection(w http.ResponseWriter, r *http.Request, holder *schema.CacheHolder) *schema.Table {
 	tableName := chi.URLParam(r, "table")
 	if holder == nil {

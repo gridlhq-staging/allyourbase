@@ -73,6 +73,7 @@ type APIConfig struct {
 	TextSearchConfig string `toml:"text_search_config"`
 }
 
+// ServerConfig controls the public HTTP listener, request limits, tenant resolution, and TLS settings.
 type ServerConfig struct {
 	Host                  string   `toml:"host"`
 	Port                  int      `toml:"port"`
@@ -121,6 +122,7 @@ type AdminConfig struct {
 	AllowedIPs     []string `toml:"allowed_ips"`
 }
 
+// AuthConfig controls authentication, OAuth, MFA, SMS verification, and provider credentials.
 type AuthConfig struct {
 	Enabled                bool                     `toml:"enabled"`
 	JWTSecret              string                   `toml:"jwt_secret"`

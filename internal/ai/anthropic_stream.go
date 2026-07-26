@@ -42,6 +42,7 @@ func (p *AnthropicProvider) GenerateTextStream(ctx context.Context, req Generate
 	return newLineStreamReader(resp.Body, parseAnthropicStreamLine), nil
 }
 
+// parseAnthropicStreamLine decodes text deltas, completion, and errors from an Anthropic SSE line.
 func parseAnthropicStreamLine(line []byte) (streamLineResult, error) {
 	text := strings.TrimSpace(string(line))
 	if text == "" || strings.HasPrefix(text, ":") || strings.HasPrefix(text, "event:") {

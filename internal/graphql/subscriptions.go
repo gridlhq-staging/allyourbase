@@ -276,6 +276,7 @@ func (h *Handler) forwardSubscriptionEvents(ctx context.Context, conn *GQLWSConn
 	}
 }
 
+// canDeliverEvent enforces tenant, RLS, row availability, and GraphQL where checks before subscription delivery.
 func (h *Handler) canDeliverEvent(ctx context.Context, conn *GQLWSConn, event *realtime.Event, state *gqlwsSubscriptionState) bool {
 	if event == nil {
 		return false

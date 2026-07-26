@@ -22,6 +22,10 @@ var (
 	ErrWebAuthnLastCredential       = errors.New("cannot delete final WebAuthn credential")
 )
 
+// EnrollWebAuthn begins WebAuthn registration for the user, persisting the pending
+// enrollment session and returning the credential-creation options the client
+// passes to the authenticator. Existing credentials are excluded so the same
+// authenticator cannot be registered twice.
 func (s *Service) EnrollWebAuthn(ctx context.Context, userID, publicBaseURL string) (*protocol.CredentialCreation, error) {
 	if s.pool == nil {
 		return nil, errors.New("database pool is not configured")
@@ -80,6 +84,11 @@ func (s *Service) EnrollWebAuthn(ctx context.Context, userID, publicBaseURL stri
 	return creation, nil
 }
 
+// ConfirmWebAuthnEnrollment completes a pending WebAuthn enrollment by verifying
+// the authenticator's attestation against the stored session, persisting the new
+// credential under displayName, and enabling the factor. It returns
+// ErrWebAuthnEnrollmentNotPending when there is no pending enrollment and
+// ErrWebAuthnInvalidAttestation when verification fails.
 func (s *Service) ConfirmWebAuthnEnrollment(
 	ctx context.Context,
 	userID,

@@ -17,6 +17,7 @@ type Group struct {
 
 type Groups []Group
 
+// NormalizeGroups validates and deterministically sorts normalized synonym groups.
 func NormalizeGroups(groups Groups) (Groups, error) {
 	if groups == nil {
 		return nil, fmt.Errorf("groups is required")

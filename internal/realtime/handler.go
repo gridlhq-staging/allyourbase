@@ -47,6 +47,7 @@ func NewHandler(hub *Hub, pool *pgxpool.Pool, authSvc *auth.Service, schemaCache
 	}
 }
 
+// ServeHTTP serves filtered table events or one-shot OAuth results over SSE.
 func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	flusher, ok := w.(http.Flusher)
 	if !ok {
@@ -227,6 +228,7 @@ func (h *Handler) applySSEHeaders(w http.ResponseWriter) {
 	w.Header().Set("X-Accel-Buffering", "no") // disable nginx buffering
 }
 
+// streamRealtimeSSEEvents sends visible, subscription-matching table events until the client disconnects.
 func (h *Handler) streamRealtimeSSEEvents(w http.ResponseWriter, flusher http.Flusher, ctx context.Context, claims *auth.Claims, activeSchema string, client *Client) {
 	for {
 		select {
@@ -255,6 +257,7 @@ func (h *Handler) streamRealtimeSSEEvents(w http.ResponseWriter, flusher http.Fl
 	}
 }
 
+// serveOAuthSSE exposes a one-shot OAuth result stream whose client ID identifies the flow.
 func (h *Handler) serveOAuthSSE(w http.ResponseWriter, r *http.Request, flusher http.Flusher) {
 	client := h.hub.SubscribeOAuth()
 	defer h.hub.Unsubscribe(client.ID)
@@ -401,6 +404,7 @@ func canSeeDeletedRecord(ctx context.Context, pool *pgxpool.Pool, logger *slog.L
 	return runVisibilityCheck(ctx, pool, logger, claims, query, args)
 }
 
+// runVisibilityCheck executes a visibility query under the caller's RLS context and fails closed on any error.
 func runVisibilityCheck(ctx context.Context, pool *pgxpool.Pool, logger *slog.Logger, claims *auth.Claims, query string, args []any) bool {
 	tx, err := pool.Begin(ctx)
 	if err != nil {
@@ -447,6 +451,7 @@ func isSelectApplicablePolicy(policy *schema.RLSPolicy) bool {
 	return command == "ALL" || command == "SELECT"
 }
 
+// deleteVisibilityPredicate combines SELECT-applicable policies for evaluation against a deleted row.
 func deleteVisibilityPredicate(tbl *schema.Table) (string, bool) {
 	if !tbl.RLSEnabled {
 		return "", false
@@ -495,6 +500,7 @@ func recordHasPrimaryKeyValues(tbl *schema.Table, record map[string]any) bool {
 	return true
 }
 
+// buildDeletedVisibilityCheck evaluates a deleted record as a typed VALUES row against an RLS predicate.
 func buildDeletedVisibilityCheck(tbl *schema.Table, predicate string, record map[string]any) (string, []any) {
 	columns := make([]string, 0, len(record))
 	for column := range record {

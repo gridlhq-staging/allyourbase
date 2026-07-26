@@ -181,6 +181,7 @@ func (p *PoolRouter) HasReplicas() bool {
 	return len(p.replicas) > 0
 }
 
+// SetHealthy replaces the replicas eligible to serve reads.
 func (p *PoolRouter) SetHealthy(pools []*pgxpool.Pool) {
 	healthySet := make(map[*pgxpool.Pool]struct{}, len(pools))
 	for _, pool := range pools {

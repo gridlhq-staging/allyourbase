@@ -34,6 +34,7 @@ func NewTelnyxProvider(apiKey, fromNumber, baseURL string) *TelnyxProvider {
 	}
 }
 
+// Send submits the SMS through Telnyx and returns the provider message status.
 func (p *TelnyxProvider) Send(ctx context.Context, to, body string) (*SendResult, error) {
 	endpoint := p.baseURL + "/v2/messages"
 

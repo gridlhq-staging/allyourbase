@@ -111,6 +111,7 @@ func (s *Service) GetSite(ctx context.Context, id string) (*Site, error) {
 	return &site, nil
 }
 
+// ListSites returns a page of sites ordered newest first with the total count.
 func (s *Service) ListSites(ctx context.Context, page, perPage int) (*SiteListResult, error) {
 	page, perPage = clampPagination(page, perPage)
 	offset := (page - 1) * perPage

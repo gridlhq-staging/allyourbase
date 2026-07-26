@@ -37,6 +37,7 @@ func NewVonageProvider(apiKey, apiSecret, fromNumber, baseURL string) *VonagePro
 	}
 }
 
+// Send submits the SMS through Vonage and returns the accepted provider message ID.
 func (p *VonageProvider) Send(ctx context.Context, to, body string) (*SendResult, error) {
 	endpoint := p.baseURL + "/sms/json"
 

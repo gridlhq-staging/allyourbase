@@ -36,6 +36,7 @@ func NewPlivoProvider(authID, authToken, fromNumber, baseURL string) *PlivoProvi
 	}
 }
 
+// Send submits the SMS through Plivo and returns the queued message ID.
 func (p *PlivoProvider) Send(ctx context.Context, to, body string) (*SendResult, error) {
 	endpoint := fmt.Sprintf("%s/v1/Account/%s/Message/", p.baseURL, p.authID)
 

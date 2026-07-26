@@ -57,6 +57,8 @@ func (c *Checker) RunOnce(ctx context.Context) StatusSnapshot {
 	return snapshot
 }
 
+// Start runs probes immediately and then at the configured interval until the
+// context is canceled or Stop is called. Calls while the checker is running are ignored.
 func (c *Checker) Start(ctx context.Context) {
 	c.mu.Lock()
 	if c.stopCh != nil {

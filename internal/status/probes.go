@@ -106,6 +106,8 @@ func (p *StorageProbe) Name() ServiceName {
 	return Storage
 }
 
+// Check reports whether the configured storage backend responds to a bounded
+// sentinel object-existence request.
 func (p *StorageProbe) Check(ctx context.Context) ProbeResult {
 	start := time.Now().UTC()
 	if p == nil || p.checker == nil {

@@ -95,6 +95,8 @@ func (s *Service) GetDeploy(ctx context.Context, siteID, deployID string) (*Depl
 	return &d, nil
 }
 
+// ListDeploys returns a page of a site's deploys ordered newest first with the
+// total count. It returns ErrSiteNotFound when the site does not exist.
 func (s *Service) ListDeploys(ctx context.Context, siteID string, page, perPage int) (*DeployListResult, error) {
 	page, perPage = clampPagination(page, perPage)
 	offset := (page - 1) * perPage

@@ -31,6 +31,7 @@ func NewOpenAIProvider(apiKey, baseURL string) *OpenAIProvider {
 	}
 }
 
+// GenerateText fulfills the Provider contract using an OpenAI-compatible chat completions API.
 func (p *OpenAIProvider) GenerateText(ctx context.Context, req GenerateTextRequest) (GenerateTextResponse, error) {
 	body := buildOpenAIChatRequest(req, false)
 
@@ -187,6 +188,7 @@ type openaiResponse struct {
 	} `json:"usage"`
 }
 
+// GenerateEmbedding fulfills the EmbeddingProvider contract using an OpenAI-compatible embeddings API.
 func (p *OpenAIProvider) GenerateEmbedding(ctx context.Context, req EmbeddingRequest) (EmbeddingResponse, error) {
 	body := openaiEmbeddingRequest(req)
 

@@ -207,9 +207,12 @@ func (m *Migrator) copyStorageBucket(
 
 	copied := 0
 	for _, obj := range objects {
-		srcFile := filepath.Join(m.opts.StorageExportPath, bucket.Name, obj.Name)
+		exportBucketDir := filepath.Join(m.opts.StorageExportPath, bucket.Name)
+		srcFile := filepath.Join(exportBucketDir, obj.Name)
 		destFile := filepath.Join(bucketDir, obj.Name)
-		if !isStoragePathWithinBucket(destFile, bucketDir) {
+		if !isStoragePathWithinRoot(exportBucketDir, m.opts.StorageExportPath) ||
+			!isStoragePathWithinRoot(srcFile, exportBucketDir) ||
+			!isStoragePathWithinRoot(destFile, bucketDir) {
 			m.recordStorageObjectError(phase, processed, totalObjects,
 				fmt.Sprintf("skipping %s/%s: path traversal detected", bucket.Name, obj.Name))
 			continue
@@ -240,10 +243,10 @@ func (m *Migrator) copyStorageBucket(
 	return nil
 }
 
-func isStoragePathWithinBucket(destFile, bucketDir string) bool {
-	cleanDest := filepath.Clean(destFile)
-	cleanBucket := filepath.Clean(bucketDir)
-	return strings.HasPrefix(cleanDest, cleanBucket+string(filepath.Separator)) || cleanDest == cleanBucket
+func isStoragePathWithinRoot(path, root string) bool {
+	cleanPath := filepath.Clean(path)
+	cleanRoot := filepath.Clean(root)
+	return strings.HasPrefix(cleanPath, cleanRoot+string(filepath.Separator)) || cleanPath == cleanRoot
 }
 
 func (m *Migrator) recordStorageObjectError(

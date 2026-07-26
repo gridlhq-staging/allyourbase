@@ -35,6 +35,7 @@ func (h MinIOHarness) S3Config() storage.S3Config {
 	}
 }
 
+// StartMinIOHarness starts a MinIO test harness with an isolated bucket.
 func StartMinIOHarness(ctx context.Context, t *testing.T) *MinIOHarness {
 	t.Helper()
 

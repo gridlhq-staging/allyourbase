@@ -17,6 +17,8 @@ import (
 	"github.com/go-chi/chi/v5"
 )
 
+// Handler serves storage object, resumable upload, image transformation, and
+// cache-purge HTTP operations.
 type Handler struct {
 	svc                   *Service
 	isAdmin               func(*http.Request) bool
@@ -53,6 +55,8 @@ const (
 	defaultUploadTimeout = 5 * time.Minute
 )
 
+// NewHandler constructs a storage HTTP handler with upload limits, tenant
+// resolution requirements, and optional admin-request detection.
 func NewHandler(svc *Service, logger *slog.Logger, maxFileSize int64, cdnURL string, requireResolvedTenant bool, isAdmin ...func(*http.Request) bool) *Handler {
 	var isAdminFn func(*http.Request) bool
 	if len(isAdmin) > 0 {

@@ -389,6 +389,8 @@ func (s *Service) FinalizeResumableUpload(ctx context.Context, id string, caller
 	return obj, nil
 }
 
+// CleanupExpiredResumableUploads removes expired upload sessions, releases
+// their reserved quota, and best-effort deletes their staged objects.
 func (s *Service) CleanupExpiredResumableUploads(ctx context.Context) (int, error) {
 	if s.pool == nil {
 		return 0, fmt.Errorf("database pool is not configured")

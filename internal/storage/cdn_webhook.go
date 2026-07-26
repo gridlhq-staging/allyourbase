@@ -39,6 +39,8 @@ type WebhookCDNProvider struct {
 	backoffConfig backoff.Config
 }
 
+// NewWebhookCDNProvider constructs a signed webhook cache-purge provider from
+// the supplied endpoint, HTTP client, and retry settings.
 func NewWebhookCDNProvider(opts WebhookCDNOptions) *WebhookCDNProvider {
 	httpClient := opts.HTTPClient
 	if httpClient == nil {
