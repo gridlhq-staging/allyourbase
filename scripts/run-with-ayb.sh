@@ -213,7 +213,7 @@ ensure_ayb_binary_if_needed() {
 
   if should_refresh_ui_bundle; then
     echo "Building current UI bundle because a browser-facing local AYB run needs embedded dashboard assets." >&2
-    pnpm --dir ui build
+    (cd ui && pnpm build)
   elif [[ -x ./ayb ]]; then
     echo "Using existing ./ayb binary for non-browser local AYB run." >&2
     return 0

@@ -112,10 +112,13 @@ func TestRunWithAYBScriptBuildsUIBeforeAYBBinary(t *testing.T) {
 	}
 	source := string(script)
 
-	uiBuildIndex := strings.Index(source, "pnpm --dir ui build")
+	uiBuildIndex := strings.Index(source, "(cd ui && pnpm build)")
 	goBuildIndex := strings.Index(source, "go build -o ayb ./cmd/ayb")
 	if uiBuildIndex < 0 {
-		t.Fatalf("%s must materialize ui/dist with pnpm --dir ui build before building ./ayb", runWithAYBScript)
+		t.Fatalf("%s must enter ui before invoking pnpm so Corepack honors ui/package.json", runWithAYBScript)
+	}
+	if strings.Contains(source, "pnpm --dir ui build") {
+		t.Fatalf("%s must not invoke Corepack from the package-less repository root", runWithAYBScript)
 	}
 	if goBuildIndex < 0 {
 		t.Fatalf("%s must build ./ayb when AYB_START_COMMAND uses it", runWithAYBScript)
