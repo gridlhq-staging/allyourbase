@@ -13,8 +13,13 @@ readonly POST_HEALTH_COMMAND="$1"
 readonly AYB_DEFAULT_START_COMMAND="./ayb start --foreground"
 readonly AYB_DEFAULT_SERVER_HOST="localhost"
 readonly AYB_DEFAULT_SERVER_PORT="8090"
+AUTO_SELECTED_AYB_SERVER_PORT=0
+AUTO_SELECTED_AYB_DATABASE_PORT=0
+AUTO_DERIVED_PLAYWRIGHT_BASE_URL=0
+AUTO_DERIVED_SERVER_SITE_URL=0
 
 if [[ -z "${AYB_BASE_URL:-}" && -z "${AYB_HEALTH_URL:-}" && -z "${AYB_SERVER_PORT:-}" ]]; then
+  AUTO_SELECTED_AYB_SERVER_PORT=1
   AYB_SERVER_PORT="$(pick_free_port 48092 49092 50092 51092 52092)" || {
     echo "No free isolated AYB server port available for the local test runtime" >&2
     exit 1
@@ -23,6 +28,7 @@ if [[ -z "${AYB_BASE_URL:-}" && -z "${AYB_HEALTH_URL:-}" && -z "${AYB_SERVER_POR
 fi
 
 if [[ -z "${AYB_DATABASE_URL:-}" && -z "${AYB_DATABASE_EMBEDDED_PORT:-}" ]]; then
+  AUTO_SELECTED_AYB_DATABASE_PORT=1
   AYB_DATABASE_EMBEDDED_PORT="$(pick_free_port 45434 46434 47434 48434 49434)" || {
     echo "No free isolated embedded Postgres port available for the local test runtime" >&2
     exit 1
@@ -66,15 +72,18 @@ derive_ayb_health_url() {
   printf '%s/health\n' "$(derive_ayb_base_url)"
 }
 
-readonly AYB_HEALTH_URL="$(derive_ayb_health_url)"
+AYB_HEALTH_URL="$(derive_ayb_health_url)"
+export AYB_HEALTH_URL
 if [[ -z "${AYB_BASE_URL:-}" ]]; then
   export AYB_BASE_URL
   AYB_BASE_URL="$(base_url_from_health_url "$AYB_HEALTH_URL")"
 fi
 if [[ -z "${PLAYWRIGHT_BASE_URL:-}" ]]; then
+  AUTO_DERIVED_PLAYWRIGHT_BASE_URL=1
   export PLAYWRIGHT_BASE_URL="$AYB_BASE_URL"
 fi
 if [[ -z "${AYB_SERVER_SITE_URL:-}" ]]; then
+  AUTO_DERIVED_SERVER_SITE_URL=1
   export AYB_SERVER_SITE_URL="$AYB_BASE_URL"
 fi
 
@@ -223,6 +232,37 @@ ensure_ayb_binary_if_needed() {
   go build -o ayb ./cmd/ayb
 }
 
+# The browser-facing build can take long enough for another process to claim a
+# port selected at wrapper startup. Recheck only wrapper-owned ports at the
+# immediate pre-start boundary and keep every derived public URL aligned.
+refresh_auto_selected_runtime_ports() {
+  if (( AUTO_SELECTED_AYB_SERVER_PORT )); then
+    AYB_SERVER_PORT="$(pick_free_port 48092 49092 50092 51092 52092)" || {
+      echo "No free isolated AYB server port available for the local test runtime" >&2
+      return 1
+    }
+    export AYB_SERVER_PORT
+    local host="${AYB_SERVER_HOST:-$AYB_DEFAULT_SERVER_HOST}"
+    AYB_BASE_URL="http://${host}:${AYB_SERVER_PORT}"
+    AYB_HEALTH_URL="${AYB_BASE_URL}/health"
+    export AYB_BASE_URL AYB_HEALTH_URL
+    if (( AUTO_DERIVED_PLAYWRIGHT_BASE_URL )); then
+      export PLAYWRIGHT_BASE_URL="$AYB_BASE_URL"
+    fi
+    if (( AUTO_DERIVED_SERVER_SITE_URL )); then
+      export AYB_SERVER_SITE_URL="$AYB_BASE_URL"
+    fi
+  fi
+
+  if (( AUTO_SELECTED_AYB_DATABASE_PORT )); then
+    AYB_DATABASE_EMBEDDED_PORT="$(pick_free_port 45434 46434 47434 48434 49434)" || {
+      echo "No free isolated embedded Postgres port available for the local test runtime" >&2
+      return 1
+    }
+    export AYB_DATABASE_EMBEDDED_PORT
+  fi
+}
+
 ayb_process_running() {
   local ayb_pid="$1"
 
@@ -327,6 +367,7 @@ if existing_ayb_ready; then
 fi
 
 ensure_ayb_binary_if_needed
+refresh_auto_selected_runtime_ports
 
 if curl -fsS "$AYB_HEALTH_URL" > /dev/null 2>&1; then
   HEALTH_ENDPOINT_WAS_READY_BEFORE_START=1

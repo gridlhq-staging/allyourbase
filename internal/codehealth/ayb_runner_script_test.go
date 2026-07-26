@@ -128,6 +128,35 @@ func TestRunWithAYBScriptBuildsUIBeforeAYBBinary(t *testing.T) {
 	}
 }
 
+func TestRunWithAYBScriptRefreshesAutomaticPortsAfterBuild(t *testing.T) {
+	t.Parallel()
+
+	scriptPath := filepath.Join(findRepoRoot(t), runWithAYBScript)
+	script, err := os.ReadFile(scriptPath)
+	if err != nil {
+		t.Fatalf("read %s: %v", runWithAYBScript, err)
+	}
+	source := string(script)
+
+	refreshDefinition := strings.Index(source, "refresh_auto_selected_runtime_ports()")
+	if refreshDefinition < 0 {
+		t.Fatalf("%s must own automatic port reselection in a focused helper", runWithAYBScript)
+	}
+	if !strings.Contains(source[refreshDefinition:], `AYB_SERVER_PORT="$(pick_free_port`) {
+		t.Fatalf("%s automatic port refresh must select the AYB server port again", runWithAYBScript)
+	}
+
+	buildCall := strings.LastIndex(source, "\nensure_ayb_binary_if_needed\n")
+	refreshCall := strings.LastIndex(source, "\nrefresh_auto_selected_runtime_ports\n")
+	startCall := strings.LastIndex(source, `bash -lc "$AYB_START_COMMAND"`)
+	if buildCall < 0 || refreshCall < 0 || startCall < 0 {
+		t.Fatalf("%s must build, refresh automatic ports, and start AYB", runWithAYBScript)
+	}
+	if refreshCall < buildCall || refreshCall > startCall {
+		t.Fatalf("%s must refresh automatic ports after the potentially slow build and before AYB starts", runWithAYBScript)
+	}
+}
+
 func TestRunWithAYBScriptFailsFastOnHealthTimeout(t *testing.T) {
 	t.Parallel()
 

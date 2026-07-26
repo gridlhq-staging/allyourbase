@@ -160,6 +160,9 @@ printf 'token-for-existing-runtime\n' > "$BUILD_SCOPE_HOME/.ayb/admin-token"
 cat > "${BUILD_SCOPE_BIN_DIR}/pnpm" <<'SH'
 #!/usr/bin/env bash
 printf '%s\n' "$*" > "$AYB_TEST_PNPM_CALL_PATH"
+if [[ -n "${AYB_TEST_BUILD_STARTED_PATH:-}" ]]; then
+  : > "$AYB_TEST_BUILD_STARTED_PATH"
+fi
 if [[ "${AYB_TEST_PNPM_SHOULD_FAIL:-}" == "1" ]]; then
   exit 47
 fi
@@ -188,7 +191,11 @@ if [[ "${AYB_TEST_GO_WRITES_FAKE_AYB:-}" == "1" ]]; then
   fi
   cat > "$output_path" <<'FAKE_AYB'
 #!/usr/bin/env bash
-python3 -m http.server "$AYB_SERVER_PORT" --bind 127.0.0.1 --directory "$AYB_TEST_FAKE_AYB_WEB_DIR"
+if [[ "$AYB_SERVER_PORT" == "48092" && -e "${AYB_TEST_BUILD_STARTED_PATH:-}" ]]; then
+  echo "Error: port $AYB_SERVER_PORT is already in use" >&2
+  exit 1
+fi
+exec python3 -m http.server "$AYB_SERVER_PORT" --bind 127.0.0.1 --directory "$AYB_TEST_FAKE_AYB_WEB_DIR"
 FAKE_AYB
   chmod +x "$output_path"
 fi
@@ -246,7 +253,7 @@ mkdir -p "$FRESH_PREBUILT_WEB_DIR"
 printf 'ok\n' > "${FRESH_PREBUILT_WEB_DIR}/health"
 cat > ayb <<'SH'
 #!/usr/bin/env bash
-python3 -m http.server "$AYB_SERVER_PORT" --bind 127.0.0.1 --directory "$AYB_TEST_FAKE_AYB_WEB_DIR"
+exec python3 -m http.server "$AYB_SERVER_PORT" --bind 127.0.0.1 --directory "$AYB_TEST_FAKE_AYB_WEB_DIR"
 SH
 chmod +x ayb
 
@@ -338,11 +345,62 @@ if ! HOME="$BUILD_SCOPE_HOME" \
   exit 1
 fi
 
-if [[ "$(cat "$BROWSER_PNPM_CALL_PATH" 2>/dev/null || true)" != "--dir ui build" ]]; then
-  echo "FAIL: browser local AYB runs should invoke pnpm --dir ui build"
+if [[ "$(cat "$BROWSER_PNPM_CALL_PATH" 2>/dev/null || true)" != "build" ]]; then
+  echo "FAIL: browser local AYB runs should enter ui and invoke pnpm build"
   cat "$BROWSER_STDOUT_PATH"
   cat "$BROWSER_STDERR_PATH"
   exit 1
 fi
 
 echo "PASS: scripts/run-with-ayb.sh scopes UI bundle refresh to browser-facing local AYB runs"
+
+PORT_REFRESH_MARKER_PATH="${BUILD_SCOPE_DIR}/port_refresh_build_started"
+PORT_REFRESH_CAPTURE_PATH="${BUILD_SCOPE_DIR}/port_refresh_runtime"
+PORT_REFRESH_STDOUT_PATH="${BUILD_SCOPE_DIR}/port_refresh.stdout.log"
+PORT_REFRESH_STDERR_PATH="${BUILD_SCOPE_DIR}/port_refresh.stderr.log"
+PORT_REFRESH_PNPM_CALL_PATH="${BUILD_SCOPE_DIR}/port_refresh_pnpm"
+PORT_REFRESH_GO_CALL_PATH="${BUILD_SCOPE_DIR}/port_refresh_go"
+PORT_REFRESH_WEB_DIR="${BUILD_SCOPE_DIR}/port_refresh_www"
+mkdir -p "$PORT_REFRESH_WEB_DIR"
+printf 'ok\n' > "${PORT_REFRESH_WEB_DIR}/health"
+cat > "${BUILD_SCOPE_BIN_DIR}/lsof" <<'SH'
+#!/usr/bin/env bash
+if [[ "${*: -1}" == ":48092" && -e "$AYB_TEST_BUILD_STARTED_PATH" ]]; then
+  exit 0
+fi
+exit 1
+SH
+chmod +x "${BUILD_SCOPE_BIN_DIR}/lsof"
+
+unset AYB_BASE_URL AYB_HEALTH_URL AYB_SERVER_PORT AYB_DATABASE_EMBEDDED_PORT
+unset PLAYWRIGHT_BASE_URL AYB_SERVER_SITE_URL
+for _ in $(seq 1 40); do
+  if ! curl -fsS "http://localhost:48092/health" > /dev/null 2>&1; then
+    break
+  fi
+  sleep 0.05
+done
+if ! HOME="$BUILD_SCOPE_HOME" \
+  PATH="${BUILD_SCOPE_BIN_DIR}:$PATH" \
+  AYB_START_COMMAND='./ayb start --foreground --host 127.0.0.1' \
+  AYB_REFRESH_UI_BUNDLE=true \
+  AYB_TEST_BUILD_STARTED_PATH="$PORT_REFRESH_MARKER_PATH" \
+  AYB_TEST_PNPM_CALL_PATH="$PORT_REFRESH_PNPM_CALL_PATH" \
+  AYB_TEST_GO_CALL_PATH="$PORT_REFRESH_GO_CALL_PATH" \
+  AYB_TEST_GO_WRITES_FAKE_AYB=1 \
+  AYB_TEST_FAKE_AYB_WEB_DIR="$PORT_REFRESH_WEB_DIR" \
+  AYB_TEST_RUNTIME_CAPTURE="$PORT_REFRESH_CAPTURE_PATH" \
+  AYB_ADMIN_PASSWORD='unused-for-test' \
+  bash scripts/run-with-ayb.sh 'printf "%s %s %s\n" "$AYB_SERVER_PORT" "$PLAYWRIGHT_BASE_URL" "$AYB_SERVER_SITE_URL" > "$AYB_TEST_RUNTIME_CAPTURE"' > "$PORT_REFRESH_STDOUT_PATH" 2> "$PORT_REFRESH_STDERR_PATH"; then
+  echo "FAIL: wrapper should refresh automatic ports after the browser build"
+  cat "$PORT_REFRESH_STDOUT_PATH"
+  cat "$PORT_REFRESH_STDERR_PATH"
+  exit 1
+fi
+
+if [[ "$(cat "$PORT_REFRESH_CAPTURE_PATH")" != "49092 http://localhost:49092 http://localhost:49092" ]]; then
+  echo "FAIL: expected post-build port refresh and aligned public URLs, got $(cat "$PORT_REFRESH_CAPTURE_PATH")"
+  exit 1
+fi
+
+echo "PASS: scripts/run-with-ayb.sh refreshes automatic ports after slow browser builds"
