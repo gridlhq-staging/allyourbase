@@ -61,7 +61,10 @@ func (m *Migrator) listStorageBuckets(ctx context.Context) ([]StorageBucket, err
 			WHERE table_schema = 'storage' AND table_name = 'buckets'
 		)
 	`).Scan(&exists)
-	if err != nil || !exists {
+	if err != nil {
+		return nil, fmt.Errorf("checking storage.buckets existence: %w", err)
+	}
+	if !exists {
 		return nil, nil // no storage schema = no buckets
 	}
 

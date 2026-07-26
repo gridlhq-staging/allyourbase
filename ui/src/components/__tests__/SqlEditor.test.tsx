@@ -69,14 +69,42 @@ describe("resultToCSV", () => {
     expect(csv).toBe('val\n"hello, ""world"""');
   });
 
-  it("handles null values", () => {
+  it("handles nullish, object, and multiline values", () => {
     const csv = resultToCSV({
-      columns: ["a"],
-      rows: [[null]],
+      columns: ["null", "undefined", "object", "line_feed", "carriage_return"],
+      rows: [[
+        null,
+        undefined,
+        { nested: "value" },
+        "first\nsecond",
+        "first\rsecond",
+      ]],
       rowCount: 1,
       durationMs: 1,
     });
-    expect(csv).toBe("a\n");
+    expect(csv).toBe(
+      'null,undefined,object,line_feed,carriage_return\n,,"{""nested"":""value""}","first\nsecond","first\rsecond"',
+    );
+  });
+
+  it("neutralizes spreadsheet formulas in string cells", () => {
+    const csv = resultToCSV({
+      columns: ["formula", "positive", "negative", "at", "tab", "number"],
+      rows: [[
+        "=2+2",
+        "+cmd",
+        "-cmd",
+        "@SUM(1,1)",
+        "\t=2+2",
+        -42,
+      ]],
+      rowCount: 1,
+      durationMs: 1,
+    });
+
+    expect(csv).toBe(
+      `formula,positive,negative,at,tab,number\n"'=2+2","'+cmd","'-cmd","'@SUM(1,1)","'\t=2+2",-42`,
+    );
   });
 });
 

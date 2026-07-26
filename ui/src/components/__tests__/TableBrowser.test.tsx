@@ -107,6 +107,15 @@ const multiPageResponse = {
   totalPages: 3,
 };
 
+async function readBlob(blob: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.addEventListener("load", () => resolve(String(reader.result)));
+    reader.addEventListener("error", () => reject(reader.error));
+    reader.readAsText(blob);
+  });
+}
+
 describe("TableBrowser", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -716,11 +725,14 @@ describe("TableBrowser", () => {
   });
 
   it("CSV export triggers blob download", async () => {
-    mockGetRows.mockResolvedValueOnce(oneRowResponse);
+    mockGetRows.mockResolvedValueOnce({
+      ...oneRowResponse,
+      items: [{ id: "abc-123", title: 'Hello, "reader"\nnext line' }],
+    });
     render(<TableBrowser table={makeTable()} />);
 
     await waitFor(() => {
-      expect(screen.getByText("Hello")).toBeInTheDocument();
+      expect(screen.getByText("abc-123")).toBeInTheDocument();
     });
 
     const createObjectURL = vi.fn(() => "blob:test");
@@ -734,6 +746,9 @@ describe("TableBrowser", () => {
     expect(createObjectURL).toHaveBeenCalledTimes(1);
     const blob = (createObjectURL.mock.calls as unknown[][])[0][0] as Blob;
     expect(blob.type).toBe("text/csv");
+    expect(await readBlob(blob)).toBe(
+      'id,title\nabc-123,"Hello, ""reader""\nnext line"',
+    );
     expect(revokeObjectURL).toHaveBeenCalledWith("blob:test");
   });
 

@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -144,23 +145,44 @@ func waitForRequestLogByRequestID(
 	}
 }
 
-func seedRequestLogs(t *testing.T, pool *pgxpool.Pool, rows []struct {
-	method    string
-	path      string
-	status    int
-	timestamp time.Time
-	requestID string
-}) {
+type seededRequestLog struct {
+	method     string
+	path       string
+	status     int
+	durationMS int64
+	timestamp  time.Time
+	requestID  string
+}
+
+func seedRequestLogs(t *testing.T, pool *pgxpool.Pool, rows []seededRequestLog) {
 	t.Helper()
 	ctx := context.Background()
 	for _, row := range rows {
 		_, err := pool.Exec(ctx,
 			`INSERT INTO _ayb_request_logs (method, path, status_code, duration_ms, request_size, response_size, timestamp, request_id)
-			 VALUES ($1, $2, $3, 0, 0, 0, $4, $5)`,
-			row.method, row.path, row.status, row.timestamp, row.requestID,
+			 VALUES ($1, $2, $3, $4, 0, 0, $5, $6)`,
+			row.method, row.path, row.status, row.durationMS, row.timestamp, row.requestID,
 		)
 		testutil.NoError(t, err)
 	}
+}
+
+func requestAdminRequestLogs(
+	t *testing.T,
+	srv *Server,
+	token string,
+	query url.Values,
+) adminRequestLogListResponse {
+	t.Helper()
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/admin/analytics/requests?"+query.Encode(), nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	srv.Router().ServeHTTP(w, req)
+	testutil.StatusCode(t, http.StatusOK, w.Code)
+
+	var response adminRequestLogListResponse
+	testutil.NoError(t, json.Unmarshal(w.Body.Bytes(), &response))
+	return response
 }
 
 func TestRequestLoggerIntegrationWritesRequestLogRowAfterHTTP(t *testing.T) {
@@ -271,13 +293,7 @@ func TestAdminRequestLogsEndpointFiltersByMethodPathStatusAndTime(t *testing.T) 
 	db := newRequestLoggerTestDB(t)
 	srv := newRequestLoggerServerForIntegration(t, db.Pool, 100, 60)
 
-	seedRequestLogs(t, db.Pool, []struct {
-		method    string
-		path      string
-		status    int
-		timestamp time.Time
-		requestID string
-	}{
+	seedRequestLogs(t, db.Pool, []seededRequestLog{
 		{method: http.MethodGet, path: "/api/collections/orders", status: 200, timestamp: time.Date(2026, 2, 1, 10, 0, 0, 0, time.UTC), requestID: "seed-a"},
 		{method: http.MethodPost, path: "/api/collections/orders", status: 500, timestamp: time.Date(2026, 2, 1, 11, 0, 0, 0, time.UTC), requestID: "seed-b"},
 		{method: http.MethodGet, path: "/api/collections/users", status: 500, timestamp: time.Date(2026, 2, 2, 12, 0, 0, 0, time.UTC), requestID: "seed-c"},
@@ -318,4 +334,100 @@ func TestAdminRequestLogsEndpointFiltersByMethodPathStatusAndTime(t *testing.T) 
 	testutil.Equal(t, "GET", resp.Items[0].Method)
 	testutil.Equal(t, "/api/collections/users", resp.Items[0].Path)
 	testutil.Equal(t, 500, resp.Items[0].StatusCode)
+}
+
+func TestAdminRequestLogsEndpointFiltersStatusDurationAndReturnsTotalCount(t *testing.T) {
+	db := newRequestLoggerTestDB(t)
+	srv := newRequestLoggerServerForIntegration(t, db.Pool, 100, 60)
+
+	baseTime := time.Date(2026, 3, 1, 10, 0, 0, 0, time.UTC)
+	seedRequestLogs(t, db.Pool, []seededRequestLog{
+		{method: http.MethodGet, path: "/stage3/a", status: 200, durationMS: 0, timestamp: baseTime, requestID: "stage3-a"},
+		{method: http.MethodGet, path: "/stage3/b", status: 204, durationMS: 50, timestamp: baseTime.Add(time.Hour), requestID: "stage3-b"},
+		{method: http.MethodGet, path: "/stage3/c", status: 299, durationMS: 100, timestamp: baseTime.Add(2 * time.Hour), requestID: "stage3-c"},
+		{method: http.MethodGet, path: "/stage3/d", status: 301, durationMS: 150, timestamp: baseTime.Add(3 * time.Hour), requestID: "stage3-d"},
+		{method: http.MethodGet, path: "/stage3/e", status: 404, durationMS: 200, timestamp: baseTime.Add(4 * time.Hour), requestID: "stage3-e"},
+		{method: http.MethodGet, path: "/stage3/f", status: 500, durationMS: 250, timestamp: baseTime.Add(5 * time.Hour), requestID: "stage3-f"},
+		{method: http.MethodGet, path: "/stage3/g", status: 503, durationMS: 300, timestamp: baseTime.Add(6 * time.Hour), requestID: "stage3-g"},
+	})
+	token := requestAdminToken(t, srv)
+
+	tests := []struct {
+		name           string
+		query          url.Values
+		wantRequestIDs []string
+		wantCount      int
+		wantLimit      int
+		wantOffset     int
+	}{
+		{name: "2xx", query: url.Values{"status_class": {"2xx"}}, wantRequestIDs: []string{"stage3-c", "stage3-b", "stage3-a"}, wantCount: 3, wantLimit: 100},
+		{name: "3xx", query: url.Values{"status_class": {"3xx"}}, wantRequestIDs: []string{"stage3-d"}, wantCount: 1, wantLimit: 100},
+		{name: "4xx", query: url.Values{"status_class": {"4xx"}}, wantRequestIDs: []string{"stage3-e"}, wantCount: 1, wantLimit: 100},
+		{name: "5xx", query: url.Values{"status_class": {"5xx"}}, wantRequestIDs: []string{"stage3-g", "stage3-f"}, wantCount: 2, wantLimit: 100},
+		{name: "minimum inclusive", query: url.Values{"min_duration_ms": {"200"}}, wantRequestIDs: []string{"stage3-g", "stage3-f", "stage3-e"}, wantCount: 3, wantLimit: 100},
+		{name: "maximum inclusive", query: url.Values{"max_duration_ms": {"100"}}, wantRequestIDs: []string{"stage3-c", "stage3-b", "stage3-a"}, wantCount: 3, wantLimit: 100},
+		{name: "combined inclusive", query: url.Values{"min_duration_ms": {"100"}, "max_duration_ms": {"250"}}, wantRequestIDs: []string{"stage3-f", "stage3-e", "stage3-d", "stage3-c"}, wantCount: 4, wantLimit: 100},
+		{name: "first page", query: url.Values{"status_class": {"2xx"}, "limit": {"2"}}, wantRequestIDs: []string{"stage3-c", "stage3-b"}, wantCount: 3, wantLimit: 2},
+		{name: "offset beyond matches", query: url.Values{"status_class": {"2xx"}, "limit": {"2"}, "offset": {"5"}}, wantRequestIDs: []string{}, wantCount: 3, wantLimit: 2, wantOffset: 5},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tt.query.Set("path", "/stage3/*")
+			response := requestAdminRequestLogs(t, srv, token, tt.query)
+			requestIDs := make([]string, 0, len(response.Items))
+			for _, item := range response.Items {
+				if item.RequestID == nil {
+					t.Fatalf("request log item %q has no request ID", item.ID)
+				}
+				requestIDs = append(requestIDs, *item.RequestID)
+			}
+			if !slices.Equal(tt.wantRequestIDs, requestIDs) {
+				t.Fatalf("unexpected ordered request IDs: got %v want %v", requestIDs, tt.wantRequestIDs)
+			}
+			testutil.Equal(t, tt.wantCount, response.Count)
+			testutil.Equal(t, tt.wantLimit, response.Limit)
+			testutil.Equal(t, tt.wantOffset, response.Offset)
+		})
+	}
+}
+
+func TestAdminRequestLogsEndpointPagesPastSharedTimestampWithStableCursor(t *testing.T) {
+	db := newRequestLoggerTestDB(t)
+	srv := newRequestLoggerServerForIntegration(t, db.Pool, 100, 60)
+
+	sharedTimestamp := time.Date(2026, 7, 26, 11, 0, 0, 123000000, time.UTC)
+	seedRequestLogs(t, db.Pool, []seededRequestLog{
+		{method: http.MethodGet, path: "/cursor-tie", status: 200, timestamp: sharedTimestamp, requestID: "tie-a"},
+		{method: http.MethodGet, path: "/cursor-tie", status: 200, timestamp: sharedTimestamp, requestID: "tie-b"},
+		{method: http.MethodGet, path: "/cursor-tie", status: 200, timestamp: sharedTimestamp, requestID: "tie-c"},
+	})
+	token := requestAdminToken(t, srv)
+
+	firstPage := requestAdminRequestLogs(t, srv, token, url.Values{
+		"path":  {"/cursor-tie"},
+		"limit": {"2"},
+	})
+	testutil.Equal(t, 3, firstPage.Count)
+	testutil.Equal(t, 2, len(firstPage.Items))
+
+	lastItem := firstPage.Items[len(firstPage.Items)-1]
+	secondPage := requestAdminRequestLogs(t, srv, token, url.Values{
+		"path":             {"/cursor-tie"},
+		"limit":            {"2"},
+		"cursor_timestamp": {lastItem.Timestamp.Format(time.RFC3339Nano)},
+		"cursor_id":        {lastItem.ID},
+	})
+
+	testutil.Equal(t, 3, secondPage.Count)
+	testutil.Equal(t, 1, len(secondPage.Items))
+	firstPageIDs := map[string]bool{
+		firstPage.Items[0].ID: true,
+		firstPage.Items[1].ID: true,
+	}
+	testutil.True(
+		t,
+		!firstPageIDs[secondPage.Items[0].ID],
+		"cursor page should contain the remaining tied-timestamp row",
+	)
 }

@@ -6,9 +6,10 @@ export interface FilterFieldOption {
 export interface FilterField {
   name: string;
   label: string;
-  type: "text" | "select" | "date";
+  type: "text" | "select" | "date" | "number";
   placeholder?: string;
   options?: FilterFieldOption[];
+  min?: number;
 }
 
 interface FilterBarProps {
@@ -32,7 +33,11 @@ export function FilterBar({
   };
 
   return (
-    <form onSubmit={handleSubmit} className="mb-4 flex items-end gap-3 flex-wrap">
+    <form
+      noValidate
+      onSubmit={handleSubmit}
+      className="mb-4 flex items-end gap-3 flex-wrap"
+    >
       {fields.map((field) => (
         <div key={field.name}>
           <label
@@ -44,6 +49,7 @@ export function FilterBar({
           {field.type === "select" ? (
             <select
               id={`filter-${field.name}`}
+              data-testid={`filter-${field.name}`}
               aria-label={field.label}
               value={values[field.name] ?? ""}
               onChange={(e) => onChange?.(field.name, e.target.value)}
@@ -58,8 +64,10 @@ export function FilterBar({
           ) : (
             <input
               id={`filter-${field.name}`}
+              data-testid={`filter-${field.name}`}
               aria-label={field.label}
               type={field.type}
+              min={field.min}
               value={values[field.name] ?? ""}
               onChange={(e) => onChange?.(field.name, e.target.value)}
               placeholder={field.placeholder}

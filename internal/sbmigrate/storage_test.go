@@ -3,6 +3,7 @@ package sbmigrate
 import (
 	"bytes"
 	"context"
+	"database/sql"
 	"io"
 	"os"
 	"path/filepath"
@@ -56,6 +57,19 @@ func TestValidateStorageBucketNamesRejectsNormalizedCollisions(t *testing.T) {
 	testutil.ErrorContains(t, err, "Team Docs")
 	testutil.ErrorContains(t, err, "Team.Docs")
 	testutil.ErrorContains(t, err, "team-docs")
+}
+
+func TestListStorageBucketsPropagatesSchemaProbeErrors(t *testing.T) {
+	t.Parallel()
+
+	source, err := sql.Open("pgx", "postgres://unused")
+	testutil.NoError(t, err)
+	testutil.NoError(t, source.Close())
+
+	m := &Migrator{source: source}
+	_, err = m.listStorageBuckets(context.Background())
+	testutil.ErrorContains(t, err, "checking storage.buckets existence")
+	testutil.ErrorContains(t, err, "database is closed")
 }
 
 func TestIsStoragePathWithinRoot(t *testing.T) {

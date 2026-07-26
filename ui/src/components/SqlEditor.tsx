@@ -13,6 +13,7 @@ import {
 import { useCodeMirrorTheme } from "./codeMirrorTheme";
 import { ConfirmDialog } from "./shared/ConfirmDialog";
 import { ErrorNotice } from "./ErrorNotice";
+import { formatCSV } from "./shared/format";
 
 const DESTRUCTIVE_SQL_KEYWORDS = new Set(["DELETE", "DROP", "TRUNCATE"]);
 
@@ -139,16 +140,7 @@ function isDestructiveQuery(q: string): boolean {
 }
 
 export function resultToCSV(result: SqlResult): string {
-  const escape = (v: unknown) => {
-    if (v === null) return "";
-    const s = typeof v === "object" ? JSON.stringify(v) : String(v);
-    return s.includes(",") || s.includes('"') || s.includes("\n")
-      ? `"${s.replace(/"/g, '""')}"`
-      : s;
-  };
-  const header = result.columns.map(escape).join(",");
-  const rows = result.rows.map((row) => row.map(escape).join(","));
-  return [header, ...rows].join("\n");
+  return formatCSV([result.columns, ...result.rows]);
 }
 
 export function resultToJSON(result: SqlResult): string {

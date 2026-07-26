@@ -74,7 +74,7 @@ load_export_env() { \
 		if [ -z "$$admin_password" ]; then \
 			return 0; \
 		fi; \
-		login_payload="$$(python3 -c "import json,sys; print(json.dumps(dict(password=sys.argv[1])))" "$$admin_password")"; \
+		login_payload="$$(printf "%s" "$$admin_password" | python3 -c "import json,sys; print(json.dumps(dict(password=sys.stdin.read())))")"; \
 		login_response="$$(curl -fsS -H "Content-Type: application/json" --data "$$login_payload" "$${AYB_BASE_URL%/}/api/admin/auth" 2>/dev/null || true)"; \
 		if [ -n "$$login_response" ]; then \
 			printf "%s" "$$login_response" | python3 -c "import json,sys; print(json.load(sys.stdin).get(\"token\", \"\"))" 2>/dev/null || true; \
@@ -250,7 +250,7 @@ test-e2e: build ## Run all Playwright tests — smoke + full (builds + starts se
 test-sdk-integration: build ## Run the SDK integration suite against a live AYB — auth + storage (builds + starts server)
 	bash tests/test_sdk_integration_port_contract.sh
 	cd sdk && npm ci
-	@bash -lc 'source tests/port_helpers.sh; if [[ -z "$${AYB_BASE_URL:-}" && -z "$${AYB_HEALTH_URL:-}" && -z "$${AYB_SERVER_PORT:-}" ]]; then AYB_SERVER_PORT="$$(pick_free_port 48091 49091 50091 51091 52091)" || { echo "No free isolated AYB server port available for SDK integration" >&2; exit 1; }; export AYB_SERVER_PORT; fi; if [[ -z "$${AYB_DATABASE_URL:-}" && -z "$${AYB_DATABASE_EMBEDDED_PORT:-}" ]]; then AYB_DATABASE_EMBEDDED_PORT="$$(pick_free_port 45433 46433 47433 48433 49433)" || { echo "No free isolated embedded Postgres port available for SDK integration" >&2; exit 1; }; export AYB_DATABASE_EMBEDDED_PORT; fi; $(BROWSER_EXPORT_AUTH_ENV); export AYB_STORAGE_ENABLED=true; export AYB_AUTH_ANONYMOUS_AUTH_ENABLED=true; bash scripts/run-with-ayb.sh '"'"'bash scripts/sdk_live_proof_seed.sh && cd sdk && npm run test:integration && cd ../sdk_go && export AYB_TEST_URL="$${AYB_BASE_URL}" AYB_TEST_COLLECTION="$${AYB_SDK_LIVE_PROOF_COLLECTION:-sdk_kotlin_search_posts}" AYB_TEST_ADMIN_TOKEN="$$(cat "$${AYB_ADMIN_TOKEN_PATH:-$${HOME}/.ayb/admin-token}")" && go test -count=1 -run TestE2E ./... -v'"'"''
+	@bash -lc '$(LOAD_BOOTSTRAP_FUNCTIONS); export -f load_base_url_is_loopback load_exchange_admin_password_for_token load_resolve_admin_token; source tests/port_helpers.sh; if [[ -z "$${AYB_BASE_URL:-}" && -z "$${AYB_HEALTH_URL:-}" && -z "$${AYB_SERVER_PORT:-}" ]]; then AYB_SERVER_PORT="$$(pick_free_port 48091 49091 50091 51091 52091)" || { echo "No free isolated AYB server port available for SDK integration" >&2; exit 1; }; export AYB_SERVER_PORT; fi; if [[ -z "$${AYB_DATABASE_URL:-}" && -z "$${AYB_DATABASE_EMBEDDED_PORT:-}" ]]; then AYB_DATABASE_EMBEDDED_PORT="$$(pick_free_port 45433 46433 47433 48433 49433)" || { echo "No free isolated embedded Postgres port available for SDK integration" >&2; exit 1; }; export AYB_DATABASE_EMBEDDED_PORT; fi; $(BROWSER_EXPORT_AUTH_ENV); export AYB_STORAGE_ENABLED=true; export AYB_AUTH_ANONYMOUS_AUTH_ENABLED=true; bash scripts/run-with-ayb.sh '"'"'load_resolve_admin_token && bash scripts/sdk_live_proof_seed.sh && cd sdk && npm run test:integration && cd ../sdk_go && export AYB_TEST_URL="$${AYB_BASE_URL}" AYB_TEST_COLLECTION="$${AYB_SDK_LIVE_PROOF_COLLECTION:-sdk_kotlin_search_posts}" AYB_TEST_ADMIN_TOKEN="$${AYB_ADMIN_TOKEN}" && go test -count=1 -run TestE2E ./... -v'"'"''
 
 load-admin-status: ## Run direct k6 baseline scenario against AYB_BASE_URL (default http://127.0.0.1:8090)
 	@bash -lc '$(LOAD_BOOTSTRAP_FUNCTIONS); load_export_env; load_resolve_admin_token; $(LOAD_ADMIN_STATUS_K6_COMMAND)'

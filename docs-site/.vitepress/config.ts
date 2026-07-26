@@ -78,6 +78,7 @@ export default defineConfig({
         items: [
           { text: "CLI Reference", link: "/guide/cli" },
           { text: "Migrations", link: "/guide/migrations" },
+          { text: "Migrating from Supabase", link: "/guide/migrating-from-supabase" },
           { text: "MCP Server", link: "/guide/mcp" },
         ],
       },

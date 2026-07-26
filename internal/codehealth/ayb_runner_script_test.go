@@ -102,6 +102,29 @@ func TestRunWithAYBScriptRequiresPostHealthCommandArgument(t *testing.T) {
 	requireOutputContains(t, string(output), "Usage:")
 }
 
+func TestRunWithAYBScriptBuildsUIBeforeAYBBinary(t *testing.T) {
+	t.Parallel()
+
+	scriptPath := filepath.Join(findRepoRoot(t), runWithAYBScript)
+	script, err := os.ReadFile(scriptPath)
+	if err != nil {
+		t.Fatalf("read %s: %v", runWithAYBScript, err)
+	}
+	source := string(script)
+
+	uiBuildIndex := strings.Index(source, "pnpm --dir ui build")
+	goBuildIndex := strings.Index(source, "go build -o ayb ./cmd/ayb")
+	if uiBuildIndex < 0 {
+		t.Fatalf("%s must materialize ui/dist with pnpm --dir ui build before building ./ayb", runWithAYBScript)
+	}
+	if goBuildIndex < 0 {
+		t.Fatalf("%s must build ./ayb when AYB_START_COMMAND uses it", runWithAYBScript)
+	}
+	if uiBuildIndex > goBuildIndex {
+		t.Fatalf("%s builds ./ayb before refreshing ui/dist", runWithAYBScript)
+	}
+}
+
 func TestRunWithAYBScriptFailsFastOnHealthTimeout(t *testing.T) {
 	t.Parallel()
 

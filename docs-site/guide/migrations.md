@@ -74,34 +74,11 @@ Source-specific flags:
 
 ## Supabase
 
-```bash
-ayb migrate supabase \
-  --source-url postgres://postgres:pass@db.xxx.supabase.co:5432/postgres \
-  --database-url "$DATABASE_URL"
-```
+`ayb migrate supabase` connects directly to a Supabase PostgreSQL database, recreates public-schema tables and rows, migrates email auth users plus non-email OAuth identity links, rewrites supported public-schema RLS policies, and optionally copies exported storage files. When storage is included, AYB copies files from the local export, normalizes bucket names, and registers bucket and object metadata in `_ayb_storage_buckets` and `_ayb_storage_objects` for AYB storage access.
 
-What is migrated:
+Current limitations are code-verified: user metadata, phone-only users, MFA factors, non-public schemas, secondary indexes, functions/triggers, and full custom-type fidelity are not migrated yet. Storage is omitted unless a local export is supplied.
 
-- Public schema tables + data
-- `auth.users` -> `_ayb_users`
-- `auth.identities` -> `_ayb_oauth_accounts`
-- RLS policy rewrite from `auth.uid()` style to AYB session vars
-- Storage exports -> AYB storage layout
-
-Source-specific flags:
-
-- `--source-url` (required)
-- `--database-url` (required)
-- `--force`
-- `--skip-data`
-- `--skip-oauth`
-- `--skip-rls`
-- `--skip-storage`
-- `--include-anonymous`
-- `--storage-export`
-- `--storage-path`
-
-RLS behavior details: see [Security](/guide/security).
+For the runnable procedure, exact flags, verification commands, and failure boundaries, see [Migrating from Supabase](/guide/migrating-from-supabase).
 
 ## Firebase
 

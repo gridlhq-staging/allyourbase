@@ -6,6 +6,7 @@ import { TableBrowserToolbar } from "./TableBrowserToolbar";
 import { TableBrowserGrid } from "./TableBrowserGrid";
 import type { ExpandColumn } from "./TableBrowserGrid";
 import { RowDetail, DeleteConfirm, BatchDeleteConfirm } from "./TableBrowserDialogs";
+import { formatCSV } from "./shared/format";
 
 const PER_PAGE = 20;
 const RATE_LIMIT_RETRY_BUDGET_MS = 30000;
@@ -260,19 +261,10 @@ export function TableBrowser({ table }: TableBrowserProps) {
       let ext: string;
 
       if (format === "csv") {
-        const escapeCsv = (val: unknown): string => {
-          if (val === null || val === undefined) return "";
-          const s = typeof val === "object" ? JSON.stringify(val) : String(val);
-          if (s.includes(",") || s.includes('"') || s.includes("\n")) {
-            return `"${s.replace(/"/g, '""')}"`;
-          }
-          return s;
-        };
-        const header = colNames.map(escapeCsv).join(",");
-        const rows = data.items.map((row) =>
-          colNames.map((c) => escapeCsv(row[c])).join(","),
-        );
-        content = [header, ...rows].join("\n");
+        content = formatCSV([
+          colNames,
+          ...data.items.map((row) => colNames.map((column) => row[column])),
+        ]);
         mimeType = "text/csv";
         ext = "csv";
       } else {

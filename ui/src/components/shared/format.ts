@@ -11,3 +11,29 @@ export function formatDate(iso: string | null | undefined): string {
   const parsed = new Date(iso);
   return Number.isNaN(parsed.getTime()) ? "-" : parsed.toLocaleString();
 }
+
+export function formatCSVCell(value: unknown): string {
+  if (value === null || value === undefined) return "";
+  let text = typeof value === "object" ? JSON.stringify(value) : String(value);
+  const isSpreadsheetFormula =
+    typeof value === "string" && /^[=+\-@\t\r]/.test(text);
+  if (isSpreadsheetFormula) {
+    text = `'${text}`;
+  }
+  if (
+    !isSpreadsheetFormula &&
+    !text.includes(",") &&
+    !text.includes('"') &&
+    !text.includes("\n") &&
+    !text.includes("\r")
+  ) {
+    return text;
+  }
+  return `"${text.replace(/"/g, '""')}"`;
+}
+
+export function formatCSV(rows: readonly (readonly unknown[])[]): string {
+  return rows
+    .map((row) => row.map((value) => formatCSVCell(value)).join(","))
+    .join("\n");
+}

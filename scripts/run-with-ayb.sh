@@ -183,17 +183,43 @@ cleanup_owned_embedded_data_dir() {
   fi
 }
 
-ensure_ayb_binary_if_needed() {
+ayb_start_command_uses_local_binary() {
   case "$AYB_START_COMMAND" in
-    "./ayb"|"./ayb "*) ;;
-    *) return 0 ;;
+    "./ayb"|"./ayb "*) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+post_health_command_uses_browser_ui() {
+  case "$POST_HEALTH_COMMAND" in
+    *playwright*|*test:browser*|*browser-tests*) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+should_refresh_ui_bundle() {
+  case "${AYB_REFRESH_UI_BUNDLE:-}" in
+    1|true|TRUE|yes|YES) return 0 ;;
+    0|false|FALSE|no|NO) return 1 ;;
   esac
 
-  if [[ -x ./ayb ]]; then
+  post_health_command_uses_browser_ui
+}
+
+ensure_ayb_binary_if_needed() {
+  if ! ayb_start_command_uses_local_binary; then
     return 0
   fi
 
-  echo "Building ./ayb because AYB_START_COMMAND uses it and no executable exists." >&2
+  if should_refresh_ui_bundle; then
+    echo "Building current UI bundle because a browser-facing local AYB run needs embedded dashboard assets." >&2
+    pnpm --dir ui build
+  elif [[ -x ./ayb ]]; then
+    echo "Using existing ./ayb binary for non-browser local AYB run." >&2
+    return 0
+  fi
+
+  echo "Building ./ayb because AYB_START_COMMAND uses the local binary." >&2
   go build -o ayb ./cmd/ayb
 }
 
@@ -253,6 +279,12 @@ existing_ayb_ready() {
   curl -fsS "$AYB_HEALTH_URL" > /dev/null 2>&1 && stored_admin_token_ready
 }
 
+refuse_stale_browser_runtime_reuse() {
+  echo "Refusing to reuse an already-healthy local AYB runtime for a browser-facing run that needs freshly embedded dashboard assets." >&2
+  echo "Use a free AYB_SERVER_PORT/AYB_HEALTH_URL or stop the existing runtime so ./ayb can serve the rebuilt dashboard bundle." >&2
+  return 1
+}
+
 materialize_canonical_admin_token_file() {
   mkdir -p "$(dirname "$AYB_CANONICAL_ADMIN_TOKEN_PATH")"
 
@@ -276,8 +308,6 @@ materialize_canonical_admin_token_file() {
 
 # Readiness includes admin-token material so SDK/load commands can authenticate
 # immediately after /health turns green.
-ensure_ayb_binary_if_needed
-
 # Shared development hosts can already have the requested AYB runtime up from a
 # previous wrapper run. Reuse it when it is healthy instead of colliding on the
 # same port; unhealthy listeners still fall through to the normal startup path
@@ -285,12 +315,18 @@ ensure_ayb_binary_if_needed
 # token file first so reused runtimes preserve the same auth contract as fresh
 # wrapper-owned startups.
 if existing_ayb_ready; then
+  if ayb_start_command_uses_local_binary && should_refresh_ui_bundle; then
+    refuse_stale_browser_runtime_reuse
+  fi
+
   prepare_canonical_admin_token_file
   trap restore_canonical_admin_token_if_needed EXIT
   materialize_canonical_admin_token_file
   bash -lc "$POST_HEALTH_COMMAND"
   exit $?
 fi
+
+ensure_ayb_binary_if_needed
 
 if curl -fsS "$AYB_HEALTH_URL" > /dev/null 2>&1; then
   HEALTH_ENDPOINT_WAS_READY_BEFORE_START=1
