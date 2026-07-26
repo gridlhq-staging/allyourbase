@@ -92,6 +92,15 @@ func TestMigrateSupabaseForwardsStorageFlags(t *testing.T) {
 	testutil.True(t, got.SkipStorage, "expected skip-storage to be forwarded")
 }
 
+func TestMigrateSupabaseHelpDescribesStorageAtomicity(t *testing.T) {
+	testutil.False(t,
+		strings.Contains(migrateSupabaseCmd.Long, "either everything succeeds or\nnothing is changed"),
+		"help must not promise transactionality for storage files and metadata",
+	)
+	testutil.Contains(t, migrateSupabaseCmd.Long,
+		"Database migration runs in a transaction. Storage files and metadata are migrated afterward")
+}
+
 func TestRunMigrateSupabasePreflightPromptAndSummary(t *testing.T) {
 	oldFactory := newSupabaseMigrator
 	oldSummary := buildSupabaseValidationSummary
@@ -153,6 +162,62 @@ func TestRunMigrateSupabasePreflightPromptAndSummary(t *testing.T) {
 	testutil.Contains(t, output, "AYB Migration Report")
 	testutil.Contains(t, output, "Proceed? [Y/n]")
 	testutil.Contains(t, output, "Validation Summary")
+}
+
+func TestRunMigrateSupabaseWarnsAboutMissingStorageExport(t *testing.T) {
+	oldFactory := newSupabaseMigrator
+	t.Cleanup(func() { newSupabaseMigrator = oldFactory })
+
+	newSupabaseMigrator = func(opts sbmigrate.MigrationOptions) (supabaseMigrator, error) {
+		return fakeSupabaseMigrator{
+			analyzeFn: func(context.Context) (*migrate.AnalysisReport, error) {
+				return &migrate.AnalysisReport{SourceType: "Supabase", Files: 7}, nil
+			},
+		}, nil
+	}
+
+	const warning = "7 analyzed storage files will not migrate; supply --storage-export or intentionally choose --skip-storage."
+	tests := []struct {
+		name         string
+		flags        map[string]string
+		warningCount int
+	}{
+		{
+			name:         "missing export",
+			flags:        map[string]string{},
+			warningCount: 1,
+		},
+		{
+			name:         "storage explicitly skipped",
+			flags:        map[string]string{"skip-storage": "true"},
+			warningCount: 0,
+		},
+		{
+			name:         "storage export supplied",
+			flags:        map[string]string{"storage-export": "./supabase-storage"},
+			warningCount: 0,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			flags := map[string]string{
+				"source-url":   "postgres://source",
+				"database-url": "postgres://target",
+				"yes":          "true",
+			}
+			for name, value := range tt.flags {
+				flags[name] = value
+			}
+
+			output := captureStderr(t, func() {
+				err := runMigrateSupabase(newSupabaseTestCommand(t, flags), nil)
+				testutil.NoError(t, err)
+			})
+
+			testutil.Equal(t, tt.warningCount, strings.Count(output, warning))
+		})
+	}
 }
 
 func TestRunMigrateSupabaseJSONOutputsStats(t *testing.T) {

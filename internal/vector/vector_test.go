@@ -1,9 +1,11 @@
 package vector
 
 import (
+	"reflect"
 	"testing"
 
 	"github.com/allyourbase/ayb/internal/schema"
+	"github.com/allyourbase/ayb/internal/testutil"
 )
 
 // --- Operator selection ---
@@ -32,9 +34,7 @@ func TestDistanceOperator(t *testing.T) {
 
 func TestDistanceOperatorInvalid(t *testing.T) {
 	_, err := DistanceOperator("euclidean")
-	if err == nil {
-		t.Fatal("expected error for invalid metric, got nil")
-	}
+	testutil.ErrorContains(t, err, `unsupported distance metric "euclidean"`)
 }
 
 func TestValidMetrics(t *testing.T) {
@@ -80,19 +80,15 @@ func TestBuildNearestQuery(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	// Should contain the distance operator and ORDER BY.
-	if sql == "" {
-		t.Fatal("expected non-empty SQL")
-	}
-	if len(args) < 1 {
-		t.Fatal("expected at least 1 arg (the query vector)")
+	wantSQL := `SELECT "id", "title", "embedding", "embedding" <=> $1 AS _distance FROM "public"."documents" ORDER BY "embedding" <=> $1 ASC LIMIT $2`
+	if sql != wantSQL {
+		t.Fatalf("SQL mismatch\ngot:  %s\nwant: %s", sql, wantSQL)
 	}
 
-	// Verify the SQL contains expected fragments.
-	assertContains(t, sql, `<=>`) // cosine operator
-	assertContains(t, sql, `ORDER BY`)
-	assertContains(t, sql, `_distance`)
-	assertContains(t, sql, `LIMIT`)
+	wantArgs := []any{"[0.1,0.2,0.3]", 10}
+	if !reflect.DeepEqual(args, wantArgs) {
+		t.Fatalf("args mismatch\ngot:  %#v\nwant: %#v", args, wantArgs)
+	}
 }
 
 func TestBuildNearestQueryL2(t *testing.T) {
@@ -114,11 +110,20 @@ func TestBuildNearestQueryL2(t *testing.T) {
 		Limit:        5,
 	}
 
-	sql, _, err := BuildNearestQuery(params)
+	sql, args, err := BuildNearestQuery(params)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	assertContains(t, sql, `<->`) // l2 operator
+
+	wantSQL := `SELECT "id", "vec", "vec" <-> $1 AS _distance FROM "public"."items" ORDER BY "vec" <-> $1 ASC LIMIT $2`
+	if sql != wantSQL {
+		t.Fatalf("SQL mismatch\ngot:  %s\nwant: %s", sql, wantSQL)
+	}
+
+	wantArgs := []any{"[1,2]", 5}
+	if !reflect.DeepEqual(args, wantArgs) {
+		t.Fatalf("args mismatch\ngot:  %#v\nwant: %#v", args, wantArgs)
+	}
 }
 
 func TestBuildNearestQueryInvalidMetric(t *testing.T) {
@@ -135,9 +140,7 @@ func TestBuildNearestQueryInvalidMetric(t *testing.T) {
 		Metric:       "manhattan",
 		Limit:        10,
 	})
-	if err == nil {
-		t.Fatal("expected error for invalid metric")
-	}
+	testutil.ErrorContains(t, err, `unsupported distance metric "manhattan"`)
 }
 
 func TestBuildNearestQueryDimensionMismatch(t *testing.T) {
@@ -154,9 +157,7 @@ func TestBuildNearestQueryDimensionMismatch(t *testing.T) {
 		Metric:       "cosine",
 		Limit:        10,
 	})
-	if err == nil {
-		t.Fatal("expected error for dimension mismatch")
-	}
+	testutil.ErrorContains(t, err, `dimension mismatch: query vector has 2 dimensions, column "embedding" expects 3`)
 }
 
 func TestBuildNearestQueryUnknownColumn(t *testing.T) {
@@ -173,9 +174,7 @@ func TestBuildNearestQueryUnknownColumn(t *testing.T) {
 		Metric:       "cosine",
 		Limit:        10,
 	})
-	if err == nil {
-		t.Fatal("expected error for unknown vector column")
-	}
+	testutil.ErrorContains(t, err, `column "embedding" not found in table "docs"`)
 }
 
 func TestBuildNearestQueryNonVectorColumn(t *testing.T) {
@@ -192,9 +191,7 @@ func TestBuildNearestQueryNonVectorColumn(t *testing.T) {
 		Metric:       "cosine",
 		Limit:        10,
 	})
-	if err == nil {
-		t.Fatal("expected error for non-vector column")
-	}
+	testutil.ErrorContains(t, err, `column "title" is not a vector column`)
 }
 
 func TestBuildNearestQueryWithFilter(t *testing.T) {
@@ -223,11 +220,54 @@ func TestBuildNearestQueryWithFilter(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	assertContains(t, sql, "WHERE")
-	assertContains(t, sql, `"status"`)
-	// Filter arg + vector arg
-	if len(args) < 2 {
-		t.Fatalf("expected at least 2 args, got %d", len(args))
+
+	wantSQL := `SELECT "id", "status", "embedding", "embedding" <=> $2 AS _distance FROM "public"."documents" WHERE "status" = $1 ORDER BY "embedding" <=> $2 ASC LIMIT $3`
+	if sql != wantSQL {
+		t.Fatalf("SQL mismatch\ngot:  %s\nwant: %s", sql, wantSQL)
+	}
+
+	wantArgs := []any{"active", "[0.1,0.2,0.3]", 10}
+	if !reflect.DeepEqual(args, wantArgs) {
+		t.Fatalf("args mismatch\ngot:  %#v\nwant: %#v", args, wantArgs)
+	}
+}
+
+func TestBuildNearestQueryWithMultiArgFilter(t *testing.T) {
+	tbl := &schema.Table{
+		Schema:     "public",
+		Name:       "documents",
+		PrimaryKey: []string{"id"},
+		Columns: []*schema.Column{
+			{Name: "id", TypeName: "uuid", JSONType: "string", IsPrimaryKey: true},
+			{Name: "status", TypeName: "text", JSONType: "string"},
+			{Name: "kind", TypeName: "text", JSONType: "string"},
+			{Name: "embedding", TypeName: "vector(3)", JSONType: "array", IsVector: true, VectorDim: 3},
+		},
+	}
+
+	params := NearestParams{
+		Table:        tbl,
+		VectorColumn: "embedding",
+		QueryVector:  []float64{0.1, 0.2, 0.3},
+		Metric:       "cosine",
+		Limit:        10,
+		FilterSQL:    `"status" = $1 AND "kind" = $2`,
+		FilterArgs:   []any{"active", "news"},
+	}
+
+	sql, args, err := BuildNearestQuery(params)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	wantSQL := `SELECT "id", "status", "kind", "embedding", "embedding" <=> $3 AS _distance FROM "public"."documents" WHERE "status" = $1 AND "kind" = $2 ORDER BY "embedding" <=> $3 ASC LIMIT $4`
+	if sql != wantSQL {
+		t.Fatalf("SQL mismatch\ngot:  %s\nwant: %s", sql, wantSQL)
+	}
+
+	wantArgs := []any{"active", "news", "[0.1,0.2,0.3]", 10}
+	if !reflect.DeepEqual(args, wantArgs) {
+		t.Fatalf("args mismatch\ngot:  %#v\nwant: %#v", args, wantArgs)
 	}
 }
 
@@ -271,8 +311,13 @@ func TestParseVectorDimension(t *testing.T) {
 	}{
 		{"vector(3)", 3},
 		{"vector(1536)", 1536},
-		{"vector", 0},
+		{"VECTOR(4)", 4},
 		{"text", 0},
+		{"vector", 0},
+		{"vector(3", 0},
+		{"vector()", 0},
+		{"vector(x)", 0},
+		{"vector(12.5)", 0},
 	}
 	for _, tt := range tests {
 		t.Run(tt.typeName, func(t *testing.T) {
@@ -348,9 +393,7 @@ func TestBuildCreateIndexSQLInvalidMethod(t *testing.T) {
 		Schema: "public", Table: "docs", Column: "vec",
 		Method: "btree", Metric: "cosine", IndexName: "idx",
 	})
-	if err == nil {
-		t.Fatal("expected error for invalid method")
-	}
+	testutil.ErrorContains(t, err, `unsupported index method "btree"`)
 }
 
 func TestBuildCreateIndexSQLInvalidMetric(t *testing.T) {
@@ -358,29 +401,5 @@ func TestBuildCreateIndexSQLInvalidMetric(t *testing.T) {
 		Schema: "public", Table: "docs", Column: "vec",
 		Method: "hnsw", Metric: "hamming", IndexName: "idx",
 	})
-	if err == nil {
-		t.Fatal("expected error for invalid metric")
-	}
-}
-
-// --- Helpers ---
-
-func assertContains(t *testing.T, haystack, needle string) {
-	t.Helper()
-	if !containsStr(haystack, needle) {
-		t.Errorf("expected SQL to contain %q, got:\n%s", needle, haystack)
-	}
-}
-
-func containsStr(s, substr string) bool {
-	return len(s) >= len(substr) && searchStr(s, substr)
-}
-
-func searchStr(s, substr string) bool {
-	for i := 0; i <= len(s)-len(substr); i++ {
-		if s[i:i+len(substr)] == substr {
-			return true
-		}
-	}
-	return false
+	testutil.ErrorContains(t, err, `unsupported metric "hamming" for index`)
 }

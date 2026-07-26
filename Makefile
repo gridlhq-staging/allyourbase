@@ -1,10 +1,11 @@
-.PHONY: build dev test test-sdk test-sdk-go test-sdk-python test-sdk-dart test-sdk-swift test-sdk-kotlin test-sdk-react test-sdk-ssr test-sdk-all test-sdk-integration test-ui test-demos-unit test-quickstart-contract test-integration test-multinode test-cell test-demo-smoke test-demo-instantsearch test-demo-e2e test-demo-launch test-demo-cross-smoke test-demo-movies-real-provider test-push-smoke test-e2e test-smoke test-browser-full test-full test-all test-everything test-api-smoke test-api-journey lint check demo-check hygiene check-hygiene check-sizes check-screen-specs check-demo-specs check-followups check-ui-bundle-size check-ui-lint check-browser-tests-lint check-func-sizes check-installer check-sdk-build launch-check adoption release-candidate-check clean ui demos release docker docker-runtime-smoke help sync-openapi build-postgres load-admin-status load-admin-status-local load-auth-request-path load-auth-request-path-local load-data-path load-data-path-local load-data-pool-pressure load-data-pool-pressure-local load-http-100 load-http-100-local load-http-500 load-http-500-local load-http-1000 load-http-1000-local load-realtime-ws load-realtime-ws-local load-realtime-ws-1000 load-realtime-ws-1000-local load-realtime-ws-5000 load-realtime-ws-5000-local load-realtime-ws-10000 load-realtime-ws-10000-local load-sustained-soak load-sustained-soak-local
+.PHONY: build dev test test-sdk test-sdk-go test-sdk-python test-sdk-dart test-sdk-swift test-sdk-kotlin test-sdk-react test-sdk-ssr test-sdk-all test-sdk-integration test-ui test-demos-unit test-quickstart-contract test-integration test-multinode test-cell test-demo-smoke test-demo-instantsearch test-demo-e2e test-demo-launch test-demo-cross-smoke test-demo-movies-real-provider test-push-smoke test-e2e test-smoke test-browser-full test-full test-all test-everything test-api-smoke test-api-journey lint govulncheck check demo-check hygiene check-hygiene check-sizes check-screen-specs check-demo-specs check-followups check-ui-bundle-size check-ui-lint check-browser-tests-lint check-func-sizes check-installer check-sdk-build launch-check adoption release-candidate-check clean ui demos release docker docker-runtime-smoke help sync-openapi build-postgres load-admin-status load-admin-status-local load-auth-request-path load-auth-request-path-local load-data-path load-data-path-local load-data-pool-pressure load-data-pool-pressure-local load-http-100 load-http-100-local load-http-500 load-http-500-local load-http-1000 load-http-1000-local load-realtime-ws load-realtime-ws-local load-realtime-ws-1000 load-realtime-ws-1000-local load-realtime-ws-5000 load-realtime-ws-5000-local load-realtime-ws-10000 load-realtime-ws-10000-local load-sustained-soak load-sustained-soak-local
 
 # Build variables
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
 COMMIT  ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo "none")
 DATE    ?= $(shell date -u +"%Y-%m-%dT%H:%M:%SZ")
 LDFLAGS  = -ldflags "-s -w -X main.version=$(VERSION) -X main.commit=$(COMMIT) -X main.date=$(DATE)"
+GOVULNCHECK_VERSION ?= v1.6.0
 
 LOAD_K6_BIN ?= k6
 LOAD_DEFAULT_VUS ?= 1
@@ -401,6 +402,9 @@ test-everything: build ## Run absolutely everything: unit + integration + SDK + 
 lint: ## Run linters (requires golangci-lint)
 	golangci-lint run ./...
 
+govulncheck: ## Run dependency + stdlib vulnerability scan
+	GOTOOLCHAIN=auto go run golang.org/x/vuln/cmd/govulncheck@$(GOVULNCHECK_VERSION) ./...
+
 check-sizes: ## Run source-size guardrail
 	bash scripts/check-file-sizes.sh
 
@@ -440,7 +444,7 @@ check-browser-tests-lint: ## Lint browser test specs
 check-func-sizes: ## Run Go function-size guardrail test
 	go test ./internal/codehealth -run TestFunctionSizeAllowlist -count=1
 
-check: hygiene fmt lint check-sizes check-screen-specs check-demo-specs check-ui-bundle-size check-ui-lint check-func-sizes ## Run local CI-equivalent quality checks
+check: hygiene fmt lint govulncheck check-sizes check-screen-specs check-demo-specs check-ui-bundle-size check-ui-lint check-func-sizes ## Run local CI-equivalent quality checks
 
 demo-check: build ## Run the complete demo validation aggregate
 	@set -euo pipefail; \

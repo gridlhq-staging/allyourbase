@@ -95,6 +95,22 @@ func makeVariedImage(t *testing.T, w, h int) []byte {
 	return buf.Bytes()
 }
 
+func makeEntropyCropFixture() *image.RGBA {
+	img := image.NewRGBA(image.Rect(0, 0, 4, 2))
+	redByColumn := [4][2]uint8{
+		{0, 0},
+		{0, 0},
+		{0, 2},
+		{0, 2},
+	}
+	for x, column := range redByColumn {
+		for y, red := range column {
+			img.SetRGBA(x, y, color.RGBA{R: red, A: 255})
+		}
+	}
+	return img
+}
+
 // decodeResult decodes the output bytes back into an image for dimension assertions.
 func decodeResult(t *testing.T, data []byte) image.Image {
 	t.Helper()
@@ -385,7 +401,7 @@ func TestTransformDefaultQuality(t *testing.T) {
 	explicit80, err := TransformBytes(src, Options{Width: 200, Format: FormatJPEG, Quality: 80})
 	testutil.NoError(t, err)
 
-	testutil.Equal(t, len(explicit80), len(defaultResult))
+	testutil.True(t, bytes.Equal(explicit80, defaultResult), "default JPEG quality should match explicit quality 80 output")
 }
 
 func TestTransformQualityClamped(t *testing.T) {
@@ -399,7 +415,7 @@ func TestTransformQualityClamped(t *testing.T) {
 	explicit100, err := TransformBytes(src, Options{Width: 200, Format: FormatJPEG, Quality: 100})
 	testutil.NoError(t, err)
 
-	testutil.Equal(t, len(explicit100), len(clampedResult))
+	testutil.True(t, bytes.Equal(explicit100, clampedResult), "clamped JPEG quality should match explicit quality 100 output")
 }
 
 func TestTransformErrorNoDimensions(t *testing.T) {
@@ -562,7 +578,7 @@ func TestTransformAVIFDefaultQuality50(t *testing.T) {
 	explicit50, err := TransformBytes(src, Options{Width: 200, Format: FormatAVIF, Quality: 50})
 	testutil.NoError(t, err)
 
-	testutil.Equal(t, len(explicit50), len(defaultQ))
+	testutil.True(t, bytes.Equal(explicit50, defaultQ), "default AVIF quality should match explicit quality 50 output")
 }
 
 func TestTransformAVIFExplicitQualityRespected(t *testing.T) {
@@ -590,6 +606,58 @@ func TestTransformAVIFQualitySizeRelationship(t *testing.T) {
 }
 
 // --- Crop mode tests ---
+
+func TestResizeCoverCenterCropUsesExpectedPixels(t *testing.T) {
+	src := image.NewRGBA(image.Rect(0, 0, 4, 2))
+	for x := range 4 {
+		for y := range 2 {
+			src.SetRGBA(x, y, color.RGBA{R: uint8(10 + x), A: 255})
+		}
+	}
+
+	got := resizeCover(src, 4, 2, 2, 2)
+
+	for y := range 2 {
+		testutil.Equal(t, color.RGBA{R: 11, A: 255}, got.RGBAAt(0, y))
+		testutil.Equal(t, color.RGBA{R: 12, A: 255}, got.RGBAAt(1, y))
+	}
+}
+
+func TestResizeSmartCropUsesEntropyOffset(t *testing.T) {
+	src := makeEntropyCropFixture()
+
+	got := resizeSmartCrop(src, 4, 2, 2, 2)
+
+	for y := range 2 {
+		testutil.Equal(t, src.RGBAAt(2, y), got.RGBAAt(0, y))
+		testutil.Equal(t, src.RGBAAt(3, y), got.RGBAAt(1, y))
+	}
+}
+
+func TestRegionVarianceUsesSampledChannelValues(t *testing.T) {
+	varied := image.NewRGBA(image.Rect(0, 0, 2, 2))
+	varied.SetRGBA(0, 0, color.RGBA{R: 0, A: 255})
+	varied.SetRGBA(1, 0, color.RGBA{R: 2, A: 255})
+	varied.SetRGBA(0, 1, color.RGBA{R: 0, A: 255})
+	varied.SetRGBA(1, 1, color.RGBA{R: 2, A: 255})
+
+	testutil.Equal(t, 1.0, regionVariance(varied, 0, 0, 2, 2))
+
+	uniform := image.NewRGBA(image.Rect(0, 0, 2, 2))
+	for y := range 2 {
+		for x := range 2 {
+			uniform.SetRGBA(x, y, color.RGBA{R: 7, A: 255})
+		}
+	}
+	testutil.Equal(t, 0.0, regionVariance(uniform, 0, 0, 2, 2))
+}
+
+func TestFindEntropyOffsetPrefersHighestVarianceWindow(t *testing.T) {
+	gotX, gotY := findEntropyOffset(makeEntropyCropFixture(), 4, 2, 2, 2)
+
+	testutil.Equal(t, 2, gotX)
+	testutil.Equal(t, 0, gotY)
+}
 
 func TestTransformCropCenter(t *testing.T) {
 	t.Parallel()

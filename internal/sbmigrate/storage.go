@@ -2,14 +2,15 @@ package sbmigrate
 
 import (
 	"context"
+	"errors"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
 	"strings"
 	"time"
 
 	"github.com/allyourbase/ayb/internal/migrate"
+	"github.com/allyourbase/ayb/internal/storage"
 )
 
 // StorageObject represents a file from Supabase's storage.objects table.
@@ -33,6 +34,22 @@ type storageBucketObjects struct {
 	bucket  StorageBucket
 	objects []StorageObject
 }
+
+type storageDestination struct {
+	backend          storage.Backend
+	backupScratchDir string
+}
+
+type copiedStorageObject struct {
+	bucketName   string
+	name         string
+	size         int64
+	contentType  string
+	sourceBucket string
+	backup       *storageObjectBackup
+}
+
+const aybReservedResumableStagingBucket = "ayb_resumable_staging"
 
 // listStorageBuckets queries storage.buckets from the Supabase source database.
 func (m *Migrator) listStorageBuckets(ctx context.Context) ([]StorageBucket, error) {
@@ -119,17 +136,38 @@ func (m *Migrator) migrateStorage(ctx context.Context, phaseIdx, totalPhases int
 	if err != nil {
 		return err
 	}
+	if err := validateStorageBucketNames(allBuckets); err != nil {
+		return err
+	}
+	if err := validateStorageBucketExportPaths(allBuckets, m.opts.StorageExportPath); err != nil {
+		return err
+	}
 
 	start := m.startStoragePhase(phase, totalObjects)
-	destPath, err := m.prepareStorageDestinationRoot()
+	destination, err := m.prepareStorageDestinationBackend()
 	if err != nil {
 		return err
 	}
 
 	processed := 0
 	for _, bucketObjects := range allBuckets {
-		if err := m.copyStorageBucket(phase, totalObjects, &processed, destPath, bucketObjects); err != nil {
+		if err := m.registerStorageBucket(ctx, bucketObjects.bucket); err != nil {
 			return err
+		}
+		copiedObjects, err := m.copyStorageBucket(ctx, phase, totalObjects, &processed, destination, bucketObjects)
+		if err != nil {
+			return err
+		}
+		for index, copiedObject := range copiedObjects {
+			if err := m.registerStorageObject(ctx, copiedObject); err != nil {
+				rollbackErr := rollbackCopiedStorageObjects(
+					context.WithoutCancel(ctx),
+					destination.backend,
+					copiedObjects[index:],
+				)
+				return errors.Join(err, rollbackErr)
+			}
+			copiedObject.backup.discard()
 		}
 	}
 
@@ -164,73 +202,158 @@ func (m *Migrator) loadStorageBucketsWithObjects(
 	return allBuckets, totalObjects, nil
 }
 
+func validateStorageBucketNames(buckets []storageBucketObjects) error {
+	sourceByNormalizedName := make(map[string]string, len(buckets))
+	for _, bucketObjects := range buckets {
+		sourceName := bucketObjects.bucket.Name
+		normalizedName := normalizeBucketName(sourceName)
+		if normalizedName == aybReservedResumableStagingBucket {
+			return fmt.Errorf(
+				"storage bucket %q normalizes to reserved AYB bucket name %q",
+				sourceName,
+				normalizedName,
+			)
+		}
+		if previousSourceName, ok := sourceByNormalizedName[normalizedName]; ok && previousSourceName != sourceName {
+			return fmt.Errorf(
+				"storage bucket names %q and %q both normalize to %q",
+				previousSourceName,
+				sourceName,
+				normalizedName,
+			)
+		}
+		sourceByNormalizedName[normalizedName] = sourceName
+	}
+	return nil
+}
+
+func validateStorageBucketExportPaths(buckets []storageBucketObjects, exportRoot string) error {
+	for _, bucketObjects := range buckets {
+		sourceName := bucketObjects.bucket.Name
+		cleanSourceName := filepath.Clean(sourceName)
+		exportBucketDir := filepath.Join(exportRoot, sourceName)
+		if sourceName == "" ||
+			cleanSourceName == "." ||
+			filepath.IsAbs(sourceName) ||
+			cleanSourceName != sourceName ||
+			!isStoragePathWithinRoot(exportBucketDir, exportRoot) {
+			return fmt.Errorf(
+				"storage bucket %q has unsafe export directory under %q",
+				sourceName,
+				exportRoot,
+			)
+		}
+	}
+	return nil
+}
+
 func (m *Migrator) startStoragePhase(phase migrate.Phase, totalObjects int) time.Time {
 	m.progress.StartPhase(phase, totalObjects)
 	fmt.Fprintln(m.output, "Migrating storage files...")
 	return time.Now()
 }
 
-func (m *Migrator) prepareStorageDestinationRoot() (string, error) {
+func (m *Migrator) prepareStorageDestinationBackend() (storageDestination, error) {
 	destPath := m.opts.StoragePath
 	if destPath == "" {
 		destPath = filepath.Join(".", "ayb_storage")
 	}
 
-	if err := os.MkdirAll(destPath, 0755); err != nil {
-		return "", fmt.Errorf("creating storage directory: %w", err)
+	absDestPath, err := filepath.Abs(destPath)
+	if err != nil {
+		return storageDestination{}, fmt.Errorf("resolving storage path: %w", err)
 	}
 
-	return destPath, nil
+	backend, err := storage.NewLocalBackend(absDestPath)
+	if err != nil {
+		return storageDestination{}, fmt.Errorf("creating storage backend: %w", err)
+	}
+	return storageDestination{
+		backend:          backend,
+		backupScratchDir: filepath.Join(absDestPath, ".ayb-migration-backups"),
+	}, nil
+}
+
+func (m *Migrator) registerStorageBucket(ctx context.Context, bucket StorageBucket) error {
+	normalizedName := normalizeBucketName(bucket.Name)
+	_, err := m.target.ExecContext(ctx, `
+		INSERT INTO _ayb_storage_buckets (tenant_id, name, public)
+		VALUES ($1, $2, $3)
+		ON CONFLICT (tenant_id, name) DO UPDATE
+		SET public = EXCLUDED.public, updated_at = NOW()
+	`, "", normalizedName, bucket.Public)
+	if err != nil {
+		return fmt.Errorf("recording storage bucket %s metadata: %w", bucket.Name, err)
+	}
+	return nil
+}
+
+func (m *Migrator) registerStorageObject(ctx context.Context, obj copiedStorageObject) error {
+	_, err := m.target.ExecContext(ctx, `
+		INSERT INTO _ayb_storage_objects (tenant_id, bucket, name, size, content_type, user_id)
+		VALUES ($1, $2, $3, $4, $5, NULL)
+		ON CONFLICT (tenant_id, bucket, name) DO UPDATE
+		SET size = EXCLUDED.size, content_type = EXCLUDED.content_type, updated_at = NOW()
+	`, "", obj.bucketName, obj.name, obj.size, obj.contentType)
+	if err != nil {
+		return fmt.Errorf("recording storage object %s/%s metadata: %w", obj.sourceBucket, obj.name, err)
+	}
+	return nil
 }
 
 func (m *Migrator) copyStorageBucket(
+	ctx context.Context,
 	phase migrate.Phase,
 	totalObjects int,
 	processed *int,
-	destPath string,
+	destination storageDestination,
 	bucketObjects storageBucketObjects,
-) error {
+) ([]copiedStorageObject, error) {
 	bucket := bucketObjects.bucket
 	objects := bucketObjects.objects
 	if len(objects) == 0 {
 		if m.verbose {
 			fmt.Fprintf(m.output, "  %s: 0 files\n", bucket.Name)
 		}
-		return nil
+		return nil, nil
 	}
 
 	bucketName := normalizeBucketName(bucket.Name)
-	bucketDir := filepath.Join(destPath, bucketName)
-	if err := os.MkdirAll(bucketDir, 0755); err != nil {
-		return fmt.Errorf("creating bucket directory %s: %w", bucketName, err)
-	}
-
 	copied := 0
+	copiedObjects := make([]copiedStorageObject, 0, len(objects))
 	for _, obj := range objects {
 		exportBucketDir := filepath.Join(m.opts.StorageExportPath, bucket.Name)
 		srcFile := filepath.Join(exportBucketDir, obj.Name)
-		destFile := filepath.Join(bucketDir, obj.Name)
 		if !isStoragePathWithinRoot(exportBucketDir, m.opts.StorageExportPath) ||
-			!isStoragePathWithinRoot(srcFile, exportBucketDir) ||
-			!isStoragePathWithinRoot(destFile, bucketDir) {
+			!isStoragePathWithinRoot(srcFile, exportBucketDir) {
 			m.recordStorageObjectError(phase, processed, totalObjects,
 				fmt.Sprintf("skipping %s/%s: path traversal detected", bucket.Name, obj.Name))
 			continue
 		}
-		if err := os.MkdirAll(filepath.Dir(destFile), 0755); err != nil {
+
+		backup, err := backupStorageObject(ctx, destination.backend, destination.backupScratchDir, bucketName, obj.Name)
+		if err != nil {
 			m.recordStorageObjectError(phase, processed, totalObjects,
-				fmt.Sprintf("creating directory for %s/%s: %v", bucket.Name, obj.Name, err))
+				fmt.Sprintf("preserving %s/%s before replacement: %v", bucket.Name, obj.Name, err))
 			continue
 		}
-
-		bytes, err := copyFile(srcFile, destFile)
+		bytes, err := copyFile(ctx, destination.backend, bucketName, obj.Name, srcFile)
 		if err != nil {
+			backup.discard()
 			m.recordStorageObjectError(phase, processed, totalObjects,
 				fmt.Sprintf("copying %s/%s: %v", bucket.Name, obj.Name, err))
 			continue
 		}
 
 		copied++
+		copiedObjects = append(copiedObjects, copiedStorageObject{
+			bucketName:   bucketName,
+			name:         obj.Name,
+			size:         bytes,
+			contentType:  obj.MimeType,
+			sourceBucket: bucket.Name,
+			backup:       backup,
+		})
 		m.stats.StorageFiles++
 		m.stats.StorageBytes += bytes
 		(*processed)++
@@ -240,13 +363,42 @@ func (m *Migrator) copyStorageBucket(
 	if m.verbose {
 		fmt.Fprintf(m.output, "  %s: %d files copied\n", bucket.Name, copied)
 	}
-	return nil
+	return copiedObjects, nil
 }
 
 func isStoragePathWithinRoot(path, root string) bool {
-	cleanPath := filepath.Clean(path)
 	cleanRoot := filepath.Clean(root)
-	return strings.HasPrefix(cleanPath, cleanRoot+string(filepath.Separator)) || cleanPath == cleanRoot
+	cleanPath := filepath.Clean(path)
+	rootForRel, err := filepath.Abs(cleanRoot)
+	if err != nil {
+		return false
+	}
+	pathForRel, err := filepath.Abs(cleanPath)
+	if err != nil {
+		return false
+	}
+
+	if _, err := os.Lstat(cleanPath); err == nil {
+		pathForRel, err = filepath.EvalSymlinks(cleanPath)
+		if err != nil {
+			return false
+		}
+		if _, err := os.Lstat(cleanRoot); err == nil {
+			rootForRel, err = filepath.EvalSymlinks(cleanRoot)
+			if err != nil {
+				return false
+			}
+		}
+	} else if !os.IsNotExist(err) {
+		return false
+	}
+
+	relativePath, err := filepath.Rel(rootForRel, pathForRel)
+	if err != nil {
+		return false
+	}
+	return relativePath != ".." &&
+		!strings.HasPrefix(relativePath, ".."+string(filepath.Separator))
 }
 
 func (m *Migrator) recordStorageObjectError(
@@ -260,29 +412,24 @@ func (m *Migrator) recordStorageObjectError(
 	m.progress.Progress(phase, *processed, totalObjects)
 }
 
-// copyFile copies a file from src to dst, returning bytes copied.
-func copyFile(src, dst string) (int64, error) {
+// copyFile copies a source export through AYB's canonical storage backend.
+func copyFile(
+	ctx context.Context,
+	backend storage.Backend,
+	bucketName string,
+	objectName string,
+	src string,
+) (int64, error) {
 	sf, err := os.Open(src)
 	if err != nil {
 		return 0, fmt.Errorf("opening source: %w", err)
 	}
 	defer sf.Close()
 
-	df, err := os.Create(dst)
-	if err != nil {
-		return 0, fmt.Errorf("creating destination: %w", err)
-	}
-	defer df.Close()
-
-	n, err := io.Copy(df, sf)
+	n, err := backend.Put(ctx, "", bucketName, objectName, sf)
 	if err != nil {
 		return 0, fmt.Errorf("copying data: %w", err)
 	}
-
-	if err := df.Sync(); err != nil {
-		return n, fmt.Errorf("syncing file: %w", err)
-	}
-
 	return n, nil
 }
 

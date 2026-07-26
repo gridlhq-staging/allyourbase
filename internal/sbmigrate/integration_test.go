@@ -6,14 +6,19 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"io"
 	"net/url"
 	"os"
 	"path/filepath"
+	"reflect"
+	"sort"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/allyourbase/ayb/internal/migrate"
+	"github.com/allyourbase/ayb/internal/migrations"
+	"github.com/allyourbase/ayb/internal/storage"
 	"github.com/allyourbase/ayb/internal/testutil"
 	"github.com/jackc/pgx/v5/pgxpool"
 	_ "github.com/jackc/pgx/v5/stdlib"
@@ -118,6 +123,15 @@ func setupSourceAndTarget(t *testing.T) string {
 	testutil.NoError(t, err)
 
 	return sharedPG.ConnString
+}
+
+func setupTargetAYBSchema(t *testing.T) {
+	t.Helper()
+	ctx := context.Background()
+	runner := migrations.NewRunner(sharedPG.Pool, testutil.DiscardLogger())
+	testutil.NoError(t, runner.Bootstrap(ctx))
+	_, err := runner.Run(ctx)
+	testutil.NoError(t, err)
 }
 
 // insertSourceUser inserts a user into auth.users with the given params.
@@ -235,6 +249,7 @@ func dropIsolatedDatabase(t *testing.T, adminConnStr, dbURL string) {
 
 func TestE2E_FullMigration(t *testing.T) {
 	connStr := setupSourceAndTarget(t)
+	setupTargetAYBSchema(t)
 
 	// Populate source data.
 	insertSourceUser(t, sharedPG.Pool,
@@ -314,13 +329,12 @@ func TestE2E_FullMigration(t *testing.T) {
 	testutil.NoError(t, err)
 
 	// Verify stats.
-	// Note: source and target share the same DB. Tables already exist so CREATE IF NOT EXISTS
-	// succeeds silently, and ON CONFLICT DO NOTHING means rows already present return 0 affected.
-	testutil.Equal(t, 2, stats.Tables)  // posts, comments (excludes _ayb_ tables)
-	testutil.Equal(t, 0, stats.Records) // 0 because rows already exist (ON CONFLICT DO NOTHING)
+	// Source and target share the same DB, so existing rows are not recopied.
+	testutil.Equal(t, 2, stats.Tables) // posts, comments (excludes _ayb_ tables)
+	testutil.Equal(t, 0, stats.Records)
 	testutil.Equal(t, 2, stats.Users)
 	testutil.Equal(t, 1, stats.OAuthLinks) // google for alice (email provider skipped)
-	testutil.Equal(t, 2, stats.Policies)
+	testutil.Equal(t, 3, stats.Policies)   // two source policies plus the AYB fixture policy
 	testutil.Equal(t, 1, stats.StorageFiles)
 	testutil.True(t, stats.StorageBytes > 0)
 
@@ -587,36 +601,52 @@ func TestE2E_RLSMigration(t *testing.T) {
 
 func TestE2E_StorageMigration(t *testing.T) {
 	connStr := setupSourceAndTarget(t)
+	setupTargetAYBSchema(t)
 
 	insertSourceUser(t, sharedPG.Pool,
 		"aaaaaaaa-0000-0000-0000-000000000001", "admin@example.com", "$2a$10$hash", true, false)
 
-	insertStorageBucket(t, sharedPG.Pool, "uploads", "uploads", true, []struct {
-		name, mime string
-		size       int
-	}{
-		{"images/photo.jpg", "image/jpeg", 14},
-		{"images/banner.png", "image/png", 12},
-		{"docs/readme.txt", "text/plain", 15},
-	})
-	insertStorageBucket(t, sharedPG.Pool, "private", "private", false, []struct {
-		name, mime string
-		size       int
-	}{
-		{"secret.pdf", "application/pdf", 8},
-	})
-
-	storageExport := createStorageExportDir(t, map[string]map[string][]byte{
-		"uploads": {
-			"images/photo.jpg":  []byte("fake-jpeg-data"),
-			"images/banner.png": []byte("fake-png-data"),
-			"docs/readme.txt":   []byte("fake-readme-data"),
+	fixtures := []storageMigrationFixture{
+		{
+			sourceBucketID:   "uploads",
+			sourceBucketName: "uploads",
+			normalizedBucket: "uploads",
+			public:           true,
+			objectName:       "images/photo.txt",
+			contentType:      "text/plain",
+			size:             12,
+			payload:          []byte("alpha-upload"),
 		},
-		"private": {
-			"secret.pdf": []byte("fake-pdf"),
+		{
+			sourceBucketID:   "project-assets",
+			sourceBucketName: "Project Assets.2026",
+			normalizedBucket: "project-assets-2026",
+			public:           false,
+			objectName:       "nested/assets/logo.svg",
+			contentType:      "image/svg+xml",
+			size:             18,
+			payload:          []byte("project-asset-2026"),
 		},
-	})
+		{
+			sourceBucketID:   "empty-assets",
+			sourceBucketName: "Empty Assets.2026",
+			normalizedBucket: "empty-assets-2026",
+			public:           true,
+		},
+	}
 
+	for _, fixture := range fixtures {
+		if fixture.objectName == "" {
+			continue
+		}
+		testutil.Equal(t, fixture.size, len(fixture.payload))
+	}
+
+	for _, bucket := range storageMigrationBuckets(fixtures) {
+		insertStorageBucket(t, sharedPG.Pool, bucket.id, bucket.name, bucket.public, bucket.objects)
+	}
+
+	storageExport := createStorageExportDir(t, storageMigrationExport(fixtures))
 	tmpStorage := t.TempDir()
 
 	migrator, err := NewMigrator(MigrationOptions{
@@ -636,13 +666,664 @@ func TestE2E_StorageMigration(t *testing.T) {
 	stats, err := migrator.Migrate(ctx)
 	testutil.NoError(t, err)
 
-	testutil.Equal(t, 4, stats.StorageFiles)
-	testutil.True(t, stats.StorageBytes > 0)
+	testutil.Equal(t, storageMigrationObjectCount(fixtures), stats.StorageFiles)
+	testutil.Equal(t, int64(30), stats.StorageBytes)
 
-	verifyFile(t, filepath.Join(tmpStorage, "uploads", "images", "photo.jpg"), []byte("fake-jpeg-data"))
-	verifyFile(t, filepath.Join(tmpStorage, "uploads", "images", "banner.png"), []byte("fake-png-data"))
-	verifyFile(t, filepath.Join(tmpStorage, "uploads", "docs", "readme.txt"), []byte("fake-readme-data"))
-	verifyFile(t, filepath.Join(tmpStorage, "private", "secret.pdf"), []byte("fake-pdf"))
+	for _, fixture := range fixtures {
+		if fixture.objectName == "" {
+			continue
+		}
+		verifyFile(t,
+			filepath.Join(tmpStorage, fixture.normalizedBucket, fixture.objectName),
+			fixture.payload,
+		)
+	}
+
+	assertMigratedStorageBuckets(t, fixtures)
+	assertMigratedStorageObjects(t, fixtures)
+	assertMigratedStorageDownloads(t, ctx, tmpStorage, fixtures)
+}
+
+type storageMigrationFixture struct {
+	sourceBucketID   string
+	sourceBucketName string
+	normalizedBucket string
+	public           bool
+	objectName       string
+	contentType      string
+	size             int
+	payload          []byte
+}
+
+type storageBucketFixture struct {
+	id      string
+	name    string
+	public  bool
+	objects []struct {
+		name, mime string
+		size       int
+	}
+}
+
+func storageMigrationBuckets(fixtures []storageMigrationFixture) []storageBucketFixture {
+	byID := map[string]int{}
+	var buckets []storageBucketFixture
+	for _, fixture := range fixtures {
+		idx, ok := byID[fixture.sourceBucketID]
+		if !ok {
+			buckets = append(buckets, storageBucketFixture{
+				id:     fixture.sourceBucketID,
+				name:   fixture.sourceBucketName,
+				public: fixture.public,
+			})
+			idx = len(buckets) - 1
+			byID[fixture.sourceBucketID] = idx
+		}
+		if fixture.objectName == "" {
+			continue
+		}
+		buckets[idx].objects = append(buckets[idx].objects, struct {
+			name, mime string
+			size       int
+		}{
+			name: fixture.objectName,
+			mime: fixture.contentType,
+			size: fixture.size,
+		})
+	}
+	return buckets
+}
+
+func storageMigrationExport(fixtures []storageMigrationFixture) map[string]map[string][]byte {
+	export := map[string]map[string][]byte{}
+	for _, fixture := range fixtures {
+		if fixture.objectName == "" {
+			continue
+		}
+		files := export[fixture.sourceBucketName]
+		if files == nil {
+			files = map[string][]byte{}
+			export[fixture.sourceBucketName] = files
+		}
+		files[fixture.objectName] = fixture.payload
+	}
+	return export
+}
+
+func storageMigrationObjectCount(fixtures []storageMigrationFixture) int {
+	count := 0
+	for _, fixture := range fixtures {
+		if fixture.objectName != "" {
+			count++
+		}
+	}
+	return count
+}
+
+func TestStorageRegistrationNormalizedBucketCollisionFailsBeforeWrites(t *testing.T) {
+	connStr := setupSourceAndTarget(t)
+	setupTargetAYBSchema(t)
+
+	insertSourceUser(t, sharedPG.Pool,
+		"aaaaaaaa-0000-0000-0000-000000000001", "admin@example.com", "$2a$10$hash", true, false)
+	insertStorageBucket(t, sharedPG.Pool, "team-docs-space", "Team Docs", true, nil)
+	insertStorageBucket(t, sharedPG.Pool, "team-docs-dot", "Team.Docs", false, nil)
+
+	storageRoot := filepath.Join(t.TempDir(), "ayb-storage")
+	migrator, err := NewMigrator(MigrationOptions{
+		SourceURL:         connStr,
+		TargetURL:         connStr,
+		SkipData:          true,
+		SkipRLS:           true,
+		SkipOAuth:         true,
+		StorageExportPath: t.TempDir(),
+		StoragePath:       storageRoot,
+	})
+	testutil.NoError(t, err)
+	defer migrator.Close()
+
+	_, err = migrator.Migrate(context.Background())
+	testutil.ErrorContains(t, err, "Team Docs")
+	testutil.ErrorContains(t, err, "Team.Docs")
+	testutil.ErrorContains(t, err, "team-docs")
+
+	_, statErr := os.Stat(storageRoot)
+	testutil.True(t, os.IsNotExist(statErr), "destination directory exists after collision: %v", statErr)
+	testutil.Equal(t, 0, storageMetadataRowCount(t, "_ayb_storage_buckets"))
+	testutil.Equal(t, 0, storageMetadataRowCount(t, "_ayb_storage_objects"))
+}
+
+func TestStorageRegistrationSkipsFailedObjectsAndRegistersCopiedSiblings(t *testing.T) {
+	connStr := setupSourceAndTarget(t)
+	setupTargetAYBSchema(t)
+
+	insertSourceUser(t, sharedPG.Pool,
+		"aaaaaaaa-0000-0000-0000-000000000001", "admin@example.com", "$2a$10$hash", true, false)
+	insertStorageBucket(t, sharedPG.Pool, "assets", "Assets", false, []struct {
+		name, mime string
+		size       int
+	}{
+		{"ok.txt", "text/plain", 7},
+		{"../escape.txt", "text/plain", 6},
+		{"missing.txt", "text/plain", 8},
+	})
+
+	storageExport := createStorageExportDir(t, map[string]map[string][]byte{
+		"Assets": {"ok.txt": []byte("copied!")},
+	})
+	storageRoot := filepath.Join(t.TempDir(), "ayb-storage")
+	migrator, err := NewMigrator(MigrationOptions{
+		SourceURL:         connStr,
+		TargetURL:         connStr,
+		SkipData:          true,
+		SkipRLS:           true,
+		SkipOAuth:         true,
+		StorageExportPath: storageExport,
+		StoragePath:       storageRoot,
+	})
+	testutil.NoError(t, err)
+	defer migrator.Close()
+
+	stats, err := migrator.Migrate(context.Background())
+	testutil.NoError(t, err)
+	testutil.Equal(t, 1, stats.StorageFiles)
+	testutil.Equal(t, int64(7), stats.StorageBytes)
+	testutil.SliceLen(t, stats.Errors, 2)
+	testutil.Equal(t, 1, storageObjectRowCount(t, "assets", "ok.txt"))
+	testutil.Equal(t, 0, storageObjectRowCount(t, "assets", "../escape.txt"))
+	testutil.Equal(t, 0, storageObjectRowCount(t, "assets", "missing.txt"))
+}
+
+func TestStorageRegistrationRejectsUndownloadableObjectName(t *testing.T) {
+	connStr := setupSourceAndTarget(t)
+	setupTargetAYBSchema(t)
+
+	insertSourceUser(t, sharedPG.Pool,
+		"aaaaaaaa-0000-0000-0000-000000000001", "admin@example.com", "$2a$10$hash", true, false)
+	insertStorageBucket(t, sharedPG.Pool, "reports", "Reports", false, []struct {
+		name, mime string
+		size       int
+	}{
+		{"summary.txt", "text/plain", 7},
+		{"report..final.txt", "text/plain", 7},
+	})
+
+	storageExport := createStorageExportDir(t, map[string]map[string][]byte{
+		"Reports": {
+			"summary.txt":       []byte("summary"),
+			"report..final.txt": []byte("invalid"),
+		},
+	})
+	storageRoot := filepath.Join(t.TempDir(), "ayb-storage")
+	stats := runStorageMigration(t, connStr, storageExport, storageRoot)
+
+	testutil.Equal(t, 1, stats.StorageFiles)
+	testutil.Equal(t, int64(7), stats.StorageBytes)
+	testutil.SliceLen(t, stats.Errors, 1)
+	testutil.Contains(t, strings.Join(stats.Errors, "\n"), "invalid object name")
+	testutil.Equal(t, 1, storageObjectRowCount(t, "reports", "summary.txt"))
+	testutil.Equal(t, 0, storageObjectRowCount(t, "reports", "report..final.txt"))
+
+	verifyFile(t, filepath.Join(storageRoot, "reports", "summary.txt"), []byte("summary"))
+	_, err := os.Stat(filepath.Join(storageRoot, "reports", "report..final.txt"))
+	testutil.True(t, os.IsNotExist(err), "invalid object was copied: %v", err)
+}
+
+func TestStorageRegistrationIdempotentlyUpdatesCopiedObjectMetadata(t *testing.T) {
+	connStr := setupSourceAndTarget(t)
+	setupTargetAYBSchema(t)
+
+	insertSourceUser(t, sharedPG.Pool,
+		"aaaaaaaa-0000-0000-0000-000000000001", "admin@example.com", "$2a$10$hash", true, false)
+	insertStorageBucket(t, sharedPG.Pool, "uploads", "Uploads", true, []struct {
+		name, mime string
+		size       int
+	}{
+		{"file.txt", "text/plain", 5},
+	})
+
+	storageExport := createStorageExportDir(t, map[string]map[string][]byte{
+		"Uploads": {"file.txt": []byte("first")},
+	})
+	storageRoot := filepath.Join(t.TempDir(), "ayb-storage")
+	runStorageMigration(t, connStr, storageExport, storageRoot)
+
+	secondPayload := []byte("second-version")
+	testutil.NoError(t, os.WriteFile(filepath.Join(storageExport, "Uploads", "file.txt"), secondPayload, 0644))
+	_, err := sharedPG.Pool.Exec(context.Background(), `
+		UPDATE storage.objects
+		SET metadata = '{"size": 999, "mimetype": "text/markdown"}'::jsonb
+		WHERE bucket_id = 'uploads' AND name = 'file.txt'
+	`)
+	testutil.NoError(t, err)
+
+	runStorageMigration(t, connStr, storageExport, storageRoot)
+
+	testutil.Equal(t, 1, storageMetadataRowCount(t, "_ayb_storage_buckets"))
+	testutil.Equal(t, 1, storageMetadataRowCount(t, "_ayb_storage_objects"))
+	row := storageObjectRow(t, "uploads", "file.txt")
+	testutil.Equal(t, int64(len(secondPayload)), row.Size)
+	testutil.Equal(t, "text/markdown", row.ContentType)
+	verifyFile(t, filepath.Join(storageRoot, "uploads", "file.txt"), secondPayload)
+}
+
+func TestStorageRegistrationFailedRerunPreservesLiveObject(t *testing.T) {
+	connStr := setupSourceAndTarget(t)
+	setupTargetAYBSchema(t)
+
+	const objectName = "file.txt"
+	initialPayload := []byte("original-download")
+	fixture := storageMigrationFixture{
+		sourceBucketID:   "uploads",
+		sourceBucketName: "Uploads",
+		normalizedBucket: "uploads",
+		public:           true,
+		objectName:       objectName,
+		contentType:      "text/plain",
+		size:             len(initialPayload),
+		payload:          initialPayload,
+	}
+
+	insertSourceUser(t, sharedPG.Pool,
+		"aaaaaaaa-0000-0000-0000-000000000001", "admin@example.com", "$2a$10$hash", true, false)
+	insertStorageBucket(t, sharedPG.Pool, fixture.sourceBucketID, fixture.sourceBucketName, fixture.public, []struct {
+		name, mime string
+		size       int
+	}{
+		{fixture.objectName, fixture.contentType, fixture.size},
+	})
+
+	storageExport := createStorageExportDir(t, storageMigrationExport([]storageMigrationFixture{fixture}))
+	storageRoot := filepath.Join(t.TempDir(), "ayb-storage")
+	runStorageMigration(t, connStr, storageExport, storageRoot)
+
+	sourcePath := filepath.Join(storageExport, fixture.sourceBucketName, fixture.objectName)
+	testutil.NoError(t, os.Remove(sourcePath))
+	testutil.NoError(t, os.Mkdir(sourcePath, 0755))
+	_, err := sharedPG.Pool.Exec(context.Background(), `
+		UPDATE storage.objects
+		SET metadata = '{"size": 999, "mimetype": "application/json"}'::jsonb
+		WHERE bucket_id = 'uploads' AND name = 'file.txt'
+	`)
+	testutil.NoError(t, err)
+
+	stats := runStorageMigration(t, connStr, storageExport, storageRoot)
+
+	testutil.Equal(t, 0, stats.StorageFiles)
+	testutil.Equal(t, int64(0), stats.StorageBytes)
+	testutil.SliceLen(t, stats.Errors, 1)
+	testutil.Contains(t, strings.Join(stats.Errors, "\n"), "copying Uploads/file.txt")
+	row := storageObjectRow(t, fixture.normalizedBucket, fixture.objectName)
+	testutil.Equal(t, int64(fixture.size), row.Size)
+	testutil.Equal(t, fixture.contentType, row.ContentType)
+	assertMigratedStorageDownloads(t, context.Background(), storageRoot, []storageMigrationFixture{fixture})
+}
+
+func TestStorageRegistrationMetadataFailurePreservesLiveObject(t *testing.T) {
+	connStr := setupSourceAndTarget(t)
+	setupTargetAYBSchema(t)
+
+	initialPayload := []byte("original-download")
+	fixture := storageMigrationFixture{
+		sourceBucketID:   "uploads",
+		sourceBucketName: "Uploads",
+		normalizedBucket: "uploads",
+		public:           true,
+		objectName:       "file.txt",
+		contentType:      "text/plain",
+		size:             len(initialPayload),
+		payload:          initialPayload,
+	}
+
+	insertSourceUser(t, sharedPG.Pool,
+		"aaaaaaaa-0000-0000-0000-000000000001", "admin@example.com", "$2a$10$hash", true, false)
+	insertStorageBucket(t, sharedPG.Pool, fixture.sourceBucketID, fixture.sourceBucketName, fixture.public, []struct {
+		name, mime string
+		size       int
+	}{
+		{fixture.objectName, fixture.contentType, fixture.size},
+	})
+
+	storageExport := createStorageExportDir(t, storageMigrationExport([]storageMigrationFixture{fixture}))
+	storageRoot := filepath.Join(t.TempDir(), "ayb-storage")
+	runStorageMigration(t, connStr, storageExport, storageRoot)
+
+	replacementPayload := []byte("replacement-with-different-size")
+	testutil.NoError(t, os.WriteFile(
+		filepath.Join(storageExport, fixture.sourceBucketName, fixture.objectName),
+		replacementPayload,
+		0644,
+	))
+	_, err := sharedPG.Pool.Exec(context.Background(), `
+		UPDATE storage.objects
+		SET metadata = '{"size": 999, "mimetype": "application/json"}'::jsonb
+		WHERE bucket_id = 'uploads' AND name = 'file.txt';
+
+		CREATE FUNCTION fail_storage_object_metadata_update() RETURNS trigger AS $$
+		BEGIN
+			RAISE EXCEPTION 'forced storage object metadata failure';
+		END;
+		$$ LANGUAGE plpgsql;
+		CREATE TRIGGER fail_storage_object_metadata_update
+			BEFORE UPDATE ON _ayb_storage_objects
+			FOR EACH ROW EXECUTE FUNCTION fail_storage_object_metadata_update();
+	`)
+	testutil.NoError(t, err)
+
+	migrator, err := NewMigrator(MigrationOptions{
+		SourceURL:         connStr,
+		TargetURL:         connStr,
+		Force:             true,
+		SkipData:          true,
+		SkipRLS:           true,
+		SkipOAuth:         true,
+		StorageExportPath: storageExport,
+		StoragePath:       storageRoot,
+	})
+	testutil.NoError(t, err)
+	defer migrator.Close()
+
+	_, err = migrator.Migrate(context.Background())
+	testutil.ErrorContains(t, err, "forced storage object metadata failure")
+
+	row := storageObjectRow(t, fixture.normalizedBucket, fixture.objectName)
+	testutil.Equal(t, int64(fixture.size), row.Size)
+	testutil.Equal(t, fixture.contentType, row.ContentType)
+	assertMigratedStorageDownloads(t, context.Background(), storageRoot, []storageMigrationFixture{fixture})
+}
+
+func TestStorageRegistrationIdempotentlyUpdatesBucketPublicMetadata(t *testing.T) {
+	connStr := setupSourceAndTarget(t)
+	setupTargetAYBSchema(t)
+
+	insertSourceUser(t, sharedPG.Pool,
+		"aaaaaaaa-0000-0000-0000-000000000001", "admin@example.com", "$2a$10$hash", true, false)
+	insertStorageBucket(t, sharedPG.Pool, "uploads", "Uploads", true, []struct {
+		name, mime string
+		size       int
+	}{
+		{"file.txt", "text/plain", 5},
+	})
+
+	storageExport := createStorageExportDir(t, map[string]map[string][]byte{
+		"Uploads": {"file.txt": []byte("first")},
+	})
+	storageRoot := filepath.Join(t.TempDir(), "ayb-storage")
+	runStorageMigration(t, connStr, storageExport, storageRoot)
+
+	_, err := sharedPG.Pool.Exec(context.Background(), `
+		UPDATE storage.buckets
+		SET public = false
+		WHERE id = 'uploads'
+	`)
+	testutil.NoError(t, err)
+
+	runStorageMigration(t, connStr, storageExport, storageRoot)
+
+	testutil.Equal(t, 1, storageMetadataRowCount(t, "_ayb_storage_buckets"))
+	row := storageBucketRow(t, "uploads")
+	testutil.Equal(t, "", row.TenantID)
+	testutil.Equal(t, "uploads", row.Name)
+	testutil.False(t, row.Public, "bucket public metadata stayed stale after rerun")
+}
+
+func TestStorageRegistrationReservedStagingBucketFailsBeforeWrites(t *testing.T) {
+	connStr := setupSourceAndTarget(t)
+	setupTargetAYBSchema(t)
+
+	insertSourceUser(t, sharedPG.Pool,
+		"aaaaaaaa-0000-0000-0000-000000000001", "admin@example.com", "$2a$10$hash", true, false)
+	insertStorageBucket(t, sharedPG.Pool, "staging", "ayb_resumable_staging", false, nil)
+
+	storageRoot := filepath.Join(t.TempDir(), "ayb-storage")
+	migrator, err := NewMigrator(MigrationOptions{
+		SourceURL:         connStr,
+		TargetURL:         connStr,
+		SkipData:          true,
+		SkipRLS:           true,
+		SkipOAuth:         true,
+		StorageExportPath: t.TempDir(),
+		StoragePath:       storageRoot,
+	})
+	testutil.NoError(t, err)
+	defer migrator.Close()
+
+	_, err = migrator.Migrate(context.Background())
+	testutil.ErrorContains(t, err, "ayb_resumable_staging")
+	testutil.ErrorContains(t, err, "reserved")
+
+	_, statErr := os.Stat(storageRoot)
+	testutil.True(t, os.IsNotExist(statErr), "destination directory exists after reserved bucket: %v", statErr)
+	testutil.Equal(t, 0, storageMetadataRowCount(t, "_ayb_storage_buckets"))
+	testutil.Equal(t, 0, storageMetadataRowCount(t, "_ayb_storage_objects"))
+}
+
+func TestStorageRegistrationRejectsUnsafeBucketExportPathsBeforeWrites(t *testing.T) {
+	t.Run("empty bucket escapes export root", func(t *testing.T) {
+		assertStorageRegistrationRejectsUnsafeBucketExportPath(t, []storageMigrationFixture{
+			{
+				sourceBucketID:   "empty-escape",
+				sourceBucketName: "../empty-escape",
+				public:           true,
+			},
+		}, "../empty-escape")
+	})
+
+	t.Run("non-empty bucket aliases another export directory", func(t *testing.T) {
+		assertStorageRegistrationRejectsUnsafeBucketExportPath(t, []storageMigrationFixture{
+			{
+				sourceBucketID:   "uploads",
+				sourceBucketName: "Uploads",
+				public:           false,
+			},
+			{
+				sourceBucketID:   "uploads-alias",
+				sourceBucketName: "nested/../Uploads",
+				public:           true,
+				objectName:       "file.txt",
+				contentType:      "text/plain",
+				size:             7,
+				payload:          []byte("payload"),
+			},
+		}, "nested/../Uploads")
+	})
+}
+
+func assertStorageRegistrationRejectsUnsafeBucketExportPath(
+	t *testing.T,
+	fixtures []storageMigrationFixture,
+	unsafeBucketName string,
+) {
+	t.Helper()
+
+	connStr := setupSourceAndTarget(t)
+	setupTargetAYBSchema(t)
+	insertSourceUser(t, sharedPG.Pool,
+		"aaaaaaaa-0000-0000-0000-000000000001", "admin@example.com", "$2a$10$hash", true, false)
+	for _, bucket := range storageMigrationBuckets(fixtures) {
+		insertStorageBucket(t, sharedPG.Pool, bucket.id, bucket.name, bucket.public, bucket.objects)
+	}
+
+	storageExport := createStorageExportDir(t, storageMigrationExport(fixtures))
+	storageRoot := filepath.Join(t.TempDir(), "ayb-storage")
+	migrator, err := NewMigrator(MigrationOptions{
+		SourceURL:         connStr,
+		TargetURL:         connStr,
+		SkipData:          true,
+		SkipRLS:           true,
+		SkipOAuth:         true,
+		StorageExportPath: storageExport,
+		StoragePath:       storageRoot,
+	})
+	testutil.NoError(t, err)
+	defer migrator.Close()
+
+	_, err = migrator.Migrate(context.Background())
+	testutil.ErrorContains(t, err, unsafeBucketName)
+	testutil.ErrorContains(t, err, "unsafe export directory")
+
+	_, statErr := os.Stat(storageRoot)
+	testutil.True(t, os.IsNotExist(statErr), "destination directory exists after unsafe bucket: %v", statErr)
+	testutil.Equal(t, 0, storageMetadataRowCount(t, "_ayb_storage_buckets"))
+	testutil.Equal(t, 0, storageMetadataRowCount(t, "_ayb_storage_objects"))
+}
+
+type migratedStorageBucketRow struct {
+	TenantID string
+	Name     string
+	Public   bool
+}
+
+func assertMigratedStorageBuckets(t *testing.T, fixtures []storageMigrationFixture) {
+	t.Helper()
+
+	rows, err := sharedPG.Pool.Query(context.Background(), `
+		SELECT tenant_id, name, public
+		FROM _ayb_storage_buckets
+		ORDER BY tenant_id, name
+	`)
+	testutil.NoError(t, err)
+	defer rows.Close()
+
+	var got []migratedStorageBucketRow
+	for rows.Next() {
+		var row migratedStorageBucketRow
+		testutil.NoError(t, rows.Scan(&row.TenantID, &row.Name, &row.Public))
+		got = append(got, row)
+	}
+	testutil.NoError(t, rows.Err())
+
+	wantByName := map[string]migratedStorageBucketRow{}
+	for _, fixture := range fixtures {
+		wantByName[fixture.normalizedBucket] = migratedStorageBucketRow{
+			TenantID: "",
+			Name:     fixture.normalizedBucket,
+			Public:   fixture.public,
+		}
+	}
+	want := make([]migratedStorageBucketRow, 0, len(wantByName))
+	for _, row := range wantByName {
+		want = append(want, row)
+	}
+	sort.Slice(want, func(i, j int) bool {
+		if want[i].TenantID != want[j].TenantID {
+			return want[i].TenantID < want[j].TenantID
+		}
+		return want[i].Name < want[j].Name
+	})
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("_ayb_storage_buckets rows:\ngot  %#v\nwant %#v", got, want)
+	}
+}
+
+type migratedStorageObjectRow struct {
+	TenantID     string
+	Bucket       string
+	Name         string
+	Size         int64
+	ContentType  string
+	UserIDIsNull bool
+}
+
+func assertMigratedStorageObjects(t *testing.T, fixtures []storageMigrationFixture) {
+	t.Helper()
+
+	rows, err := sharedPG.Pool.Query(context.Background(), `
+		SELECT tenant_id, bucket, name, size, content_type, user_id IS NULL
+		FROM _ayb_storage_objects
+		ORDER BY tenant_id, bucket, name
+	`)
+	testutil.NoError(t, err)
+	defer rows.Close()
+
+	var got []migratedStorageObjectRow
+	for rows.Next() {
+		var row migratedStorageObjectRow
+		testutil.NoError(t, rows.Scan(
+			&row.TenantID,
+			&row.Bucket,
+			&row.Name,
+			&row.Size,
+			&row.ContentType,
+			&row.UserIDIsNull,
+		))
+		got = append(got, row)
+	}
+	testutil.NoError(t, rows.Err())
+
+	want := make([]migratedStorageObjectRow, 0, len(fixtures))
+	for _, fixture := range fixtures {
+		if fixture.objectName == "" {
+			continue
+		}
+		want = append(want, storageObjectRowForFixture(fixture))
+	}
+	sort.Slice(want, func(i, j int) bool {
+		if want[i].TenantID != want[j].TenantID {
+			return want[i].TenantID < want[j].TenantID
+		}
+		if want[i].Bucket != want[j].Bucket {
+			return want[i].Bucket < want[j].Bucket
+		}
+		return want[i].Name < want[j].Name
+	})
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("_ayb_storage_objects rows:\ngot  %#v\nwant %#v", got, want)
+	}
+}
+
+func storageObjectRowForFixture(fixture storageMigrationFixture) migratedStorageObjectRow {
+	return migratedStorageObjectRow{
+		TenantID:     "",
+		Bucket:       fixture.normalizedBucket,
+		Name:         fixture.objectName,
+		Size:         int64(fixture.size),
+		ContentType:  fixture.contentType,
+		UserIDIsNull: true,
+	}
+}
+
+func assertMigratedStorageDownloads(
+	t *testing.T,
+	ctx context.Context,
+	tmpStorage string,
+	fixtures []storageMigrationFixture,
+) {
+	t.Helper()
+
+	backend, err := storage.NewLocalBackend(tmpStorage)
+	testutil.NoError(t, err)
+	service := storage.NewService(
+		sharedPG.Pool,
+		backend,
+		"test-sign-key-at-least-32-chars!!",
+		testutil.DiscardLogger(),
+		0,
+	)
+
+	for _, fixture := range fixtures {
+		if fixture.objectName == "" {
+			continue
+		}
+		reader, object, err := service.Download(ctx, fixture.normalizedBucket, fixture.objectName)
+		if err != nil {
+			t.Errorf("Download(%q, %q): %v", fixture.normalizedBucket, fixture.objectName, err)
+			continue
+		}
+		data, readErr := io.ReadAll(reader)
+		closeErr := reader.Close()
+		testutil.NoError(t, readErr)
+		testutil.NoError(t, closeErr)
+		if !reflect.DeepEqual(data, fixture.payload) {
+			t.Errorf("Download(%q, %q) bytes: got %q, want %q",
+				fixture.normalizedBucket, fixture.objectName, data, fixture.payload)
+		}
+		testutil.Equal(t, fixture.normalizedBucket, object.Bucket)
+		testutil.Equal(t, fixture.objectName, object.Name)
+		testutil.Equal(t, int64(fixture.size), object.Size)
+		testutil.Equal(t, fixture.contentType, object.ContentType)
+		testutil.Nil(t, object.UserID)
+	}
 }
 
 func TestE2E_DryRun(t *testing.T) {
@@ -1096,6 +1777,83 @@ func TestE2E_SchemaMigrationRetriesDeferredFKDependencies(t *testing.T) {
 }
 
 // --- Helpers ---
+
+func runStorageMigration(t *testing.T, connStr, storageExport, storageRoot string) *MigrationStats {
+	t.Helper()
+
+	migrator, err := NewMigrator(MigrationOptions{
+		SourceURL:         connStr,
+		TargetURL:         connStr,
+		Force:             true,
+		SkipData:          true,
+		SkipRLS:           true,
+		SkipOAuth:         true,
+		StorageExportPath: storageExport,
+		StoragePath:       storageRoot,
+	})
+	testutil.NoError(t, err)
+	defer migrator.Close()
+
+	stats, err := migrator.Migrate(context.Background())
+	testutil.NoError(t, err)
+	return stats
+}
+
+func storageMetadataRowCount(t *testing.T, table string) int {
+	t.Helper()
+
+	query := fmt.Sprintf("SELECT COUNT(*) FROM %s", table)
+	var count int
+	err := sharedPG.Pool.QueryRow(context.Background(), query).Scan(&count)
+	testutil.NoError(t, err)
+	return count
+}
+
+func storageObjectRowCount(t *testing.T, bucket, name string) int {
+	t.Helper()
+
+	var count int
+	err := sharedPG.Pool.QueryRow(context.Background(), `
+		SELECT COUNT(*)
+		FROM _ayb_storage_objects
+		WHERE tenant_id = '' AND bucket = $1 AND name = $2
+	`, bucket, name).Scan(&count)
+	testutil.NoError(t, err)
+	return count
+}
+
+func storageBucketRow(t *testing.T, name string) migratedStorageBucketRow {
+	t.Helper()
+
+	var row migratedStorageBucketRow
+	err := sharedPG.Pool.QueryRow(context.Background(), `
+		SELECT tenant_id, name, public
+		FROM _ayb_storage_buckets
+		WHERE tenant_id = '' AND name = $1
+	`, name).Scan(&row.TenantID, &row.Name, &row.Public)
+	testutil.NoError(t, err)
+	return row
+}
+
+func storageObjectRow(t *testing.T, bucket, name string) migratedStorageObjectRow {
+	t.Helper()
+
+	var row migratedStorageObjectRow
+	err := sharedPG.Pool.QueryRow(context.Background(), `
+		SELECT tenant_id, bucket, name, size, content_type, user_id IS NULL
+		FROM _ayb_storage_objects
+		WHERE tenant_id = '' AND bucket = $1 AND name = $2
+	`, bucket, name).Scan(
+		&row.TenantID,
+		&row.Bucket,
+		&row.Name,
+		&row.Size,
+		&row.ContentType,
+		&row.UserIDIsNull,
+	)
+	testutil.NoError(t, err)
+	return row
+}
 
 func verifyFile(t *testing.T, path string, expected []byte) {
 	t.Helper()

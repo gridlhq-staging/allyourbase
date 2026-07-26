@@ -60,8 +60,9 @@ Use --skip-data to migrate only auth and RLS (no data tables).
 Use --skip-storage to skip file migration, or --storage-export to include storage.
 Use -y/--yes to skip confirmation prompts and --json for machine-readable output.
 
-The migration runs in a single transaction, so either everything succeeds or
-nothing is changed. Use --dry-run to preview what would be migrated.`,
+Database migration runs in a transaction. Storage files and metadata are migrated afterward;
+successfully migrated storage objects remain if a later storage object fails.
+Use --dry-run to preview what would be migrated without changing the database or storage.`,
 	RunE: runMigrateSupabase,
 }
 
@@ -138,6 +139,12 @@ func runMigrateSupabase(cmd *cobra.Command, args []string) error {
 	}
 
 	if !jsonOut {
+		if report.Files > 0 && storageExport == "" && !skipStorage {
+			report.Warnings = append(report.Warnings, fmt.Sprintf(
+				"%d analyzed storage files will not migrate; supply --storage-export or intentionally choose --skip-storage.",
+				report.Files,
+			))
+		}
 		report.PrintReport(os.Stderr)
 
 		if !yes && !dryRun {

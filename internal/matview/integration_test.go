@@ -351,6 +351,33 @@ func TestServiceRefreshNowConcurrentWithIndex(t *testing.T) {
 	testutil.NotNil(t, updated.LastRefreshStatus)
 	s := matview.RefreshStatusSuccess
 	testutil.Equal(t, s, *updated.LastRefreshStatus)
+
+	// Freshness contract: a source row inserted after the first refresh must
+	// become visible in the matview only after a second concurrent refresh.
+	var newID int
+	err = sharedPG.Pool.QueryRow(ctx,
+		`INSERT INTO public.test_items (name) VALUES ('d') RETURNING id`).Scan(&newID)
+	testutil.NoError(t, err)
+
+	// Before the second refresh the new row is not yet materialized.
+	var preCount int
+	err = sharedPG.Pool.QueryRow(ctx,
+		`SELECT count(*) FROM public.refresh_conc_mv WHERE id = $1`, newID).Scan(&preCount)
+	testutil.NoError(t, err)
+	testutil.Equal(t, 0, preCount)
+
+	_, err = svc.RefreshNow(ctx, reg.ID)
+	testutil.NoError(t, err)
+
+	// After the second refresh the exact materialized name must equal the
+	// inserted value. COALESCE keeps a missing row on the value-assertion path
+	// (yielding "<missing>") instead of surfacing as pgx.ErrNoRows.
+	var materializedName string
+	err = sharedPG.Pool.QueryRow(ctx,
+		`SELECT COALESCE((SELECT name FROM public.refresh_conc_mv WHERE id = $1), '<missing>')`,
+		newID).Scan(&materializedName)
+	testutil.NoError(t, err)
+	testutil.Equal(t, "d", materializedName)
 }
 
 func TestServiceRefreshNowConcurrentWithoutIndex(t *testing.T) {

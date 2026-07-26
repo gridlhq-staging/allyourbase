@@ -159,6 +159,58 @@ func TestParseGeoJSONGeometryGeometryCollection(t *testing.T) {
 	testutil.Equal(t, "GeometryCollection", geomType)
 }
 
+func TestParseGeoJSONGeometryBranches(t *testing.T) {
+	tests := []struct {
+		name      string
+		input     string
+		wantType  string
+		wantError string
+	}{
+		{
+			name:     "valid point",
+			input:    `{"type":"Point","coordinates":[0,0]}`,
+			wantType: "Point",
+		},
+		{
+			name:      "invalid json",
+			input:     `not json`,
+			wantError: "invalid GeoJSON",
+		},
+		{
+			name:      "missing type",
+			input:     `{"coordinates":[0,0]}`,
+			wantError: "must include a type",
+		},
+		{
+			name:      "type must be string",
+			input:     `{"type":123}`,
+			wantError: "must be a string",
+		},
+		{
+			name:      "empty type",
+			input:     `{"type":""}`,
+			wantError: "non-empty",
+		},
+		{
+			name:      "unsupported type",
+			input:     `{"type":"Circle","coordinates":[0,0]}`,
+			wantError: "unsupported",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			geomType, err := ParseGeoJSONGeometry(tt.input)
+			testutil.Equal(t, tt.wantType, geomType)
+			if tt.wantError == "" {
+				testutil.NoError(t, err)
+				return
+			}
+			testutil.ErrorContains(t, err, tt.wantError)
+		})
+	}
+}
+
 func TestParseGeoJSONGeometryRejectsFeature(t *testing.T) {
 	_, err := ParseGeoJSONGeometry(`{"type":"Feature","geometry":{"type":"Point","coordinates":[0,0]}}`)
 	testutil.Error(t, err)
