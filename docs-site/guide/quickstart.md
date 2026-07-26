@@ -5,6 +5,8 @@ Build a working CRUD app with Allyourbase in a few minutes.
 
 ## 1. Start AYB
 
+If you have not installed AYB yet, follow [Install](/guide/getting-started#install) first.
+
 ```bash
 # Install
 curl -fsSLo /tmp/ayb-install.sh https://install.allyourbase.io/install.sh
@@ -14,7 +16,7 @@ sh /tmp/ayb-install.sh
 ayb start
 ```
 
-AYB starts in detached mode and is available at `http://127.0.0.1:8090`.
+AYB starts in detached mode and is available at `http://127.0.0.1:8090` (`localhost:8090` on standard local hosts).
 
 If this is your first run and `admin.password` is unset, startup prints a generated admin password and a reset hint:
 

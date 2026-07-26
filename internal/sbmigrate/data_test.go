@@ -1,6 +1,7 @@
 package sbmigrate
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
 
@@ -371,7 +372,56 @@ func TestBuildValidationSummary(t *testing.T) {
 		testutil.Equal(t, 3, summary.Rows[0].SourceCount)
 		testutil.Equal(t, 2, summary.Rows[0].TargetCount)
 	})
+
+	t.Run("skipped table warnings are qualified and sorted", func(t *testing.T) {
+		t.Parallel()
+		report := &migrate.AnalysisReport{Tables: 2}
+		m := &Migrator{}
+		m.markSkippedTable(TableInfo{SchemaName: "public", Name: "zeta"}, errPublicReason{})
+		m.markSkippedTable(TableInfo{SchemaName: "billing", Name: "invoices"}, errBillingReason{})
+		stats := &MigrationStats{
+			Tables:        1,
+			Skipped:       2,
+			SkippedTables: m.stats.SkippedTables,
+		}
+		summary := BuildValidationSummary(report, stats)
+
+		testutil.Equal(t, 4, len(summary.Warnings))
+		testutil.Contains(t, summary.Warnings[0], "Tables count mismatch")
+		testutil.Contains(t, summary.Warnings[1], "2 items skipped")
+		testutil.Equal(t, "table billing.invoices skipped during migration: billing reason", summary.Warnings[2])
+		testutil.Equal(t, "table public.zeta skipped during migration: public reason", summary.Warnings[3])
+	})
 }
+
+func TestMigrationStatsSkippedTablesJSONUsesCollisionSafeStructuredRows(t *testing.T) {
+	t.Parallel()
+
+	m := &Migrator{}
+	left := TableInfo{SchemaName: "a.b", Name: "c"}
+	right := TableInfo{SchemaName: "a", Name: "b.c"}
+	m.markSkippedTable(left, errPublicReason{})
+	m.markSkippedTable(right, errBillingReason{})
+
+	data, err := json.Marshal(m.stats)
+	testutil.NoError(t, err)
+	testutil.Equal(t, `{"users":0,"oauthLinks":0,"policies":0,"tables":0,"views":0,"records":0,"sequences":0,"storageFiles":0,"storageBytes":0,"skipped":0,"skippedTables":[{"schema":"a","table":"b.c","reason":"billing reason"},{"schema":"a.b","table":"c","reason":"public reason"}]}`, string(data))
+	testutil.False(t, strings.Contains(string(data), `["a","b.c"]`), "internal table key must not leak into JSON output")
+	testutil.False(t, strings.Contains(string(data), `["a.b","c"]`), "internal table key must not leak into JSON output")
+
+	var decoded MigrationStats
+	testutil.NoError(t, json.Unmarshal(data, &decoded))
+	testutil.Equal(t, "billing reason", decoded.SkippedTables[right.TableKey()])
+	testutil.Equal(t, "public reason", decoded.SkippedTables[left.TableKey()])
+}
+
+type errBillingReason struct{}
+
+func (errBillingReason) Error() string { return "billing reason" }
+
+type errPublicReason struct{}
+
+func (errPublicReason) Error() string { return "public reason" }
 
 func TestQuoteLiteral(t *testing.T) {
 	t.Parallel()

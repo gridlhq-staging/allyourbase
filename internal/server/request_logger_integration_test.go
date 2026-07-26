@@ -19,6 +19,7 @@ import (
 	"github.com/allyourbase/ayb/internal/logging"
 	"github.com/allyourbase/ayb/internal/migrations"
 	"github.com/allyourbase/ayb/internal/schema"
+	"github.com/allyourbase/ayb/internal/tenant"
 	"github.com/allyourbase/ayb/internal/testutil"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -122,16 +123,16 @@ func waitForRequestLogByRequestID(
 	t *testing.T,
 	pool *pgxpool.Pool,
 	requestID string,
-) (method, path string, status int, requestSize, responseSize int64, remoteIP string) {
+) (method, path string, status int, requestSize, responseSize int64, remoteIP, tenantID string) {
 	t.Helper()
 	ctx := context.Background()
 	deadline := time.Now().Add(2 * time.Second)
 	for {
 		err := pool.QueryRow(ctx,
-			`SELECT method, path, status_code, request_size, response_size, COALESCE(host(ip_address), '')
+			`SELECT method, path, status_code, request_size, response_size, COALESCE(host(ip_address), ''), tenant_id
 			 FROM _ayb_request_logs WHERE request_id = $1`,
 			requestID,
-		).Scan(&method, &path, &status, &requestSize, &responseSize, &remoteIP)
+		).Scan(&method, &path, &status, &requestSize, &responseSize, &remoteIP, &tenantID)
 		if err == nil {
 			return
 		}
@@ -152,6 +153,7 @@ type seededRequestLog struct {
 	durationMS int64
 	timestamp  time.Time
 	requestID  string
+	tenantID   string
 }
 
 func seedRequestLogs(t *testing.T, pool *pgxpool.Pool, rows []seededRequestLog) {
@@ -159,9 +161,9 @@ func seedRequestLogs(t *testing.T, pool *pgxpool.Pool, rows []seededRequestLog) 
 	ctx := context.Background()
 	for _, row := range rows {
 		_, err := pool.Exec(ctx,
-			`INSERT INTO _ayb_request_logs (method, path, status_code, duration_ms, request_size, response_size, timestamp, request_id)
-			 VALUES ($1, $2, $3, $4, 0, 0, $5, $6)`,
-			row.method, row.path, row.status, row.durationMS, row.timestamp, row.requestID,
+			`INSERT INTO _ayb_request_logs (method, path, status_code, duration_ms, request_size, response_size, timestamp, request_id, tenant_id)
+			 VALUES ($1, $2, $3, $4, 0, 0, $5, $6, $7)`,
+			row.method, row.path, row.status, row.durationMS, row.timestamp, row.requestID, row.tenantID,
 		)
 		testutil.NoError(t, err)
 	}
@@ -198,13 +200,40 @@ func TestRequestLoggerIntegrationWritesRequestLogRowAfterHTTP(t *testing.T) {
 	testutil.StatusCode(t, http.StatusOK, w.Code)
 
 	waitForRequestLogCount(t, db.Pool, []string{reqID}, 1)
-	method, path, status, requestSize, responseSize, remoteIP := waitForRequestLogByRequestID(t, db.Pool, reqID)
+	method, path, status, requestSize, responseSize, remoteIP, tenantID := waitForRequestLogByRequestID(t, db.Pool, reqID)
 	testutil.Equal(t, http.MethodGet, method)
 	testutil.Equal(t, "/health", path)
 	testutil.Equal(t, http.StatusOK, status)
 	testutil.Equal(t, int64(len(`{"ping":"pong"}`)), requestSize)
 	testutil.True(t, responseSize > 0, "response size should be tracked")
 	testutil.Equal(t, "198.51.100.1", remoteIP)
+	testutil.Equal(t, "", tenantID)
+}
+
+func TestRequestLoggerIntegrationPersistsTenantID(t *testing.T) {
+	db := newRequestLoggerTestDB(t)
+	srv := newRequestLoggerServerForIntegration(t, db.Pool, 2, 60)
+
+	tenantReqID := "tenant-persisted"
+	tenantReq := httptest.NewRequest(http.MethodGet, "/health", nil)
+	tenantReq = tenantReq.WithContext(tenant.ContextWithTenantID(tenantReq.Context(), "tenant-request-log"))
+	tenantReq.Header.Set("X-Request-Id", tenantReqID)
+	tenantW := httptest.NewRecorder()
+	srv.Router().ServeHTTP(tenantW, tenantReq)
+	testutil.StatusCode(t, http.StatusOK, tenantW.Code)
+
+	defaultReqID := "tenant-default"
+	defaultReq := httptest.NewRequest(http.MethodGet, "/health", nil)
+	defaultReq.Header.Set("X-Request-Id", defaultReqID)
+	defaultW := httptest.NewRecorder()
+	srv.Router().ServeHTTP(defaultW, defaultReq)
+	testutil.StatusCode(t, http.StatusOK, defaultW.Code)
+
+	waitForRequestLogCount(t, db.Pool, []string{tenantReqID, defaultReqID}, 2)
+	_, _, _, _, _, _, persistedTenantID := waitForRequestLogByRequestID(t, db.Pool, tenantReqID)
+	_, _, _, _, _, _, defaultTenantID := waitForRequestLogByRequestID(t, db.Pool, defaultReqID)
+	testutil.Equal(t, "tenant-request-log", persistedTenantID)
+	testutil.Equal(t, "", defaultTenantID)
 }
 
 func TestRequestLoggerIntegrationFlushesAtBatchSize(t *testing.T) {
@@ -390,6 +419,52 @@ func TestAdminRequestLogsEndpointFiltersStatusDurationAndReturnsTotalCount(t *te
 			testutil.Equal(t, tt.wantOffset, response.Offset)
 		})
 	}
+}
+
+func TestAdminRequestLogsEndpointFiltersByTenantID(t *testing.T) {
+	db := newRequestLoggerTestDB(t)
+	srv := newRequestLoggerServerForIntegration(t, db.Pool, 100, 60)
+
+	baseTime := time.Date(2026, 4, 1, 10, 0, 0, 0, time.UTC)
+	seedRequestLogs(t, db.Pool, []seededRequestLog{
+		{method: http.MethodGet, path: "/tenant-filter/a", status: 200, timestamp: baseTime, requestID: "tenant-filter-a", tenantID: "tenant_a"},
+		{method: http.MethodGet, path: "/tenant-filter/b", status: 200, timestamp: baseTime.Add(time.Minute), requestID: "tenant-filter-b", tenantID: "tenant_a"},
+		{method: http.MethodGet, path: "/tenant-filter/default", status: 200, timestamp: baseTime.Add(2 * time.Minute), requestID: "tenant-filter-default"},
+	})
+	token := requestAdminToken(t, srv)
+
+	filtered := requestAdminRequestLogs(t, srv, token, url.Values{
+		"path":      {"/tenant-filter/*"},
+		"tenant_id": {"tenant_a"},
+	})
+	filteredRequestIDs := make([]string, 0, len(filtered.Items))
+	for _, item := range filtered.Items {
+		if item.RequestID == nil {
+			t.Fatalf("request log item %q has no request ID", item.ID)
+		}
+		filteredRequestIDs = append(filteredRequestIDs, *item.RequestID)
+	}
+	testutil.Equal(t, 2, filtered.Count)
+	testutil.True(t, slices.Equal([]string{"tenant-filter-b", "tenant-filter-a"}, filteredRequestIDs), "unexpected tenant-filtered request IDs")
+
+	defaultTenant := requestAdminRequestLogs(t, srv, token, url.Values{
+		"path":      {"/tenant-filter/*"},
+		"tenant_id": {""},
+	})
+	defaultTenantRequestIDs := make([]string, 0, len(defaultTenant.Items))
+	for _, item := range defaultTenant.Items {
+		if item.RequestID == nil {
+			t.Fatalf("request log item %q has no request ID", item.ID)
+		}
+		defaultTenantRequestIDs = append(defaultTenantRequestIDs, *item.RequestID)
+	}
+	testutil.Equal(t, 1, defaultTenant.Count)
+	testutil.True(t, slices.Equal([]string{"tenant-filter-default"}, defaultTenantRequestIDs), "unexpected default-tenant request IDs")
+
+	unfiltered := requestAdminRequestLogs(t, srv, token, url.Values{
+		"path": {"/tenant-filter/*"},
+	})
+	testutil.Equal(t, 3, unfiltered.Count)
 }
 
 func TestAdminRequestLogsEndpointPagesPastSharedTimestampWithStableCursor(t *testing.T) {

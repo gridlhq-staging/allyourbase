@@ -22,9 +22,10 @@ type Modal =
 
 interface TableBrowserProps {
   table: Table;
+  onOpenSQLEditor?: () => void;
 }
 
-export function TableBrowser({ table }: TableBrowserProps) {
+export function TableBrowser({ table, onOpenSQLEditor }: TableBrowserProps) {
   const [data, setData] = useState<ListResponse | null>(null);
   const [page, setPage] = useState(1);
   const [sort, setSort] = useState<string | null>(null);
@@ -157,6 +158,10 @@ export function TableBrowser({ table }: TableBrowserProps) {
     setPage(1);
   }, [search]);
 
+  const openCreateModal = useCallback(() => {
+    setModal({ kind: "create" });
+  }, []);
+
   const pkId = useCallback(
     (row: Record<string, unknown>): string => {
       return table.primaryKey.map((k) => String(row[k])).join(",");
@@ -285,6 +290,11 @@ export function TableBrowser({ table }: TableBrowserProps) {
   );
 
   const showCheckboxes = isWritable && hasPK;
+  const emptyStateAction = isWritable
+    ? { label: "New Row", onClick: openCreateModal }
+    : onOpenSQLEditor
+      ? { label: "Open SQL Editor", onClick: onOpenSQLEditor }
+      : undefined;
 
   return (
     <div className="flex flex-col h-full text-gray-900 dark:text-gray-100">
@@ -308,13 +318,24 @@ export function TableBrowser({ table }: TableBrowserProps) {
         selectedCount={selectedIds.size}
         onBatchDelete={() => setModal({ kind: "batch-delete" })}
         isWritable={isWritable}
-        onCreateNew={() => setModal({ kind: "create" })}
+        onCreateNew={openCreateModal}
       />
 
       {/* Error */}
       {error && (
         <div className="px-4 py-2 bg-red-50 dark:bg-red-950/30 text-red-600 dark:text-red-300 text-sm border-b border-red-200 dark:border-red-900/60">
-          {error}
+          <div className="flex items-center justify-between gap-3">
+            <span>{error}</span>
+            <button
+              type="button"
+              onClick={() => {
+                void fetchData();
+              }}
+              className="rounded border border-red-300 px-2 py-1 text-xs font-medium text-red-700 hover:bg-red-100 dark:border-red-800 dark:text-red-200 dark:hover:bg-red-900/40"
+            >
+              Retry
+            </button>
+          </div>
         </div>
       )}
 
@@ -338,6 +359,8 @@ export function TableBrowser({ table }: TableBrowserProps) {
         onDelete={(row) => setModal({ kind: "delete", row })}
         page={page}
         setPage={setPage}
+        showMigrationDiscoveryCTA
+        emptyStateAction={emptyStateAction}
       />
 
       {/* Create form */}

@@ -3,7 +3,12 @@ import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { SchemaCache, Table } from "../../types";
 import type { View } from "../layout-types";
-import { docsUrl } from "../../lib/docs_url";
+import {
+  ALGOLIA_MIGRATION_GUIDE_PATH,
+  docsUrl,
+  MIGRATIONS_GUIDE_PATH,
+  SUPABASE_MIGRATION_GUIDE_PATH,
+} from "../../lib/docs_url";
 import { ContentRouter } from "../ContentRouter";
 import {
   filterScreenRegistry,
@@ -19,8 +24,19 @@ vi.mock("../../api_admin", () => ({
 }));
 
 vi.mock("../TableBrowser", () => ({
-  TableBrowser: ({ table }: { table: Table }) => (
-    <div data-testid="table-browser">{table.name}</div>
+  TableBrowser: ({
+    table,
+    onOpenSQLEditor,
+  }: {
+    table: Table;
+    onOpenSQLEditor?: () => void;
+  }) => (
+    <div data-testid="table-browser">
+      <span>{table.name}</span>
+      <button type="button" onClick={onOpenSQLEditor}>
+        Mock open SQL editor
+      </button>
+    </div>
   ),
 }));
 
@@ -267,6 +283,41 @@ describe("ContentRouter admin views", () => {
   });
 });
 
+describe("ContentRouter empty data state", () => {
+  it("keeps table selection guidance and offers CLI migration guides", () => {
+    render(
+      <ContentRouter
+        schema={makeSchema()}
+        view="data"
+        isAdminView={false}
+        selected={null}
+        onRefresh={vi.fn()}
+        onSetView={vi.fn()}
+        onSelectAdminView={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText("Select a table from the sidebar")).toBeInTheDocument();
+    expect(
+      screen.getByText("Use SQL Editor from the sidebar to create one."),
+    ).toBeInTheDocument();
+    expect(screen.getByText("Migrating from another source?")).toBeInTheDocument();
+    expect(screen.getByText("ayb migrate <source> --help")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Migration guide" })).toHaveAttribute(
+      "href",
+      docsUrl(MIGRATIONS_GUIDE_PATH),
+    );
+    expect(screen.getByRole("link", { name: "Supabase migration guide" })).toHaveAttribute(
+      "href",
+      docsUrl(SUPABASE_MIGRATION_GUIDE_PATH),
+    );
+    expect(screen.getByRole("link", { name: "Algolia migration guide" })).toHaveAttribute(
+      "href",
+      docsUrl(ALGOLIA_MIGRATION_GUIDE_PATH),
+    );
+  });
+});
+
 describe("ContentRouter selected table views", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -320,6 +371,15 @@ describe("ContentRouter selected table views", () => {
 
     renderSelectedRouter("sql");
     expect(await screen.findByTestId("sql-editor")).toBeInTheDocument();
+  });
+
+  it("passes the SQL editor callback through the selected table browser seam", async () => {
+    const user = userEvent.setup();
+    const { onSetView } = renderSelectedRouter("data");
+
+    await user.click(screen.getByRole("button", { name: "Mock open SQL editor" }));
+
+    expect(onSetView).toHaveBeenCalledWith("sql");
   });
 
   it("routes the selected-table SQL view through the registry sql-editor screen", async () => {

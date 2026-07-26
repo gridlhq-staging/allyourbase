@@ -152,7 +152,7 @@ Examples:
   ayb demo kanban
   ayb demo live-polls
   ayb demo movies`,
-	Args:      cobra.ExactArgs(1),
+	Args:      exactArgsWithHelp(1, "ayb demo kanban"),
 	ValidArgs: []string{"instantsearch", "kanban", "live-polls", "movies"},
 	RunE:      runDemo,
 }

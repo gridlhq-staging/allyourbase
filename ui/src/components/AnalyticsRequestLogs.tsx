@@ -152,11 +152,19 @@ export function RequestLogsTable({
 interface RequestLogsSummaryProps {
   data: RequestLogListResponse;
   appliedFilters: Record<string, string>;
+  liveEnabled: boolean;
+  liveStatus: "off" | "connecting" | "live" | "error";
+  liveError: string | null;
+  onLiveToggle: () => void;
 }
 
 export function RequestLogsSummary({
   data,
   appliedFilters,
+  liveEnabled,
+  liveStatus,
+  liveError,
+  onLiveToggle,
 }: RequestLogsSummaryProps) {
   const firstVisible = data.items.length === 0 ? 0 : data.offset + 1;
   const lastVisible = data.offset + data.items.length;
@@ -164,17 +172,44 @@ export function RequestLogsSummary({
     .filter(([, value]) => value)
     .map(([name, value]) => `${name}: ${value}`);
 
+  const liveStatusLabel = liveStatus === "live"
+    ? "Live"
+    : liveStatus === "connecting"
+      ? "Connecting"
+      : liveStatus === "error"
+        ? "Error"
+        : "Off";
+
   return (
-    <div
-      data-testid="request-logs-summary"
-      tabIndex={-1}
-      className="mb-3 text-sm text-gray-600 dark:text-gray-300"
-    >
-      <span>
-        Showing {firstVisible}–{lastVisible} of {data.count} request logs
-        {" · "}Page size {data.limit}
-      </span>
-      {activeFilters.length > 0 && <span>{" · "}{activeFilters.join(", ")}</span>}
+    <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+      <div
+        data-testid="request-logs-summary"
+        tabIndex={-1}
+        className="text-sm text-gray-600 dark:text-gray-300"
+      >
+        <span>
+          Showing {firstVisible}–{lastVisible} of {data.count} request logs
+          {" · "}Page size {data.limit}
+        </span>
+        {activeFilters.length > 0 && <span>{" · "}{activeFilters.join(", ")}</span>}
+      </div>
+      <div className="flex items-center gap-2 text-sm">
+        <button
+          type="button"
+          aria-pressed={liveEnabled}
+          onClick={onLiveToggle}
+          className="rounded border border-gray-300 px-3 py-1.5 font-medium hover:bg-gray-50 dark:border-gray-600 dark:hover:bg-gray-800"
+        >
+          Live (periodic refresh)
+        </button>
+        <span
+          role="status"
+          data-testid="request-logs-live-status"
+          className="text-gray-600 dark:text-gray-300"
+        >
+          {liveError ? `${liveStatusLabel}: ${liveError}` : liveStatusLabel}
+        </span>
+      </div>
     </div>
   );
 }

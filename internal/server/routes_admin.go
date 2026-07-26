@@ -264,10 +264,11 @@ func (s *Server) registerAdminServicesRoutes(r chi.Router) {
 	s.registerAdminAuditRoutes(r)
 	s.registerAdminAnalyticsRoutes(r)
 	// PARITY: 6.4 — Request/query logs viewer shipped (table + detail drawer,
-	// status-class and latency filters, true total-match count, JSON/CSV export)
-	// in ui/src/components/Analytics.tsx + AnalyticsRequestLogs.tsx, backed by
-	// registerAdminAnalyticsRoutes above. Remaining depth gaps (tracked in
-	// ROADMAP): aggregation charts, _ayb_request_logs.tenant_id, SSE live-tail.
+	// status-class and latency filters, true total-match count, JSON/CSV export,
+	// aggregation charts, and polling-backed SSE request-log live-tail) in
+	// ui/src/components/Analytics.tsx + AnalyticsRequestLogs.tsx, backed by
+	// registerAdminAnalyticsRoutes above. Tenant-aware request-log persistence and
+	// filtering now flow through the same admin analytics surface.
 
 	s.registerAdminStatsRoutes(r)
 
@@ -389,6 +390,8 @@ func (s *Server) registerAdminAnalyticsRoutes(r chi.Router) {
 	r.Route("/admin/analytics", func(r chi.Router) {
 		r.Use(s.requireAdminToken)
 		r.Get("/requests", s.handleAdminRequestLogs)
+		r.Get("/requests/aggregate", s.handleAdminRequestLogsAggregate)
+		r.Get("/requests/stream", s.handleAdminRequestLogsStream)
 		r.Get("/queries", s.handleAdminQueryAnalytics)
 	})
 }

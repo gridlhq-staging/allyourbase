@@ -26,12 +26,30 @@ test.describe("Smoke: Analytics", () => {
   });
 
   test("analytics page renders seeded request-log row and filter behavior", async ({ page, request, adminToken }) => {
-    const probeStatus = await probeEndpoint(request, adminToken, "/api/admin/analytics/requests");
-    test.skip(
-      probeStatus === 503 || probeStatus === 501 || probeStatus === 404,
-      `Analytics request-log endpoint unavailable (status ${probeStatus})`,
+    const requestProbeStatus = await probeEndpoint(
+      request,
+      adminToken,
+      "/api/admin/analytics/requests",
     );
-    expect(probeStatus, "Analytics request-log endpoint returned HTTP 500").not.toBe(500);
+    const aggregateProbeStatus = await probeEndpoint(
+      request,
+      adminToken,
+      "/api/admin/analytics/requests/aggregate",
+    );
+    test.skip(
+      [requestProbeStatus, aggregateProbeStatus].some((status) =>
+        status === 503 || status === 501 || status === 404
+      ),
+      `Analytics request-log endpoint unavailable (requests ${requestProbeStatus}, aggregate ${aggregateProbeStatus})`,
+    );
+    expect(
+      requestProbeStatus,
+      "Analytics request-log endpoint returned HTTP 500",
+    ).not.toBe(500);
+    expect(
+      aggregateProbeStatus,
+      "Analytics request-log aggregate endpoint returned HTTP 500",
+    ).not.toBe(500);
 
     const runId = Date.now();
     const primaryPath = `/api/smoke-analytics/${runId}/primary`;
@@ -113,11 +131,80 @@ test.describe("Smoke: Analytics", () => {
 
     await expect(page.getByTestId(`request-log-row-${primaryEntry.id}`)).toBeVisible({ timeout: 5000 });
     await expect(page.getByTestId(`request-log-row-${secondaryEntry.id}`)).toHaveCount(0);
+    await expect(page.getByTestId("request-log-volume-chart")).toBeVisible();
+    await expect(page.getByTestId("request-log-volume-bar-0")).toHaveAttribute(
+      "data-count",
+      "1",
+    );
+    await expect(page.getByTestId("request-log-status-4xx-0")).toHaveAttribute(
+      "data-count",
+      "1",
+    );
+    await expect(page.getByTestId("request-log-status-2xx-0")).toHaveAttribute(
+      "data-count",
+      "0",
+    );
+    await expect(page.getByTestId("request-log-status-legend")).toContainText(
+      "4xx",
+    );
 
     await page.getByRole("button", { name: /Query Performance/i }).click();
     const queryTableOrEmpty = page
       .getByRole("columnheader", { name: /Query/i })
       .or(page.getByText("No query statistics available"));
     await expect(queryTableOrEmpty).toBeVisible({ timeout: 5000 });
+  });
+
+  test("request-log live periodic refresh appends real matching traffic only", async ({ page, request, adminToken }) => {
+    const requestProbeStatus = await probeEndpoint(
+      request,
+      adminToken,
+      "/api/admin/analytics/requests",
+    );
+    test.skip(
+      requestProbeStatus === 503 || requestProbeStatus === 501 || requestProbeStatus === 404,
+      `Analytics request-log endpoint unavailable (${requestProbeStatus})`,
+    );
+    expect(
+      requestProbeStatus,
+      "Analytics request-log endpoint returned HTTP 500",
+    ).not.toBe(500);
+
+    const runId = Date.now();
+    const livePath = `/api/smoke-analytics-live/${runId}/missing`;
+    const unrelatedPath = `/api/smoke-analytics-live/${runId}/unrelated`;
+    seededPaths.push(livePath, unrelatedPath);
+    await cleanupRequestLogsByPath(request, adminToken, livePath).catch(() => {});
+    await cleanupRequestLogsByPath(request, adminToken, unrelatedPath).catch(() => {});
+
+    await page.goto("/admin/");
+    await waitForDashboard(page);
+    await page.getByRole("complementary").getByRole("button", { name: /Analytics/i }).click();
+    await expect(page.getByRole("heading", { name: /Analytics/i })).toBeVisible({ timeout: 15_000 });
+
+    await page.getByLabel("Path").fill(livePath);
+    await page.getByRole("button", { name: /Apply Filters/i }).click();
+    await expect(page.getByText("No request logs found")).toBeVisible({ timeout: 5000 });
+
+    await page.getByRole("button", { name: "Live (periodic refresh)" }).click();
+    await expect(page.getByTestId("request-logs-live-status")).toHaveText("Live", {
+      timeout: 5000,
+    });
+
+    expect(await probeEndpoint(request, adminToken, unrelatedPath)).toBe(404);
+    await expect(page.getByText(unrelatedPath)).toHaveCount(0);
+
+    expect(await probeEndpoint(request, adminToken, livePath)).toBe(404);
+    const liveRow = page.getByRole("row", {
+      name: `GET ${livePath} request details`,
+    });
+    await expect(liveRow).toBeVisible({ timeout: 5000 });
+    await expect(liveRow.getByRole("cell", { name: "GET" })).toBeVisible();
+    await expect(liveRow.getByRole("cell", { name: "404" })).toBeVisible();
+
+    await page.getByRole("button", { name: "Live (periodic refresh)" }).click();
+    await expect(page.getByTestId("request-logs-live-status")).toHaveText("Off");
+    expect(await probeEndpoint(request, adminToken, livePath)).toBe(404);
+    await expect(liveRow).toHaveCount(1);
   });
 });

@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/allyourbase/ayb/internal/migrate"
+	"github.com/allyourbase/ayb/internal/sqlutil"
 )
 
 // migrateRLSPolicies migrates row-level security policies from the source database to the target, rewriting them for AYB compatibility and skipping policies on tables that failed schema migration.
@@ -23,39 +24,44 @@ func (m *Migrator) migrateRLSPolicies(ctx context.Context, tx *sql.Tx, phaseIdx,
 	}
 
 	if len(policies) == 0 {
-		fmt.Fprintln(m.output, "  no RLS policies found in public schema")
+		fmt.Fprintln(m.output, "  no RLS policies found in user schemas")
 		m.progress.CompletePhase(phase, 0, time.Since(start))
 		return nil
 	}
 
 	for _, p := range policies {
-		if m.isSkippedTable(p.TableName) {
-			m.progress.Warn(fmt.Sprintf("skipping policy %s on %s: table was skipped during schema migration", p.PolicyName, p.TableName))
+		policyTable := TableInfo{SchemaName: p.SchemaName, Name: p.TableName}
+		if !isAdmittedUserTable(p.SchemaName, p.TableName) {
+			m.progress.Warn(fmt.Sprintf("skipping policy %s on %s: table is not admitted for migration", p.PolicyName, policyTable.QualifiedName()))
+			continue
+		}
+		if m.isSkippedTable(policyTable) {
+			m.progress.Warn(fmt.Sprintf("skipping policy %s on %s: table was skipped during schema migration", p.PolicyName, policyTable.QualifiedName()))
 			continue
 		}
 
 		if m.verbose {
-			fmt.Fprintf(m.output, "  %s.%s: %s\n", p.TableName, p.PolicyName, p.Command)
+			fmt.Fprintf(m.output, "  %s.%s: %s\n", policyTable.QualifiedName(), p.PolicyName, p.Command)
 		}
 
 		// Drop existing policy on target (idempotent).
-		dropSQL := fmt.Sprintf("DROP POLICY IF EXISTS %q ON %q.%q",
-			p.PolicyName, p.SchemaName, p.TableName)
+		dropSQL := fmt.Sprintf("DROP POLICY IF EXISTS %s ON %s",
+			sqlutil.QuoteIdent(p.PolicyName), sqlutil.QuoteQualifiedName(p.SchemaName, p.TableName))
 		if _, err := tx.ExecContext(ctx, dropSQL); err != nil {
-			return fmt.Errorf("dropping policy %s on %s: %w", p.PolicyName, p.TableName, err)
+			return fmt.Errorf("dropping policy %s on %s: %w", p.PolicyName, policyTable.QualifiedName(), err)
 		}
 
 		// Enable RLS on the table.
-		enableSQL := fmt.Sprintf("ALTER TABLE %q.%q ENABLE ROW LEVEL SECURITY",
-			p.SchemaName, p.TableName)
+		enableSQL := fmt.Sprintf("ALTER TABLE %s ENABLE ROW LEVEL SECURITY",
+			sqlutil.QuoteQualifiedName(p.SchemaName, p.TableName))
 		if _, err := tx.ExecContext(ctx, enableSQL); err != nil {
-			return fmt.Errorf("enabling RLS on %s: %w", p.TableName, err)
+			return fmt.Errorf("enabling RLS on %s: %w", policyTable.QualifiedName(), err)
 		}
 
 		// Create rewritten policy.
 		rewrittenSQL := GenerateRewrittenPolicy(p)
 		if _, err := tx.ExecContext(ctx, rewrittenSQL); err != nil {
-			return fmt.Errorf("creating policy %s on %s: %w", p.PolicyName, p.TableName, err)
+			return fmt.Errorf("creating policy %s on %s: %w", p.PolicyName, policyTable.QualifiedName(), err)
 		}
 		m.stats.Policies++
 		m.progress.Progress(phase, m.stats.Policies, len(policies))

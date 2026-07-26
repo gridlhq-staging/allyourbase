@@ -1,13 +1,15 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AlertCircle, Loader2 } from "lucide-react";
 import type {
   QueryAnalyticsResponse,
+  RequestLogAggregateBucket,
   RequestLogEntry,
   RequestLogListResponse,
 } from "../types/analytics";
 import {
   listAllRequestLogs,
   listQueryStats,
+  listRequestLogAggregates,
   listRequestLogs,
   type ListRequestLogsParams,
   type RequestLogFilterParams,
@@ -20,29 +22,23 @@ import {
   RequestLogsSummary,
   RequestLogsTable,
 } from "./AnalyticsRequestLogs";
+import {
+  downloadRequestLogExport,
+  type RequestLogExportFormat,
+} from "./AnalyticsRequestLogExport";
+import {
+  mergePendingLiveRowsIntoRequestPage,
+  type PendingRequestPageLiveRows,
+  useRequestLogLive,
+} from "./AnalyticsRequestLogLive";
+import { AnalyticsCharts } from "./AnalyticsCharts";
 import { AdminTable, type Column } from "./shared/AdminTable";
 import { FilterBar, type FilterField } from "./shared/FilterBar";
-import { formatCSV } from "./shared/format";
 import { useAppToast } from "./ToastProvider";
 
 type Tab = "requests" | "queries";
-type RequestLogExportFormat = "json" | "csv";
 
 const REQUEST_PAGE_SIZE = 25;
-const REQUEST_LOG_EXPORT_FIELDS = [
-  "id",
-  "timestamp",
-  "method",
-  "path",
-  "status_code",
-  "duration_ms",
-  "user_id",
-  "api_key_id",
-  "request_size",
-  "response_size",
-  "ip_address",
-  "request_id",
-] as const satisfies readonly (keyof RequestLogEntry)[];
 
 const REQUEST_FILTER_FIELDS: FilterField[] = [
   {
@@ -141,13 +137,14 @@ const QUERY_COLUMNS: Column<QueryRow>[] = [
   },
 ];
 
-const TAB_CLASS =
-  "px-4 py-2 text-sm font-medium rounded-t border-b-2 transition-colors";
-const TAB_ACTIVE =
-  "border-blue-600 text-blue-600 dark:text-blue-400 dark:border-blue-400";
-const TAB_INACTIVE =
-  "border-transparent text-gray-500 hover:text-gray-700 dark:text-gray-400";
+const TAB_CLASS = "px-4 py-2 text-sm font-medium rounded-t border-b-2 transition-colors";
+const TAB_ACTIVE = "border-blue-600 text-blue-600 dark:text-blue-400 dark:border-blue-400";
+const TAB_INACTIVE = "border-transparent text-gray-500 hover:text-gray-700 dark:text-gray-400";
 const MAX_INT64_TEXT = "9223372036854775807";
+
+function errorMessage(error: unknown, fallback: string): string {
+  return error instanceof Error ? error.message : fallback;
+}
 
 function validateLatencyInteger(value: string, label: string): string | null {
   const trimmed = value.trim();
@@ -206,67 +203,13 @@ function toRequestLogParams(
   };
 }
 
-function toSerializableRequestLog(row: RequestLogEntry) {
-  return {
-    id: row.id,
-    timestamp: row.timestamp,
-    method: row.method,
-    path: row.path,
-    status_code: row.status_code,
-    duration_ms: row.duration_ms,
-    user_id: row.user_id ?? null,
-    api_key_id: row.api_key_id ?? null,
-    request_size: row.request_size,
-    response_size: row.response_size,
-    ip_address: row.ip_address ?? null,
-    request_id: row.request_id ?? null,
-  };
-}
-
-function requestLogExportContent(
-  format: RequestLogExportFormat,
-  rows: RequestLogEntry[],
-): { content: string; mimeType: string } {
-  const serializableRows = rows.map(toSerializableRequestLog);
-  if (format === "json") {
-    return {
-      content: JSON.stringify(serializableRows, null, 2),
-      mimeType: "application/json",
-    };
-  }
-  return {
-    content: formatCSV([
-      REQUEST_LOG_EXPORT_FIELDS,
-      ...serializableRows.map((row) =>
-        REQUEST_LOG_EXPORT_FIELDS.map((field) => row[field]),
-      ),
-    ]),
-    mimeType: "text/csv",
-  };
-}
-
-function downloadRequestLogExport(
-  format: RequestLogExportFormat,
-  rows: RequestLogEntry[],
-): void {
-  const { content, mimeType } = requestLogExportContent(format, rows);
-  const blob = new Blob([content], { type: mimeType });
-  const url = URL.createObjectURL(blob);
-  try {
-    const link = document.createElement("a");
-    link.href = url;
-    link.download =
-      `request_logs_${new Date().toISOString().replace(/[:.]/g, "-")}.${format}`;
-    link.click();
-  } finally {
-    URL.revokeObjectURL(url);
-  }
-}
-
 export function Analytics() {
   const { addToast } = useAppToast();
   const [tab, setTab] = useState<Tab>("requests");
   const [requestData, setRequestData] = useState<RequestLogListResponse | null>(null);
+  const [aggregateItems, setAggregateItems] = useState<RequestLogAggregateBucket[] | null>(null);
+  const [aggregateLoading, setAggregateLoading] = useState(true);
+  const [aggregateError, setAggregateError] = useState<string | null>(null);
   const [queryData, setQueryData] = useState<QueryAnalyticsResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [requestError, setRequestError] = useState<string | null>(null);
@@ -289,6 +232,8 @@ export function Analytics() {
   const requestDetailsOriginRef = useRef<HTMLElement | null>(null);
   const requestTableCaptionRef = useRef<HTMLTableCaptionElement>(null);
   const requestLoadSequenceRef = useRef(0);
+  const pendingRequestPageLiveRowsRef = useRef<PendingRequestPageLiveRows | null>(null);
+  const aggregateLoadSequenceRef = useRef(0);
 
   const openRequestDetails = useCallback((row: RequestLogEntry, source: HTMLElement) => {
     requestDetailsOriginRef.current = source;
@@ -300,11 +245,11 @@ export function Analytics() {
     window.setTimeout(() => requestDetailsOriginRef.current?.focus(), 0);
   }, []);
 
-  const loadRequests = useCallback(async (
-    filters: RequestFilterValues,
-    offset: number,
-  ) => {
+  const loadRequestPage = useCallback(async (filters: RequestFilterValues, offset: number) => {
     const sequence = ++requestLoadSequenceRef.current;
+    pendingRequestPageLiveRowsRef.current = offset === 0
+      ? { sequence, rows: [], seenIds: new Set<string>() }
+      : null;
     setLoading(true);
     setRequestError(null);
     try {
@@ -321,16 +266,38 @@ export function Analytics() {
         setRequestOffset(correctedOffset);
         return;
       }
-      setRequestData(result);
+      const pendingLiveRows = pendingRequestPageLiveRowsRef.current?.sequence === sequence
+        ? pendingRequestPageLiveRowsRef.current.rows
+        : [];
+      pendingRequestPageLiveRowsRef.current = null;
+      setRequestData(mergePendingLiveRowsIntoRequestPage(result, pendingLiveRows));
     } catch (requestLoadError) {
       if (sequence !== requestLoadSequenceRef.current) return;
-      setRequestError(
-        requestLoadError instanceof Error
-          ? requestLoadError.message
-          : "Failed to load request logs",
-      );
+      pendingRequestPageLiveRowsRef.current = null;
+      setRequestError(errorMessage(requestLoadError, "Failed to load request logs"));
     } finally {
       if (sequence === requestLoadSequenceRef.current) setLoading(false);
+    }
+  }, []);
+
+  const loadRequestAggregates = useCallback(async (filters: RequestFilterValues) => {
+    const sequence = ++aggregateLoadSequenceRef.current;
+    setAggregateLoading(true);
+    setAggregateError(null);
+    try {
+      const result =
+        await listRequestLogAggregates(toRequestLogFilters(filters));
+      if (sequence === aggregateLoadSequenceRef.current) {
+        setAggregateItems(result.items);
+      }
+    } catch (aggregateLoadError) {
+      if (sequence === aggregateLoadSequenceRef.current) {
+        setAggregateError(errorMessage(
+          aggregateLoadError, "Failed to load request aggregates",
+        ));
+      }
+    } finally {
+      if (sequence === aggregateLoadSequenceRef.current) setAggregateLoading(false);
     }
   }, []);
 
@@ -340,30 +307,59 @@ export function Analytics() {
     try {
       setQueryData(await listQueryStats({ sort }));
     } catch (queryLoadError) {
-      setQueryError(
-        queryLoadError instanceof Error
-          ? queryLoadError.message
-          : "Failed to load query stats",
-      );
+      setQueryError(errorMessage(queryLoadError, "Failed to load query stats"));
     } finally {
       setLoading(false);
     }
   }, []);
 
+  const acceptLiveRequestLog = useCallback((row: RequestLogEntry) => {
+    setRequestData((current) => {
+      if (!current || current.items.some((item) => item.id === row.id)) {
+        return current;
+      }
+      const pendingRequestPageLiveRows = pendingRequestPageLiveRowsRef.current;
+      if (
+        pendingRequestPageLiveRows &&
+        !pendingRequestPageLiveRows.seenIds.has(row.id)
+      ) {
+        pendingRequestPageLiveRows.seenIds.add(row.id);
+        pendingRequestPageLiveRows.rows.unshift(row);
+      }
+      setRequestOffset(0);
+      const limit = Math.max(current.limit, 1);
+      return {
+        ...current,
+        items: [row, ...current.items].slice(0, limit),
+        count: current.count + 1,
+        offset: 0,
+      };
+    });
+  }, []);
+
+  const resetLiveRequestLogsToNewest = useCallback(() => setRequestOffset(0), []);
+  const liveRequestLogFilters = useMemo(
+    () => toRequestLogFilters(appliedFilterValues),
+    [appliedFilterValues],
+  );
+  const requestLogLive = useRequestLogLive({
+    active: tab === "requests",
+    filters: liveRequestLogFilters,
+    onRequestLog: acceptLiveRequestLog,
+    onResetToNewest: resetLiveRequestLogsToNewest,
+  });
+
   useEffect(() => {
-    if (tab === "requests") {
-      void loadRequests(appliedFilterValues, requestOffset);
-    } else {
-      void loadQueries(querySort);
-    }
-  }, [
-    appliedFilterValues,
-    loadQueries,
-    loadRequests,
-    querySort,
-    requestOffset,
-    tab,
-  ]);
+    if (tab === "requests") void loadRequestPage(appliedFilterValues, requestOffset);
+  }, [appliedFilterValues, loadRequestPage, requestOffset, tab]);
+
+  useEffect(() => {
+    if (tab === "requests") void loadRequestAggregates(appliedFilterValues);
+  }, [appliedFilterValues, loadRequestAggregates, tab]);
+
+  useEffect(() => {
+    if (tab === "queries") void loadQueries(querySort);
+  }, [loadQueries, querySort, tab]);
 
   useEffect(() => {
     if (!selectedRequest || !requestData) return;
@@ -404,12 +400,7 @@ export function Analytics() {
       downloadRequestLogExport(format, result.items);
       addToast("success", `Exported ${result.items.length} request log(s)`);
     } catch (exportError) {
-      addToast(
-        "error",
-        exportError instanceof Error
-          ? exportError.message
-          : "Failed to export request logs",
-      );
+      addToast("error", errorMessage(exportError, "Failed to export request logs"));
     } finally {
       setExportPending((current) => ({ ...current, [format]: false }));
     }
@@ -437,7 +428,7 @@ export function Analytics() {
             type="button"
             onClick={() => {
               if (tab === "requests") {
-                void loadRequests(appliedFilterValues, requestOffset);
+                void loadRequestPage(appliedFilterValues, requestOffset);
               } else {
                 void loadQueries(querySort);
               }
@@ -516,7 +507,9 @@ export function Analytics() {
               <span>{requestError}</span>
               <button
                 type="button"
-                onClick={() => void loadRequests(appliedFilterValues, requestOffset)}
+                onClick={() =>
+                  void loadRequestPage(appliedFilterValues, requestOffset)
+                }
                 className="font-medium underline"
               >
                 Retry
@@ -525,9 +518,19 @@ export function Analytics() {
           )}
           {requestData && (
             <>
+              <AnalyticsCharts
+                items={aggregateItems}
+                loading={aggregateLoading}
+                error={aggregateError}
+                onRetry={() => void loadRequestAggregates(appliedFilterValues)}
+              />
               <RequestLogsSummary
                 data={requestData}
                 appliedFilters={appliedFilterValues}
+                liveEnabled={requestLogLive.enabled}
+                liveStatus={requestLogLive.status}
+                liveError={requestLogLive.error}
+                onLiveToggle={requestLogLive.toggle}
               />
               <RequestLogsTable
                 rows={requestData.items}

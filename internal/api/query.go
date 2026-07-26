@@ -316,7 +316,7 @@ func buildList(tbl *schema.Table, opts listOpts) (dataQuery string, dataArgs []a
 		}
 	}
 
-	cols = appendSelectExprs(cols, []string{distanceSelect, opts.highlightSelect, opts.highlightResultSelect})
+	cols = appendSelectExprs(cols, []string{distanceSelect, opts.rankSelect, opts.highlightSelect, opts.highlightResultSelect})
 
 	// Data query — when search is active, default to relevance ordering.
 	orderClause := ""
@@ -362,6 +362,8 @@ type listOpts struct {
 	searchRank            string // FTS ts_rank() expression for ORDER BY
 	searchArgs            []any  // search term parameter
 	customRankingSort     []SortField
+	rankSelect            string
+	rankAlias             string
 	highlightSelect       string
 	highlightAlias        string
 	highlightResultSelect string

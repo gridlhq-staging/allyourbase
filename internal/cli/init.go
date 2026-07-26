@@ -23,7 +23,7 @@ Examples:
   ayb init my-app --template next         # Next.js
   ayb init my-app --template express      # Express/Node backend
   ayb init my-app --template plain        # Minimal TypeScript`, strings.Join(templateNames(), ", ")),
-	Args: cobra.ExactArgs(1),
+	Args: exactArgsWithHelp(1, "ayb init my-app"),
 	RunE: runInit,
 }
 

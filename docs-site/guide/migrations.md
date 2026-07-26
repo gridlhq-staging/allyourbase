@@ -74,9 +74,9 @@ Source-specific flags:
 
 ## Supabase
 
-`ayb migrate supabase` connects directly to a Supabase PostgreSQL database, recreates public-schema tables and rows, migrates email auth users plus non-email OAuth identity links, rewrites supported public-schema RLS policies, and optionally copies exported storage files. When storage is included, AYB copies files from the local export, normalizes bucket names, and registers bucket and object metadata in `_ayb_storage_buckets` and `_ayb_storage_objects` for AYB storage access.
+`ayb migrate supabase` connects directly to a Supabase PostgreSQL database, recreates tables, rows, and views from admitted user-owned schemas, preserves email auth users plus raw user/app metadata JSONB, migrates non-email OAuth identity links, rewrites supported RLS policies, and optionally copies locally exported storage files. When storage is included, AYB copies files from the local export, normalizes bucket names, and registers bucket and object metadata in `_ayb_storage_buckets` and `_ayb_storage_objects` for AYB storage access.
 
-Current limitations are code-verified: user metadata, phone-only users, MFA factors, non-public schemas, secondary indexes, functions/triggers, and full custom-type fidelity are not migrated yet. Storage is omitted unless a local export is supplied.
+Current limitations are code-verified: phone-only users, MFA factors, secondary indexes, functions/triggers, source database grants, and full custom-type fidelity are not migrated yet. Non-`public` schemas are created without access for `ayb_authenticated`; grant only the privileges the application requires after reviewing migrated RLS policies. Storage is omitted unless a local export is supplied.
 
 For the runnable procedure, exact flags, verification commands, and failure boundaries, see [Migrating from Supabase](/guide/migrating-from-supabase).
 

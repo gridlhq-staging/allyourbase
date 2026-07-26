@@ -25,6 +25,8 @@ type searchParamResult struct {
 	searchRank            string
 	searchArgs            []any
 	customRankingSort     []SortField
+	rankSelect            string
+	rankAlias             string
 	highlightSelect       string
 	highlightAlias        string
 	highlightResultSelect string
@@ -228,6 +230,8 @@ func (h *Handler) parseSearchParam(w http.ResponseWriter, tbl *schema.Table, q u
 	res.searchRank = search.rankSQL
 	res.searchArgs = search.args
 	res.customRankingSort = customRankingSortFields(settings.CustomRanking)
+	res.rankSelect = search.rankSelect
+	res.rankAlias = search.rankAlias
 	res.highlightSelect = search.highlightSelect
 	res.highlightAlias = search.highlightAlias
 	res.highlightResultSelect = search.highlightResultSelect

@@ -12,6 +12,8 @@ import (
 )
 
 const defaultTypoThreshold = 0.2
+const searchRankSQLAlias = "__ayb_search_rank"
+const searchRankResponseField = "_rank"
 const searchHighlightSQLAlias = "__ayb_search_highlight"
 const searchHighlightResultSQLAlias = "__ayb_search_highlight_result"
 const searchHighlightResponseField = "_highlight"
@@ -29,6 +31,8 @@ type searchSQLResult struct {
 	whereSQL              string
 	rankSQL               string
 	args                  []any
+	rankSelect            string
+	rankAlias             string
 	highlightSelect       string
 	highlightAlias        string
 	highlightResultSelect string
@@ -305,6 +309,15 @@ func buildSearchSQL(tbl *schema.Table, searchTerm string, argOffset int, opts se
 		result.rankSQL = fmt.Sprintf("GREATEST(%s, %s)", result.rankSQL, strings.Join(trigramRanks, ", "))
 		result.args = args
 	}
+
+	if tbl.ColumnByName(searchRankResponseField) != nil {
+		// A real _rank column owns its response field, so search ordering
+		// continues without a synthetic projection that could overwrite user data.
+		return result, nil
+	}
+	rankAlias := searchAliasForTable(tbl, searchRankSQLAlias)
+	result.rankSelect = fmt.Sprintf("%s AS %s", result.rankSQL, sqlutil.QuoteIdent(rankAlias))
+	result.rankAlias = rankAlias
 
 	return result, nil
 }

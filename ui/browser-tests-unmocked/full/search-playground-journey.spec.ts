@@ -65,6 +65,28 @@ test.describe("Search Playground Journey (Full E2E)", () => {
       rank: 2,
     });
 
+    // Relevance fixture: the shared term repeats a decreasing number of times per
+    // row, so the backend ts_rank score is strictly decreasing across these rows.
+    const relevanceTerm = "gravitation";
+    await seedRecord(request, adminToken, tableName, {
+      name: `${relevanceTerm} ${relevanceTerm} ${relevanceTerm} StrongMatch_${runID}`,
+      status: "active",
+      category: "alpha",
+      rank: 1,
+    });
+    await seedRecord(request, adminToken, tableName, {
+      name: `${relevanceTerm} ${relevanceTerm} MediumMatch_${runID}`,
+      status: "active",
+      category: "alpha",
+      rank: 1,
+    });
+    await seedRecord(request, adminToken, tableName, {
+      name: `${relevanceTerm} WeakMatch_${runID}`,
+      status: "active",
+      category: "alpha",
+      rank: 1,
+    });
+
     await page.goto("/admin/");
     await waitForDashboard(page);
 
@@ -87,6 +109,30 @@ test.describe("Search Playground Journey (Full E2E)", () => {
     await searchButton.click();
 
     await expect(page.getByText(exactName, { exact: true })).toBeVisible({ timeout: 10000 });
+
+    await searchInput.fill(relevanceTerm);
+    await filterInput.fill("");
+    await searchButton.click();
+
+    const relevancePanel = page.getByTestId("search-relevance-results");
+    await expect(relevancePanel).toBeVisible({ timeout: 10000 });
+    const relevanceScoreElements = relevancePanel.getByTestId(/^search-result-rank-\d+$/);
+    await expect(relevanceScoreElements).toHaveCount(3);
+
+    const relevanceScores = (await relevanceScoreElements.allInnerTexts()).map((text) =>
+      Number(text.trim()),
+    );
+    expect(relevanceScores.length).toBeGreaterThanOrEqual(2);
+    for (const score of relevanceScores) {
+      expect(Number.isFinite(score)).toBe(true);
+      expect(score).toBeGreaterThan(0);
+    }
+    for (let index = 1; index < relevanceScores.length; index += 1) {
+      expect(relevanceScores[index]).toBeLessThanOrEqual(relevanceScores[index - 1]);
+    }
+    // Guards against a degenerate all-equal sequence trivially satisfying the
+    // non-increasing check: the seeded term-frequency spread must be visible.
+    expect(relevanceScores[relevanceScores.length - 1]).toBeLessThan(relevanceScores[0]);
 
     const misspelled = `Notificaton_${runID}`;
     await searchInput.fill(misspelled);

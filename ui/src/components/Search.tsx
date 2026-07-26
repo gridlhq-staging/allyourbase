@@ -10,9 +10,14 @@ import {
 import {
   SEARCH_HIGHLIGHT_RESPONSE_FIELD,
   SearchHighlightResults,
-  gridDataWithoutSearchHighlights,
+  gridDataWithoutSyntheticSearchFields,
   searchHighlightSnippets,
 } from "./SearchHighlights";
+import {
+  SEARCH_RANK_RESPONSE_FIELD,
+  SearchRankResults,
+  searchRankScores,
+} from "./SearchRankResults";
 import { TableBrowserGrid } from "./TableBrowserGrid";
 
 const DEFAULT_PER_PAGE = 20;
@@ -97,9 +102,31 @@ export function Search({ schema }: SearchProps) {
     () => (shouldRequestHighlights ? searchHighlightSnippets(data) : []),
     [data, shouldRequestHighlights],
   );
+  // The backend emits a synthetic `_rank` for every non-empty text search, except when
+  // the table owns a real `_rank` column — in which case the value is user data and must
+  // stay in the grid untouched rather than being read as a relevance score.
+  const selectedTableHasRankColumn = useMemo(
+    () => selectedTable?.columns.some((column) => column.name === SEARCH_RANK_RESPONSE_FIELD) ?? false,
+    [selectedTable],
+  );
+  const showsRelevanceScores = hasAppliedSearch && !selectedTableHasRankColumn;
+  const rankScores = useMemo(
+    () => (showsRelevanceScores ? searchRankScores(data) : []),
+    [data, showsRelevanceScores],
+  );
+  const syntheticSearchFields = useMemo(() => {
+    const fields: string[] = [];
+    if (shouldRequestHighlights) {
+      fields.push(SEARCH_HIGHLIGHT_RESPONSE_FIELD);
+    }
+    if (showsRelevanceScores) {
+      fields.push(SEARCH_RANK_RESPONSE_FIELD);
+    }
+    return fields;
+  }, [shouldRequestHighlights, showsRelevanceScores]);
   const gridData = useMemo(
-    () => gridDataWithoutSearchHighlights(data, shouldRequestHighlights),
-    [data, shouldRequestHighlights],
+    () => gridDataWithoutSyntheticSearchFields(data, syntheticSearchFields),
+    [data, syntheticSearchFields],
   );
 
   const handleSubmit = useCallback(() => {
@@ -326,6 +353,8 @@ export function Search({ schema }: SearchProps) {
           </div>
         </div>
       )}
+
+      <SearchRankResults scores={rankScores} />
 
       <SearchHighlightResults snippets={highlightSnippets} />
 

@@ -2,17 +2,31 @@
 package cli
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"log/slog"
 	"text/tabwriter"
 
 	"github.com/allyourbase/ayb/internal/backup"
+	"github.com/allyourbase/ayb/internal/config"
 	"github.com/spf13/cobra"
 )
 
+type dbBackupRequest struct {
+	cfg    *config.Config
+	dbName string
+	dbURL  string
+}
+
+type dbBackupExecutor func(context.Context, dbBackupRequest) (backup.RunResult, func(), error)
+
 // runDBBackupS3 is a Cobra command handler that executes a manual database backup to S3, validating backup enablement in the configuration and outputting the result in JSON or table format.
 func runDBBackupS3(cmd *cobra.Command, args []string) error {
+	return runDBBackupS3WithExecutor(cmd, args, executeDBBackup)
+}
+
+func runDBBackupS3WithExecutor(cmd *cobra.Command, _ []string, execute dbBackupExecutor) error {
 	ctx := cmd.Context()
 	cfg, err := loadDBConfig(cmd)
 	if err != nil {
@@ -28,33 +42,16 @@ func runDBBackupS3(cmd *cobra.Command, args []string) error {
 	}
 	dbName := extractDBName(dbURL)
 
-	store, err := s3StoreFromConfig(ctx, cfg)
-	if err != nil {
-		return fmt.Errorf("initialising S3 client: %w", err)
-	}
-
-	pool, err := openPool(ctx, dbURL)
+	fmt.Fprintf(cmd.ErrOrStderr(), "Starting backup of database %q...\n", dbName)
+	result, cleanup, err := execute(ctx, dbBackupRequest{
+		cfg:    cfg,
+		dbName: dbName,
+		dbURL:  dbURL,
+	})
 	if err != nil {
 		return err
 	}
-	defer pool.Close()
-
-	logger := slog.Default()
-	repo := backup.NewRepository(pool)
-	dumper := &backup.DumpRunner{}
-	notifier := backup.NewLogNotifier(logger)
-
-	engine := backup.NewEngine(
-		backup.Config{
-			Prefix:         cfg.Backup.Prefix,
-			RetentionCount: cfg.Backup.RetentionCount,
-			RetentionDays:  cfg.Backup.RetentionDays,
-		},
-		store, repo, dumper, notifier, logger, dbName, dbURL,
-	)
-
-	fmt.Fprintf(cmd.OutOrStdout(), "Starting backup of database %q...\n", dbName)
-	result := engine.Run(ctx, "manual")
+	defer cleanup()
 
 	if result.Status == "failed" {
 		return fmt.Errorf("backup failed: %v", result.Err)
@@ -63,6 +60,36 @@ func runDBBackupS3(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("backup skipped: %v", result.Err)
 	}
 
+	return writeDBBackupResult(cmd, result)
+}
+
+func executeDBBackup(ctx context.Context, request dbBackupRequest) (backup.RunResult, func(), error) {
+	store, err := s3StoreFromConfig(ctx, request.cfg)
+	if err != nil {
+		return backup.RunResult{}, nil, fmt.Errorf("initialising S3 client: %w", err)
+	}
+
+	pool, err := openPool(ctx, request.dbURL)
+	if err != nil {
+		return backup.RunResult{}, nil, err
+	}
+	logger := slog.Default()
+	repo := backup.NewRepository(pool)
+	dumper := &backup.DumpRunner{}
+	notifier := backup.NewLogNotifier(logger)
+
+	engine := backup.NewEngine(
+		backup.Config{
+			Prefix:         request.cfg.Backup.Prefix,
+			RetentionCount: request.cfg.Backup.RetentionCount,
+			RetentionDays:  request.cfg.Backup.RetentionDays,
+		},
+		store, repo, dumper, notifier, logger, request.dbName, request.dbURL,
+	)
+	return engine.Run(ctx, "manual"), pool.Close, nil
+}
+
+func writeDBBackupResult(cmd *cobra.Command, result backup.RunResult) error {
 	if outputFormat(cmd) == "json" {
 		encoder := json.NewEncoder(cmd.OutOrStdout())
 		encoder.SetIndent("", "  ")

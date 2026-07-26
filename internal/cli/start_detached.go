@@ -435,19 +435,6 @@ func portInUse(port int) bool {
 	return false
 }
 
-type errorWithSuggestions struct {
-	message     string
-	suggestions []string
-}
-
-func (e *errorWithSuggestions) Error() string {
-	return e.message
-}
-
-func (e *errorWithSuggestions) Suggestions() []string {
-	return append([]string(nil), e.suggestions...)
-}
-
 // portError wraps common listen errors with actionable suggestions.
 func portError(port int, err error) error {
 	if strings.Contains(err.Error(), "address already in use") {

@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
+
+	"github.com/allyourbase/ayb/internal/sqlutil"
 )
 
 // Compiled patterns for Supabase → AYB RLS expression rewriting.
@@ -36,7 +38,7 @@ func RewriteRLSExpression(expr string) string {
 	return expr
 }
 
-// ReadRLSPolicies reads existing RLS policies from the public schema.
+// ReadRLSPolicies reads existing RLS policies from user-owned schemas.
 func ReadRLSPolicies(ctx context.Context, db *sql.DB) ([]RLSPolicy, error) {
 	rows, err := db.QueryContext(ctx, `
 		SELECT pol.polname,
@@ -55,8 +57,7 @@ func ReadRLSPolicies(ctx context.Context, db *sql.DB) ([]RLSPolicy, error) {
 		FROM pg_policy pol
 		JOIN pg_class c ON c.oid = pol.polrelid
 		JOIN pg_namespace n ON n.oid = c.relnamespace
-		WHERE n.nspname = 'public'
-		ORDER BY c.relname, pol.polname
+		ORDER BY n.nspname, c.relname, pol.polname
 	`)
 	if err != nil {
 		return nil, fmt.Errorf("querying RLS policies: %w", err)
@@ -79,6 +80,9 @@ func ReadRLSPolicies(ctx context.Context, db *sql.DB) ([]RLSPolicy, error) {
 		if checkExpr.Valid {
 			p.CheckExpr = checkExpr.String
 		}
+		if !isAdmittedUserSchema(p.SchemaName) {
+			continue
+		}
 		policies = append(policies, p)
 	}
 	return policies, rows.Err()
@@ -94,8 +98,8 @@ func GenerateRewrittenPolicy(p RLSPolicy) string {
 		permissive = "RESTRICTIVE"
 	}
 
-	fmt.Fprintf(&sb, "CREATE POLICY %q ON %q.%q AS %s FOR %s",
-		p.PolicyName, p.SchemaName, p.TableName, permissive, p.Command)
+	fmt.Fprintf(&sb, "CREATE POLICY %s ON %s AS %s FOR %s",
+		sqlutil.QuoteIdent(p.PolicyName), sqlutil.QuoteQualifiedName(p.SchemaName, p.TableName), permissive, p.Command)
 
 	if p.UsingExpr != "" {
 		fmt.Fprintf(&sb, " USING (%s)", RewriteRLSExpression(p.UsingExpr))

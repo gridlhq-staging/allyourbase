@@ -990,6 +990,17 @@ func TestInitRequiresProjectName(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error for missing project name")
 	}
+	assertMissingInputHelp(t, err, "Usage: ayb init <name>", "Example: ayb init my-app")
+}
+
+func assertMissingInputHelp(t *testing.T, err error, usage, example string) {
+	t.Helper()
+	if !strings.Contains(err.Error(), usage) {
+		t.Fatalf("expected command-specific usage %q, got %q", usage, err.Error())
+	}
+	if !strings.Contains(err.Error(), example) {
+		t.Fatalf("expected command example %q, got %q", example, err.Error())
+	}
 }
 
 func TestInitRejectsInvalidTemplate(t *testing.T) {
@@ -1162,6 +1173,12 @@ func TestDBRestoreRequiresArg(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error without backup file argument")
 	}
+	assertMissingInputHelp(
+		t,
+		err,
+		"Usage: ayb db restore <path> or ayb db restore --from <backup-id>",
+		"Example: ayb db restore backup.dump",
+	)
 }
 
 func TestDBRestoreFileNotFound(t *testing.T) {
@@ -2912,6 +2929,31 @@ func TestMigrateUpRequiresDatabase(t *testing.T) {
 	}
 }
 
+func TestMigrateCreateRequiresNameWithHelp(t *testing.T) {
+	resetJSONFlag()
+	rootCmd.SetArgs([]string{"migrate", "create"})
+	err := rootCmd.Execute()
+	if err == nil {
+		t.Fatal("expected error without migration name")
+	}
+	assertMissingInputHelp(
+		t,
+		err,
+		"Usage: ayb migrate create <name>",
+		"Example: ayb migrate create add_posts_table",
+	)
+}
+
+func TestDemoRequiresNameWithHelp(t *testing.T) {
+	resetJSONFlag()
+	rootCmd.SetArgs([]string{"demo"})
+	err := rootCmd.Execute()
+	if err == nil {
+		t.Fatal("expected error without demo name")
+	}
+	assertMissingInputHelp(t, err, "Usage: ayb demo <name>", "Example: ayb demo kanban")
+}
+
 func TestMigrateStatusRequiresDatabase(t *testing.T) {
 	resetJSONFlag()
 	tmpDir := t.TempDir()
@@ -2998,6 +3040,57 @@ func TestAllCommandsHelpDoesNotError(t *testing.T) {
 			err := rootCmd.Execute()
 			if err != nil {
 				t.Fatalf("%s --help should not error, got %v", args[0], err)
+			}
+		})
+	}
+}
+
+func TestLaunchCriticalHelpContainsExampleBeforeUsage(t *testing.T) {
+	tests := []struct {
+		command string
+		example string
+	}{
+		{command: "start", example: "ayb start --database-url postgresql://user:pass@localhost:5432/mydb"},
+		{command: "init", example: "ayb init my-app"},
+		{command: "migrate", example: "ayb migrate create add_posts_table"},
+		{command: "db", example: "ayb db backup"},
+		{command: "demo", example: "ayb demo kanban"},
+	}
+
+	for _, test := range tests {
+		t.Run(test.command, func(t *testing.T) {
+			command, _, err := rootCmd.Find([]string{test.command})
+			if err != nil {
+				t.Fatalf("find %s command: %v", test.command, err)
+			}
+
+			var output bytes.Buffer
+			rootCmd.SetErr(&output)
+			t.Cleanup(func() {
+				rootCmd.SetErr(nil)
+				if helpFlag := command.Flags().Lookup("help"); helpFlag != nil {
+					if err := helpFlag.Value.Set("false"); err != nil {
+						t.Errorf("reset %s help flag: %v", test.command, err)
+					}
+				}
+			})
+			rootCmd.SetArgs([]string{test.command, "--help"})
+
+			if err := rootCmd.Execute(); err != nil {
+				t.Fatalf("%s --help should not error: %v", test.command, err)
+			}
+
+			help := output.String()
+			exampleIndex := strings.Index(help, test.example)
+			usageIndex := strings.Index(help, "USAGE")
+			if exampleIndex < 0 {
+				t.Fatalf("expected %s help example %q, got %q", test.command, test.example, help)
+			}
+			if usageIndex < 0 {
+				t.Fatalf("expected %s help usage heading, got %q", test.command, help)
+			}
+			if exampleIndex > usageIndex {
+				t.Fatalf("expected %s help example before USAGE, got %q", test.command, help)
 			}
 		})
 	}

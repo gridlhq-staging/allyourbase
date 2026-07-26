@@ -3,6 +3,7 @@ package api
 import (
 	"encoding/json"
 	"net/http"
+	"strings"
 	"testing"
 
 	"github.com/allyourbase/ayb/internal/schema"
@@ -536,6 +537,32 @@ func TestBuildListWithCursor_WithCursor(t *testing.T) {
 	testutil.Equal(t, "test@example.com", args[0])
 	testutil.Equal(t, "uuid-5", args[1])
 	testutil.Equal(t, 6, args[2]) // perPage+1
+}
+
+func TestBuildListWithCursorProjectsSearchRankBesideCursorHelper(t *testing.T) {
+	tbl := testSchema().Tables["public.users"]
+	rankSQL := `ts_rank(to_tsvector('simple', "name"), websearch_to_tsquery('simple', $1))`
+	opts := listOpts{
+		perPage:    5,
+		searchSQL:  `to_tsvector('simple', "name") @@ websearch_to_tsquery('simple', $1)`,
+		searchRank: rankSQL,
+		searchArgs: []any{"needle"},
+		rankSelect: rankSQL + ` AS "__ayb_search_rank"`,
+		rankAlias:  "__ayb_search_rank",
+		cursorSelects: []string{
+			rankSQL + ` AS "__cursor_sort_0"`,
+		},
+	}
+
+	query, _ := buildListWithCursor(tbl, opts, []SortField{
+		{Column: cursorSearchRankSortColumn, Expr: rankSQL, ResultColumn: "__cursor_sort_0", Desc: true},
+	}, "", nil)
+
+	testutil.Contains(t, query, rankSQL+` AS "__ayb_search_rank"`)
+	testutil.Contains(t, query, rankSQL+` AS "__cursor_sort_0"`)
+	if strings.Contains(query, searchHighlightSQLAlias) || strings.Contains(query, searchHighlightResultSQLAlias) {
+		t.Fatalf("rank projection must not use highlight aliases: %s", query)
+	}
 }
 
 func TestBuildListWithCursor_FilterSpatialSearchAndCursor(t *testing.T) {

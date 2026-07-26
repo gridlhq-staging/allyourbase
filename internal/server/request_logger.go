@@ -88,6 +88,7 @@ func NewRequestLogger(cfg RequestLogConfig, logger *slog.Logger, pool *pgxpool.P
 		responseSizes := make([]int64, len(entries))
 		ipAddresses := make([]*string, len(entries))
 		requestIDs := make([]*string, len(entries))
+		tenantIDs := make([]string, len(entries))
 
 		for i, e := range entries {
 			methods[i] = e.Method
@@ -112,12 +113,13 @@ func NewRequestLogger(cfg RequestLogConfig, logger *slog.Logger, pool *pgxpool.P
 				s := e.RequestID
 				requestIDs[i] = &s
 			}
+			tenantIDs[i] = e.TenantID
 		}
 
 		_, err := pool.Exec(ctx, `
 			INSERT INTO _ayb_request_logs
 				(method, path, status_code, duration_ms, user_id, api_key_id,
-				 request_size, response_size, ip_address, request_id)
+				 request_size, response_size, ip_address, request_id, tenant_id)
 			SELECT
 				unnest($1::text[]),
 				unnest($2::text[]),
@@ -128,11 +130,12 @@ func NewRequestLogger(cfg RequestLogConfig, logger *slog.Logger, pool *pgxpool.P
 				unnest($7::bigint[]),
 				unnest($8::bigint[]),
 				unnest($9::inet[]),
-				unnest($10::text[])
+				unnest($10::text[]),
+				unnest($11::text[])
 		`,
 			methods, paths, statusCodes, durationMSs,
 			userIDs, apiKeyIDs, requestSizes, responseSizes,
-			ipAddresses, requestIDs,
+			ipAddresses, requestIDs, tenantIDs,
 		)
 		return err
 	}

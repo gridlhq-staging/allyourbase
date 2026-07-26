@@ -4,10 +4,44 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/allyourbase/ayb/internal/migrate"
 	"github.com/jackc/pgx/v5/pgconn"
 )
+
+var excludedUserSchemas = map[string]struct{}{
+	"auth":               {},
+	"storage":            {},
+	"realtime":           {},
+	"extensions":         {},
+	"graphql":            {},
+	"graphql_public":     {},
+	"vault":              {},
+	"pgsodium":           {},
+	"cron":               {},
+	"net":                {},
+	"pgbouncer":          {},
+	"pgsodium_masks":     {},
+	"pgtle":              {},
+	"_analytics":         {},
+	"_realtime":          {},
+	"_supabase":          {},
+	"information_schema": {},
+}
+
+func isAdmittedUserSchema(schema string) bool {
+	if schema == "" {
+		return false
+	}
+	if _, ok := excludedUserSchemas[schema]; ok {
+		return false
+	}
+	if strings.HasPrefix(schema, "pg_") || strings.HasPrefix(schema, "supabase_") {
+		return false
+	}
+	return true
+}
 
 // printStats outputs a summary of migration statistics to the output writer, including counts of tables, views, records, users, OAuth links, and RLS policies.
 func (m *Migrator) printStats() {
@@ -80,18 +114,20 @@ func (m *Migrator) sourceColumnExists(ctx context.Context, schema, table, column
 	return exists, nil
 }
 
-func (m *Migrator) markSkippedTable(name string, err error) {
+func (m *Migrator) markSkippedTable(table TableInfo, err error) {
 	if m.skippedTables == nil {
 		m.skippedTables = make(map[string]string)
+		m.stats.SkippedTables = SkippedTableReasons(m.skippedTables)
 	}
-	m.skippedTables[name] = err.Error()
+	key := table.TableKey()
+	m.skippedTables[key] = err.Error()
 }
 
-func (m *Migrator) isSkippedTable(name string) bool {
+func (m *Migrator) isSkippedTable(table TableInfo) bool {
 	if m.skippedTables == nil {
 		return false
 	}
-	_, ok := m.skippedTables[name]
+	_, ok := m.skippedTables[table.TableKey()]
 	return ok
 }
 
@@ -103,9 +139,9 @@ func (m *Migrator) filterSkippedTables(tables []TableInfo) []TableInfo {
 
 	filtered := make([]TableInfo, 0, len(tables))
 	for _, t := range tables {
-		if m.isSkippedTable(t.Name) {
+		if m.isSkippedTable(t) {
 			if m.verbose {
-				fmt.Fprintf(m.output, "  skipped data copy for %s (schema incompatibility)\n", t.Name)
+				fmt.Fprintf(m.output, "  skipped data copy for %s (schema incompatibility)\n", t.QualifiedName())
 			}
 			continue
 		}

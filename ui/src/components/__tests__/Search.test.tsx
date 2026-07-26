@@ -465,6 +465,114 @@ describe("Search", () => {
     expect(screen.getByText("owner column value")).toBeInTheDocument();
   });
 
+  it("renders backend relevance scores in backend row order for applied full-text searches", async () => {
+    mockListSearchPlaygroundRecords
+      .mockResolvedValueOnce({
+        page: 1,
+        perPage: 20,
+        totalItems: 0,
+        totalPages: 0,
+        items: [],
+      })
+      .mockResolvedValue({
+        page: 1,
+        perPage: 20,
+        totalItems: 3,
+        totalPages: 1,
+        items: [
+          { id: "row-1", title: "Alpha alpha alpha", _rank: 0.6079271 },
+          { id: "row-2", title: "Alpha beta", _rank: 0.0607927 },
+          { id: "row-3", title: "Alpha gamma delta", _rank: 0.0303964 },
+        ],
+      });
+
+    renderWithProviders(
+      <Search schema={makeSchema({ "public.posts": { schema: "public", name: "posts" } })} />,
+    );
+
+    const user = userEvent.setup();
+    await user.type(screen.getByRole("textbox", { name: "Search query" }), "alpha");
+    await user.click(screen.getByRole("button", { name: "Search" }));
+
+    const panel = await screen.findByTestId("search-relevance-results");
+    expect(within(panel).getByTestId("search-result-rank-0").textContent).toBe("0.6079");
+    expect(within(panel).getByTestId("search-result-rank-1").textContent).toBe("0.06079");
+    expect(within(panel).getByTestId("search-result-rank-2").textContent).toBe("0.03040");
+    expect(within(panel).queryByTestId("search-result-rank-3")).not.toBeInTheDocument();
+    expect(
+      Array.from(panel.querySelectorAll("[data-testid^='search-result-rank-']")).map((element) =>
+        element.getAttribute("data-testid"),
+      ),
+    ).toEqual(["search-result-rank-0", "search-result-rank-1", "search-result-rank-2"]);
+    expect(screen.queryByRole("columnheader", { name: "_rank" })).not.toBeInTheDocument();
+  });
+
+  it("does not reinterpret a real _rank column as a relevance score", async () => {
+    mockListSearchPlaygroundRecords
+      .mockResolvedValueOnce({
+        page: 1,
+        perPage: 20,
+        totalItems: 0,
+        totalPages: 0,
+        items: [],
+      })
+      .mockResolvedValue({
+        page: 1,
+        perPage: 20,
+        totalItems: 1,
+        totalPages: 1,
+        items: [{ id: "row-1", title: "Alpha story", _rank: "owner column value" }],
+      });
+
+    renderWithProviders(
+      <Search
+        schema={makeSchema({
+          "public.posts": {
+            schema: "public",
+            name: "posts",
+            columns: [
+              makeColumn({ name: "id", position: 1, type: "uuid", isPrimaryKey: true }),
+              makeColumn({ name: "title", position: 2 }),
+              makeColumn({ name: "_rank", position: 3 }),
+            ],
+          },
+        })}
+      />,
+    );
+
+    const user = userEvent.setup();
+    await user.type(screen.getByRole("textbox", { name: "Search query" }), "alpha");
+    await user.click(screen.getByRole("button", { name: "Search" }));
+
+    await waitFor(() => {
+      expect(mockListSearchPlaygroundRecords).toHaveBeenLastCalledWith(
+        "posts",
+        expect.objectContaining({ search: "alpha" }),
+      );
+    });
+
+    expect(screen.queryByTestId("search-relevance-results")).not.toBeInTheDocument();
+    expect(screen.getByRole("columnheader", { name: "_rank" })).toBeInTheDocument();
+    expect(screen.getByText("owner column value")).toBeInTheDocument();
+  });
+
+  it("hides the relevance panel when no search has been applied", async () => {
+    mockListSearchPlaygroundRecords.mockResolvedValue({
+      page: 1,
+      perPage: 20,
+      totalItems: 1,
+      totalPages: 1,
+      items: [{ id: "row-1", title: "Alpha story", _rank: 0.6079271 }],
+    });
+
+    renderWithProviders(
+      <Search schema={makeSchema({ "public.posts": { schema: "public", name: "posts" } })} />,
+    );
+
+    expect(await screen.findByText("Alpha story")).toBeInTheDocument();
+    expect(screen.queryByTestId("search-relevance-results")).not.toBeInTheDocument();
+  });
+
   it("keeps draft filter local until submit", async () => {
     mockListSearchPlaygroundRecords.mockResolvedValue({
       page: 1,

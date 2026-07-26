@@ -10,7 +10,7 @@ Open-source backend for PostgreSQL. Single binary. Auto-generated REST API, auth
 
 ## Quickstart
 
-Download the installer, then launch a demo app:
+Download the installer, then launch a demo app in a few minutes:
 
 ```bash
 curl -fsSLo /tmp/ayb-install.sh https://staging.allyourbase.io/install.sh
@@ -19,15 +19,17 @@ sh /tmp/ayb-install.sh
 ~/.ayb/bin/ayb demo live-polls
 ```
 
-Open http://localhost:5175 — you've got a real-time polling app with auth, RLS, SSE, and a REST API. No Docker. No config. The normal local server starts with auth disabled for open localhost development; `ayb demo` may restart its own AYB-managed local server with demo auth enabled.
+Open http://localhost:5175 — you've got a real-time polling app with auth, RLS, SSE, and a REST API. No Docker. No config.
 
-The admin dashboard is at http://localhost:8090/admin — SQL editor, API explorer, schema browser, and user management for core workflows.
+[Docs](https://allyourbase.io/) · [Live demo](https://demo.allyourbase.io) · [Beta limitations](https://allyourbase.io/guide/beta-limitations)
 
-For database-owned search, the same collection list API supports full-text `search`, `fuzzy=true` typo tolerance with tunable typo-threshold, result highlighting, operator-defined synonyms, filters, and facet counts. Start with the [Search guide](https://allyourbase.io/guide/search); if you are moving query code from Algolia, use the [Algolia migration map](https://allyourbase.io/guide/migrating-from-algolia).
+Current beta caveats, including managed PostgreSQL extension boundaries and passkey parity gaps, live in [Beta Limitations](https://allyourbase.io/guide/beta-limitations).
 
 On first run, AYB downloads a prebuilt PostgreSQL binary for your platform and manages it as a child process — no system install required.
 
-Current beta caveats, including managed PostgreSQL extension boundaries and passkey parity gaps, live in [Beta Limitations](https://allyourbase.io/guide/beta-limitations).
+The admin dashboard is at http://localhost:8090/admin — SQL editor, API explorer, schema browser, and user management for core workflows. The normal local server starts with auth disabled for open localhost development; `ayb demo` may restart its own AYB-managed local server with demo auth enabled.
+
+For database-owned search, the same collection list API supports full-text `search`, `fuzzy=true` typo tolerance with tunable typo-threshold, result highlighting, operator-defined synonyms, filters, and facet counts. Start with the [Search guide](https://allyourbase.io/guide/search); if you are moving query code from Algolia, use the [Algolia migration map](https://allyourbase.io/guide/migrating-from-algolia).
 
 Three demos ship in [`/examples`](examples/):
 

@@ -19,29 +19,10 @@ func (m *Migrator) migrateAuthUsers(ctx context.Context, tx *sql.Tx, phaseIdx, t
 
 	fmt.Fprintln(m.output, "Migrating auth users...")
 
-	hasIsAnonymous, err := m.sourceColumnExists(ctx, "auth", "users", "is_anonymous")
+	query, err := m.authUsersSelectQuery(ctx)
 	if err != nil {
 		return err
 	}
-	hasDeletedAt, err := m.sourceColumnExists(ctx, "auth", "users", "deleted_at")
-	if err != nil {
-		return err
-	}
-	hasEmailConfirmedAt, err := m.sourceColumnExists(ctx, "auth", "users", "email_confirmed_at")
-	if err != nil {
-		return err
-	}
-	hasConfirmedAt, err := m.sourceColumnExists(ctx, "auth", "users", "confirmed_at")
-	if err != nil {
-		return err
-	}
-	confirmedAtExpr := "NULL::timestamptz"
-	if hasEmailConfirmedAt {
-		confirmedAtExpr = "email_confirmed_at"
-	} else if hasConfirmedAt {
-		confirmedAtExpr = "confirmed_at"
-	}
-	query := buildAuthUsersSelectQuery(m.opts.IncludeAnonymous, hasIsAnonymous, hasDeletedAt, confirmedAtExpr)
 
 	rows, err := m.source.QueryContext(ctx, query)
 	if err != nil {
@@ -49,16 +30,73 @@ func (m *Migrator) migrateAuthUsers(ctx context.Context, tx *sql.Tx, phaseIdx, t
 	}
 	defer rows.Close()
 
+	if err := m.copyAuthUsers(ctx, tx, phase, rows); err != nil {
+		return err
+	}
+
+	m.progress.CompletePhase(phase, m.stats.Users, time.Since(start))
+	fmt.Fprintf(m.output, "  ✓ %d users migrated (%d skipped)\n", m.stats.Users, m.stats.Skipped)
+	return nil
+}
+
+func (m *Migrator) authUsersSelectQuery(ctx context.Context) (string, error) {
+	hasIsAnonymous, err := m.sourceColumnExists(ctx, "auth", "users", "is_anonymous")
+	if err != nil {
+		return "", err
+	}
+	hasDeletedAt, err := m.sourceColumnExists(ctx, "auth", "users", "deleted_at")
+	if err != nil {
+		return "", err
+	}
+	hasEmailConfirmedAt, err := m.sourceColumnExists(ctx, "auth", "users", "email_confirmed_at")
+	if err != nil {
+		return "", err
+	}
+	hasConfirmedAt, err := m.sourceColumnExists(ctx, "auth", "users", "confirmed_at")
+	if err != nil {
+		return "", err
+	}
+	hasRawUserMetaData, err := m.sourceColumnExists(ctx, "auth", "users", "raw_user_meta_data")
+	if err != nil {
+		return "", err
+	}
+	hasRawAppMetaData, err := m.sourceColumnExists(ctx, "auth", "users", "raw_app_meta_data")
+	if err != nil {
+		return "", err
+	}
+
+	confirmedAtExpr := "NULL::timestamptz"
+	if hasEmailConfirmedAt {
+		confirmedAtExpr = "email_confirmed_at"
+	} else if hasConfirmedAt {
+		confirmedAtExpr = "confirmed_at"
+	}
+	return buildAuthUsersSelectQuery(authUsersSourceColumns{
+		includeAnonymous:   m.opts.IncludeAnonymous,
+		hasIsAnonymous:     hasIsAnonymous,
+		hasDeletedAt:       hasDeletedAt,
+		hasRawUserMetaData: hasRawUserMetaData,
+		hasRawAppMetaData:  hasRawAppMetaData,
+		confirmedAtExpr:    confirmedAtExpr,
+	}), nil
+}
+
+func (m *Migrator) copyAuthUsers(ctx context.Context, tx *sql.Tx, phase migrate.Phase, rows *sql.Rows) error {
 	for rows.Next() {
 		var u SupabaseUser
 		var emailConfAt sql.NullTime
+		var userMetaDataJSON, appMetaDataJSON string
 
 		if err := rows.Scan(
 			&u.ID, &u.Email, &u.EncryptedPassword,
-			&emailConfAt, &u.CreatedAt, &u.UpdatedAt,
+			&emailConfAt, &userMetaDataJSON, &appMetaDataJSON,
+			&u.CreatedAt, &u.UpdatedAt,
 			&u.IsAnonymous,
 		); err != nil {
 			return fmt.Errorf("scanning user: %w", err)
+		}
+		if err := parseAuthUserMetadata(&u, userMetaDataJSON, appMetaDataJSON); err != nil {
+			return err
 		}
 
 		// Skip users without email (phone-only, anonymous).
@@ -78,22 +116,15 @@ func (m *Migrator) migrateAuthUsers(ctx context.Context, tx *sql.Tx, phaseIdx, t
 		}
 
 		emailVerified := emailConfAt.Valid
-
 		if m.verbose {
 			fmt.Fprintf(m.output, "  %s (%s) verified=%v\n", u.Email, u.ID, emailVerified)
 		}
 
-		result, err := tx.ExecContext(ctx,
-			`INSERT INTO _ayb_users (id, email, password_hash, email_verified, created_at, updated_at)
-			 VALUES ($1, $2, $3, $4, $5, $6)
-			 ON CONFLICT (id) DO NOTHING`,
-			u.ID, strings.ToLower(u.Email), u.EncryptedPassword,
-			emailVerified, u.CreatedAt, u.UpdatedAt,
-		)
+		inserted, err := m.insertAuthUser(ctx, tx, u, emailVerified)
 		if err != nil {
-			return fmt.Errorf("inserting user %s: %w", u.Email, err)
+			return err
 		}
-		if n, _ := result.RowsAffected(); n > 0 {
+		if inserted {
 			m.stats.Users++
 		}
 		m.progress.Progress(phase, m.stats.Users, 0)
@@ -101,10 +132,58 @@ func (m *Migrator) migrateAuthUsers(ctx context.Context, tx *sql.Tx, phaseIdx, t
 	if err := rows.Err(); err != nil {
 		return err
 	}
-
-	m.progress.CompletePhase(phase, m.stats.Users, time.Since(start))
-	fmt.Fprintf(m.output, "  ✓ %d users migrated (%d skipped)\n", m.stats.Users, m.stats.Skipped)
 	return nil
+}
+
+func (m *Migrator) insertAuthUser(ctx context.Context, tx *sql.Tx, u SupabaseUser, emailVerified bool) (bool, error) {
+	rawUserMetaData, rawAppMetaData, err := encodeAuthUserMetadata(u)
+	if err != nil {
+		return false, err
+	}
+
+	result, err := tx.ExecContext(ctx,
+		`INSERT INTO _ayb_users (
+			id, email, password_hash, email_verified,
+			raw_user_meta_data, raw_app_meta_data, created_at, updated_at
+		)
+		 VALUES ($1, $2, $3, $4, $5::jsonb, $6::jsonb, $7, $8)
+		 ON CONFLICT (id) DO NOTHING`,
+		u.ID, strings.ToLower(u.Email), u.EncryptedPassword,
+		emailVerified, rawUserMetaData, rawAppMetaData, u.CreatedAt, u.UpdatedAt,
+	)
+	if err != nil {
+		return false, fmt.Errorf("inserting user %s: %w", u.Email, err)
+	}
+	rowsAffected, _ := result.RowsAffected()
+	return rowsAffected > 0, nil
+}
+
+func parseAuthUserMetadata(u *SupabaseUser, userMetaDataJSON, appMetaDataJSON string) error {
+	if err := decodeAuthUserMetadata(userMetaDataJSON, &u.RawUserMetaData); err != nil {
+		return fmt.Errorf("parsing raw_user_meta_data for user %s: %w", u.ID, err)
+	}
+	if err := decodeAuthUserMetadata(appMetaDataJSON, &u.RawAppMetaData); err != nil {
+		return fmt.Errorf("parsing raw_app_meta_data for user %s: %w", u.ID, err)
+	}
+	return nil
+}
+
+func decodeAuthUserMetadata(payload string, out *map[string]any) error {
+	decoder := json.NewDecoder(strings.NewReader(payload))
+	decoder.UseNumber()
+	return decoder.Decode(out)
+}
+
+func encodeAuthUserMetadata(u SupabaseUser) (string, string, error) {
+	rawUserMetaData, err := json.Marshal(u.RawUserMetaData)
+	if err != nil {
+		return "", "", fmt.Errorf("encoding raw_user_meta_data for user %s: %w", u.ID, err)
+	}
+	rawAppMetaData, err := json.Marshal(u.RawAppMetaData)
+	if err != nil {
+		return "", "", fmt.Errorf("encoding raw_app_meta_data for user %s: %w", u.ID, err)
+	}
+	return string(rawUserMetaData), string(rawAppMetaData), nil
 }
 
 // migrateOAuthIdentities copies OAuth identity records from the source auth.identities table to the target _ayb_oauth_accounts table, excluding the email provider.
@@ -213,30 +292,51 @@ func buildAuthUsersCountQuery(includeAnonymous, hasIsAnonymous, hasDeletedAt boo
 	return query
 }
 
+type authUsersSourceColumns struct {
+	includeAnonymous   bool
+	hasIsAnonymous     bool
+	hasDeletedAt       bool
+	hasRawUserMetaData bool
+	hasRawAppMetaData  bool
+	confirmedAtExpr    string
+}
+
 // buildAuthUsersSelectQuery constructs a SELECT query for auth users from the source, adapting to schema version differences in column names and applying filters for anonymous and deleted users.
-func buildAuthUsersSelectQuery(includeAnonymous, hasIsAnonymous, hasDeletedAt bool, confirmedAtExpr string) string {
+func buildAuthUsersSelectQuery(cols authUsersSourceColumns) string {
 	anonymousExpr := "false"
-	if hasIsAnonymous {
+	if cols.hasIsAnonymous {
 		anonymousExpr = "COALESCE(is_anonymous, false)"
 	}
-	if strings.TrimSpace(confirmedAtExpr) == "" {
-		confirmedAtExpr = "NULL::timestamptz"
+	if strings.TrimSpace(cols.confirmedAtExpr) == "" {
+		cols.confirmedAtExpr = "NULL::timestamptz"
 	}
+	rawUserMetaDataExpr := authUserMetadataSelectExpr("raw_user_meta_data", cols.hasRawUserMetaData)
+	rawAppMetaDataExpr := authUserMetadataSelectExpr("raw_app_meta_data", cols.hasRawAppMetaData)
 
 	query := fmt.Sprintf(`
 		SELECT id, COALESCE(email, ''), COALESCE(encrypted_password, ''),
-		       %s AS email_confirmed_at, created_at, updated_at,
+		       %s AS email_confirmed_at,
+		       %s,
+		       %s,
+		       created_at, updated_at,
 		       %s AS is_anonymous
 		FROM auth.users
-		WHERE 1=1`, confirmedAtExpr, anonymousExpr)
-	if hasDeletedAt {
+		WHERE 1=1`, cols.confirmedAtExpr, rawUserMetaDataExpr, rawAppMetaDataExpr, anonymousExpr)
+	if cols.hasDeletedAt {
 		query += " AND deleted_at IS NULL"
 	}
-	if hasIsAnonymous && !includeAnonymous {
+	if cols.hasIsAnonymous && !cols.includeAnonymous {
 		query += " AND (is_anonymous = false OR is_anonymous IS NULL)"
 	}
 	query += " ORDER BY created_at"
 	return query
+}
+
+func authUserMetadataSelectExpr(column string, exists bool) string {
+	if !exists {
+		return "'{}'::text"
+	}
+	return fmt.Sprintf("COALESCE(%s::text, '{}')", column)
 }
 
 // buildOAuthIdentitiesQuery constructs a SELECT query for OAuth identities from the source auth.identities table with conditional extraction of identity_data based on available columns.

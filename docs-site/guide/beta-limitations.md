@@ -10,6 +10,8 @@ Managed PostgreSQL is the zero-config local path. If you need extensions beyond 
 
 `ayb migrate algolia` ships for one-index Algolia record imports into PostgreSQL, with dry-run planning, JSON output, and optional supported synonym import. Algolia query-code migration is documented through AYB's shipped collection list API: `search`, `fuzzy`, `filter`, `facets`, result highlighting, typo-threshold controls, and operator-defined synonyms. AYB does not translate Algolia ranking rules or hosted index operations.
 
+AYB search relevance is PostgreSQL-native: unweighted full-text search uses PostgreSQL frequency-based `ts_rank`, and configured weighted search attributes use cover-density `ts_rank_cd` when weighted search attributes are configured. This is not hosted Algolia relevance and does not ship BM25 or TF-IDF corpus-statistics ranking. Fuzzy typo tolerance comes from `pg_trgm` similarity, which can affect the effective `_rank` score returned by list responses. That boundary is suitable for many applications, but teams whose core product needs Algolia-class typo handling plus BM25-style relevance should evaluate that gap against the shipped Search Playground relevance scores before committing to AYB search.
+
 ## Firebase migration and offline sync
 
 The Firebase importer is retired; use PostgreSQL ingest paths or a custom migration. AYB does not provide Firestore-style offline/local-first sync.

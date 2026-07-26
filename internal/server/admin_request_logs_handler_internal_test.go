@@ -12,13 +12,14 @@ func TestParseAdminRequestLogFiltersValid(t *testing.T) {
 	t.Parallel()
 
 	query := url.Values{
-		"method": {" post "},
-		"path":   {" /api/* "},
-		"status": {"201"},
-		"limit":  {"600"},
-		"offset": {"-1"},
-		"from":   {"2026-03-01"},
-		"to":     {"2026-03-02"},
+		"method":    {" post "},
+		"path":      {" /api/* "},
+		"status":    {"201"},
+		"tenant_id": {" tenant-request-log "},
+		"limit":     {"600"},
+		"offset":    {"-1"},
+		"from":      {"2026-03-01"},
+		"to":        {"2026-03-02"},
 	}
 
 	filters, badRequestMessage := parseAdminRequestLogFilters(query)
@@ -26,11 +27,31 @@ func TestParseAdminRequestLogFiltersValid(t *testing.T) {
 	testutil.Equal(t, "POST", filters.method)
 	testutil.Equal(t, "/api/*", filters.path)
 	testutil.Equal(t, 201, filters.statusCode)
+	testutil.Equal(t, "tenant-request-log", filters.tenantID)
+	testutil.True(t, filters.tenantIDSet, "present tenant_id filter should be active")
 	testutil.Equal(t, 500, filters.limit)
 	testutil.Equal(t, 0, filters.offset)
 	testutil.Equal(t, time.Date(2026, 3, 1, 0, 0, 0, 0, time.UTC), filters.fromTime)
 	testutil.Equal(t, time.Date(2026, 3, 2, 0, 0, 0, 0, time.UTC), filters.toTime)
 	testutil.True(t, filters.toDateOnly, "date-only to filter should be tracked for exclusive upper bound")
+}
+
+func TestParseAdminRequestLogFiltersDistinguishesExplicitDefaultTenant(t *testing.T) {
+	t.Parallel()
+
+	filters, badRequestMessage := parseAdminRequestLogFilters(url.Values{
+		"tenant_id": {""},
+	})
+
+	testutil.Equal(t, "", badRequestMessage)
+	testutil.Equal(t, "", filters.tenantID)
+	testutil.True(t, filters.tenantIDSet, "explicit empty tenant_id should target default-tenant rows")
+
+	filters, badRequestMessage = parseAdminRequestLogFilters(url.Values{})
+
+	testutil.Equal(t, "", badRequestMessage)
+	testutil.Equal(t, "", filters.tenantID)
+	testutil.False(t, filters.tenantIDSet, "omitted tenant_id should leave tenant filtering inactive")
 }
 
 func TestParseAdminRequestLogFiltersAcceptsStableCursor(t *testing.T) {

@@ -163,6 +163,9 @@ printf '%s\n' "$*" > "$AYB_TEST_PNPM_CALL_PATH"
 if [[ -n "${AYB_TEST_BUILD_STARTED_PATH:-}" ]]; then
   : > "$AYB_TEST_BUILD_STARTED_PATH"
 fi
+# Record the invocation directory too: which directory pnpm runs from decides
+# which package.json Corepack reads, so it is part of the contract under test.
+pwd -P > "${AYB_TEST_PNPM_CALL_PATH}.cwd"
 if [[ "${AYB_TEST_PNPM_SHOULD_FAIL:-}" == "1" ]]; then
   exit 47
 fi
@@ -328,6 +331,7 @@ PY
 )"
 mkdir -p "$BROWSER_WEB_DIR"
 printf 'ok\n' > "${BROWSER_WEB_DIR}/health"
+rm -f ayb
 if ! HOME="$BUILD_SCOPE_HOME" \
   PATH="${BUILD_SCOPE_BIN_DIR}:$PATH" \
   AYB_START_COMMAND='./ayb start --foreground --host 127.0.0.1' \
@@ -345,8 +349,25 @@ if ! HOME="$BUILD_SCOPE_HOME" \
   exit 1
 fi
 
+browser_go_call="$(cat "$BROWSER_GO_CALL_PATH" 2>/dev/null || true)"
+if [[ -z "$browser_go_call" || "$browser_go_call" != *"build"* || "$browser_go_call" != *"./cmd/ayb"* || "$browser_go_call" != *"-o ayb"* ]]; then
+  echo "FAIL: browser local AYB runs should rebuild ayb from ./cmd/ayb before startup; got ${browser_go_call:-<empty>}"
+  cat "$BROWSER_STDOUT_PATH"
+  cat "$BROWSER_STDERR_PATH"
+  exit 1
+fi
+
 if [[ "$(cat "$BROWSER_PNPM_CALL_PATH" 2>/dev/null || true)" != "build" ]]; then
-  echo "FAIL: browser local AYB runs should enter ui and invoke pnpm build"
+  echo "FAIL: browser local AYB runs should invoke pnpm build"
+  cat "$BROWSER_STDOUT_PATH"
+  cat "$BROWSER_STDERR_PATH"
+  exit 1
+fi
+
+# The build must run from ui/ rather than the repository root so Corepack resolves
+# the pnpm version pinned in ui/package.json instead of failing on the package-less root.
+if [[ "$(cat "${BROWSER_PNPM_CALL_PATH}.cwd" 2>/dev/null || true)" != "$(cd ui && pwd -P)" ]]; then
+  echo "FAIL: browser local AYB runs should invoke pnpm from ui/ so Corepack honors ui/package.json"
   cat "$BROWSER_STDOUT_PATH"
   cat "$BROWSER_STDERR_PATH"
   exit 1

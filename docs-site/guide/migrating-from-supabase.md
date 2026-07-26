@@ -92,7 +92,7 @@ Command-specific flags:
 | `--verbose` | No | `false` | Show detailed progress. |
 | `--skip-rls` | No | `false` | Skip RLS policy rewriting. |
 | `--skip-oauth` | No | `false` | Skip OAuth identity migration. |
-| `--skip-data` | No | `false` | Skip public table schema and row migration; auth still runs. |
+| `--skip-data` | No | `false` | Skip data table migration (auth and RLS only); this skips user-schema table creation and row migration. |
 | `--skip-storage` | No | `false` | Skip storage file migration. |
 | `--include-anonymous` | No | `false` | Include anonymous Supabase users in the source query; users with no email are still skipped. |
 | `--yes`, `-y` | No | `false` | Skip the confirmation prompt. |
@@ -106,26 +106,26 @@ Global flags:
 
 ## What is migrated
 
-- Public-schema base tables are recreated in AYB, excluding Supabase and AYB internal tables.
-- Public-schema table rows are streamed into the target, with deferred retries for foreign-key dependencies.
+- Base tables in `public` and other user-owned schemas admitted by `isAdmittedUserSchema` in `internal/sbmigrate/migrator_helpers.go` are recreated in AYB. The admission rule excludes `auth`, `storage`, `realtime`, `extensions`, `graphql`, `graphql_public`, `vault`, `pgsodium`, `cron`, `net`, `pgbouncer`, `pgsodium_masks`, `pgtle`, `_analytics`, `_realtime`, `_supabase`, and `information_schema`, plus schemas whose names start with `pg_` or `supabase_`. AYB creates each admitted non-`public` schema in the target without granting it to `ayb_authenticated`; review the migrated RLS policies and grant only the access your application requires.
+- Table rows in admitted user schemas are streamed into the target, with deferred retries for foreign-key dependencies. The Supabase-internal-table and `_ayb_*` name filters apply within `public`; every base table in an admitted non-`public` schema is migrated.
 - Supported primary keys and foreign keys are recreated. After row copy, AYB attempts
   to reset recognized serial sequences on supported primary-key columns; reset failures
   are reported as warnings.
-- Public-schema views are created on a best-effort basis; views that cannot be created are skipped with a warning.
-- Email-based `auth.users` rows are inserted into `_ayb_users` with preserved UUIDs, lower-cased email addresses, email verification state, timestamps, and existing password hashes. Supabase bcrypt password hashes continue to verify through AYB login and are upgraded after successful login.
+- Views in admitted user schemas are created on a best-effort basis; views that cannot be created are skipped with a warning.
+- Email-based `auth.users` rows are inserted into `_ayb_users` with preserved UUIDs, lower-cased email addresses, email verification state, timestamps, and existing password hashes. Supabase `auth.users.raw_user_meta_data` maps to AYB `_ayb_users.raw_user_meta_data`, and Supabase `auth.users.raw_app_meta_data` maps to AYB `_ayb_users.raw_app_meta_data`. Nested JSON is preserved verbatim as JSONB rather than expanded into first-class auth fields or exposed through the user-facing auth API. Supabase bcrypt password hashes continue to verify through AYB login and are upgraded after successful login.
 - OAuth identities from `auth.identities` are inserted into `_ayb_oauth_accounts` for non-email providers when a provider user ID is available.
-- Public-schema RLS policies are recreated on migrated tables after applying the four rewrite rules owned by `RewriteRLSExpression`: text-cast `auth.uid()` / `uid()` becomes `current_setting('ayb.user_id', true)`, UUID `auth.uid()` / `uid()` becomes `current_setting('ayb.user_id', true)::uuid`, `auth.role()` / `role()` becomes `current_setting('ayb.user_role', true)`, and `auth.jwt() ->> 'email'` / `jwt() ->> 'email'` becomes `current_setting('ayb.user_email', true)`.
+- RLS policies are recreated on migrated tables in admitted user schemas after applying the four rewrite rules owned by `RewriteRLSExpression`: text-cast `auth.uid()` / `uid()` becomes `current_setting('ayb.user_id', true)`, UUID `auth.uid()` / `uid()` becomes `current_setting('ayb.user_id', true)::uuid`, `auth.role()` / `role()` becomes `current_setting('ayb.user_role', true)`, and `auth.jwt() ->> 'email'` / `jwt() ->> 'email'` becomes `current_setting('ayb.user_email', true)`.
 - Storage files are copied from the local export into the AYB storage backend when `--storage-export` is provided. Bucket names are normalized to AYB-compatible names, bucket metadata is registered in `_ayb_storage_buckets`, and object metadata is registered in `_ayb_storage_objects`.
 
 ## What is not migrated yet
 
-- Supabase user metadata from `auth.users`.
 - Phone-only users and MFA factors.
 - Email-less users, even with `--include-anonymous`; the flag only includes anonymous rows in the source query before the no-email skip is applied.
-- Non-public schemas.
 - Secondary indexes.
 - Functions and triggers.
 - Full custom-type fidelity beyond the types handled by the table DDL generator.
+- Source schema, table, and sequence grants. Non-`public` schemas remain inaccessible
+  to `ayb_authenticated` until an operator explicitly grants the required privileges.
 
 ## Post-migration verification
 
@@ -138,17 +138,20 @@ that path; it does not change the running server's storage configuration. With
 storage disabled the server does not expose the storage routes, and with an S3
 backend or a different local path the `curl` probe reads a different destination.
 
-Compare one selected public table's source and target row counts:
+Compare one selected admitted user-schema table's source and target row counts. The
+default below checks `public.todos`; for a non-public specimen, use values such as
+`SCHEMA='billing'` and `TABLE='invoices'`:
 
 ```bash
 (
 set -euo pipefail
 
+SCHEMA='public'
 TABLE='todos'
-SOURCE_COUNT=$(printf '%s\n' 'SELECT COUNT(*) FROM public.:"table";' |
-  psql -X -v ON_ERROR_STOP=1 -v table="$TABLE" "$SUPABASE_DB_URL" -At) || exit 1
-TARGET_COUNT=$(printf '%s\n' 'SELECT COUNT(*) FROM public.:"table";' |
-  psql -X -v ON_ERROR_STOP=1 -v table="$TABLE" "$AYB_DATABASE_URL" -At) || exit 1
+SOURCE_COUNT=$(printf '%s\n' 'SELECT COUNT(*) FROM :"schema".:"table";' |
+  psql -X -v ON_ERROR_STOP=1 -v schema="$SCHEMA" -v table="$TABLE" "$SUPABASE_DB_URL" -At) || exit 1
+TARGET_COUNT=$(printf '%s\n' 'SELECT COUNT(*) FROM :"schema".:"table";' |
+  psql -X -v ON_ERROR_STOP=1 -v schema="$SCHEMA" -v table="$TABLE" "$AYB_DATABASE_URL" -At) || exit 1
 test "$SOURCE_COUNT" = "$TARGET_COUNT"
 )
 ```
@@ -162,22 +165,47 @@ expression of `auth.uid() = user_id`:
 (
 set -euo pipefail
 
+SCHEMA='public'
 TABLE='todos'
 POLICY='todos_owner_select'
 EXPECTED_POLICY_EXPRESSION="((current_setting('ayb.user_id'::text, true))::uuid = user_id)"
 ACTUAL_POLICY_EXPRESSION=$(psql -X -v ON_ERROR_STOP=1 \
-  -v table="$TABLE" -v policy="$POLICY" "$AYB_DATABASE_URL" -At <<'SQL'
+  -v schema="$SCHEMA" -v table="$TABLE" -v policy="$POLICY" "$AYB_DATABASE_URL" -At <<'SQL'
 SELECT pg_get_expr(pol.polqual, pol.polrelid)
 FROM pg_policy pol
 JOIN pg_class c ON c.oid = pol.polrelid
 JOIN pg_namespace n ON n.oid = c.relnamespace
-WHERE n.nspname = 'public'
+WHERE n.nspname = :'schema'
   AND c.relname = :'table'
   AND pol.polname = :'policy';
 SQL
 ) || exit 1
 test "$ACTUAL_POLICY_EXPRESSION" = "$EXPECTED_POLICY_EXPRESSION"
 )
+```
+
+For a selected migrated non-`public` schema, require that migration did not
+automatically expose it to AYB's authenticated role:
+
+```bash
+(
+set -euo pipefail
+
+SCHEMA='billing'
+psql -X -v ON_ERROR_STOP=1 -v schema="$SCHEMA" "$AYB_DATABASE_URL" -At <<'SQL' |
+SELECT has_schema_privilege('ayb_authenticated', :'schema', 'USAGE')::text;
+SQL
+  rg -x 'false' || exit 1
+)
+```
+
+After reviewing the schema's tables and migrated RLS policies, grant only the
+privileges the application requires. For example, a read-only schema exposure can
+be enabled explicitly with:
+
+```sql
+GRANT USAGE ON SCHEMA billing TO ayb_authenticated;
+GRANT SELECT ON ALL TABLES IN SCHEMA billing TO ayb_authenticated;
 ```
 
 ### How AYB derives the stored bucket name

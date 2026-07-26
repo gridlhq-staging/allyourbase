@@ -101,8 +101,10 @@ coverage, and every application-critical integration in your own environment.
 
 AYB's shipped search path is PostgreSQL search on the standard collection list endpoint, not a hosted-search replacement for every Algolia workflow. It is a fit when records already live in PostgreSQL and you want one API path for full-text `search`, per-collection synonym groups, optional `fuzzy=true` typo tolerance through `pg_trgm`, safe `filter` expressions, scalar `facets`, pagination, and RLS-scoped counts.
 
+Search relevance is PostgreSQL-native: default full-text ordering uses frequency-based `ts_rank`, configured weighted attributes use cover-density `ts_rank_cd`, and fuzzy matches can fold `pg_trgm` similarity into the effective `_rank` score. That is different from BM25/TF-IDF corpus-statistics ranking or hosted Algolia relevance. Use the Search Playground's relevance scores to compare real records and queries before treating AYB search as a replacement for a core hosted-search product.
+
 Keep Algolia when your product depends on Algolia-specific relevance controls,
-Algolia ranking-rule translation, or hosted index operations. AYB does ship `ayb
+Algolia-class typo handling, BM25-style relevance, Algolia ranking-rule translation, or hosted index operations. AYB does ship `ayb
 migrate algolia` for one-index record imports, per-collection synonym groups,
 fuzzy typo-threshold tuning, and `highlight=true` `_highlight` snippets; hosted
 index operations and Algolia-specific ranking controls remain outside the AYB

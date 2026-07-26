@@ -217,6 +217,36 @@ describe("api_search request paths", () => {
     expect(params.get("perPage")).toBe("17");
   });
 
+  it("passes synthetic _rank values through the normalizer untouched", async () => {
+    // A user-owned real _rank column may hold any type, so the normalizer must not
+    // narrow or reject _rank. Numeric narrowing belongs to SearchRankResults.
+    fetchMock
+      .mockResolvedValueOnce(
+        jsonResponse({
+          page: 1,
+          perPage: 20,
+          totalItems: 1,
+          totalPages: 1,
+          items: [{ id: "row-1", _rank: 0.6079271 }],
+        }),
+      )
+      .mockResolvedValueOnce(
+        jsonResponse({
+          page: 1,
+          perPage: 20,
+          totalItems: 1,
+          totalPages: 1,
+          items: [{ id: "row-2", _rank: "owner column value" }],
+        }),
+      );
+
+    const scored = await listSearchPlaygroundRecords("posts", { search: "postgres" });
+    expect(scored.items[0]._rank).toBe(0.6079271);
+
+    const ownerColumn = await listSearchPlaygroundRecords("posts", { search: "postgres" });
+    expect(ownerColumn.items[0]._rank).toBe("owner column value");
+  });
+
   it("propagates backend 400 errors via shared request behavior", async () => {
     fetchMock.mockResolvedValueOnce(
       jsonResponse(

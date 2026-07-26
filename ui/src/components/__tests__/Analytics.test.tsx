@@ -1,12 +1,14 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { screen, fireEvent, waitFor, within } from "@testing-library/react";
+import { act, screen, fireEvent, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { renderWithProviders } from "../../test-utils";
 import { Analytics } from "../Analytics";
 
 vi.mock("../../api_analytics", () => ({
   listRequestLogs: vi.fn(),
+  listRequestLogAggregates: vi.fn(),
   listAllRequestLogs: vi.fn(),
+  streamRequestLogs: vi.fn(),
   listQueryStats: vi.fn(),
 }));
 
@@ -87,6 +89,20 @@ function requestLogPage(
   };
 }
 
+interface StreamHandlers {
+  signal?: AbortSignal;
+  onReady?: () => void;
+  onRequestLog: (row: ReturnType<typeof requestLogRow>) => void;
+}
+
+interface StreamCall {
+  filters: Record<string, string | undefined>;
+  handlers: StreamHandlers;
+  aborted: boolean;
+}
+
+let streamCalls: StreamCall[] = [];
+
 async function readBlob(blob: Blob): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -136,12 +152,29 @@ function captureDownloads() {
 
 beforeEach(() => {
   vi.resetAllMocks();
+  streamCalls = [];
   Object.defineProperty(navigator, "clipboard", {
     configurable: true,
     value: { writeText: vi.fn().mockResolvedValue(undefined) },
   });
   (api.listRequestLogs as ReturnType<typeof vi.fn>).mockResolvedValue(mockRequestLogs);
+  (api.listRequestLogAggregates as ReturnType<typeof vi.fn>).mockResolvedValue({
+    items: [],
+    count: 0,
+  });
   (api.listAllRequestLogs as ReturnType<typeof vi.fn>).mockResolvedValue(mockRequestLogs);
+  (api.streamRequestLogs as ReturnType<typeof vi.fn>).mockImplementation(
+    (filters: Record<string, string | undefined>, handlers: StreamHandlers) => {
+      const call: StreamCall = { filters, handlers, aborted: false };
+      streamCalls.push(call);
+      handlers.signal?.addEventListener("abort", () => {
+        call.aborted = true;
+      });
+      return new Promise<void>((resolve) => {
+        handlers.signal?.addEventListener("abort", () => resolve(), { once: true });
+      });
+    },
+  );
   (api.listQueryStats as ReturnType<typeof vi.fn>).mockResolvedValue(mockQueryStats);
 });
 
@@ -571,6 +604,185 @@ describe("Analytics", () => {
         name: "Previous request-log page",
       }),
     ).toBeDisabled();
+  });
+
+  it("streams live request logs into the newest-first table without a page reload", async () => {
+    renderWithProviders(<Analytics />);
+    await screen.findByTestId("request-logs-table");
+
+    fireEvent.click(screen.getByRole("button", { name: "Live (periodic refresh)" }));
+    await waitFor(() => expect(api.streamRequestLogs).toHaveBeenCalledTimes(1));
+    expect(screen.getByTestId("request-logs-live-status")).toHaveTextContent("Connecting");
+
+    await act(async () => {
+      streamCalls[0].handlers.onReady?.();
+    });
+    await waitFor(() => {
+      expect(screen.getByTestId("request-logs-live-status")).toHaveTextContent("Live");
+    });
+
+    await act(async () => {
+      streamCalls[0].handlers.onRequestLog({
+        ...requestLogRow("live-row", "/api/live-row"),
+        method: "GET",
+        status_code: 404,
+        duration_ms: 77,
+      });
+    });
+
+    const tableRows = within(screen.getByTestId("request-logs-table")).getAllByRole("row");
+    expect(tableRows[1]).toHaveTextContent("/api/live-row");
+    expect(tableRows[1]).toHaveTextContent("GET");
+    expect(tableRows[1]).toHaveTextContent("404");
+    expect(tableRows[1]).toHaveTextContent("77ms");
+    expect(screen.getByTestId("request-logs-summary")).toHaveTextContent(
+      "Showing 1–3 of 3 request logs",
+    );
+    expect(api.listRequestLogs).toHaveBeenCalledTimes(1);
+  });
+
+  it("deduplicates streamed IDs, caps the current page, and increments count once per accepted row", async () => {
+    const pageRows = Array.from({ length: 25 }, (_, index) =>
+      requestLogRow(`live-cap-${index}`),
+    );
+    (api.listRequestLogs as ReturnType<typeof vi.fn>).mockResolvedValue(
+      requestLogPage(pageRows, 25, 0),
+    );
+
+    renderWithProviders(<Analytics />);
+    await screen.findByTestId("request-log-row-live-cap-0");
+    fireEvent.click(screen.getByRole("button", { name: "Live (periodic refresh)" }));
+    await waitFor(() => expect(api.streamRequestLogs).toHaveBeenCalledTimes(1));
+
+    await act(async () => {
+      streamCalls[0].handlers.onRequestLog(pageRows[0]);
+      streamCalls[0].handlers.onRequestLog(requestLogRow("accepted-live-cap"));
+    });
+
+    const bodyRows = within(screen.getByTestId("request-logs-table")).getAllByRole("row").slice(1);
+    expect(bodyRows).toHaveLength(25);
+    expect(screen.getByTestId("request-log-row-accepted-live-cap")).toBeInTheDocument();
+    expect(screen.queryAllByTestId("request-log-row-live-cap-0")).toHaveLength(1);
+    expect(screen.getByTestId("request-logs-summary")).toHaveTextContent(
+      "Showing 1–25 of 26 request logs",
+    );
+  });
+
+  it("keeps streamed rows when the offset-zero reload finishes after live delivery", async () => {
+    const firstPageRows = Array.from({ length: 25 }, (_, index) =>
+      requestLogRow(`reload-page-one-${index}`),
+    );
+    const secondPageRows = [requestLogRow("reload-page-two-unique")];
+    let resolveResetToNewestPage:
+      | ((value: ReturnType<typeof requestLogPage>) => void)
+      | undefined;
+    const resetToNewestPage = new Promise<ReturnType<typeof requestLogPage>>((resolve) => {
+      resolveResetToNewestPage = resolve;
+    });
+    (api.listRequestLogs as ReturnType<typeof vi.fn>)
+      .mockResolvedValueOnce(requestLogPage(firstPageRows, 26, 0))
+      .mockResolvedValueOnce(requestLogPage(secondPageRows, 26, 25))
+      .mockImplementationOnce(() => resetToNewestPage);
+
+    renderWithProviders(<Analytics />);
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Next request-log page" }),
+    );
+    await screen.findByTestId("request-log-row-reload-page-two-unique");
+
+    fireEvent.click(screen.getByRole("button", { name: "Live (periodic refresh)" }));
+    await waitFor(() => expect(streamCalls).toHaveLength(1));
+
+    await act(async () => {
+      streamCalls[0].handlers.onRequestLog(
+        requestLogRow("reload-live-row", "/api/reload-live-row"),
+      );
+    });
+    expect(screen.getByTestId("request-log-row-reload-live-row")).toBeInTheDocument();
+
+    await act(async () => {
+      resolveResetToNewestPage?.(requestLogPage(firstPageRows, 26, 0));
+      await resetToNewestPage;
+    });
+
+    await waitFor(() => {
+      expect(screen.getByTestId("request-log-row-reload-live-row")).toBeInTheDocument();
+    });
+    const tableRows = within(screen.getByTestId("request-logs-table")).getAllByRole("row");
+    expect(tableRows[1]).toHaveTextContent("/api/reload-live-row");
+    expect(screen.queryByTestId("request-log-row-reload-page-two-unique")).not.toBeInTheDocument();
+    expect(screen.getByTestId("request-logs-summary")).toHaveTextContent(
+      "Showing 1–25 of 27 request logs",
+    );
+  });
+
+  it("reconnects live streaming only when applied filters change", async () => {
+    renderWithProviders(<Analytics />);
+    await screen.findByTestId("request-logs-table");
+    fireEvent.click(screen.getByRole("button", { name: "Live (periodic refresh)" }));
+    await waitFor(() => expect(streamCalls).toHaveLength(1));
+
+    fireEvent.change(screen.getByLabelText("Path"), {
+      target: { value: "/api/draft-only*" },
+    });
+    expect(streamCalls).toHaveLength(1);
+    expect(streamCalls[0].aborted).toBe(false);
+
+    fireEvent.click(screen.getByRole("button", { name: "Apply Filters" }));
+    await waitFor(() => expect(streamCalls).toHaveLength(2));
+    expect(streamCalls[0].aborted).toBe(true);
+    expect(streamCalls[1].filters).toMatchObject({ path: "/api/draft-only*" });
+    expect(api.listRequestLogs).toHaveBeenLastCalledWith(
+      expect.objectContaining({ path: "/api/draft-only*", offset: 0 }),
+    );
+  });
+
+  it("preserves visible rows and reports live stream errors", async () => {
+    (api.streamRequestLogs as ReturnType<typeof vi.fn>).mockImplementationOnce(
+      (filters: Record<string, string | undefined>, handlers: StreamHandlers) => {
+        const call: StreamCall = { filters, handlers, aborted: false };
+        streamCalls.push(call);
+        handlers.signal?.addEventListener("abort", () => {
+          call.aborted = true;
+        });
+        return Promise.reject(new Error("live stream failed"));
+      },
+    );
+
+    renderWithProviders(<Analytics />);
+    await screen.findByText("/api/request-log-page-unique");
+    fireEvent.click(screen.getByRole("button", { name: "Live (periodic refresh)" }));
+
+    expect(await screen.findByTestId("request-logs-live-status")).toHaveTextContent(
+      "Error: live stream failed",
+    );
+    expect(screen.getByText("/api/request-log-page-unique")).toBeInTheDocument();
+  });
+
+  it("aborts live streams on toggle off, tab change, and unmount while preserving rows on errors", async () => {
+    const { unmount } = renderWithProviders(<Analytics />);
+    await screen.findByTestId("request-logs-table");
+    const liveButton = screen.getByRole("button", { name: "Live (periodic refresh)" });
+
+    fireEvent.click(liveButton);
+    await waitFor(() => expect(streamCalls).toHaveLength(1));
+    fireEvent.click(liveButton);
+    expect(streamCalls[0].aborted).toBe(true);
+    expect(screen.getByTestId("request-logs-live-status")).toHaveTextContent("Off");
+    expect(screen.getByText("/api/request-log-page-unique")).toBeInTheDocument();
+
+    fireEvent.click(liveButton);
+    await waitFor(() => expect(streamCalls).toHaveLength(2));
+    fireEvent.click(screen.getByRole("button", { name: "Query Performance" }));
+    expect(streamCalls[1].aborted).toBe(true);
+    await screen.findByText("SELECT * FROM users");
+
+    fireEvent.click(screen.getByRole("button", { name: "Request Logs" }));
+    expect(await screen.findByTestId("request-logs-live-status")).toHaveTextContent("Off");
+    fireEvent.click(screen.getByRole("button", { name: "Live (periodic refresh)" }));
+    await waitFor(() => expect(streamCalls).toHaveLength(3));
+    unmount();
+    expect(streamCalls[2].aborted).toBe(true);
   });
 
   it.each([

@@ -2,6 +2,7 @@ package cli
 
 import (
 	"bytes"
+	"errors"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -10,6 +11,7 @@ import (
 
 	"github.com/allyourbase/ayb/internal/sqlutil"
 	"github.com/allyourbase/ayb/internal/testutil"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/spf13/cobra"
 )
 
@@ -157,6 +159,27 @@ func TestRunDBSeed_missingDatabaseURL(t *testing.T) {
 	testutil.ErrorContains(t, err, "database URL")
 }
 
+func TestRunDBSeedWritesProgressBeforeConnect(t *testing.T) {
+	directory := t.TempDir()
+	seedFile := filepath.Join(directory, "seed.sql")
+	testutil.NoError(t, os.WriteFile(seedFile, []byte("SELECT 1;"), 0o600))
+	cmd := newDBSeedTestCmd(t, map[string]string{
+		"database-url": "postgresql://localhost/test",
+	})
+	var stderr bytes.Buffer
+	cmd.SetErr(&stderr)
+	connectError := errors.New("connect stopped")
+	connector := func(string) (*pgxpool.Pool, func(), error) {
+		testutil.Equal(t, "Applying database seed...\n", stderr.String())
+		return nil, nil, connectError
+	}
+
+	err := runDBSeedWithConnector(cmd, []string{seedFile}, connector)
+	if !errors.Is(err, connectError) {
+		t.Fatalf("expected connector error, got %v", err)
+	}
+}
+
 func TestRunDBSeed_missingFile(t *testing.T) {
 	t.Parallel()
 
@@ -227,6 +250,25 @@ func TestRunDBReset_configLoadedBeforeConnect(t *testing.T) {
 	// After --yes check and db URL, it loads config for migrations dir then connects.
 	// Since config load succeeds (silent miss), expect a connection error.
 	testutil.True(t, err != nil, "expected error for unreachable DB")
+}
+
+func TestRunDBResetWritesProgressBeforeConnect(t *testing.T) {
+	cmd := newDBResetTestCmd(t, map[string]string{
+		"yes":          "true",
+		"database-url": "postgresql://localhost/test",
+	})
+	var stderr bytes.Buffer
+	cmd.SetErr(&stderr)
+	connectError := errors.New("connect stopped")
+	connector := func(string) (*pgxpool.Pool, func(), error) {
+		testutil.Equal(t, "Resetting database...\n", stderr.String())
+		return nil, nil, connectError
+	}
+
+	err := runDBResetWithConnector(cmd, nil, connector)
+	if !errors.Is(err, connectError) {
+		t.Fatalf("expected connector error, got %v", err)
+	}
 }
 
 func TestDBResetCmd_isRegistered(t *testing.T) {

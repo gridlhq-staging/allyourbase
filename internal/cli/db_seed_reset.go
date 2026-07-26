@@ -15,6 +15,12 @@ import (
 
 // runDBSeed executes SQL statements from a seed file to populate the database. The seed file path is specified as a command argument or read from the configuration file. SQL execution occurs within a transaction.
 func runDBSeed(cmd *cobra.Command, args []string) error {
+	return runDBSeedWithConnector(cmd, args, connectForDB)
+}
+
+type dbConnector func(string) (*pgxpool.Pool, func(), error)
+
+func runDBSeedWithConnector(cmd *cobra.Command, args []string, connect dbConnector) error {
 	dbURL, err := resolveDBURL(cmd)
 	if err != nil {
 		return err
@@ -41,7 +47,8 @@ func runDBSeed(cmd *cobra.Command, args []string) error {
 
 	ctx := context.Background()
 	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
-	pool, cleanup, err := connectForDB(dbURL)
+	fmt.Fprintln(cmd.ErrOrStderr(), "Applying database seed...")
+	pool, cleanup, err := connect(dbURL)
 	if err != nil {
 		return err
 	}
@@ -69,6 +76,10 @@ func runDBSeed(cmd *cobra.Command, args []string) error {
 
 // runDBReset performs a destructive reset of the user database by dropping all user-created tables and enums, re-running migrations from the configured directory, and optionally re-seeding from a configured seed file. The operation requires the --yes flag as a safety confirmation.
 func runDBReset(cmd *cobra.Command, args []string) error {
+	return runDBResetWithConnector(cmd, args, connectForDB)
+}
+
+func runDBResetWithConnector(cmd *cobra.Command, args []string, connect dbConnector) error {
 	yes, _ := cmd.Flags().GetBool("yes")
 	if !yes {
 		return fmt.Errorf("ayb db reset is destructive — pass --yes to confirm")
@@ -86,7 +97,8 @@ func runDBReset(cmd *cobra.Command, args []string) error {
 
 	ctx := context.Background()
 	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
-	pool, cleanup, err := connectForDB(dbURL)
+	fmt.Fprintln(cmd.ErrOrStderr(), "Resetting database...")
+	pool, cleanup, err := connect(dbURL)
 	if err != nil {
 		return err
 	}

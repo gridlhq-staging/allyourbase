@@ -43,7 +43,7 @@ var migrateUpCmd = &cobra.Command{
 var migrateCreateCmd = &cobra.Command{
 	Use:   "create <name>",
 	Short: "Create a new migration file",
-	Args:  cobra.ExactArgs(1),
+	Args:  exactArgsWithHelp(1, "ayb migrate create add_posts_table"),
 	RunE:  runMigrateCreate,
 }
 
@@ -56,7 +56,7 @@ var migrateStatusCmd = &cobra.Command{
 var migrateEncryptColumnCmd = &cobra.Command{
 	Use:   "encrypt-column <table> <column>",
 	Short: "Encrypt an existing plaintext column in-place using the configured vault",
-	Args:  cobra.ExactArgs(2),
+	Args:  exactArgsWithHelp(2, "ayb migrate encrypt-column users email"),
 	RunE:  runMigrateEncryptColumn,
 }
 
@@ -83,7 +83,7 @@ files. Saves the current schema as the new snapshot baseline.
 Examples:
   ayb migrate generate add_users_table
   ayb migrate generate --migrations-dir ./migrations add_posts_table`,
-	Args: cobra.ExactArgs(1),
+	Args: exactArgsWithHelp(1, "ayb migrate generate add_posts_table"),
 	RunE: runMigrateGenerate,
 }
 
@@ -134,6 +134,12 @@ func runMigrateCreate(cmd *cobra.Command, args []string) error {
 
 // runMigrateUp applies all pending migrations to the database and reports the count of applied migrations.
 func runMigrateUp(cmd *cobra.Command, args []string) error {
+	return runMigrateUpWithConnector(cmd, args, connectForMigrate)
+}
+
+type migrateConnector func(*cobra.Command, *config.Config, *slog.Logger) (*postgres.Pool, func(), error)
+
+func runMigrateUpWithConnector(cmd *cobra.Command, args []string, connect migrateConnector) error {
 	cfg, err := loadMigrateConfig(cmd)
 	if err != nil {
 		return err
@@ -142,7 +148,8 @@ func runMigrateUp(cmd *cobra.Command, args []string) error {
 	dir := migrationsDir(cmd, cfg)
 	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
 
-	pool, cleanup, err := connectForMigrate(cmd, cfg, logger)
+	fmt.Fprintln(cmd.ErrOrStderr(), "Applying database migrations...")
+	pool, cleanup, err := connect(cmd, cfg, logger)
 	if err != nil {
 		return err
 	}
@@ -170,6 +177,10 @@ func runMigrateUp(cmd *cobra.Command, args []string) error {
 
 // runMigrateStatus reports the status of all migrations, showing which have been applied with timestamps and which are pending.
 func runMigrateStatus(cmd *cobra.Command, args []string) error {
+	return runMigrateStatusWithConnector(cmd, args, connectForMigrate)
+}
+
+func runMigrateStatusWithConnector(cmd *cobra.Command, args []string, connect migrateConnector) error {
 	cfg, err := loadMigrateConfig(cmd)
 	if err != nil {
 		return err
@@ -178,7 +189,8 @@ func runMigrateStatus(cmd *cobra.Command, args []string) error {
 	dir := migrationsDir(cmd, cfg)
 	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
 
-	pool, cleanup, err := connectForMigrate(cmd, cfg, logger)
+	fmt.Fprintln(cmd.ErrOrStderr(), "Checking migration status...")
+	pool, cleanup, err := connect(cmd, cfg, logger)
 	if err != nil {
 		return err
 	}

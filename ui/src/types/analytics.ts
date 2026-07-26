@@ -20,6 +20,20 @@ export interface RequestLogListResponse {
   offset: number;
 }
 
+export interface RequestLogAggregateBucket {
+  bucket: string;
+  count: number;
+  status_2xx: number;
+  status_3xx: number;
+  status_4xx: number;
+  status_5xx: number;
+}
+
+export interface RequestLogAggregateResponse {
+  items: RequestLogAggregateBucket[];
+  count: number;
+}
+
 export interface IndexSuggestion {
   statement: string;
   confidence: string;

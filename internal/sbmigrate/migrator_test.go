@@ -1,6 +1,8 @@
 package sbmigrate
 
 import (
+	"bytes"
+	"encoding/json"
 	"fmt"
 	"strings"
 	"testing"
@@ -182,31 +184,90 @@ func TestBuildAuthUsersSelectQuery(t *testing.T) {
 	t.Parallel()
 	t.Run("uses source is_anonymous column when present", func(t *testing.T) {
 		t.Parallel()
-		query := buildAuthUsersSelectQuery(false, true, true, "email_confirmed_at")
+		query := buildAuthUsersSelectQuery(authUsersSourceColumns{
+			hasIsAnonymous:     true,
+			hasDeletedAt:       true,
+			hasRawUserMetaData: true,
+			hasRawAppMetaData:  true,
+			confirmedAtExpr:    "email_confirmed_at",
+		})
 		testutil.Contains(t, query, "COALESCE(is_anonymous, false)")
 		testutil.Contains(t, query, "is_anonymous = false")
 		testutil.Contains(t, query, "deleted_at IS NULL")
 		testutil.Contains(t, query, "email_confirmed_at AS email_confirmed_at")
+		testutil.Contains(t, query, "COALESCE(raw_user_meta_data::text, '{}')")
+		testutil.Contains(t, query, "COALESCE(raw_app_meta_data::text, '{}')")
 	})
 
 	t.Run("degrades when is_anonymous is absent", func(t *testing.T) {
 		t.Parallel()
-		query := buildAuthUsersSelectQuery(false, false, true, "email_confirmed_at")
+		query := buildAuthUsersSelectQuery(authUsersSourceColumns{
+			hasDeletedAt:       true,
+			hasRawUserMetaData: true,
+			hasRawAppMetaData:  true,
+			confirmedAtExpr:    "email_confirmed_at",
+		})
 		testutil.Contains(t, query, "false AS is_anonymous")
 		testutil.False(t, strings.Contains(query, "is_anonymous = false"), "query should not filter on missing column")
 	})
 
 	t.Run("degrades when deleted_at is absent", func(t *testing.T) {
 		t.Parallel()
-		query := buildAuthUsersSelectQuery(false, true, false, "email_confirmed_at")
+		query := buildAuthUsersSelectQuery(authUsersSourceColumns{
+			hasIsAnonymous:     true,
+			hasRawUserMetaData: true,
+			hasRawAppMetaData:  true,
+			confirmedAtExpr:    "email_confirmed_at",
+		})
 		testutil.False(t, strings.Contains(query, "deleted_at"), "query should not filter on missing deleted_at")
 	})
 
 	t.Run("falls back to confirmed_at expression", func(t *testing.T) {
 		t.Parallel()
-		query := buildAuthUsersSelectQuery(false, false, false, "confirmed_at")
+		query := buildAuthUsersSelectQuery(authUsersSourceColumns{
+			hasRawUserMetaData: true,
+			hasRawAppMetaData:  true,
+			confirmedAtExpr:    "confirmed_at",
+		})
 		testutil.Contains(t, query, "confirmed_at AS email_confirmed_at")
 	})
+
+	t.Run("does not reference missing metadata columns", func(t *testing.T) {
+		t.Parallel()
+		query := buildAuthUsersSelectQuery(authUsersSourceColumns{
+			confirmedAtExpr: "email_confirmed_at",
+		})
+		testutil.Contains(t, query, "'{}'::text")
+		testutil.False(t, strings.Contains(query, "raw_user_meta_data"), "query should not reference missing raw_user_meta_data")
+		testutil.False(t, strings.Contains(query, "raw_app_meta_data"), "query should not reference missing raw_app_meta_data")
+	})
+}
+
+func TestAuthUserMetadataPreservesLargeJSONNumbers(t *testing.T) {
+	t.Parallel()
+	u := SupabaseUser{ID: "aaaaaaaa-0000-0000-0000-000000000001"}
+
+	err := parseAuthUserMetadata(&u,
+		`{"snowflake":9007199254740993}`,
+		`{"billing_id":9007199254740995}`,
+	)
+	testutil.NoError(t, err)
+
+	rawUserMetaData, rawAppMetaData, err := encodeAuthUserMetadata(u)
+	testutil.NoError(t, err)
+	assertJSONNumber(t, rawUserMetaData, "snowflake", "9007199254740993")
+	assertJSONNumber(t, rawAppMetaData, "billing_id", "9007199254740995")
+}
+
+func assertJSONNumber(t *testing.T, payload, key, want string) {
+	t.Helper()
+	dec := json.NewDecoder(bytes.NewReader([]byte(payload)))
+	dec.UseNumber()
+	var got map[string]any
+	testutil.NoError(t, dec.Decode(&got))
+	number, ok := got[key].(json.Number)
+	testutil.True(t, ok, "%s should decode as json.Number from %s", key, payload)
+	testutil.Equal(t, want, number.String())
 }
 
 func TestBuildOAuthIdentitiesQuery(t *testing.T) {

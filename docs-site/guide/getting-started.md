@@ -27,6 +27,8 @@ curl -fsSLo /tmp/ayb-install.sh https://install.allyourbase.io/install.sh
 sh /tmp/ayb-install.sh
 ```
 
+The installer places the binary at `~/.ayb/bin/ayb`; bare `ayb` below assumes that directory is on your `PATH`.
+
 ### Binary download
 
 Download the latest release from [GitHub Releases](https://github.com/AllyourbaseHQ/allyourbase/releases) for your OS and architecture.
@@ -68,6 +70,8 @@ Default URLs from the startup banner:
 
 - API: `http://127.0.0.1:8090/api`
 - Admin: `http://127.0.0.1:8090/admin`
+
+The same local server is reachable as `localhost:8090` on standard local hosts.
 
 ### External PostgreSQL
 

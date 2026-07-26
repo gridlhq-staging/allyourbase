@@ -35,6 +35,12 @@ vi.mock("../RecordForm", () => ({
 import { getRows, createRecord, deleteRecord, batchRecords } from "../../api";
 import { TableBrowser } from "../TableBrowser";
 import type { Table } from "../../types";
+import {
+  ALGOLIA_MIGRATION_GUIDE_PATH,
+  docsUrl,
+  MIGRATIONS_GUIDE_PATH,
+  SUPABASE_MIGRATION_GUIDE_PATH,
+} from "../../lib/docs_url";
 
 const mockGetRows = vi.mocked(getRows);
 const mockCreateRecord = vi.mocked(createRecord);
@@ -116,6 +122,24 @@ async function readBlob(blob: Blob): Promise<string> {
   });
 }
 
+function expectMigrationDiscoveryCTA(container: HTMLElement) {
+  const emptyState = within(container);
+  expect(emptyState.getByText("Migrating from another source?")).toBeInTheDocument();
+  expect(emptyState.getByText("ayb migrate <source> --help")).toBeInTheDocument();
+  expect(emptyState.getByRole("link", { name: "Migration guide" })).toHaveAttribute(
+    "href",
+    docsUrl(MIGRATIONS_GUIDE_PATH),
+  );
+  expect(emptyState.getByRole("link", { name: "Supabase migration guide" })).toHaveAttribute(
+    "href",
+    docsUrl(SUPABASE_MIGRATION_GUIDE_PATH),
+  );
+  expect(emptyState.getByRole("link", { name: "Algolia migration guide" })).toHaveAttribute(
+    "href",
+    docsUrl(ALGOLIA_MIGRATION_GUIDE_PATH),
+  );
+}
+
 describe("TableBrowser", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -149,16 +173,60 @@ describe("TableBrowser", () => {
     });
   });
 
-  it("shows empty state when no rows", async () => {
+  it("opens the create form from a writable table empty state", async () => {
     mockGetRows.mockResolvedValueOnce(emptyResponse);
+    const user = userEvent.setup();
     render(<TableBrowser table={makeTable()} />);
 
     await waitFor(() => {
       expect(screen.getByText("No rows in this table yet")).toBeInTheDocument();
     });
+    const emptyStateCell = screen.getByText("No rows in this table yet").closest("td");
+    expect(emptyStateCell).not.toBeNull();
+    const emptyState = within(emptyStateCell as HTMLElement);
     expect(
-      screen.getByText("Insert data using the SQL editor, REST API, or SDK."),
+      emptyState.getByText("Insert data using the SQL editor, REST API, or SDK."),
     ).toBeInTheDocument();
+    expectMigrationDiscoveryCTA(emptyStateCell as HTMLElement);
+
+    await user.click(emptyState.getByRole("button", { name: "New Row" }));
+
+    expect(screen.getByTestId("record-form-create")).toBeInTheDocument();
+  });
+
+  it("routes a read-only empty view to the SQL editor without offering row creation", async () => {
+    mockGetRows.mockResolvedValueOnce(emptyResponse);
+    const onOpenSQLEditor = vi.fn();
+    const user = userEvent.setup();
+    render(
+      <TableBrowser
+        table={makeTable({ kind: "view" })}
+        onOpenSQLEditor={onOpenSQLEditor}
+      />,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("No rows in this table yet")).toBeInTheDocument();
+    });
+    const emptyStateCell = screen.getByText("No rows in this table yet").closest("td");
+    expect(emptyStateCell).not.toBeNull();
+    const emptyState = within(emptyStateCell as HTMLElement);
+    expect(
+      emptyState.getByText(
+        "This view is read-only. Use the SQL editor to inspect or update its query.",
+      ),
+    ).toBeInTheDocument();
+    expect(
+      emptyState.queryByText("Insert data using the SQL editor, REST API, or SDK."),
+    ).not.toBeInTheDocument();
+    expectMigrationDiscoveryCTA(emptyStateCell as HTMLElement);
+    expect(screen.queryByRole("button", { name: "New Row" })).not.toBeInTheDocument();
+    expect(screen.queryByTestId("record-form-create")).not.toBeInTheDocument();
+
+    await user.click(emptyState.getByRole("button", { name: "Open SQL Editor" }));
+
+    expect(onOpenSQLEditor).toHaveBeenCalledOnce();
+    expect(screen.queryByTestId("record-form-create")).not.toBeInTheDocument();
   });
 
   it("shows error on fetch failure", async () => {
@@ -170,6 +238,40 @@ describe("TableBrowser", () => {
 
     await waitFor(() => {
       expect(screen.getByText("invalid filter syntax")).toBeInTheDocument();
+    });
+  });
+
+  it("retries the current request from the error banner", async () => {
+    const { ApiError } = await import("../../api");
+    mockGetRows
+      .mockRejectedValueOnce(new ApiError(400, "invalid filter syntax"))
+      .mockResolvedValueOnce(oneRowResponse);
+    const user = userEvent.setup();
+    render(<TableBrowser table={makeTable()} />);
+
+    await waitFor(() => {
+      expect(screen.getByText("invalid filter syntax")).toBeInTheDocument();
+    });
+    await user.click(screen.getByRole("button", { name: "Retry" }));
+
+    await waitFor(() => {
+      expect(screen.getByText("Hello")).toBeInTheDocument();
+    });
+    expect(mockGetRows).toHaveBeenNthCalledWith(1, "posts", {
+      page: 1,
+      perPage: 20,
+      sort: undefined,
+      filter: undefined,
+      search: undefined,
+      expand: undefined,
+    });
+    expect(mockGetRows).toHaveBeenNthCalledWith(2, "posts", {
+      page: 1,
+      perPage: 20,
+      sort: undefined,
+      filter: undefined,
+      search: undefined,
+      expand: undefined,
     });
   });
 
@@ -462,8 +564,11 @@ describe("TableBrowser", () => {
     mockGetRows.mockResolvedValueOnce(emptyResponse);
     render(<TableBrowser table={makeTable()} />);
 
+    const toolbar = screen.getByRole("textbox", { name: "Full-text search" }).parentElement!;
     await waitFor(() => {
-      expect(screen.getByRole("button", { name: /New/ })).toBeInTheDocument();
+      expect(
+        within(toolbar).getByRole("button", { name: "New Row" }),
+      ).toBeInTheDocument();
     });
   });
 
@@ -482,10 +587,13 @@ describe("TableBrowser", () => {
     const user = userEvent.setup();
     render(<TableBrowser table={makeTable()} />);
 
+    const toolbar = screen.getByRole("textbox", { name: "Full-text search" }).parentElement!;
     await waitFor(() => {
-      expect(screen.getByRole("button", { name: /New/ })).toBeInTheDocument();
+      expect(
+        within(toolbar).getByRole("button", { name: "New Row" }),
+      ).toBeInTheDocument();
     });
-    await user.click(screen.getByRole("button", { name: /New/ }));
+    await user.click(within(toolbar).getByRole("button", { name: "New Row" }));
 
     expect(screen.getByTestId("record-form-create")).toBeInTheDocument();
   });

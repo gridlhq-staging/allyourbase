@@ -6,6 +6,12 @@ import "github.com/spf13/cobra"
 var dbCmd = &cobra.Command{
 	Use:   "db",
 	Short: "Database management commands",
+	Long: `Manage database backups, restores, seeds, and development resets.
+
+Examples:
+  ayb db backup
+  ayb db restore backup.dump
+  ayb db seed seed.sql`,
 }
 
 var dbSeedCmd = &cobra.Command{

@@ -1240,6 +1240,125 @@ func TestSearchRelevanceBeforeStructuredSort(t *testing.T) {
 	testutil.Equal(t, "More Relevant Needle", jsonStr(t, items[0]["title"]))
 }
 
+func TestSearchRankResponse(t *testing.T) {
+	ctx := context.Background()
+	srv, pg := setupTestServer(t, ctx)
+	_, err := pg.Pool.Exec(ctx, `
+		INSERT INTO posts (title, body, author_id, status) VALUES
+			('Repeated Term', 'needle needle needle needle', 1, 'published'),
+			('Double Term', 'needle needle', 1, 'published'),
+			('Single Term', 'needle', 1, 'published')
+	`)
+	testutil.NoError(t, err)
+
+	offsetResponse := doRequest(t, srv, "GET", "/api/collections/posts/?search=needle&perPage=10", nil)
+	testutil.StatusCode(t, http.StatusOK, offsetResponse.Code)
+	offsetItems := jsonItems(t, parseJSON(t, offsetResponse))
+	testutil.Equal(t, 3, len(offsetItems))
+	testutil.Equal(t, "Repeated Term", jsonStr(t, offsetItems[0]["title"]))
+	firstRank := jsonNum(t, offsetItems[0]["_rank"])
+	secondRank := jsonNum(t, offsetItems[1]["_rank"])
+	testutil.True(t, firstRank > 0, "expected positive first rank")
+	testutil.True(t, firstRank > secondRank, "expected repeated-term row to have a strictly greater rank")
+
+	plainResponse := doRequest(t, srv, "GET", "/api/collections/posts/?sort=-id&perPage=1", nil)
+	testutil.StatusCode(t, http.StatusOK, plainResponse.Code)
+	plainItems := jsonItems(t, parseJSON(t, plainResponse))
+	if _, ok := plainItems[0]["_rank"]; ok {
+		t.Fatal("plain list response must omit synthetic _rank")
+	}
+
+	var cursorRanks []float64
+	nextCursor := ""
+	for {
+		path := "/api/collections/posts/?cursor=" + nextCursor + "&perPage=1&search=needle"
+		response := doRequest(t, srv, "GET", path, nil)
+		testutil.StatusCode(t, http.StatusOK, response.Code)
+		body := parseJSON(t, response)
+		for _, item := range jsonItems(t, body) {
+			rank := jsonNum(t, item["_rank"])
+			testutil.True(t, rank > 0, "expected positive cursor rank")
+			cursorRanks = append(cursorRanks, rank)
+		}
+		cursor, ok := body["nextCursor"].(string)
+		if !ok || cursor == "" {
+			break
+		}
+		nextCursor = cursor
+	}
+	testutil.Equal(t, 3, len(cursorRanks))
+	for i := 1; i < len(cursorRanks); i++ {
+		if cursorRanks[i] > cursorRanks[i-1] {
+			t.Fatalf("cursor ranks increased across page boundary: %v", cursorRanks)
+		}
+	}
+}
+
+func TestSearchRankResponseCollision(t *testing.T) {
+	ctx := context.Background()
+	resetAndSeedDB(t, ctx)
+	_, err := sharedPG.Pool.Exec(ctx, `
+		ALTER TABLE posts ADD COLUMN "_rank" NUMERIC DEFAULT 42.5;
+		INSERT INTO posts (title, body, author_id, status, "_rank")
+		VALUES ('Rank Collision', 'needle needle', 1, 'published', 73.25)
+	`)
+	testutil.NoError(t, err)
+
+	logger := testutil.DiscardLogger()
+	ch := schema.NewCacheHolder(sharedPG.Pool, logger)
+	testutil.NoError(t, ch.Load(ctx))
+	srv := server.New(config.Default(), logger, ch, sharedPG.Pool, nil, nil)
+
+	response := doRequest(t, srv, "GET", "/api/collections/posts/?search=needle", nil)
+	testutil.StatusCode(t, http.StatusOK, response.Code)
+	items := jsonItems(t, parseJSON(t, response))
+	testutil.Equal(t, 1, len(items))
+	testutil.Equal(t, "Rank Collision", jsonStr(t, items[0]["title"]))
+	testutil.Equal(t, 73.25, jsonNum(t, items[0]["_rank"]))
+
+	cursorResponse := doRequest(t, srv, "GET", "/api/collections/posts/?cursor=&perPage=1&search=needle", nil)
+	testutil.StatusCode(t, http.StatusOK, cursorResponse.Code)
+	cursorBody := parseJSON(t, cursorResponse)
+	cursorItems := jsonItems(t, cursorBody)
+	testutil.Equal(t, 1, len(cursorItems))
+	testutil.Equal(t, "Rank Collision", jsonStr(t, cursorItems[0]["title"]))
+	testutil.Equal(t, 73.25, jsonNum(t, cursorItems[0]["_rank"]))
+	testutil.Equal(t, "", jsonStr(t, cursorBody["nextCursor"]))
+}
+
+func TestSearchRankExcludedFromAggregateAndExport(t *testing.T) {
+	ctx := context.Background()
+
+	aggregateServer, _ := setupAggregateTestServer(t, ctx)
+	aggregateResponse := doRequest(t, aggregateServer, "GET", "/api/collections/products/?aggregate=count&search=Widget", nil)
+	testutil.StatusCode(t, http.StatusOK, aggregateResponse.Code)
+	results := jsonResults(t, parseJSON(t, aggregateResponse))
+	testutil.Equal(t, 1, len(results))
+	testutil.Equal(t, 2.0, jsonNum(t, results[0]["count"]))
+	if _, ok := results[0]["_rank"]; ok {
+		t.Fatal("aggregate result must omit synthetic _rank")
+	}
+
+	exportServer := setupExportTestServer(t, ctx)
+	_, err := sharedPG.Pool.Exec(ctx, `
+		INSERT INTO posts (title, body, status) VALUES
+			('Repeated Export Term', 'needle needle needle needle', 'z_last'),
+			('Single Export Term', 'needle', 'a_first')
+	`)
+	testutil.NoError(t, err)
+	exportResponse := doRequest(t, exportServer, "GET", "/api/collections/posts/export.json?search=needle&sort=status", nil)
+	testutil.StatusCode(t, http.StatusOK, exportResponse.Code)
+	var exported []map[string]any
+	testutil.NoError(t, json.Unmarshal(exportResponse.Body.Bytes(), &exported))
+	testutil.Equal(t, 2, len(exported))
+	testutil.Equal(t, "Repeated Export Term", jsonStr(t, exported[0]["title"]))
+	for _, item := range exported {
+		if _, ok := item["_rank"]; ok {
+			t.Fatal("exported item must omit synthetic _rank")
+		}
+	}
+}
+
 func TestSearchTypoThreshold(t *testing.T) {
 	ctx := context.Background()
 	srv, pg := setupTestServer(t, ctx)

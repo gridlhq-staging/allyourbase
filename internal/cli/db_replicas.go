@@ -74,16 +74,16 @@ var dbReplicasAddCmd = &cobra.Command{
 }
 
 var dbReplicasRemoveCmd = &cobra.Command{
-	Use:   "remove [name]",
+	Use:   "remove <name>",
 	Short: "Remove a replica from the topology",
-	Args:  cobra.ExactArgs(1),
+	Args:  exactArgsWithHelp(1, "ayb db replicas remove replica-east"),
 	RunE:  runDBReplicasRemove,
 }
 
 var dbReplicasPromoteCmd = &cobra.Command{
-	Use:   "promote [name]",
+	Use:   "promote <name>",
 	Short: "Promote a replica to primary",
-	Args:  cobra.ExactArgs(1),
+	Args:  exactArgsWithHelp(1, "ayb db replicas promote replica-east"),
 	RunE:  runDBReplicasPromote,
 }
 

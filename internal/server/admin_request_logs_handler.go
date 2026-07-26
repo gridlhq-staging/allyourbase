@@ -37,6 +37,8 @@ type adminRequestLogListResponse struct {
 
 type adminRequestLogFilters struct {
 	method          string
+	tenantID        string
+	tenantIDSet     bool
 	path            string
 	statusCode      int
 	statusClassMin  int
@@ -91,25 +93,9 @@ func (s *Server) handleAdminRequestLogs(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	items := make([]adminRequestLogEntry, 0, filters.limit)
-	for rows.Next() {
-		var item adminRequestLogEntry
-		if err := rows.Scan(
-			&item.ID, &item.Timestamp, &item.Method, &item.Path,
-			&item.StatusCode, &item.DurationMS,
-			&item.UserID, &item.APIKeyID,
-			&item.RequestSize, &item.ResponseSize,
-			&item.IPAddress, &item.RequestID,
-		); err != nil {
-			rows.Close()
-			httputil.WriteError(w, http.StatusInternalServerError, "failed to decode request log row")
-			return
-		}
-		items = append(items, item)
-	}
-	rows.Close()
-	if err := rows.Err(); err != nil {
-		httputil.WriteError(w, http.StatusInternalServerError, "failed to iterate request log rows")
+	items, scanErr := scanAdminRequestLogRows(rows, filters.limit)
+	if scanErr != nil {
+		httputil.WriteError(w, http.StatusInternalServerError, "failed to decode request log row")
 		return
 	}
 	if err := tx.Commit(r.Context()); err != nil {
@@ -135,10 +121,13 @@ func adminRequestLogsReadTransactionOptions() pgx.TxOptions {
 
 // parseAdminRequestLogFilters extracts request log query filters (method, path, status code, pagination, time range) from URL query parameters, returning a validation error message if any value is invalid.
 func parseAdminRequestLogFilters(query url.Values) (adminRequestLogFilters, string) {
+	_, tenantIDSet := query["tenant_id"]
 	filters := adminRequestLogFilters{
-		method: strings.ToUpper(strings.TrimSpace(query.Get("method"))),
-		path:   strings.TrimSpace(query.Get("path")),
-		limit:  defaultAdminListLimit,
+		method:      strings.ToUpper(strings.TrimSpace(query.Get("method"))),
+		tenantID:    strings.TrimSpace(query.Get("tenant_id")),
+		tenantIDSet: tenantIDSet,
+		path:        strings.TrimSpace(query.Get("path")),
+		limit:       defaultAdminListLimit,
 	}
 
 	if rawStatus := strings.TrimSpace(query.Get("status")); rawStatus != "" {
@@ -272,6 +261,11 @@ func buildAdminRequestLogsWhereClause(filters adminRequestLogFilters) (string, [
 	if filters.method != "" {
 		whereClauses = append(whereClauses, fmt.Sprintf("method = $%d", argPos))
 		args = append(args, filters.method)
+		argPos++
+	}
+	if filters.tenantIDSet {
+		whereClauses = append(whereClauses, fmt.Sprintf("tenant_id = $%d", argPos))
+		args = append(args, filters.tenantID)
 		argPos++
 	}
 	if filters.path != "" {

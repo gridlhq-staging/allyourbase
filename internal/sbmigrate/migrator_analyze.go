@@ -3,6 +3,7 @@ package sbmigrate
 import (
 	"context"
 	"fmt"
+	"sort"
 
 	"github.com/allyourbase/ayb/internal/migrate"
 	"github.com/allyourbase/ayb/internal/urlutil"
@@ -39,15 +40,12 @@ func (m *Migrator) Analyze(ctx context.Context) (*migrate.AnalysisReport, error)
 		report.Warnings = append(report.Warnings, fmt.Sprintf("could not count OAuth identities: %v", err))
 	}
 
-	// Count RLS policies.
-	err = m.source.QueryRowContext(ctx, `
-		SELECT COUNT(*) FROM pg_policy pol
-		JOIN pg_class c ON c.oid = pol.polrelid
-		JOIN pg_namespace n ON n.oid = c.relnamespace
-		WHERE n.nspname = 'public'
-	`).Scan(&report.RLSPolicies)
+	// Count RLS policies using the same admitted schema predicate as migration.
+	policies, err := ReadRLSPolicies(ctx, m.source)
 	if err != nil {
 		report.Warnings = append(report.Warnings, fmt.Sprintf("could not count RLS policies: %v", err))
+	} else {
+		report.RLSPolicies = countAdmittedRLSPolicies(policies)
 	}
 
 	// Count public tables and total rows.
@@ -146,10 +144,41 @@ func BuildValidationSummary(report *migrate.AnalysisReport, stats *MigrationStat
 		summary.Warnings = append(summary.Warnings,
 			fmt.Sprintf("%d items skipped during migration", stats.Skipped))
 	}
+	for _, table := range sortedSkippedTableReports(stats.SkippedTables) {
+		summary.Warnings = append(summary.Warnings,
+			fmt.Sprintf("table %s skipped during migration: %s", table.QualifiedName(), table.Reason))
+	}
 	if len(stats.Errors) > 0 {
 		summary.Warnings = append(summary.Warnings,
 			fmt.Sprintf("%d errors occurred during migration", len(stats.Errors)))
 	}
 
 	return summary
+}
+
+func countAdmittedRLSPolicies(policies []RLSPolicy) int {
+	count := 0
+	for _, policy := range policies {
+		if isAdmittedUserTable(policy.SchemaName, policy.TableName) {
+			count++
+		}
+	}
+	return count
+}
+
+func sortedSkippedTableReports(skipped SkippedTableReasons) []SkippedTableReport {
+	reports := make([]SkippedTableReport, 0, len(skipped))
+	for key, reason := range skipped {
+		reports = append(reports, skippedTableReport(key, reason))
+	}
+	sort.Slice(reports, func(i, j int) bool {
+		if reports[i].SchemaName != reports[j].SchemaName {
+			return reports[i].SchemaName < reports[j].SchemaName
+		}
+		if reports[i].TableName != reports[j].TableName {
+			return reports[i].TableName < reports[j].TableName
+		}
+		return reports[i].Reason < reports[j].Reason
+	})
+	return reports
 }

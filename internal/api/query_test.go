@@ -437,6 +437,30 @@ func TestBuildListWithFilterSpatialAndSearch(t *testing.T) {
 	testutil.SliceLen(t, countArgs, 6)
 }
 
+func TestBuildListProjectsSearchRankOnlyInDataQuery(t *testing.T) {
+	t.Parallel()
+	tbl := testTable()
+	rankSQL := `ts_rank(to_tsvector('simple', "name"), websearch_to_tsquery('simple', $1))`
+	rankSelect := rankSQL + ` AS "__ayb_search_rank"`
+	opts := listOpts{
+		page:       1,
+		perPage:    10,
+		searchSQL:  `to_tsvector('simple', "name") @@ websearch_to_tsquery('simple', $1)`,
+		searchRank: rankSQL,
+		searchArgs: []any{"needle"},
+		rankSelect: rankSelect,
+		rankAlias:  "__ayb_search_rank",
+	}
+
+	dataQuery, _, countQuery, _ := buildList(tbl, opts)
+
+	testutil.Contains(t, dataQuery, rankSelect)
+	testutil.Equal(t, 2, strings.Count(dataQuery, rankSQL))
+	if strings.Contains(countQuery, rankSQL) || strings.Contains(countQuery, opts.rankAlias) {
+		t.Fatalf("count query must not project search rank: %s", countQuery)
+	}
+}
+
 func TestBuildListAndFacetQueriesSharePredicateArgs(t *testing.T) {
 	t.Parallel()
 	tbl := testTable()

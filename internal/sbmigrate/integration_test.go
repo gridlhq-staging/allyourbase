@@ -60,6 +60,8 @@ func setupSourceAndTarget(t *testing.T) string {
 			email TEXT,
 			encrypted_password TEXT,
 			email_confirmed_at TIMESTAMPTZ,
+			raw_user_meta_data JSONB NOT NULL DEFAULT '{}'::jsonb,
+			raw_app_meta_data JSONB NOT NULL DEFAULT '{}'::jsonb,
 			created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 			updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 			deleted_at TIMESTAMPTZ,
@@ -103,6 +105,8 @@ func setupSourceAndTarget(t *testing.T) string {
 			email TEXT NOT NULL,
 			password_hash TEXT NOT NULL,
 			email_verified BOOLEAN NOT NULL DEFAULT false,
+			raw_user_meta_data JSONB NOT NULL DEFAULT '{}'::jsonb,
+			raw_app_meta_data JSONB NOT NULL DEFAULT '{}'::jsonb,
 			created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 			updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 		);
@@ -131,6 +135,19 @@ func setupTargetAYBSchema(t *testing.T) {
 	runner := migrations.NewRunner(sharedPG.Pool, testutil.DiscardLogger())
 	testutil.NoError(t, runner.Bootstrap(ctx))
 	_, err := runner.Run(ctx)
+	testutil.NoError(t, err)
+}
+
+func setupTargetAYBSchemaForURL(t *testing.T, dbURL string) {
+	t.Helper()
+	ctx := context.Background()
+	pool, err := pgxpool.New(ctx, dbURL)
+	testutil.NoError(t, err)
+	defer pool.Close()
+
+	runner := migrations.NewRunner(pool, testutil.DiscardLogger())
+	testutil.NoError(t, runner.Bootstrap(ctx))
+	_, err = runner.Run(ctx)
 	testutil.NoError(t, err)
 }
 
@@ -334,7 +351,7 @@ func TestE2E_FullMigration(t *testing.T) {
 	testutil.Equal(t, 0, stats.Records)
 	testutil.Equal(t, 2, stats.Users)
 	testutil.Equal(t, 1, stats.OAuthLinks) // google for alice (email provider skipped)
-	testutil.Equal(t, 3, stats.Policies)   // two source policies plus the AYB fixture policy
+	testutil.Equal(t, 2, stats.Policies)   // two source policies; AYB fixture policy is internal
 	testutil.Equal(t, 1, stats.StorageFiles)
 	testutil.True(t, stats.StorageBytes > 0)
 
@@ -394,6 +411,416 @@ func TestE2E_SchemaAndData(t *testing.T) {
 	testutil.Equal(t, 9.99, price)
 }
 
+func TestE2E_NonPublicUserSchemaMigration(t *testing.T) {
+	sourceURL := createIsolatedDatabaseURL(t, sharedPG.ConnString, "sb_src_np")
+	targetURL := createIsolatedDatabaseURL(t, sharedPG.ConnString, "sb_tgt_np")
+	defer dropIsolatedDatabase(t, sharedPG.ConnString, sourceURL)
+	defer dropIsolatedDatabase(t, sharedPG.ConnString, targetURL)
+
+	sourceDB, err := sql.Open("pgx", sourceURL)
+	testutil.NoError(t, err)
+	defer sourceDB.Close()
+	targetDB, err := sql.Open("pgx", targetURL)
+	testutil.NoError(t, err)
+	defer targetDB.Close()
+
+	_, err = sourceDB.Exec(`
+		CREATE SCHEMA auth;
+		CREATE SCHEMA billing;
+		CREATE SCHEMA storage;
+		CREATE SCHEMA realtime;
+		CREATE SCHEMA supabase_functions;
+		CREATE SCHEMA _analytics;
+
+		CREATE TABLE auth.users (
+			id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+			email TEXT,
+			encrypted_password TEXT,
+			email_confirmed_at TIMESTAMPTZ,
+			raw_user_meta_data JSONB NOT NULL DEFAULT '{}'::jsonb,
+			raw_app_meta_data JSONB NOT NULL DEFAULT '{}'::jsonb,
+			created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+			updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+			deleted_at TIMESTAMPTZ,
+			is_anonymous BOOLEAN DEFAULT false
+		);
+		CREATE OR REPLACE FUNCTION auth.uid() RETURNS UUID AS $$
+			SELECT current_setting('request.jwt.claim.sub', true)::uuid;
+		$$ LANGUAGE SQL;
+		INSERT INTO auth.users (id, email, encrypted_password, email_confirmed_at)
+		VALUES ('aaaaaaaa-0000-0000-0000-000000000101', 'billing-owner@example.com', '$2a$10$hash', NOW());
+
+		CREATE TABLE public.invoices (
+			id INTEGER PRIMARY KEY,
+			description TEXT NOT NULL,
+			amount_cents INTEGER NOT NULL
+		);
+		INSERT INTO public.invoices (id, description, amount_cents)
+		VALUES (1, 'public invoice', 111);
+
+		CREATE TABLE billing.invoices (
+			id INTEGER PRIMARY KEY,
+			account_id UUID NOT NULL,
+			description TEXT NOT NULL,
+			amount_cents INTEGER NOT NULL
+		);
+		INSERT INTO billing.invoices (id, account_id, description, amount_cents)
+		VALUES
+			(10, 'aaaaaaaa-0000-0000-0000-000000000101', 'billing january', 1200),
+			(11, 'aaaaaaaa-0000-0000-0000-000000000101', 'billing february', 3400);
+
+		CREATE VIEW billing.open_invoices AS
+			SELECT id, account_id, amount_cents
+			FROM billing.invoices
+			WHERE amount_cents > 1000;
+
+		ALTER TABLE billing.invoices ENABLE ROW LEVEL SECURITY;
+		CREATE POLICY billing_invoice_select ON billing.invoices
+			FOR SELECT USING (account_id = auth.uid());
+
+		CREATE TABLE storage.hidden_objects (id INTEGER PRIMARY KEY);
+		CREATE TABLE realtime.hidden_events (id INTEGER PRIMARY KEY);
+		CREATE TABLE supabase_functions.hidden_jobs (id INTEGER PRIMARY KEY);
+		CREATE TABLE _analytics.hidden_metrics (id INTEGER PRIMARY KEY);
+	`)
+	testutil.NoError(t, err)
+
+	setupTargetAYBSchemaForURL(t, targetURL)
+
+	var out strings.Builder
+	migrator, err := NewMigrator(MigrationOptions{
+		SourceURL:         sourceURL,
+		TargetURL:         targetURL,
+		Force:             true,
+		SkipOAuth:         true,
+		SkipStorage:       true,
+		Verbose:           true,
+		StoragePath:       t.TempDir(),
+		StorageExportPath: "",
+		Progress:          migrate.NewCLIReporter(&out),
+	})
+	testutil.NoError(t, err)
+	defer migrator.Close()
+	migrator.output = &out
+
+	stats, err := migrator.Migrate(context.Background())
+	testutil.NoError(t, err)
+	testutil.Equal(t, 2, stats.Tables)
+	testutil.Equal(t, 1, stats.Views)
+	testutil.Equal(t, 3, stats.Records)
+	testutil.Equal(t, 1, stats.Users)
+	testutil.Equal(t, 1, stats.Policies)
+	testutil.Equal(t, 0, stats.Skipped)
+
+	assertTableExists(t, targetDB, "public", "invoices", true)
+	assertTableExists(t, targetDB, "billing", "invoices", true)
+	assertTableExists(t, targetDB, "storage", "hidden_objects", false)
+	assertTableExists(t, targetDB, "realtime", "hidden_events", false)
+	assertTableExists(t, targetDB, "supabase_functions", "hidden_jobs", false)
+	assertTableExists(t, targetDB, "_analytics", "hidden_metrics", false)
+
+	var publicDescription string
+	var publicAmount int
+	err = targetDB.QueryRow(`SELECT description, amount_cents FROM public.invoices WHERE id = 1`).
+		Scan(&publicDescription, &publicAmount)
+	testutil.NoError(t, err)
+	testutil.Equal(t, "public invoice", publicDescription)
+	testutil.Equal(t, 111, publicAmount)
+
+	rows, err := targetDB.Query(`
+		SELECT description, amount_cents
+		FROM billing.invoices
+		ORDER BY id
+	`)
+	testutil.NoError(t, err)
+	defer rows.Close()
+	var billingRows []string
+	for rows.Next() {
+		var description string
+		var amount int
+		testutil.NoError(t, rows.Scan(&description, &amount))
+		billingRows = append(billingRows, fmt.Sprintf("%s:%d", description, amount))
+	}
+	testutil.NoError(t, rows.Err())
+	testutil.Equal(t, 2, len(billingRows))
+	testutil.Equal(t, "billing january:1200", billingRows[0])
+	testutil.Equal(t, "billing february:3400", billingRows[1])
+
+	var viewSchema string
+	err = targetDB.QueryRow(`
+		SELECT schemaname
+		FROM pg_views
+		WHERE schemaname = 'billing' AND viewname = 'open_invoices'
+	`).Scan(&viewSchema)
+	testutil.NoError(t, err)
+	testutil.Equal(t, "billing", viewSchema)
+
+	var policySchema string
+	err = targetDB.QueryRow(`
+		SELECT schemaname
+		FROM pg_policies
+		WHERE schemaname = 'billing'
+		  AND tablename = 'invoices'
+		  AND policyname = 'billing_invoice_select'
+	`).Scan(&policySchema)
+	testutil.NoError(t, err)
+	testutil.Equal(t, "billing", policySchema)
+
+	assertRolePrivilege(t, targetDB, `SELECT has_schema_privilege('ayb_authenticated', 'billing', 'USAGE')`, false)
+	assertRolePrivilege(t, targetDB, `SELECT has_table_privilege('ayb_authenticated', 'billing.invoices', 'SELECT')`, false)
+	assertRolePrivilege(t, targetDB, `SELECT has_table_privilege('ayb_authenticated', 'billing.invoices', 'INSERT')`, false)
+	_, err = targetDB.Exec(`CREATE SEQUENCE billing.future_invoice_numbers`)
+	testutil.NoError(t, err)
+	assertRolePrivilege(t, targetDB, `SELECT has_sequence_privilege('ayb_authenticated', 'billing.future_invoice_numbers', 'USAGE')`, false)
+}
+
+func TestE2E_NonPublicSerialSequenceMigration(t *testing.T) {
+	sourceURL := createIsolatedDatabaseURL(t, sharedPG.ConnString, "sb_src_serial")
+	targetURL := createIsolatedDatabaseURL(t, sharedPG.ConnString, "sb_tgt_serial")
+	defer dropIsolatedDatabase(t, sharedPG.ConnString, sourceURL)
+	defer dropIsolatedDatabase(t, sharedPG.ConnString, targetURL)
+
+	sourceDB, err := sql.Open("pgx", sourceURL)
+	testutil.NoError(t, err)
+	defer sourceDB.Close()
+	targetDB, err := sql.Open("pgx", targetURL)
+	testutil.NoError(t, err)
+	defer targetDB.Close()
+
+	_, err = sourceDB.Exec(`
+		CREATE SCHEMA auth;
+		CREATE SCHEMA billing;
+		CREATE TABLE auth.users (
+			id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+			email TEXT,
+			encrypted_password TEXT,
+			email_confirmed_at TIMESTAMPTZ,
+			raw_user_meta_data JSONB NOT NULL DEFAULT '{}'::jsonb,
+			raw_app_meta_data JSONB NOT NULL DEFAULT '{}'::jsonb,
+			created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+			updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+			deleted_at TIMESTAMPTZ,
+			is_anonymous BOOLEAN DEFAULT false
+		);
+			INSERT INTO auth.users (id, email, encrypted_password, email_confirmed_at)
+			VALUES ('aaaaaaaa-0000-0000-0000-000000000201', 'serial-owner@example.com', '$2a$10$hash', NOW());
+			CREATE TABLE billing.serial_invoices (
+				id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+				invoice_number SERIAL UNIQUE,
+				description TEXT NOT NULL
+			);
+			CREATE TABLE billing.empty_serial_notes (
+				id SERIAL PRIMARY KEY,
+				note TEXT NOT NULL
+			);
+			INSERT INTO billing.serial_invoices (id, invoice_number, description)
+			VALUES
+				('bbbbbbbb-0000-0000-0000-000000000201', 1, 'serial january'),
+				('bbbbbbbb-0000-0000-0000-000000000202', 2, 'serial february');
+		`)
+	testutil.NoError(t, err)
+
+	setupTargetAYBSchemaForURL(t, targetURL)
+	migrator, err := NewMigrator(MigrationOptions{
+		SourceURL:   sourceURL,
+		TargetURL:   targetURL,
+		Force:       true,
+		SkipOAuth:   true,
+		SkipRLS:     true,
+		SkipStorage: true,
+		StoragePath: t.TempDir(),
+	})
+	testutil.NoError(t, err)
+	defer migrator.Close()
+
+	stats, err := migrator.Migrate(context.Background())
+	testutil.NoError(t, err)
+	testutil.Equal(t, 2, stats.Tables)
+	testutil.Equal(t, 2, stats.Records)
+	testutil.Equal(t, 2, stats.Sequences)
+	testutil.Equal(t, 0, stats.Skipped)
+
+	var rows int
+	var copiedRows string
+	err = targetDB.QueryRow(`
+		SELECT COUNT(*), string_agg(
+			id::text || ':' || invoice_number::text || ':' || description,
+			',' ORDER BY invoice_number
+		)
+		FROM billing.serial_invoices
+	`).Scan(&rows, &copiedRows)
+	testutil.NoError(t, err)
+	testutil.Equal(t, 2, rows)
+	testutil.Equal(t,
+		"bbbbbbbb-0000-0000-0000-000000000201:1:serial january,"+
+			"bbbbbbbb-0000-0000-0000-000000000202:2:serial february",
+		copiedRows,
+	)
+
+	var nextInvoiceNumber int
+	err = targetDB.QueryRow(`
+		INSERT INTO billing.serial_invoices (description)
+		VALUES ('serial march')
+		RETURNING invoice_number
+	`).Scan(&nextInvoiceNumber)
+	testutil.NoError(t, err)
+	testutil.Equal(t, 3, nextInvoiceNumber)
+
+	var sequenceName string
+	err = targetDB.QueryRow(`SELECT pg_get_serial_sequence('"billing"."serial_invoices"', 'invoice_number')`).Scan(&sequenceName)
+	testutil.NoError(t, err)
+	testutil.Equal(t, "billing.serial_invoices_invoice_number_seq", sequenceName)
+
+	var firstEmptySerialID int
+	err = targetDB.QueryRow(`
+		INSERT INTO billing.empty_serial_notes (note)
+		VALUES ('first note')
+		RETURNING id
+	`).Scan(&firstEmptySerialID)
+	testutil.NoError(t, err)
+	testutil.Equal(t, 1, firstEmptySerialID)
+}
+
+func TestE2E_NonPublicLegacyBlacklistNamesMigrate(t *testing.T) {
+	sourceURL := createIsolatedDatabaseURL(t, sharedPG.ConnString, "sb_src_names")
+	targetURL := createIsolatedDatabaseURL(t, sharedPG.ConnString, "sb_tgt_names")
+	defer dropIsolatedDatabase(t, sharedPG.ConnString, sourceURL)
+	defer dropIsolatedDatabase(t, sharedPG.ConnString, targetURL)
+
+	sourceDB, err := sql.Open("pgx", sourceURL)
+	testutil.NoError(t, err)
+	defer sourceDB.Close()
+	targetDB, err := sql.Open("pgx", targetURL)
+	testutil.NoError(t, err)
+	defer targetDB.Close()
+
+	_, err = sourceDB.Exec(`
+		CREATE SCHEMA auth;
+		CREATE SCHEMA billing;
+		CREATE TABLE auth.users (
+			id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+			email TEXT,
+			encrypted_password TEXT,
+			email_confirmed_at TIMESTAMPTZ,
+			raw_user_meta_data JSONB NOT NULL DEFAULT '{}'::jsonb,
+			raw_app_meta_data JSONB NOT NULL DEFAULT '{}'::jsonb,
+			created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+			updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+			deleted_at TIMESTAMPTZ,
+			is_anonymous BOOLEAN DEFAULT false
+		);
+		INSERT INTO auth.users (id, email, encrypted_password, email_confirmed_at)
+		VALUES ('aaaaaaaa-0000-0000-0000-000000000202', 'names-owner@example.com', '$2a$10$hash', NOW());
+		CREATE TABLE public.schema_migrations (version TEXT PRIMARY KEY);
+		INSERT INTO public.schema_migrations VALUES ('internal-public');
+		CREATE TABLE billing.schema_migrations (version TEXT PRIMARY KEY, note TEXT NOT NULL);
+		INSERT INTO billing.schema_migrations VALUES ('user-billing', 'must migrate');
+		CREATE TABLE billing._ayb_events (id INTEGER PRIMARY KEY, note TEXT NOT NULL);
+		INSERT INTO billing._ayb_events VALUES (7, 'user ayb-like name');
+	`)
+	testutil.NoError(t, err)
+
+	setupTargetAYBSchemaForURL(t, targetURL)
+	migrator, err := NewMigrator(MigrationOptions{
+		SourceURL:   sourceURL,
+		TargetURL:   targetURL,
+		Force:       true,
+		SkipOAuth:   true,
+		SkipRLS:     true,
+		SkipStorage: true,
+		StoragePath: t.TempDir(),
+	})
+	testutil.NoError(t, err)
+	defer migrator.Close()
+
+	stats, err := migrator.Migrate(context.Background())
+	testutil.NoError(t, err)
+	testutil.Equal(t, 2, stats.Tables)
+	testutil.Equal(t, 2, stats.Records)
+	testutil.Equal(t, 0, stats.Skipped)
+	assertTableExists(t, targetDB, "public", "schema_migrations", false)
+	assertTableExists(t, targetDB, "billing", "schema_migrations", true)
+	assertTableExists(t, targetDB, "billing", "_ayb_events", true)
+
+	var note string
+	err = targetDB.QueryRow(`SELECT note FROM billing.schema_migrations WHERE version = 'user-billing'`).Scan(&note)
+	testutil.NoError(t, err)
+	testutil.Equal(t, "must migrate", note)
+	err = targetDB.QueryRow(`SELECT note FROM billing._ayb_events WHERE id = 7`).Scan(&note)
+	testutil.NoError(t, err)
+	testutil.Equal(t, "user ayb-like name", note)
+}
+
+func TestE2E_CompositePrimaryKeysDoNotCollapseDuringMigration(t *testing.T) {
+	sourceURL := createIsolatedDatabaseURL(t, sharedPG.ConnString, "sb_src_composite_pk")
+	targetURL := createIsolatedDatabaseURL(t, sharedPG.ConnString, "sb_tgt_composite_pk")
+	defer dropIsolatedDatabase(t, sharedPG.ConnString, sourceURL)
+	defer dropIsolatedDatabase(t, sharedPG.ConnString, targetURL)
+
+	sourceDB, err := sql.Open("pgx", sourceURL)
+	testutil.NoError(t, err)
+	defer sourceDB.Close()
+	targetDB, err := sql.Open("pgx", targetURL)
+	testutil.NoError(t, err)
+	defer targetDB.Close()
+
+	_, err = sourceDB.Exec(`
+		CREATE SCHEMA auth;
+		CREATE SCHEMA billing;
+		CREATE TABLE auth.users (
+			id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+			email TEXT,
+			encrypted_password TEXT,
+			email_confirmed_at TIMESTAMPTZ,
+			raw_user_meta_data JSONB NOT NULL DEFAULT '{}'::jsonb,
+			raw_app_meta_data JSONB NOT NULL DEFAULT '{}'::jsonb,
+			created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+			updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+			deleted_at TIMESTAMPTZ,
+			is_anonymous BOOLEAN DEFAULT false
+		);
+		INSERT INTO auth.users (id, email, encrypted_password, email_confirmed_at)
+		VALUES ('aaaaaaaa-0000-0000-0000-000000000230', 'composite-owner@example.com', '$2a$10$hash', NOW());
+
+		CREATE TABLE billing.memberships (
+			account_id UUID NOT NULL,
+			project_id UUID NOT NULL,
+			note TEXT NOT NULL,
+			PRIMARY KEY (account_id, project_id)
+		);
+		INSERT INTO billing.memberships (account_id, project_id, note)
+		VALUES
+			('aaaaaaaa-0000-0000-0000-000000000230', 'bbbbbbbb-0000-0000-0000-000000000001', 'same account'),
+			('aaaaaaaa-0000-0000-0000-000000000231', 'bbbbbbbb-0000-0000-0000-000000000001', 'same project'),
+			('aaaaaaaa-0000-0000-0000-000000000230', 'bbbbbbbb-0000-0000-0000-000000000002', 'distinct pair');
+	`)
+	testutil.NoError(t, err)
+
+	setupTargetAYBSchemaForURL(t, targetURL)
+	migrator, err := NewMigrator(MigrationOptions{
+		SourceURL:   sourceURL,
+		TargetURL:   targetURL,
+		Force:       true,
+		SkipOAuth:   true,
+		SkipRLS:     true,
+		SkipStorage: true,
+		StoragePath: t.TempDir(),
+	})
+	testutil.NoError(t, err)
+	defer migrator.Close()
+
+	stats, err := migrator.Migrate(context.Background())
+	testutil.NoError(t, err)
+	testutil.Equal(t, 1, stats.Tables)
+	testutil.Equal(t, 3, stats.Records)
+	testutil.Equal(t, 0, stats.Skipped)
+
+	var rowCount int
+	err = targetDB.QueryRow(`SELECT COUNT(*) FROM billing.memberships`).Scan(&rowCount)
+	testutil.NoError(t, err)
+	testutil.Equal(t, 3, rowCount)
+}
+
 func TestE2E_AuthMigration(t *testing.T) {
 	connStr := setupSourceAndTarget(t)
 
@@ -406,6 +833,22 @@ func TestE2E_AuthMigration(t *testing.T) {
 		"aaaaaaaa-0000-0000-0000-000000000003", "", "", false, true) // anonymous — skipped
 	insertSourceUser(t, sharedPG.Pool,
 		"aaaaaaaa-0000-0000-0000-000000000004", "oauth@example.com", "", true, false) // OAuth-only — gets $none$
+	_, err := sharedPG.Pool.Exec(context.Background(), `
+		INSERT INTO auth.users (
+			id, email, encrypted_password, email_confirmed_at,
+			raw_user_meta_data, raw_app_meta_data, is_anonymous
+		)
+		VALUES (
+			'aaaaaaaa-0000-0000-0000-000000000005',
+			'ada@example.com',
+			'$2a$10$hash5',
+			NOW(),
+			'{"full_name":"Ada","prefs":{"theme":"dark"}}'::jsonb,
+			'{"plan":"pro","roles":["admin"]}'::jsonb,
+			false
+		)
+	`)
+	testutil.NoError(t, err)
 
 	migrator, err := NewMigrator(MigrationOptions{
 		SourceURL: connStr,
@@ -422,7 +865,7 @@ func TestE2E_AuthMigration(t *testing.T) {
 	stats, err := migrator.Migrate(ctx)
 	testutil.NoError(t, err)
 
-	testutil.Equal(t, 3, stats.Users)   // alice, bob, oauth (anonymous filtered by query)
+	testutil.Equal(t, 4, stats.Users)   // alice, bob, oauth, ada (anonymous filtered by query)
 	testutil.Equal(t, 0, stats.Skipped) // anonymous filtered at SQL level, not counted as skip
 
 	db, err := sql.Open("pgx", connStr)
@@ -451,6 +894,21 @@ func TestE2E_AuthMigration(t *testing.T) {
 	).Scan(&passwordHash)
 	testutil.NoError(t, err)
 	testutil.Equal(t, "$none$", passwordHash)
+
+	// CI proves the AYB-side Postgres round trip against GoTrue-compatible JSONB columns;
+	// it does not run a live Supabase probe.
+	var userMetadataMatches, appMetadataMatches bool
+	err = db.QueryRow(`
+		SELECT raw_user_meta_data = $1::jsonb, raw_app_meta_data = $2::jsonb
+		FROM _ayb_users
+		WHERE email = 'ada@example.com'
+	`,
+		`{"full_name":"Ada","prefs":{"theme":"dark"}}`,
+		`{"plan":"pro","roles":["admin"]}`,
+	).Scan(&userMetadataMatches, &appMetadataMatches)
+	testutil.NoError(t, err)
+	testutil.True(t, userMetadataMatches, "raw_user_meta_data should preserve nested JSON")
+	testutil.True(t, appMetadataMatches, "raw_app_meta_data should preserve nested JSON")
 }
 
 func TestE2E_OAuthMigration(t *testing.T) {
@@ -1454,7 +1912,11 @@ func TestE2E_AnalyzeWithoutIsAnonymousColumn(t *testing.T) {
 func TestE2E_AuthMigrationWithoutIsAnonymousColumn(t *testing.T) {
 	connStr := setupSourceAndTarget(t)
 
-	_, err := sharedPG.Pool.Exec(context.Background(), `ALTER TABLE auth.users DROP COLUMN is_anonymous`)
+	_, err := sharedPG.Pool.Exec(context.Background(), `
+		ALTER TABLE auth.users DROP COLUMN is_anonymous;
+		ALTER TABLE auth.users DROP COLUMN raw_user_meta_data;
+		ALTER TABLE auth.users DROP COLUMN raw_app_meta_data;
+	`)
 	testutil.NoError(t, err)
 
 	_, err = sharedPG.Pool.Exec(context.Background(), `
@@ -1478,6 +1940,20 @@ func TestE2E_AuthMigrationWithoutIsAnonymousColumn(t *testing.T) {
 	stats, err := migrator.Migrate(context.Background())
 	testutil.NoError(t, err)
 	testutil.Equal(t, 2, stats.Users)
+
+	db, err := sql.Open("pgx", connStr)
+	testutil.NoError(t, err)
+	defer db.Close()
+
+	var defaultMetadataCount int
+	err = db.QueryRow(`
+		SELECT COUNT(*)
+		FROM _ayb_users
+		WHERE raw_user_meta_data = '{}'::jsonb
+		  AND raw_app_meta_data = '{}'::jsonb
+	`).Scan(&defaultMetadataCount)
+	testutil.NoError(t, err)
+	testutil.Equal(t, 2, defaultMetadataCount)
 }
 
 func TestE2E_OAuthMigrationWithoutIdentityDataAndCreatedAt(t *testing.T) {
@@ -1577,6 +2053,8 @@ func TestE2E_SchemaMigrationSkipsIncompatibleFKChains(t *testing.T) {
 			email TEXT,
 			encrypted_password TEXT,
 			email_confirmed_at TIMESTAMPTZ,
+			raw_user_meta_data JSONB NOT NULL DEFAULT '{}'::jsonb,
+			raw_app_meta_data JSONB NOT NULL DEFAULT '{}'::jsonb,
 			created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 			updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 			deleted_at TIMESTAMPTZ,
@@ -1612,6 +2090,8 @@ func TestE2E_SchemaMigrationSkipsIncompatibleFKChains(t *testing.T) {
 			email TEXT NOT NULL,
 			password_hash TEXT NOT NULL,
 			email_verified BOOLEAN NOT NULL DEFAULT false,
+			raw_user_meta_data JSONB NOT NULL DEFAULT '{}'::jsonb,
+			raw_app_meta_data JSONB NOT NULL DEFAULT '{}'::jsonb,
 			created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 			updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 		);
@@ -1649,8 +2129,8 @@ func TestE2E_SchemaMigrationSkipsIncompatibleFKChains(t *testing.T) {
 	stats, err := migrator.Migrate(context.Background())
 	testutil.NoError(t, err)
 	testutil.True(t, stats.Skipped >= 2, "expected incompatible FK chain tables to be skipped")
-	testutil.Contains(t, out.String(), "skipping table legacy_parent")
-	testutil.Contains(t, out.String(), "skipping table legacy_child")
+	testutil.Contains(t, out.String(), "skipping table public.legacy_parent")
+	testutil.Contains(t, out.String(), "skipping table public.legacy_child")
 	testutil.Contains(t, out.String(), "source/target schema incompatibility")
 
 	var parentExists bool
@@ -1674,6 +2154,264 @@ func TestE2E_SchemaMigrationSkipsIncompatibleFKChains(t *testing.T) {
 	testutil.False(t, childExists, "legacy_child should be skipped in target")
 }
 
+func TestE2E_SchemaMigrationSkipsQualifiedNonPublicObjectOnly(t *testing.T) {
+	sourceURL := createIsolatedDatabaseURL(t, sharedPG.ConnString, "sb_src_np_skip")
+	targetURL := createIsolatedDatabaseURL(t, sharedPG.ConnString, "sb_tgt_np_skip")
+	defer dropIsolatedDatabase(t, sharedPG.ConnString, sourceURL)
+	defer dropIsolatedDatabase(t, sharedPG.ConnString, targetURL)
+
+	sourceDB, err := sql.Open("pgx", sourceURL)
+	testutil.NoError(t, err)
+	defer sourceDB.Close()
+	targetDB, err := sql.Open("pgx", targetURL)
+	testutil.NoError(t, err)
+	defer targetDB.Close()
+
+	_, err = sourceDB.Exec(`
+		CREATE SCHEMA auth;
+		CREATE SCHEMA billing;
+		CREATE TABLE auth.users (
+			id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+			email TEXT,
+			encrypted_password TEXT,
+			email_confirmed_at TIMESTAMPTZ,
+			raw_user_meta_data JSONB NOT NULL DEFAULT '{}'::jsonb,
+			raw_app_meta_data JSONB NOT NULL DEFAULT '{}'::jsonb,
+			created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+			updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+			deleted_at TIMESTAMPTZ,
+			is_anonymous BOOLEAN DEFAULT false
+		);
+		CREATE OR REPLACE FUNCTION auth.uid() RETURNS UUID AS $$
+			SELECT gen_random_uuid();
+		$$ LANGUAGE SQL;
+		INSERT INTO auth.users (id, email, encrypted_password, email_confirmed_at)
+		VALUES ('aaaaaaaa-0000-0000-0000-000000000201', 'skip-owner@example.com', '$2a$10$hash', NOW());
+
+		CREATE TABLE public.legacy_problem (
+			id INTEGER PRIMARY KEY,
+			note TEXT NOT NULL
+		);
+		INSERT INTO public.legacy_problem (id, note) VALUES (1, 'public survives');
+
+		CREATE FUNCTION billing.source_only_uuid()
+		RETURNS UUID
+		LANGUAGE SQL
+		AS $$
+			SELECT gen_random_uuid();
+		$$;
+		CREATE TABLE billing.legacy_problem (
+			id UUID PRIMARY KEY DEFAULT billing.source_only_uuid(),
+			account_id UUID NOT NULL,
+			note TEXT NOT NULL
+		);
+		CREATE TABLE billing.legacy_child (
+			id INTEGER PRIMARY KEY,
+			problem_id UUID NOT NULL REFERENCES billing.legacy_problem(id)
+		);
+		INSERT INTO billing.legacy_problem (account_id, note)
+		VALUES ('aaaaaaaa-0000-0000-0000-000000000201', 'billing skipped');
+		INSERT INTO billing.legacy_child (id, problem_id)
+		SELECT 1, id FROM billing.legacy_problem LIMIT 1;
+		ALTER TABLE billing.legacy_problem ENABLE ROW LEVEL SECURITY;
+		CREATE POLICY billing_problem_select ON billing.legacy_problem
+			FOR SELECT USING (account_id = auth.uid());
+	`)
+	testutil.NoError(t, err)
+
+	setupTargetAYBSchemaForURL(t, targetURL)
+
+	var out strings.Builder
+	migrator, err := NewMigrator(MigrationOptions{
+		SourceURL:         sourceURL,
+		TargetURL:         targetURL,
+		Force:             true,
+		SkipOAuth:         true,
+		SkipStorage:       true,
+		Verbose:           true,
+		StoragePath:       t.TempDir(),
+		StorageExportPath: "",
+		Progress:          migrate.NewCLIReporter(&out),
+	})
+	testutil.NoError(t, err)
+	defer migrator.Close()
+	migrator.output = &out
+
+	stats, err := migrator.Migrate(context.Background())
+	testutil.NoError(t, err)
+	testutil.Equal(t, 1, stats.Tables)
+	testutil.Equal(t, 1, stats.Records)
+	testutil.Equal(t, 1, stats.Users)
+	testutil.True(t, stats.Skipped >= 2, "expected billing incompatible table chain to be skipped")
+	billingProblem := TableInfo{SchemaName: "billing", Name: "legacy_problem"}
+	publicProblem := TableInfo{SchemaName: "public", Name: "legacy_problem"}
+	testutil.True(t, migrator.isSkippedTable(billingProblem), "missing internal skip marker for billing.legacy_problem")
+	testutil.False(t, migrator.isSkippedTable(publicProblem), "public table collided with billing skip key")
+	testutil.True(t, stats.SkippedTables[billingProblem.TableKey()] != "", "missing collision-safe skip reason for billing.legacy_problem")
+	testutil.False(t, stats.SkippedTables[publicProblem.TableKey()] != "", "public table leaked into exported skipped table stats")
+
+	summary := BuildValidationSummary(&migrate.AnalysisReport{Tables: 3, Records: 3, AuthUsers: 1, RLSPolicies: 1}, stats)
+	testutil.Contains(t, strings.Join(summary.Warnings, "\n"), "table billing.legacy_problem skipped during migration")
+	testutil.Contains(t, out.String(), "skipping table billing.legacy_problem")
+	testutil.Contains(t, out.String(), "skipping policy billing_problem_select on billing.legacy_problem")
+
+	var publicNote string
+	err = targetDB.QueryRow(`SELECT note FROM public.legacy_problem WHERE id = 1`).Scan(&publicNote)
+	testutil.NoError(t, err)
+	testutil.Equal(t, "public survives", publicNote)
+	assertTableExists(t, targetDB, "billing", "legacy_problem", false)
+	assertTableExists(t, targetDB, "billing", "legacy_child", false)
+}
+
+func TestE2E_ExtensionOwnedSchemasAreNotMigrated(t *testing.T) {
+	sourceURL := createIsolatedDatabaseURL(t, sharedPG.ConnString, "sb_src_ext_owned")
+	targetURL := createIsolatedDatabaseURL(t, sharedPG.ConnString, "sb_tgt_ext_owned")
+	defer dropIsolatedDatabase(t, sharedPG.ConnString, sourceURL)
+	defer dropIsolatedDatabase(t, sharedPG.ConnString, targetURL)
+
+	sourceDB, err := sql.Open("pgx", sourceURL)
+	testutil.NoError(t, err)
+	defer sourceDB.Close()
+	targetDB, err := sql.Open("pgx", targetURL)
+	testutil.NoError(t, err)
+	defer targetDB.Close()
+
+	_, err = sourceDB.Exec(`
+		CREATE SCHEMA auth;
+		CREATE TABLE auth.users (
+			id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+			email TEXT,
+			encrypted_password TEXT,
+			email_confirmed_at TIMESTAMPTZ,
+			raw_user_meta_data JSONB NOT NULL DEFAULT '{}'::jsonb,
+			raw_app_meta_data JSONB NOT NULL DEFAULT '{}'::jsonb,
+			created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+			updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+			deleted_at TIMESTAMPTZ,
+			is_anonymous BOOLEAN DEFAULT false
+		);
+		INSERT INTO auth.users (id, email, encrypted_password, email_confirmed_at)
+		VALUES ('aaaaaaaa-0000-0000-0000-000000000211', 'cron-owner@example.com', '$2a$10$hash', NOW());
+
+		CREATE TABLE public.customer_events (id INTEGER PRIMARY KEY, note TEXT NOT NULL);
+		INSERT INTO public.customer_events (id, note) VALUES (1, 'user data');
+
+		CREATE SCHEMA cron;
+		CREATE TABLE cron.job (jobid BIGINT PRIMARY KEY, schedule TEXT NOT NULL);
+		INSERT INTO cron.job (jobid, schedule) VALUES (42, '* * * * *');
+	`)
+	testutil.NoError(t, err)
+
+	setupTargetAYBSchemaForURL(t, targetURL)
+	migrator, err := NewMigrator(MigrationOptions{
+		SourceURL:         sourceURL,
+		TargetURL:         targetURL,
+		Force:             true,
+		SkipOAuth:         true,
+		SkipRLS:           true,
+		SkipStorage:       true,
+		StoragePath:       t.TempDir(),
+		StorageExportPath: "",
+		Progress:          migrate.NopReporter{},
+	})
+	testutil.NoError(t, err)
+	defer migrator.Close()
+
+	stats, err := migrator.Migrate(context.Background())
+	testutil.NoError(t, err)
+	testutil.Equal(t, 1, stats.Tables)
+	testutil.Equal(t, 1, stats.Records)
+	assertTableExists(t, targetDB, "public", "customer_events", true)
+	assertTableExists(t, targetDB, "cron", "job", false)
+}
+
+func TestE2E_RLSPoliciesSkipNameExcludedPublicTables(t *testing.T) {
+	sourceURL := createIsolatedDatabaseURL(t, sharedPG.ConnString, "sb_src_rls_excluded")
+	targetURL := createIsolatedDatabaseURL(t, sharedPG.ConnString, "sb_tgt_rls_excluded")
+	defer dropIsolatedDatabase(t, sharedPG.ConnString, sourceURL)
+	defer dropIsolatedDatabase(t, sharedPG.ConnString, targetURL)
+
+	sourceDB, err := sql.Open("pgx", sourceURL)
+	testutil.NoError(t, err)
+	defer sourceDB.Close()
+	targetDB, err := sql.Open("pgx", targetURL)
+	testutil.NoError(t, err)
+	defer targetDB.Close()
+
+	_, err = sourceDB.Exec(`
+		CREATE SCHEMA auth;
+		CREATE TABLE auth.users (
+			id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+			email TEXT,
+			encrypted_password TEXT,
+			email_confirmed_at TIMESTAMPTZ,
+			raw_user_meta_data JSONB NOT NULL DEFAULT '{}'::jsonb,
+			raw_app_meta_data JSONB NOT NULL DEFAULT '{}'::jsonb,
+			created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+			updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+			deleted_at TIMESTAMPTZ,
+			is_anonymous BOOLEAN DEFAULT false
+		);
+		CREATE OR REPLACE FUNCTION auth.uid() RETURNS UUID AS $$
+			SELECT 'aaaaaaaa-0000-0000-0000-000000000221'::uuid;
+		$$ LANGUAGE SQL;
+		INSERT INTO auth.users (id, email, encrypted_password, email_confirmed_at)
+		VALUES ('aaaaaaaa-0000-0000-0000-000000000221', 'rls-owner@example.com', '$2a$10$hash', NOW());
+
+		CREATE TABLE public.schema_migrations (version TEXT PRIMARY KEY, owner_id UUID NOT NULL);
+		INSERT INTO public.schema_migrations (version, owner_id)
+		VALUES ('internal-public', 'aaaaaaaa-0000-0000-0000-000000000221');
+		ALTER TABLE public.schema_migrations ENABLE ROW LEVEL SECURITY;
+		CREATE POLICY schema_migrations_select ON public.schema_migrations
+			FOR SELECT USING (owner_id = auth.uid());
+
+		CREATE TABLE public.customer_notes (id INTEGER PRIMARY KEY, owner_id UUID NOT NULL, note TEXT NOT NULL);
+		INSERT INTO public.customer_notes (id, owner_id, note)
+		VALUES (1, 'aaaaaaaa-0000-0000-0000-000000000221', 'migrates');
+		ALTER TABLE public.customer_notes ENABLE ROW LEVEL SECURITY;
+		CREATE POLICY customer_notes_select ON public.customer_notes
+			FOR SELECT USING (owner_id = auth.uid());
+	`)
+	testutil.NoError(t, err)
+
+	setupTargetAYBSchemaForURL(t, targetURL)
+	var out strings.Builder
+	migrator, err := NewMigrator(MigrationOptions{
+		SourceURL:         sourceURL,
+		TargetURL:         targetURL,
+		Force:             true,
+		SkipOAuth:         true,
+		SkipStorage:       true,
+		Verbose:           true,
+		StoragePath:       t.TempDir(),
+		StorageExportPath: "",
+		Progress:          migrate.NewCLIReporter(&out),
+	})
+	testutil.NoError(t, err)
+	defer migrator.Close()
+	migrator.output = &out
+
+	stats, err := migrator.Migrate(context.Background())
+	testutil.NoError(t, err)
+	testutil.Equal(t, 1, stats.Tables)
+	testutil.Equal(t, 1, stats.Records)
+	testutil.Equal(t, 1, stats.Policies)
+	assertTableExists(t, targetDB, "public", "schema_migrations", false)
+	assertTableExists(t, targetDB, "public", "customer_notes", true)
+
+	var migratedPolicyCount int
+	err = targetDB.QueryRow(`
+		SELECT COUNT(*)
+		FROM pg_policy pol
+		JOIN pg_class c ON c.oid = pol.polrelid
+		JOIN pg_namespace n ON n.oid = c.relnamespace
+		WHERE n.nspname = 'public' AND c.relname = 'customer_notes'
+	`).Scan(&migratedPolicyCount)
+	testutil.NoError(t, err)
+	testutil.Equal(t, 1, migratedPolicyCount)
+	testutil.Contains(t, out.String(), "skipping policy schema_migrations_select on public.schema_migrations")
+}
+
 func TestE2E_SchemaMigrationRetriesDeferredFKDependencies(t *testing.T) {
 	sourceURL := createIsolatedDatabaseURL(t, sharedPG.ConnString, "sb_src_retry")
 	targetURL := createIsolatedDatabaseURL(t, sharedPG.ConnString, "sb_tgt_retry")
@@ -1695,6 +2433,8 @@ func TestE2E_SchemaMigrationRetriesDeferredFKDependencies(t *testing.T) {
 			email TEXT,
 			encrypted_password TEXT,
 			email_confirmed_at TIMESTAMPTZ,
+			raw_user_meta_data JSONB NOT NULL DEFAULT '{}'::jsonb,
+			raw_app_meta_data JSONB NOT NULL DEFAULT '{}'::jsonb,
 			created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 			updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 			deleted_at TIMESTAMPTZ,
@@ -1726,6 +2466,8 @@ func TestE2E_SchemaMigrationRetriesDeferredFKDependencies(t *testing.T) {
 			email TEXT NOT NULL,
 			password_hash TEXT NOT NULL,
 			email_verified BOOLEAN NOT NULL DEFAULT false,
+			raw_user_meta_data JSONB NOT NULL DEFAULT '{}'::jsonb,
+			raw_app_meta_data JSONB NOT NULL DEFAULT '{}'::jsonb,
 			created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 			updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 		);
@@ -1765,8 +2507,8 @@ func TestE2E_SchemaMigrationRetriesDeferredFKDependencies(t *testing.T) {
 	testutil.Equal(t, 2, stats.Tables)
 	testutil.Equal(t, 2, stats.Records)
 	testutil.Equal(t, 0, stats.Skipped)
-	testutil.Contains(t, out.String(), "CREATE TABLE products")
-	testutil.Contains(t, out.String(), "CREATE TABLE orders")
+	testutil.Contains(t, out.String(), "CREATE TABLE public.products")
+	testutil.Contains(t, out.String(), "CREATE TABLE public.orders")
 	testutil.False(t, strings.Contains(out.String(), "skipping table orders"),
 		"deferred table should be retried and created, not skipped")
 
@@ -1777,6 +2519,28 @@ func TestE2E_SchemaMigrationRetriesDeferredFKDependencies(t *testing.T) {
 }
 
 // --- Helpers ---
+
+func assertTableExists(t *testing.T, db *sql.DB, schema, table string, want bool) {
+	t.Helper()
+	var exists bool
+	err := db.QueryRow(`
+		SELECT EXISTS (
+			SELECT 1
+			FROM information_schema.tables
+			WHERE table_schema = $1 AND table_name = $2
+		)
+	`, schema, table).Scan(&exists)
+	testutil.NoError(t, err)
+	testutil.Equal(t, want, exists)
+}
+
+func assertRolePrivilege(t *testing.T, db *sql.DB, query string, want bool) {
+	t.Helper()
+	var ok bool
+	err := db.QueryRow(query).Scan(&ok)
+	testutil.NoError(t, err)
+	testutil.Equal(t, want, ok)
+}
 
 func runStorageMigration(t *testing.T, connStr, storageExport, storageRoot string) *MigrationStats {
 	t.Helper()

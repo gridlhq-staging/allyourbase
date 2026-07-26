@@ -47,12 +47,12 @@ func (m *Migrator) migrateData(ctx context.Context, tx *sql.Tx, phaseIdx, totalP
 				deferred = append(deferred, deferredDataTable{table: t, lastErr: err})
 				continue
 			}
-			return fmt.Errorf("copying data for %s: %w", t.Name, err)
+			return fmt.Errorf("copying data for %s: %w", t.QualifiedName(), err)
 		}
 		copied += count
 		m.stats.Records += count
 		if m.verbose {
-			fmt.Fprintf(m.output, "  %s: %d rows\n", t.Name, count)
+			fmt.Fprintf(m.output, "  %s: %d rows\n", t.QualifiedName(), count)
 		}
 	}
 
@@ -130,14 +130,14 @@ func (m *Migrator) retryDeferredDataPass(
 				next = append(next, item)
 				continue
 			}
-			return nil, false, fmt.Errorf("copying data for %s: %w", item.table.Name, err)
+			return nil, false, fmt.Errorf("copying data for %s: %w", item.table.QualifiedName(), err)
 		}
 
 		progressed = true
 		*copied += count
 		m.stats.Records += count
 		if m.verbose {
-			fmt.Fprintf(m.output, "  %s: %d rows\n", item.table.Name, count)
+			fmt.Fprintf(m.output, "  %s: %d rows\n", item.table.QualifiedName(), count)
 		}
 	}
 	return next, progressed, nil
@@ -145,9 +145,9 @@ func (m *Migrator) retryDeferredDataPass(
 
 func (m *Migrator) skipUnresolvedDeferredData(deferred []deferredDataTable) {
 	for _, item := range deferred {
-		m.markSkippedTable(item.table.Name, item.lastErr)
+		m.markSkippedTable(item.table, item.lastErr)
 		m.stats.Skipped++
-		m.progress.Warn(fmt.Sprintf("skipping data copy for %s due unresolved dependency: %v", item.table.Name, item.lastErr))
+		m.progress.Warn(fmt.Sprintf("skipping data copy for %s due unresolved dependency: %v", item.table.QualifiedName(), item.lastErr))
 	}
 }
 
@@ -161,22 +161,22 @@ func copyTableDataWithSavepoint(
 	progressFn func(int),
 ) (int, error) {
 	if err := execSavepointCommand(ctx, tx, "SAVEPOINT "+savepoint); err != nil {
-		return 0, fmt.Errorf("creating savepoint for data copy %s: %w", table.Name, err)
+		return 0, fmt.Errorf("creating savepoint for data copy %s: %w", table.QualifiedName(), err)
 	}
 
 	count, err := copyTableData(ctx, source, tx, table, progressFn)
 	if err != nil {
 		if rbErr := execSavepointCommand(ctx, tx, "ROLLBACK TO SAVEPOINT "+savepoint); rbErr != nil {
-			return 0, fmt.Errorf("rolling back savepoint for data copy %s after error %v: %w", table.Name, err, rbErr)
+			return 0, fmt.Errorf("rolling back savepoint for data copy %s after error %v: %w", table.QualifiedName(), err, rbErr)
 		}
 		if relErr := execSavepointCommand(ctx, tx, "RELEASE SAVEPOINT "+savepoint); relErr != nil {
-			return 0, fmt.Errorf("releasing savepoint for data copy %s after rollback: %w", table.Name, relErr)
+			return 0, fmt.Errorf("releasing savepoint for data copy %s after rollback: %w", table.QualifiedName(), relErr)
 		}
 		return 0, err
 	}
 
 	if err := execSavepointCommand(ctx, tx, "RELEASE SAVEPOINT "+savepoint); err != nil {
-		return 0, fmt.Errorf("releasing savepoint for data copy %s: %w", table.Name, err)
+		return 0, fmt.Errorf("releasing savepoint for data copy %s: %w", table.QualifiedName(), err)
 	}
 
 	return count, nil

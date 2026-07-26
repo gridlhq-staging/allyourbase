@@ -5,9 +5,11 @@ import (
 	"database/sql"
 	"fmt"
 	"strings"
+
+	"github.com/allyourbase/ayb/internal/sqlutil"
 )
 
-// internalTablePrefixes lists Supabase-internal schemas/table prefixes to skip.
+// internalTablePrefixes lists legacy public-table prefixes to skip.
 var internalTablePrefixes = []string{
 	"_supabase_",
 	"_realtime_",
@@ -16,7 +18,7 @@ var internalTablePrefixes = []string{
 	"_prisma_",
 }
 
-// internalTableNames lists exact table names known to be managed by Supabase.
+// internalTableNames lists exact public table names known to be managed by Supabase.
 var internalTableNames = map[string]struct{}{
 	"schema_migrations":       {},
 	"supabase_migrations":     {},
@@ -44,42 +46,54 @@ func isAYBTable(name string) bool {
 	return strings.HasPrefix(name, "_ayb_")
 }
 
-// introspectTables queries information_schema for public schema tables,
+func isAdmittedUserTable(schema, name string) bool {
+	if !isAdmittedUserSchema(schema) {
+		return false
+	}
+	if schema != "public" {
+		return true
+	}
+	return !isInternalTable(name) && !isAYBTable(name)
+}
+
+// introspectTables queries information_schema for user-owned schema tables,
 // skipping Supabase internals and AYB system tables.
 func introspectTables(ctx context.Context, db *sql.DB) ([]TableInfo, error) {
-	// Get all public tables.
 	rows, err := db.QueryContext(ctx, `
-		SELECT table_name
+		SELECT table_schema, table_name
 		FROM information_schema.tables
-		WHERE table_schema = 'public'
-		  AND table_type = 'BASE TABLE'
-		ORDER BY table_name
+		WHERE table_type = 'BASE TABLE'
+		ORDER BY table_schema, table_name
 	`)
 	if err != nil {
 		return nil, fmt.Errorf("querying tables: %w", err)
 	}
 	defer rows.Close()
 
-	var tableNames []string
+	type tableRef struct {
+		schema string
+		name   string
+	}
+	var tableNames []tableRef
 	for rows.Next() {
-		var name string
-		if err := rows.Scan(&name); err != nil {
+		var schema, name string
+		if err := rows.Scan(&schema, &name); err != nil {
 			return nil, fmt.Errorf("scanning table name: %w", err)
 		}
-		if isInternalTable(name) || isAYBTable(name) {
+		if !isAdmittedUserTable(schema, name) {
 			continue
 		}
-		tableNames = append(tableNames, name)
+		tableNames = append(tableNames, tableRef{schema: schema, name: name})
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
 
 	var tables []TableInfo
-	for _, name := range tableNames {
-		ti, err := introspectTable(ctx, db, name)
+	for _, table := range tableNames {
+		ti, err := introspectTable(ctx, db, table.schema, table.name)
 		if err != nil {
-			return nil, fmt.Errorf("introspecting table %s: %w", name, err)
+			return nil, fmt.Errorf("introspecting table %s: %w", schemaQualifiedName(table.schema, table.name), err)
 		}
 		tables = append(tables, *ti)
 	}
@@ -88,16 +102,16 @@ func introspectTables(ctx context.Context, db *sql.DB) ([]TableInfo, error) {
 }
 
 // introspectTable gets detailed column/constraint info for a single table.
-func introspectTable(ctx context.Context, db *sql.DB, tableName string) (*TableInfo, error) {
-	ti := &TableInfo{Name: tableName}
+func introspectTable(ctx context.Context, db *sql.DB, schemaName, tableName string) (*TableInfo, error) {
+	ti := &TableInfo{SchemaName: schemaName, Name: tableName}
 
 	// Columns.
 	colRows, err := db.QueryContext(ctx, `
 		SELECT column_name, data_type, is_nullable, COALESCE(column_default, ''), ordinal_position
 		FROM information_schema.columns
-		WHERE table_schema = 'public' AND table_name = $1
+		WHERE table_schema = $1 AND table_name = $2
 		ORDER BY ordinal_position
-	`, tableName)
+	`, schemaName, tableName)
 	if err != nil {
 		return nil, fmt.Errorf("querying columns: %w", err)
 	}
@@ -116,32 +130,36 @@ func introspectTable(ctx context.Context, db *sql.DB, tableName string) (*TableI
 		return nil, err
 	}
 
-	// Primary key.
+	// Primary key. Composite keys are intentionally left empty because the
+	// DDL generator only supports recreating a single-column primary key.
 	err = db.QueryRowContext(ctx, `
-		SELECT a.attname
+		SELECT CASE WHEN COUNT(*) = 1 THEN MIN(a.attname) ELSE '' END
 		FROM pg_index i
 		JOIN pg_attribute a ON a.attrelid = i.indrelid AND a.attnum = ANY(i.indkey)
 		WHERE i.indrelid = $1::regclass AND i.indisprimary
-		LIMIT 1
-	`, "public."+tableName).Scan(&ti.PrimaryKey)
-	if err != nil && err != sql.ErrNoRows {
+	`, ti.quotedName()).Scan(&ti.PrimaryKey)
+	if err != nil {
 		return nil, fmt.Errorf("querying primary key: %w", err)
 	}
 
 	// Foreign keys.
 	fkRows, err := db.QueryContext(ctx, `
 		SELECT tc.constraint_name, kcu.column_name,
+		       ccu.table_schema AS ref_schema,
 		       ccu.table_name AS ref_table, ccu.column_name AS ref_column
 		FROM information_schema.table_constraints tc
 		JOIN information_schema.key_column_usage kcu
-		  ON tc.constraint_name = kcu.constraint_name AND tc.table_schema = kcu.table_schema
+		  ON tc.constraint_name = kcu.constraint_name
+		 AND tc.constraint_schema = kcu.constraint_schema
+		 AND tc.table_schema = kcu.table_schema
 		JOIN information_schema.constraint_column_usage ccu
-		  ON tc.constraint_name = ccu.constraint_name AND tc.table_schema = ccu.table_schema
-		WHERE tc.table_schema = 'public'
-		  AND tc.table_name = $1
+		  ON tc.constraint_name = ccu.constraint_name
+		 AND tc.constraint_schema = ccu.constraint_schema
+		WHERE tc.table_schema = $1
+		  AND tc.table_name = $2
 		  AND tc.constraint_type = 'FOREIGN KEY'
 		ORDER BY tc.constraint_name
-	`, tableName)
+	`, schemaName, tableName)
 	if err != nil {
 		return nil, fmt.Errorf("querying foreign keys: %w", err)
 	}
@@ -149,7 +167,7 @@ func introspectTable(ctx context.Context, db *sql.DB, tableName string) (*TableI
 
 	for fkRows.Next() {
 		var fk ForeignKeyInfo
-		if err := fkRows.Scan(&fk.ConstraintName, &fk.ColumnName, &fk.RefTable, &fk.RefColumn); err != nil {
+		if err := fkRows.Scan(&fk.ConstraintName, &fk.ColumnName, &fk.RefSchemaName, &fk.RefTable, &fk.RefColumn); err != nil {
 			return nil, fmt.Errorf("scanning foreign key: %w", err)
 		}
 		ti.ForeignKeys = append(ti.ForeignKeys, fk)
@@ -158,8 +176,14 @@ func introspectTable(ctx context.Context, db *sql.DB, tableName string) (*TableI
 		return nil, err
 	}
 
+	sequences, err := introspectTableSequences(ctx, db, schemaName, tableName)
+	if err != nil {
+		return nil, err
+	}
+	ti.Sequences = sequences
+
 	// Row count (approximate is fine for pre-flight; exact for small tables).
-	err = db.QueryRowContext(ctx, fmt.Sprintf(`SELECT COUNT(*) FROM %q`, tableName)).Scan(&ti.RowCount)
+	err = db.QueryRowContext(ctx, fmt.Sprintf(`SELECT COUNT(*) FROM %s`, ti.quotedName())).Scan(&ti.RowCount)
 	if err != nil {
 		return nil, fmt.Errorf("counting rows: %w", err)
 	}
@@ -167,13 +191,49 @@ func introspectTable(ctx context.Context, db *sql.DB, tableName string) (*TableI
 	return ti, nil
 }
 
-// introspectViews gets user-defined view definitions from the public schema.
+func introspectTableSequences(ctx context.Context, db *sql.DB, schemaName, tableName string) ([]SequenceInfo, error) {
+	rows, err := db.QueryContext(ctx, `
+		SELECT seq_ns.nspname, seq.relname, tbl_ns.nspname, tbl.relname, col.attname
+		FROM pg_class seq
+		JOIN pg_namespace seq_ns ON seq_ns.oid = seq.relnamespace
+		JOIN pg_depend dep ON dep.objid = seq.oid
+		JOIN pg_class tbl ON tbl.oid = dep.refobjid
+		JOIN pg_namespace tbl_ns ON tbl_ns.oid = tbl.relnamespace
+		JOIN pg_attribute col ON col.attrelid = tbl.oid AND col.attnum = dep.refobjsubid
+		WHERE seq.relkind = 'S'
+		  AND dep.deptype IN ('a', 'i')
+		  AND tbl_ns.nspname = $1
+		  AND tbl.relname = $2
+		ORDER BY seq_ns.nspname, seq.relname
+	`, schemaName, tableName)
+	if err != nil {
+		return nil, fmt.Errorf("querying table sequences: %w", err)
+	}
+	defer rows.Close()
+
+	var sequences []SequenceInfo
+	for rows.Next() {
+		var seq SequenceInfo
+		if err := rows.Scan(
+			&seq.SchemaName,
+			&seq.Name,
+			&seq.TableSchemaName,
+			&seq.TableName,
+			&seq.ColumnName,
+		); err != nil {
+			return nil, fmt.Errorf("scanning table sequence: %w", err)
+		}
+		sequences = append(sequences, seq)
+	}
+	return sequences, rows.Err()
+}
+
+// introspectViews gets user-defined view definitions from user-owned schemas.
 func introspectViews(ctx context.Context, db *sql.DB) ([]ViewInfo, error) {
 	rows, err := db.QueryContext(ctx, `
-		SELECT viewname, definition
+		SELECT schemaname, viewname, definition
 		FROM pg_views
-		WHERE schemaname = 'public'
-		ORDER BY viewname
+		ORDER BY schemaname, viewname
 	`)
 	if err != nil {
 		return nil, fmt.Errorf("querying views: %w", err)
@@ -183,8 +243,11 @@ func introspectViews(ctx context.Context, db *sql.DB) ([]ViewInfo, error) {
 	var views []ViewInfo
 	for rows.Next() {
 		var v ViewInfo
-		if err := rows.Scan(&v.Name, &v.Definition); err != nil {
+		if err := rows.Scan(&v.SchemaName, &v.Name, &v.Definition); err != nil {
 			return nil, fmt.Errorf("scanning view: %w", err)
+		}
+		if !isAdmittedUserSchema(v.SchemaName) {
+			continue
 		}
 		views = append(views, v)
 	}
@@ -224,11 +287,11 @@ func pgTypeName(infoSchemaType string) string {
 // This is a pure function with no DB dependencies, easy to unit test.
 func createTableSQL(table TableInfo) string {
 	var sb strings.Builder
-	fmt.Fprintf(&sb, "CREATE TABLE IF NOT EXISTS %q (\n", table.Name)
+	fmt.Fprintf(&sb, "CREATE TABLE IF NOT EXISTS %s (\n", table.quotedName())
 
 	for i, col := range table.Columns {
 		typeName := pgTypeName(col.DataType)
-		fmt.Fprintf(&sb, "  %q %s", col.Name, typeName)
+		fmt.Fprintf(&sb, "  %s %s", sqlutil.QuoteIdent(col.Name), typeName)
 		if !col.IsNullable {
 			sb.WriteString(" NOT NULL")
 		}
@@ -243,7 +306,7 @@ func createTableSQL(table TableInfo) string {
 
 	if table.PrimaryKey != "" {
 		hasFKs := len(table.ForeignKeys) > 0
-		fmt.Fprintf(&sb, "  PRIMARY KEY (%q)", table.PrimaryKey)
+		fmt.Fprintf(&sb, "  PRIMARY KEY (%s)", sqlutil.QuoteIdent(table.PrimaryKey))
 		if hasFKs {
 			sb.WriteString(",")
 		}
@@ -251,8 +314,12 @@ func createTableSQL(table TableInfo) string {
 	}
 
 	for i, fk := range table.ForeignKeys {
-		fmt.Fprintf(&sb, "  CONSTRAINT %q FOREIGN KEY (%q) REFERENCES %q(%q)",
-			fk.ConstraintName, fk.ColumnName, fk.RefTable, fk.RefColumn)
+		refName := sqlutil.QuoteIdent(fk.RefTable)
+		if fk.RefSchemaName != "" {
+			refName = sqlutil.QuoteQualifiedName(fk.RefSchemaName, fk.RefTable)
+		}
+		fmt.Fprintf(&sb, "  CONSTRAINT %s FOREIGN KEY (%s) REFERENCES %s(%s)",
+			sqlutil.QuoteIdent(fk.ConstraintName), sqlutil.QuoteIdent(fk.ColumnName), refName, sqlutil.QuoteIdent(fk.RefColumn))
 		if i < len(table.ForeignKeys)-1 {
 			sb.WriteString(",")
 		}
@@ -265,7 +332,54 @@ func createTableSQL(table TableInfo) string {
 
 // createViewSQL generates a CREATE OR REPLACE VIEW statement.
 func createViewSQL(view ViewInfo) string {
-	return fmt.Sprintf("CREATE OR REPLACE VIEW %q AS %s", view.Name, view.Definition)
+	return fmt.Sprintf("CREATE OR REPLACE VIEW %s AS %s", view.quotedName(), view.Definition)
+}
+
+func copyTableSelectSQL(table TableInfo) string {
+	colList := tableColumnList(table)
+	return fmt.Sprintf("SELECT %s FROM %s ORDER BY 1", colList, table.quotedName())
+}
+
+func copyTableInsertSQL(table TableInfo) string {
+	colList := tableColumnList(table)
+	placeholders := make([]string, len(table.Columns))
+	for i := range placeholders {
+		placeholders[i] = fmt.Sprintf("$%d", i+1)
+	}
+	return fmt.Sprintf("INSERT INTO %s (%s) VALUES (%s) ON CONFLICT DO NOTHING",
+		table.quotedName(), colList, strings.Join(placeholders, ", "))
+}
+
+func tableColumnList(table TableInfo) string {
+	colNames := make([]string, len(table.Columns))
+	for i, c := range table.Columns {
+		colNames[i] = sqlutil.QuoteIdent(c.Name)
+	}
+	return strings.Join(colNames, ", ")
+}
+
+func createSequenceSQLs(table TableInfo) []string {
+	statements := make([]string, 0, len(table.Sequences))
+	for _, seq := range table.Sequences {
+		statements = append(statements, "CREATE SEQUENCE IF NOT EXISTS "+quotedSequenceName(seq))
+	}
+	return statements
+}
+
+func ownSequenceSQLs(table TableInfo) []string {
+	statements := make([]string, 0, len(table.Sequences))
+	for _, seq := range table.Sequences {
+		ownedTable := TableInfo{SchemaName: seq.TableSchemaName, Name: seq.TableName}
+		statements = append(statements, fmt.Sprintf(
+			"ALTER SEQUENCE %s OWNED BY %s.%s",
+			quotedSequenceName(seq), ownedTable.quotedName(), sqlutil.QuoteIdent(seq.ColumnName),
+		))
+	}
+	return statements
+}
+
+func quotedSequenceName(seq SequenceInfo) string {
+	return sqlutil.QuoteOptionallyQualifiedName(seq.SchemaName, seq.Name)
 }
 
 // copyTableData streams rows from source to target in batches.
@@ -275,32 +389,20 @@ func copyTableData(ctx context.Context, source *sql.DB, tx *sql.Tx, table TableI
 		return 0, nil
 	}
 
-	// Build column list.
-	colNames := make([]string, len(table.Columns))
-	for i, c := range table.Columns {
-		colNames[i] = fmt.Sprintf("%q", c.Name)
-	}
-	colList := strings.Join(colNames, ", ")
-
 	// SELECT from source.
-	selectSQL := fmt.Sprintf("SELECT %s FROM %q ORDER BY 1", colList, table.Name)
+	selectSQL := copyTableSelectSQL(table)
 	rows, err := source.QueryContext(ctx, selectSQL)
 	if err != nil {
-		return 0, fmt.Errorf("selecting from %s: %w", table.Name, err)
+		return 0, fmt.Errorf("selecting from %s: %w", table.QualifiedName(), err)
 	}
 	defer rows.Close()
 
 	// Prepare INSERT statement with placeholders.
-	placeholders := make([]string, len(table.Columns))
-	for i := range placeholders {
-		placeholders[i] = fmt.Sprintf("$%d", i+1)
-	}
-	insertSQL := fmt.Sprintf("INSERT INTO %q (%s) VALUES (%s) ON CONFLICT DO NOTHING",
-		table.Name, colList, strings.Join(placeholders, ", "))
+	insertSQL := copyTableInsertSQL(table)
 
 	stmt, err := tx.PrepareContext(ctx, insertSQL)
 	if err != nil {
-		return 0, fmt.Errorf("preparing insert for %s: %w", table.Name, err)
+		return 0, fmt.Errorf("preparing insert for %s: %w", table.QualifiedName(), err)
 	}
 	defer stmt.Close()
 
@@ -315,12 +417,12 @@ func copyTableData(ctx context.Context, source *sql.DB, tx *sql.Tx, table TableI
 			ptrs[i] = &vals[i]
 		}
 		if err := rows.Scan(ptrs...); err != nil {
-			return total, fmt.Errorf("scanning row from %s: %w", table.Name, err)
+			return total, fmt.Errorf("scanning row from %s: %w", table.QualifiedName(), err)
 		}
 
 		result, err := stmt.ExecContext(ctx, vals...)
 		if err != nil {
-			return total, fmt.Errorf("inserting row into %s: %w", table.Name, err)
+			return total, fmt.Errorf("inserting row into %s: %w", table.QualifiedName(), err)
 		}
 		if n, _ := result.RowsAffected(); n > 0 {
 			total++
@@ -342,35 +444,32 @@ func copyTableData(ctx context.Context, source *sql.DB, tx *sql.Tx, table TableI
 	return total, nil
 }
 
-// resetSequences resets owned sequences to max(pk)+1 for each table.
+// resetSequences advances every owned sequence past the copied column values.
 func resetSequences(ctx context.Context, tx *sql.Tx, tables []TableInfo) (int, error) {
 	count := 0
-	for _, t := range tables {
-		if t.PrimaryKey == "" {
-			continue
-		}
-		// Only reset if the column looks like a serial/identity.
-		hasDefault := false
-		for _, c := range t.Columns {
-			if c.Name == t.PrimaryKey && strings.Contains(c.DefaultValue, "nextval") {
-				hasDefault = true
-				break
+	for _, table := range tables {
+		for _, sequence := range table.Sequences {
+			ownedTable := TableInfo{SchemaName: sequence.TableSchemaName, Name: sequence.TableName}
+			resetSQL := resetSequenceSQL(ownedTable, sequence.ColumnName)
+			if _, err := tx.ExecContext(ctx, resetSQL); err != nil {
+				return count, fmt.Errorf(
+					"resetting sequence for %s.%s: %w",
+					ownedTable.QualifiedName(),
+					sequence.ColumnName,
+					err,
+				)
 			}
+			count++
 		}
-		if !hasDefault {
-			continue
-		}
-
-		resetSQL := fmt.Sprintf(
-			`SELECT setval(pg_get_serial_sequence(%s, %s), COALESCE(MAX(%q), 1)) FROM %q`,
-			quoteLiteral(t.Name), quoteLiteral(t.PrimaryKey), t.PrimaryKey, t.Name,
-		)
-		if _, err := tx.ExecContext(ctx, resetSQL); err != nil {
-			return count, fmt.Errorf("resetting sequence for %s.%s: %w", t.Name, t.PrimaryKey, err)
-		}
-		count++
 	}
 	return count, nil
+}
+
+func resetSequenceSQL(table TableInfo, columnName string) string {
+	return fmt.Sprintf(
+		`SELECT setval(pg_get_serial_sequence(%s, %s), COALESCE(MAX(%s), 1), MAX(%s) IS NOT NULL) FROM %s`,
+		quoteLiteral(table.quotedName()), quoteLiteral(columnName), sqlutil.QuoteIdent(columnName), sqlutil.QuoteIdent(columnName), table.quotedName(),
+	)
 }
 
 // quoteLiteral escapes a string for use as a SQL string literal (single-quoted).

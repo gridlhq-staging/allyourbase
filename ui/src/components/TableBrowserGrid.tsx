@@ -8,6 +8,7 @@ import {
   Trash2,
   Link,
 } from "lucide-react";
+import { MigrationDiscoveryCTA } from "./MigrationDiscoveryCTA";
 
 export interface ExpandColumn {
   relation: Relationship;
@@ -36,6 +37,11 @@ interface TableBrowserGridProps {
   enableSorting?: boolean;
   enableRowClick?: boolean;
   enablePagination?: boolean;
+  showMigrationDiscoveryCTA?: boolean;
+  emptyStateAction?: {
+    label: string;
+    onClick: () => void;
+  };
 }
 
 export function TableBrowserGrid({
@@ -60,6 +66,8 @@ export function TableBrowserGrid({
   enableSorting = true,
   enableRowClick = true,
   enablePagination = true,
+  showMigrationDiscoveryCTA = false,
+  emptyStateAction,
 }: TableBrowserGridProps) {
   const extraColCount =
     (showCheckboxes ? 1 : 0) +
@@ -140,8 +148,20 @@ export function TableBrowserGrid({
                       No rows in this table yet
                     </p>
                     <p className="text-sm">
-                      Insert data using the SQL editor, REST API, or SDK.
+                      {showMigrationDiscoveryCTA && !isWritable
+                        ? "This view is read-only. Use the SQL editor to inspect or update its query."
+                        : "Insert data using the SQL editor, REST API, or SDK."}
                     </p>
+                    {emptyStateAction && (
+                      <button
+                        type="button"
+                        onClick={emptyStateAction.onClick}
+                        className="mt-3 rounded bg-blue-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-blue-700"
+                      >
+                        {emptyStateAction.label}
+                      </button>
+                    )}
+                    {showMigrationDiscoveryCTA && <MigrationDiscoveryCTA />}
                   </div>
                 </td>
               </tr>

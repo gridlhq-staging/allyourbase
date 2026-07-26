@@ -1,6 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { listAllRequestLogs } from "../api_analytics";
-import { request } from "../api_client";
+import {
+  listAllRequestLogs,
+  listRequestLogAggregates,
+  streamRequestLogs,
+} from "../api_analytics";
+import { fetchAdmin, request } from "../api_client";
 import type {
   RequestLogEntry,
   RequestLogListResponse,
@@ -12,8 +16,168 @@ vi.mock("../api_client", async () => {
   );
   return {
     ...actual,
+    fetchAdmin: vi.fn(),
     request: vi.fn(),
   };
+});
+
+describe("listRequestLogAggregates", () => {
+  const requestMock = vi.mocked(request);
+
+  beforeEach(() => {
+    requestMock.mockReset();
+  });
+
+  it("serializes every request-log filter to the aggregate endpoint", async () => {
+    requestMock.mockResolvedValue({ items: [], count: 0 });
+
+    await listRequestLogAggregates({
+      method: "POST",
+      path: "/api/orders/*",
+      status: "418",
+      statusClass: "4xx",
+      minDurationMs: "25",
+      maxDurationMs: "750",
+      from: "2026-07-26T12:00:00.000Z",
+      to: "2026-07-26T13:00:00.000Z",
+    });
+
+    expect(requestMock).toHaveBeenCalledWith(
+      "/api/admin/analytics/requests/aggregate?method=POST&path=%2Fapi%2Forders%2F*&status=418&status_class=4xx&min_duration_ms=25&max_duration_ms=750&from=2026-07-26T12%3A00%3A00.000Z&to=2026-07-26T13%3A00%3A00.000Z",
+    );
+  });
+});
+
+function streamResponse(chunks: string[]): Response {
+  const encoder = new TextEncoder();
+  return new Response(
+    new ReadableStream({
+      start(controller) {
+        for (const chunk of chunks) {
+          controller.enqueue(encoder.encode(chunk));
+        }
+        controller.close();
+      },
+    }),
+    { status: 200 },
+  );
+}
+
+describe("streamRequestLogs", () => {
+  const fetchAdminMock = vi.mocked(fetchAdmin);
+
+  beforeEach(() => {
+    fetchAdminMock.mockReset();
+  });
+
+  it("uses fetchAdmin with serialized request-log filters and decodes fragmented SSE rows", async () => {
+    const row = requestLog(42);
+    fetchAdminMock.mockResolvedValue(
+      streamResponse([
+        'event: ready\ndata: {"delivery":"polling"}\n\n',
+        "event: request_log\ndata: ",
+        `${JSON.stringify(row)}\n\n`,
+      ]),
+    );
+    const ready = vi.fn();
+    const rows: RequestLogEntry[] = [];
+    const signal = new AbortController().signal;
+
+    await streamRequestLogs(
+      {
+        method: "GET",
+        path: "/api/live/*",
+        status: "404",
+        statusClass: "4xx",
+        minDurationMs: "10",
+        maxDurationMs: "200",
+        from: "2026-07-26",
+        to: "2026-07-27",
+      },
+      { signal, onReady: ready, onRequestLog: (entry) => rows.push(entry) },
+    );
+
+    expect(fetchAdminMock).toHaveBeenCalledWith(
+      "/api/admin/analytics/requests/stream?method=GET&path=%2Fapi%2Flive%2F*&status=404&status_class=4xx&min_duration_ms=10&max_duration_ms=200&from=2026-07-26&to=2026-07-27",
+      expect.objectContaining({
+        signal,
+        headers: expect.objectContaining({ Accept: "text/event-stream" }),
+      }),
+    );
+    expect(ready).toHaveBeenCalledTimes(1);
+    expect(rows).toEqual([row]);
+  });
+
+  it("decodes multiple request_log frames and rejects server error events", async () => {
+    const first = requestLog(1);
+    const second = requestLog(2);
+    fetchAdminMock.mockResolvedValueOnce(
+      streamResponse([
+        `event: request_log\ndata: ${JSON.stringify(first)}\n\n`,
+        `event: request_log\ndata: ${JSON.stringify(second)}\n\n`,
+      ]),
+    );
+    const rows: RequestLogEntry[] = [];
+
+    await streamRequestLogs({}, { onRequestLog: (entry) => rows.push(entry) });
+
+    expect(rows).toEqual([first, second]);
+
+    fetchAdminMock.mockResolvedValueOnce(
+      streamResponse([
+        'event: error\ndata: {"message":"request log stream failed"}\n\n',
+      ]),
+    );
+    await expect(streamRequestLogs({}, { onRequestLog: vi.fn() })).rejects.toThrow(
+      "request log stream failed",
+    );
+  });
+
+  it("returns cleanly when aborted while the reader is open", async () => {
+    fetchAdminMock.mockResolvedValue(
+      new Response(
+        new ReadableStream({
+          start(nextController) {
+            nextController.enqueue(new TextEncoder().encode("event: ready\n"));
+          },
+        }),
+        { status: 200 },
+      ),
+    );
+    const abortController = new AbortController();
+    const promise = streamRequestLogs({}, {
+      signal: abortController.signal,
+      onRequestLog: vi.fn(),
+    });
+
+    abortController.abort();
+    await expect(promise).resolves.toBeUndefined();
+  });
+
+  it("removes abort listeners after each reader wait settles", async () => {
+    fetchAdminMock.mockResolvedValue(
+      streamResponse([
+        'event: ready\ndata: {"delivery":"polling"}\n\n',
+        `event: request_log\ndata: ${JSON.stringify(requestLog(7))}\n\n`,
+      ]),
+    );
+    const abortController = new AbortController();
+    const addEventListenerSpy = vi.spyOn(abortController.signal, "addEventListener");
+    const removeEventListenerSpy = vi.spyOn(
+      abortController.signal,
+      "removeEventListener",
+    );
+
+    await streamRequestLogs({}, {
+      signal: abortController.signal,
+      onRequestLog: vi.fn(),
+    });
+
+    expect(addEventListenerSpy).toHaveBeenCalled();
+    expect(removeEventListenerSpy).toHaveBeenCalledTimes(
+      addEventListenerSpy.mock.calls.length,
+    );
+  });
 });
 
 const EXPORT_STARTED_AT = new Date("2026-07-26T12:00:00.000Z");

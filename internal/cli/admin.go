@@ -132,7 +132,7 @@ func runAdminResetPassword(cmd *cobra.Command, args []string) error {
 		data, err := os.ReadFile(resultPath)
 		if err == nil && len(data) > 0 {
 			os.Remove(resultPath)
-			fmt.Fprintf(os.Stderr, "\n  New admin password:  %s\n\n", string(data))
+			fmt.Fprintf(cmd.OutOrStdout(), "\n  New admin password:  %s\n\n", string(data))
 			return nil
 		}
 		time.Sleep(100 * time.Millisecond)

@@ -47,22 +47,31 @@ var dbFDWListServersCmd = &cobra.Command{
 var dbFDWCreateServerCmd = &cobra.Command{
 	Use:   "create-server <name>",
 	Short: "Create an FDW server",
-	Args:  cobra.ExactArgs(1),
-	RunE:  runDBFDWCreateServer,
+	Args: exactArgsWithHelp(
+		1,
+		"ayb db fdw create-server analytics --type postgres_fdw",
+	),
+	RunE: runDBFDWCreateServer,
 }
 
 var dbFDWImportTablesCmd = &cobra.Command{
 	Use:   "import-tables <server-name>",
 	Short: "Import foreign tables from a remote schema",
-	Args:  cobra.ExactArgs(1),
-	RunE:  runDBFDWImportTables,
+	Args: exactArgsWithHelp(
+		1,
+		"ayb db fdw import-tables analytics",
+	),
+	RunE: runDBFDWImportTables,
 }
 
 var dbFDWDropServerCmd = &cobra.Command{
 	Use:   "drop-server <name>",
 	Short: "Drop an FDW server",
-	Args:  cobra.ExactArgs(1),
-	RunE:  runDBFDWDropServer,
+	Args: exactArgsWithHelp(
+		1,
+		"ayb db fdw drop-server analytics",
+	),
+	RunE: runDBFDWDropServer,
 }
 
 func init() {

@@ -42,3 +42,11 @@ func QuoteIdentList(idents []string) string {
 func QuoteQualifiedName(schema, name string) string {
 	return QuoteIdent(schema) + "." + QuoteIdent(name)
 }
+
+// QuoteOptionallyQualifiedName quotes name alone when schema is empty, or "schema"."name" otherwise.
+func QuoteOptionallyQualifiedName(schema, name string) string {
+	if schema == "" {
+		return QuoteIdent(name)
+	}
+	return QuoteQualifiedName(schema, name)
+}

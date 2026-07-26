@@ -4,9 +4,11 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"sort"
 	"time"
 
 	"github.com/allyourbase/ayb/internal/migrate"
+	"github.com/allyourbase/ayb/internal/sqlutil"
 )
 
 type deferredSchemaTable struct {
@@ -24,6 +26,9 @@ func (m *Migrator) migrateSchema(ctx context.Context, tx *sql.Tx, phaseIdx, tota
 	totalItems := len(tables) + len(views)
 	start := m.startSchemaPhase(phase, totalItems)
 
+	if err := createUserSchemas(ctx, tx, userSchemasForMigration(tables, views)); err != nil {
+		return err
+	}
 	deferred, err := m.createInitialSchemaTables(ctx, tx, phase, totalItems, tables)
 	if err != nil {
 		return err
@@ -52,6 +57,49 @@ func (m *Migrator) loadSchemaPhaseItems(ctx context.Context) ([]TableInfo, []Vie
 	return tables, views, nil
 }
 
+func userSchemasForMigration(tables []TableInfo, views []ViewInfo) []string {
+	seen := map[string]struct{}{}
+	for _, table := range tables {
+		addNonPublicSchema(seen, table.SchemaName)
+	}
+	for _, view := range views {
+		addNonPublicSchema(seen, view.SchemaName)
+	}
+
+	schemas := make([]string, 0, len(seen))
+	for schema := range seen {
+		schemas = append(schemas, schema)
+	}
+	sort.Strings(schemas)
+	return schemas
+}
+
+func addNonPublicSchema(seen map[string]struct{}, schema string) {
+	if schema == "" || schema == "public" {
+		return
+	}
+	if isAdmittedUserSchema(schema) {
+		seen[schema] = struct{}{}
+	}
+}
+
+func createUserSchemas(ctx context.Context, tx *sql.Tx, schemas []string) error {
+	for _, schema := range schemas {
+		if err := createUserSchema(ctx, tx, schema); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func createUserSchema(ctx context.Context, tx *sql.Tx, schema string) error {
+	quotedSchema := sqlutil.QuoteIdent(schema)
+	if _, err := tx.ExecContext(ctx, "CREATE SCHEMA IF NOT EXISTS "+quotedSchema); err != nil {
+		return fmt.Errorf("creating schema %s: %w", schema, err)
+	}
+	return nil
+}
+
 func (m *Migrator) startSchemaPhase(phase migrate.Phase, totalItems int) time.Time {
 	m.progress.StartPhase(phase, totalItems)
 	fmt.Fprintln(m.output, "Creating schema...")
@@ -73,7 +121,7 @@ func (m *Migrator) createInitialSchemaTables(
 				deferred = append(deferred, deferredSchemaTable{table: table, lastErr: err})
 				continue
 			}
-			return nil, fmt.Errorf("creating table %s: %w", table.Name, err)
+			return nil, fmt.Errorf("creating table %s: %w", table.QualifiedName(), err)
 		}
 
 		m.stats.Tables++
@@ -108,7 +156,7 @@ func (m *Migrator) retryDeferredSchemaTables(
 					next = append(next, item)
 					continue
 				}
-				return fmt.Errorf("creating table %s: %w", item.table.Name, err)
+				return fmt.Errorf("creating table %s: %w", item.table.QualifiedName(), err)
 			}
 
 			progressed = true
@@ -126,9 +174,9 @@ func (m *Migrator) retryDeferredSchemaTables(
 
 func (m *Migrator) skipDeferredSchemaTables(deferred []deferredSchemaTable) {
 	for _, item := range deferred {
-		m.markSkippedTable(item.table.Name, item.lastErr)
+		m.markSkippedTable(item.table, item.lastErr)
 		m.stats.Skipped++
-		m.progress.Warn(fmt.Sprintf("skipping table %s due source/target schema incompatibility: %v", item.table.Name, item.lastErr))
+		m.progress.Warn(fmt.Sprintf("skipping table %s due source/target schema incompatibility: %v", item.table.QualifiedName(), item.lastErr))
 	}
 }
 
@@ -136,22 +184,22 @@ func (m *Migrator) createSchemaViews(ctx context.Context, tx *sql.Tx, views []Vi
 	for idx, view := range views {
 		savepoint := fmt.Sprintf("ayb_schema_view_%d", idx)
 		if err := execSavepointCommand(ctx, tx, "SAVEPOINT "+savepoint); err != nil {
-			return fmt.Errorf("creating savepoint for view %s: %w", view.Name, err)
+			return fmt.Errorf("creating savepoint for view %s: %w", view.QualifiedName(), err)
 		}
 		if _, err := tx.ExecContext(ctx, createViewSQL(view)); err != nil {
 			if rbErr := execSavepointCommand(ctx, tx, "ROLLBACK TO SAVEPOINT "+savepoint); rbErr != nil {
-				return fmt.Errorf("rolling back savepoint for view %s after error %v: %w", view.Name, err, rbErr)
+				return fmt.Errorf("rolling back savepoint for view %s after error %v: %w", view.QualifiedName(), err, rbErr)
 			}
 			if relErr := execSavepointCommand(ctx, tx, "RELEASE SAVEPOINT "+savepoint); relErr != nil {
-				return fmt.Errorf("releasing savepoint for view %s after rollback: %w", view.Name, relErr)
+				return fmt.Errorf("releasing savepoint for view %s after rollback: %w", view.QualifiedName(), relErr)
 			}
 			// Views may depend on tables that don't exist in the target yet.
 			// Log a warning instead of failing.
-			m.progress.Warn(fmt.Sprintf("skipping view %s: %v", view.Name, err))
+			m.progress.Warn(fmt.Sprintf("skipping view %s: %v", view.QualifiedName(), err))
 			continue
 		}
 		if err := execSavepointCommand(ctx, tx, "RELEASE SAVEPOINT "+savepoint); err != nil {
-			return fmt.Errorf("releasing savepoint for view %s: %w", view.Name, err)
+			return fmt.Errorf("releasing savepoint for view %s: %w", view.QualifiedName(), err)
 		}
 		m.stats.Views++
 		m.logSchemaViewCreated(view)
@@ -161,13 +209,13 @@ func (m *Migrator) createSchemaViews(ctx context.Context, tx *sql.Tx, views []Vi
 
 func (m *Migrator) logSchemaTableCreated(table TableInfo) {
 	if m.verbose {
-		fmt.Fprintf(m.output, "  CREATE TABLE %s (%d columns)\n", table.Name, len(table.Columns))
+		fmt.Fprintf(m.output, "  CREATE TABLE %s (%d columns)\n", table.QualifiedName(), len(table.Columns))
 	}
 }
 
 func (m *Migrator) logSchemaViewCreated(view ViewInfo) {
 	if m.verbose {
-		fmt.Fprintf(m.output, "  CREATE VIEW %s\n", view.Name)
+		fmt.Fprintf(m.output, "  CREATE VIEW %s\n", view.QualifiedName())
 	}
 }
 
@@ -175,19 +223,33 @@ func (m *Migrator) logSchemaViewCreated(view ViewInfo) {
 func createTableWithSavepoint(ctx context.Context, tx *sql.Tx, table TableInfo, savepoint string) error {
 	ddl := createTableSQL(table)
 	if err := execSavepointCommand(ctx, tx, "SAVEPOINT "+savepoint); err != nil {
-		return fmt.Errorf("creating savepoint for table %s: %w", table.Name, err)
+		return fmt.Errorf("creating savepoint for table %s: %w", table.QualifiedName(), err)
+	}
+	for _, stmt := range createSequenceSQLs(table) {
+		if _, err := tx.ExecContext(ctx, stmt); err != nil {
+			return rollbackTableSavepoint(ctx, tx, table, savepoint, err)
+		}
 	}
 	if _, err := tx.ExecContext(ctx, ddl); err != nil {
-		if rbErr := execSavepointCommand(ctx, tx, "ROLLBACK TO SAVEPOINT "+savepoint); rbErr != nil {
-			return fmt.Errorf("rolling back savepoint for table %s after error %v: %w", table.Name, err, rbErr)
+		return rollbackTableSavepoint(ctx, tx, table, savepoint, err)
+	}
+	for _, stmt := range ownSequenceSQLs(table) {
+		if _, err := tx.ExecContext(ctx, stmt); err != nil {
+			return rollbackTableSavepoint(ctx, tx, table, savepoint, err)
 		}
-		if relErr := execSavepointCommand(ctx, tx, "RELEASE SAVEPOINT "+savepoint); relErr != nil {
-			return fmt.Errorf("releasing savepoint for table %s after rollback: %w", table.Name, relErr)
-		}
-		return err
 	}
 	if err := execSavepointCommand(ctx, tx, "RELEASE SAVEPOINT "+savepoint); err != nil {
-		return fmt.Errorf("releasing savepoint for table %s: %w", table.Name, err)
+		return fmt.Errorf("releasing savepoint for table %s: %w", table.QualifiedName(), err)
 	}
 	return nil
+}
+
+func rollbackTableSavepoint(ctx context.Context, tx *sql.Tx, table TableInfo, savepoint string, err error) error {
+	if rbErr := execSavepointCommand(ctx, tx, "ROLLBACK TO SAVEPOINT "+savepoint); rbErr != nil {
+		return fmt.Errorf("rolling back savepoint for table %s after error %v: %w", table.QualifiedName(), err, rbErr)
+	}
+	if relErr := execSavepointCommand(ctx, tx, "RELEASE SAVEPOINT "+savepoint); relErr != nil {
+		return fmt.Errorf("releasing savepoint for table %s after rollback: %w", table.QualifiedName(), relErr)
+	}
+	return err
 }

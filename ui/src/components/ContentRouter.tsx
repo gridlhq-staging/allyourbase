@@ -8,6 +8,7 @@ import { Code, Columns3, SlidersHorizontal, Tags, Table as TableIcon, TablePrope
 import { cn } from "../lib/utils";
 import { findAdminScreen, SCREEN_REGISTRY, type ScreenProps, type ScreenRegistry } from "../screens/registry";
 import { ErrorNotice } from "./ErrorNotice";
+import { MigrationDiscoveryCTA } from "./MigrationDiscoveryCTA";
 
 const CONTENT_ROUTER_MAIN_CLASS = "flex-1 flex flex-col overflow-hidden bg-gray-50 dark:bg-gray-950";
 const VIEW_TOGGLE_BUTTON_CLASS = "px-3 py-1 text-xs rounded font-medium transition-colors";
@@ -35,6 +36,15 @@ interface TableViewToggleButtonProps {
 }
 
 type BaseScreenProps = Omit<ScreenProps, "screenLabel">;
+
+interface SelectedContentProps {
+  view: View;
+  selected: Table;
+  schema: SchemaCache;
+  onRefresh: () => void | Promise<void>;
+  onOpenSQLEditor: () => void;
+  screenRegistry: ScreenRegistry;
+}
 
 function TableViewToggleButton({
   active,
@@ -65,13 +75,14 @@ function renderAdminContent(
   return screen?.render({ ...props, screenLabel: screen.label });
 }
 
-function renderSelectedContent(
-  view: View,
-  selected: Table,
-  schema: SchemaCache,
-  onRefresh: () => void | Promise<void>,
-  screenRegistry: ScreenRegistry,
-) {
+function renderSelectedContent({
+  view,
+  selected,
+  schema,
+  onRefresh,
+  onOpenSQLEditor,
+  screenRegistry,
+}: SelectedContentProps) {
   switch (view) {
     case "schema":
       return <SchemaView table={selected} />;
@@ -86,7 +97,7 @@ function renderSelectedContent(
       return <SearchSettingsEditor selected={selected} schema={schema} />;
     case "data":
     default:
-      return <TableBrowser table={selected} />;
+      return <TableBrowser table={selected} onOpenSQLEditor={onOpenSQLEditor} />;
   }
 }
 
@@ -175,7 +186,14 @@ export function ContentRouter({
         </header>
 
         <div className="flex-1 overflow-auto">
-          {renderSelectedContent(view, selected, schema, onRefresh, screenRegistry)}
+          {renderSelectedContent({
+            view,
+            selected,
+            schema,
+            onRefresh,
+            onOpenSQLEditor: () => onSetView("sql"),
+            screenRegistry,
+          })}
         </div>
       </main>
     );
@@ -189,6 +207,7 @@ export function ContentRouter({
         <p className="text-xs text-gray-600 dark:text-gray-400">
           Use SQL Editor from the sidebar to create one.
         </p>
+        <MigrationDiscoveryCTA />
       </div>
     </main>
   );

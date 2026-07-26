@@ -293,6 +293,35 @@ func TestBuildSearchSQLWithFuzzy(t *testing.T) {
 	testutil.Contains(t, search.rankSQL, `similarity(coalesce("status", ''), $2)`)
 }
 
+func TestBuildSearchSQLProjectsFinalRank(t *testing.T) {
+	t.Parallel()
+	tbl := searchableTable()
+
+	search, err := buildSearchSQL(tbl, "helo wrld", 2, defaultSearchOptions(true))
+	testutil.NoError(t, err)
+
+	testutil.Contains(t, search.rankSQL, "GREATEST(")
+	testutil.Equal(t, searchRankSQLAlias, search.rankAlias)
+	testutil.Equal(t, search.rankSQL+` AS "`+searchRankSQLAlias+`"`, search.rankSelect)
+}
+
+func TestBuildSearchSQLSkipsRankProjectionOnResponseFieldCollision(t *testing.T) {
+	t.Parallel()
+	tbl := searchableTable()
+	tbl.Columns = append(tbl.Columns, &schema.Column{
+		Name:     searchRankResponseField,
+		Position: 8,
+		TypeName: "numeric",
+	})
+
+	search, err := buildSearchSQL(tbl, "hello", 1, defaultSearchOptions(false))
+	testutil.NoError(t, err)
+
+	testutil.Contains(t, search.rankSQL, "ts_rank(")
+	testutil.Equal(t, "", search.rankSelect)
+	testutil.Equal(t, "", search.rankAlias)
+}
+
 func TestBuildSearchSQLWithFuzzyTypoThreshold(t *testing.T) {
 	t.Parallel()
 	tbl := searchableTable()
@@ -312,6 +341,22 @@ func TestBuildSearchSQLWithFuzzyTypoThreshold(t *testing.T) {
 		t.Fatalf("expected caller-provided fuzzy threshold, got whereSQL: %s", search.whereSQL)
 	}
 	testutil.Contains(t, search.rankSQL, `similarity(coalesce("title", ''), $2)`)
+}
+
+func TestParseSearchParamEmptySearchOmitsRankProjection(t *testing.T) {
+	t.Parallel()
+	h := NewHandler(nil, testCacheHolder(&schema.SchemaCache{}), nil, nil, nil, nil)
+	tbl := searchableTable()
+
+	for _, searchValue := range []string{"", "   "} {
+		w := httptest.NewRecorder()
+		search, ok := h.parseSearchParam(w, tbl, url.Values{"search": []string{searchValue}}, 1)
+		testutil.True(t, ok)
+		testutil.Equal(t, http.StatusOK, w.Code)
+		testutil.Equal(t, "", search.searchRank)
+		testutil.Equal(t, "", search.rankSelect)
+		testutil.Equal(t, "", search.rankAlias)
+	}
 }
 
 func TestBuildListWithSearch(t *testing.T) {

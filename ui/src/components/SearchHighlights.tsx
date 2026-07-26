@@ -94,26 +94,36 @@ export function searchHighlightSnippets(data: ListResponse | null): HighlightSni
   });
 }
 
-function removeSearchHighlightField(row: Record<string, unknown>): Record<string, unknown> {
+function withoutFields(
+  row: Record<string, unknown>,
+  fields: Set<string>,
+): Record<string, unknown> {
   const plainRow: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(row)) {
-    if (key !== SEARCH_HIGHLIGHT_RESPONSE_FIELD) {
+    if (!fields.has(key)) {
       plainRow[key] = value;
     }
   }
   return plainRow;
 }
 
-export function gridDataWithoutSearchHighlights(
+/**
+ * Removes the synthetic search fields the Search screen renders in its own panels
+ * (for example `_highlight` and `_rank`) from grid rows. Callers pass only the
+ * fields the backend actually generated, so real user-owned columns of the same
+ * name are never stripped.
+ */
+export function gridDataWithoutSyntheticSearchFields(
   data: ListResponse | null,
-  stripHighlights: boolean,
+  fields: string[],
 ): ListResponse | null {
-  if (!data || !stripHighlights) {
+  if (!data || fields.length === 0) {
     return data;
   }
+  const strippedFields = new Set(fields);
   return {
     ...data,
-    items: data.items.map(removeSearchHighlightField),
+    items: data.items.map((row) => withoutFields(row, strippedFields)),
   };
 }
 

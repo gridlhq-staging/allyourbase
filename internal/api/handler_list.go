@@ -171,6 +171,8 @@ func (h *Handler) parseListBaseOpts(w http.ResponseWriter, tbl *schema.Table, q 
 		searchRank:            search.searchRank,
 		searchArgs:            search.searchArgs,
 		customRankingSort:     search.customRankingSort,
+		rankSelect:            search.rankSelect,
+		rankAlias:             search.rankAlias,
 		highlightSelect:       search.highlightSelect,
 		highlightAlias:        search.highlightAlias,
 		highlightResultSelect: search.highlightResultSelect,
@@ -267,7 +269,7 @@ func (h *Handler) handleOffsetList(w http.ResponseWriter, r *http.Request, tbl *
 		return
 	}
 
-	items, err := scanListItems(rows, opts.highlightAlias, opts.highlightResultAlias)
+	items, err := scanListItems(rows, opts.rankAlias, opts.highlightAlias, opts.highlightResultAlias)
 	if err != nil {
 		done(err)
 		h.logger.Error("scan error", "error", err, "table", tbl.Name)
@@ -345,21 +347,27 @@ func decodeCursorListPredicate(opts listOpts, cursorParam string) (string, []any
 	return cursorWhere, cursorArgs, nil
 }
 
-func scanListItems(rows pgx.Rows, highlightAlias, highlightResultAlias string) ([]map[string]any, error) {
+func scanListItems(rows pgx.Rows, rankAlias, highlightAlias, highlightResultAlias string) ([]map[string]any, error) {
 	items, err := scanRows(rows)
 	rows.Close()
 	if err != nil {
 		return nil, err
 	}
-	renameListHighlightAlias(items, highlightAlias, highlightResultAlias)
+	normalizeListSearchAliases(items, rankAlias, highlightAlias, highlightResultAlias)
 	return items, nil
 }
 
-func renameListHighlightAlias(items []map[string]any, highlightAlias, highlightResultAlias string) {
-	if highlightAlias == "" && highlightResultAlias == "" {
+func normalizeListSearchAliases(items []map[string]any, rankAlias, highlightAlias, highlightResultAlias string) {
+	if rankAlias == "" && highlightAlias == "" && highlightResultAlias == "" {
 		return
 	}
 	for _, item := range items {
+		if rankAlias != "" {
+			if rank, ok := item[rankAlias]; ok {
+				delete(item, rankAlias)
+				item[searchRankResponseField] = rank
+			}
+		}
 		if highlightAlias != "" {
 			if highlight, ok := item[highlightAlias]; ok {
 				delete(item, highlightAlias)
@@ -435,7 +443,7 @@ func (h *Handler) handleCursorList(
 		return
 	}
 
-	items, err := scanListItems(rows, opts.highlightAlias, opts.highlightResultAlias)
+	items, err := scanListItems(rows, opts.rankAlias, opts.highlightAlias, opts.highlightResultAlias)
 	if err != nil {
 		done(err)
 		h.logger.Error("scan error", "error", err, "table", tbl.Name)

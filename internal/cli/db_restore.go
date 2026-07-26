@@ -24,7 +24,11 @@ func runDBRestore(cmd *cobra.Command, args []string) error {
 	}
 
 	if len(args) == 0 {
-		return fmt.Errorf("provide a file path as argument or use --from <backup-id> for S3 restore")
+		return commandInputError(
+			"provide a local backup path or an S3 backup ID",
+			"ayb db restore <path> or ayb db restore --from <backup-id>",
+			"ayb db restore backup.dump",
+		)
 	}
 
 	dbURL, err := resolveDBURL(cmd)
@@ -49,18 +53,12 @@ func runDBRestoreFromS3(ctx context.Context, cmd *cobra.Command, from string) er
 		return err
 	}
 
-	yes, _ := cmd.Flags().GetBool("yes")
-	if !yes {
-		fmt.Fprintf(cmd.OutOrStdout(), "Restore database from backup %q? This will OVERWRITE the current database. [y/N]: ", from)
-		reader := bufio.NewReader(os.Stdin)
-		answer, _ := reader.ReadString('\n')
-		answer = strings.TrimSpace(strings.ToLower(answer))
-		if answer != "y" && answer != "yes" {
-			fmt.Fprintln(cmd.OutOrStdout(), "Restore cancelled.")
-			return nil
-		}
+	confirmed, err := confirmDBRestore(cmd, fmt.Sprintf("backup %q", from))
+	if err != nil || !confirmed {
+		return err
 	}
 
+	fmt.Fprintln(cmd.ErrOrStderr(), "Restoring database from S3 backup...")
 	store, err := s3StoreFromConfig(ctx, cfg)
 	if err != nil {
 		return fmt.Errorf("initialising S3 client: %w", err)
@@ -114,7 +112,12 @@ func runDBRestoreLocal(cmd *cobra.Command, dbURL, inputPath string) error {
 		return fmt.Errorf("backup file not found: %s", inputPath)
 	}
 
-	fmt.Fprintf(cmd.OutOrStdout(), "Restoring database from %s (%d bytes)...\n", inputPath, fileInfo.Size())
+	confirmed, err := confirmDBRestore(cmd, fmt.Sprintf("local file %q", inputPath))
+	if err != nil || !confirmed {
+		return err
+	}
+
+	fmt.Fprintf(cmd.ErrOrStderr(), "Restoring database from %s (%d bytes)...\n", inputPath, fileInfo.Size())
 
 	extension := filepath.Ext(inputPath)
 	if extension == ".dump" || extension == ".tar" {
@@ -122,6 +125,25 @@ func runDBRestoreLocal(cmd *cobra.Command, dbURL, inputPath string) error {
 	}
 
 	return runPSQLRestore(cmd, dbURL, inputPath, extension)
+}
+
+func confirmDBRestore(cmd *cobra.Command, source string) (bool, error) {
+	yes, _ := cmd.Flags().GetBool("yes")
+	if yes {
+		return true, nil
+	}
+
+	fmt.Fprintf(cmd.ErrOrStderr(), "Restore database from %s? This will OVERWRITE the current database. [y/N]: ", source)
+	answer, err := bufio.NewReader(cmd.InOrStdin()).ReadString('\n')
+	if err != nil && err != io.EOF {
+		return false, fmt.Errorf("reading restore confirmation: %w", err)
+	}
+	answer = strings.TrimSpace(strings.ToLower(answer))
+	if answer != "y" && answer != "yes" {
+		fmt.Fprintln(cmd.ErrOrStderr(), "Restore cancelled.")
+		return false, nil
+	}
+	return true, nil
 }
 
 // runPgRestore restores a database from a binary dump or tar format backup using the PostgreSQL pg_restore command.
@@ -138,7 +160,7 @@ func runPgRestore(cmd *cobra.Command, dbURL, inputPath string) error {
 		inputPath,
 	)
 	command.Stdout = cmd.OutOrStdout()
-	command.Stderr = os.Stderr
+	command.Stderr = cmd.ErrOrStderr()
 	if err := command.Run(); err != nil {
 		return fmt.Errorf("pg_restore failed: %w", err)
 	}
@@ -163,7 +185,7 @@ func runPSQLRestore(cmd *cobra.Command, dbURL, inputPath, extension string) erro
 	command := exec.Command(psqlPath, "--dbname="+dbURL)
 	command.Stdin = stdinReader
 	command.Stdout = cmd.OutOrStdout()
-	command.Stderr = os.Stderr
+	command.Stderr = cmd.ErrOrStderr()
 	if err := command.Run(); err != nil {
 		return fmt.Errorf("psql failed: %w", err)
 	}
