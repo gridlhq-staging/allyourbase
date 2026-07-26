@@ -154,7 +154,7 @@ func TestApexLandingDeployWorkflow(t *testing.T) {
 	if !workflowJobHasRunStep(workflow, "test-apex", "go test ./internal/codehealth -run ^TestApexLanding -count=1") {
 		t.Fatal("test-apex must run the focused apex contract from the repository root without being skippable")
 	}
-	if !workflowJobHasRunStep(workflow, "test-apex", "npm --prefix examples/apex_landing test") {
+	if !workflowJobHasRunStep(workflow, "test-apex", "node --test examples/apex_landing/tests/*.test.mjs") {
 		t.Fatal("test-apex must run the Daytona launcher unit contracts")
 	}
 	if !workflowJobHasRunStep(workflow, "test-apex", "npm --prefix tests/e2e exec -- playwright test --config tests/e2e/try_allyourbase.config.ts") {

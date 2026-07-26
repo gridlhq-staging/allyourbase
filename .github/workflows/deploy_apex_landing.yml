@@ -31,7 +31,7 @@ jobs:
         run: go test ./internal/codehealth -run '^TestApexLanding' -count=1
 
       - name: Test private launcher
-        run: npm --prefix examples/apex_landing test
+        run: node --test examples/apex_landing/tests/*.test.mjs
 
       - name: Install browser test dependencies
         run: |

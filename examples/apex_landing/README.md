@@ -25,7 +25,7 @@ enforces a one-hour hashed client cooldown.
 Run unit and mocked browser contracts from the repository root:
 
 ```bash
-npm --prefix examples/apex_landing test
+node --test examples/apex_landing/tests/*.test.mjs
 npm --prefix tests/e2e exec -- playwright test --config tests/e2e/try_allyourbase.config.ts
 go test ./internal/codehealth -run '^TestApexLanding' -count=1
 ```
