@@ -79,4 +79,17 @@ describe("instantsearch live runtime helper", () => {
       process.env.AYB_APP_PORT ?? "8096",
     ]);
   });
+
+  it("binds the checked app port before slower API startup and seeding", () => {
+    const runtimeSource = readFileSync(
+      join(process.cwd(), "live_runtime.mjs"),
+      "utf8",
+    );
+    const appStart = runtimeSource.indexOf('spawnManagedProcess(\n        "app"');
+    const apiReady = runtimeSource.indexOf("await waitForURL(API_HEALTH_URL");
+
+    expect(appStart).toBeGreaterThan(-1);
+    expect(apiReady).toBeGreaterThan(-1);
+    expect(appStart).toBeLessThan(apiReady);
+  });
 });

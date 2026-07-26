@@ -38,17 +38,9 @@ export async function startInstantSearchRuntime(options = {}) {
   const managedProcesses = [];
 
   try {
-    const apiProcess = spawnManagedProcess(
-      "api",
-      aybCommand.command,
-      [...aybCommand.args, "start", "--foreground", "--port", String(API_PORT)],
-      REPO_ROOT,
-      runtimeEnv,
-    );
-    managedProcesses.push(apiProcess);
-    await waitForURL(API_HEALTH_URL, READINESS_TIMEOUT_MS, apiProcess);
-    seedInstantSearchDemo(aybCommand, runtimeEnv);
-
+    // Bind the app port immediately after the ownership probe. API startup and
+    // seeding can take tens of seconds in CI; deferring Vite until afterward
+    // leaves a large check-to-bind race on an otherwise verified free port.
     if (includeApp) {
       const viteCommand = resolveViteCommand();
       const appProcess = spawnManagedProcess(
@@ -61,6 +53,17 @@ export async function startInstantSearchRuntime(options = {}) {
       managedProcesses.push(appProcess);
       await waitForURL(APP_URL, READINESS_TIMEOUT_MS, appProcess);
     }
+
+    const apiProcess = spawnManagedProcess(
+      "api",
+      aybCommand.command,
+      [...aybCommand.args, "start", "--foreground", "--port", String(API_PORT)],
+      REPO_ROOT,
+      runtimeEnv,
+    );
+    managedProcesses.push(apiProcess);
+    await waitForURL(API_HEALTH_URL, READINESS_TIMEOUT_MS, apiProcess);
+    seedInstantSearchDemo(aybCommand, runtimeEnv);
 
     return {
       apiURL: API_URL,
