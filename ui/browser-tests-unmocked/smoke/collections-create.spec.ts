@@ -88,7 +88,8 @@ test.describe("Smoke: Collections Create", () => {
     await tableLink.click();
 
     // Step 6: Click "New Row" button to create record
-    const newButton = page.getByRole("button", { name: "New Row" });
+    const toolbar = page.getByRole("toolbar", { name: "Table actions" });
+    const newButton = toolbar.getByRole("button", { name: "New Row" });
     await expect(newButton).toBeVisible({ timeout: 5000 });
     await newButton.click();
 

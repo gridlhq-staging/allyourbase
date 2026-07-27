@@ -100,7 +100,8 @@ test.describe("Collections CRUD (Full E2E)", () => {
     await waitForDashboard(page);
     await openTableFromSidebar(page, tableName);
 
-    await page.getByRole("button", { name: "New Row" }).click();
+    const toolbar = page.getByRole("toolbar", { name: "Table actions" });
+    await toolbar.getByRole("button", { name: "New Row" }).click();
     await expect(page.getByText("New Record")).toBeVisible();
 
     await page.getByLabel("name").fill("Laptop");
