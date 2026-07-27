@@ -1,0 +1,39 @@
+name: Push Contract
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 15 * * 1"
+
+permissions:
+  contents: read
+
+jobs:
+  push-contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16
+        with:
+          go-version-file: go.mod
+
+      - name: Require and materialize FCM credentials
+        env:
+          AYB_PUSH_FCM_SERVICE_ACCOUNT_JSON: ${{ secrets.AYB_PUSH_FCM_SERVICE_ACCOUNT_JSON }}
+        run: |
+          if [ -z "${AYB_PUSH_FCM_SERVICE_ACCOUNT_JSON:-}" ]; then
+            echo "AYB_PUSH_FCM_SERVICE_ACCOUNT_JSON secret is required for the push contract lane." >&2
+            exit 1
+          fi
+
+          umask 077
+          printf '%s' "$AYB_PUSH_FCM_SERVICE_ACCOUNT_JSON" > "$RUNNER_TEMP/fcm-contract-creds.json"
+          printf 'AYB_PUSH_CONTRACT_FCM_CREDENTIALS=%s\n' "$RUNNER_TEMP/fcm-contract-creds.json" >> "$GITHUB_ENV"
+
+      - name: Run push contract tests
+        run: go test -tags=pushcontract -run 'Contract' -count=1 ./internal/push/...

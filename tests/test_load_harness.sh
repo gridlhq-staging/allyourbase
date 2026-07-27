@@ -351,6 +351,36 @@ assert_not_contains "$DIRECT_RECORD_PATH" "AYB_AUTH_JWT_SECRET=" "baseline direc
 assert_contains "$DIRECT_AUTH_LOG" "\"password\": \"password-from-file\"" "direct target should exchange the saved admin password via /api/admin/auth"
 PASS_COUNT=$((PASS_COUNT + 1))
 
+DIRECT_BEARER_FILE_AUTH_LOG="${TMP_DIR}/direct-bearer-file-auth.log"
+DIRECT_BEARER_FILE_PORT="$(find_free_port)"
+python3 "${TMP_DIR}/auth_server.py" "$DIRECT_BEARER_FILE_PORT" "$DIRECT_BEARER_FILE_AUTH_LOG" "password-that-should-not-be-used" "token-that-should-not-be-issued" > "${TMP_DIR}/direct-bearer-file.server.log" 2>&1 &
+DIRECT_BEARER_FILE_SERVER_PID=$!
+SERVER_PIDS+=("$DIRECT_BEARER_FILE_SERVER_PID")
+wait_for_http "http://127.0.0.1:${DIRECT_BEARER_FILE_PORT}/health" "direct bearer-file auth fixture did not become healthy"
+
+DIRECT_BEARER_FILE_HOME="${TMP_DIR}/direct-bearer-file-home"
+mkdir -p "${DIRECT_BEARER_FILE_HOME}/.ayb"
+printf "bearer-from-saved-file\n" > "${DIRECT_BEARER_FILE_HOME}/.ayb/admin-token"
+
+DIRECT_BEARER_FILE_RECORD_PATH="${TMP_DIR}/direct-bearer-file-k6.log"
+if ! env -u AYB_AUTH_ENABLED -u AYB_AUTH_JWT_SECRET -u AYB_ADMIN_PASSWORD \
+  PATH="${TMP_DIR}/bin:${PATH}" \
+  HOME="${DIRECT_BEARER_FILE_HOME}" \
+  K6_RECORD_PATH="${DIRECT_BEARER_FILE_RECORD_PATH}" \
+  LOAD_K6_BIN="${TMP_DIR}/bin/k6" \
+  AYB_BASE_URL="http://127.0.0.1:${DIRECT_BEARER_FILE_PORT}" \
+  make load-admin-status > "${TMP_DIR}/direct-bearer-file.stdout" 2> "${TMP_DIR}/direct-bearer-file.stderr"; then
+  echo "FAIL: make load-admin-status failed with saved bearer token file"
+  cat "${TMP_DIR}/direct-bearer-file.stdout"
+  cat "${TMP_DIR}/direct-bearer-file.stderr"
+  exit 1
+fi
+
+assert_contains "$DIRECT_BEARER_FILE_RECORD_PATH" "AYB_ADMIN_TOKEN=bearer-from-saved-file" "load_resolve_admin_token should accept saved bearer-token files written by ayb start"
+kill "$DIRECT_BEARER_FILE_SERVER_PID" 2>/dev/null || true
+wait "$DIRECT_BEARER_FILE_SERVER_PID" 2>/dev/null || true
+PASS_COUNT=$((PASS_COUNT + 1))
+
 AUTH_DIRECT_RECORD_PATH="${TMP_DIR}/auth-direct-k6.log"
 run_direct_make "$AUTH_DIRECT_RECORD_PATH" load-auth-request-path auth-direct "$DIRECT_PORT"
 

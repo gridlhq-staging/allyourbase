@@ -254,8 +254,8 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Build library target only
-        run: swift build --target Allyourbase
+      - name: Build and test
+        run: swift build && swift run AllyourbaseTestRunner
 
   sdk-kotlin:
     runs-on: ubuntu-latest
@@ -733,7 +733,7 @@ jobs:
         run: npm ci
 
       - name: Run SDK integration tests
-        run: bash scripts/run-with-ayb.sh 'cd sdk && npm run test:integration'
+        run: make test-sdk-integration
 
       - name: Upload SDK integration artifacts
         if: failure()

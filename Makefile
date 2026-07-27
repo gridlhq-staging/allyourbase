@@ -82,7 +82,7 @@ load_export_env() { \
 	}; \
 	load_resolve_admin_token() { \
 		local resolved_admin_token="$${AYB_ADMIN_TOKEN:-}"; \
-		local admin_password_from_file; \
+		local admin_password_from_file file_exchange_result; \
 		if [ -z "$$resolved_admin_token" ] && ! load_base_url_is_loopback; then \
 			printf "AYB_ADMIN_TOKEN must be set for non-loopback AYB_BASE_URL; refusing ~/.ayb/admin-token fallback for %s\n" "$$AYB_BASE_URL" >&2; \
 			return 1; \
@@ -93,7 +93,12 @@ load_export_env() { \
 		if [ -z "$$resolved_admin_token" ] && [ -f "$${HOME}/.ayb/admin-token" ]; then \
 			admin_password_from_file="$$(head -n 1 "$${HOME}/.ayb/admin-token" | sed 's/\r$$//')"; \
 			if [ -n "$$admin_password_from_file" ]; then \
-				resolved_admin_token="$$(load_exchange_admin_password_for_token "$$admin_password_from_file")"; \
+				file_exchange_result="$$(load_exchange_admin_password_for_token "$$admin_password_from_file")"; \
+				if [ -n "$$file_exchange_result" ]; then \
+					resolved_admin_token="$$file_exchange_result"; \
+				elif [ -z "$${AYB_ADMIN_PASSWORD:-}" ]; then \
+					resolved_admin_token="$$admin_password_from_file"; \
+				fi; \
 			fi; \
 		fi; \
 		if [ -z "$$resolved_admin_token" ]; then \
