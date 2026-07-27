@@ -92,7 +92,6 @@ check_image() {
       || fail_arm image "docker context host probe failed"
     [ -n "$docker_host" ] || fail_arm image "empty docker context host"
   fi
-  TEMP_DIR=$(mktemp -d)
   mkdir -p "$TEMP_DIR/docker-config"
   image_ref="$IMAGE_REPO:$version"
   DOCKER_CONFIG="$TEMP_DIR/docker-config" DOCKER_HOST="$docker_host" docker pull "$image_ref" >/dev/null \
@@ -126,7 +125,8 @@ check_installer() {
 
 check_url() {
   url="$1"
-  body_file=$(mktemp "${TMPDIR:-/tmp}/ayb-launch-body.XXXXXX")
+  body_file=$(mktemp "$TEMP_DIR/launch-body.XXXXXX") \
+    || fail_arm https "temporary response file creation failed url=$url"
   http_code=$(curl -fsS -L --max-time 25 -o "$body_file" -w "%{http_code} %{url_effective}" "$url") \
     || fail_arm https "curl failed url=$url"
   status=${http_code%% *}
@@ -135,7 +135,30 @@ check_url() {
   info https "url=$url status=$status effective=$effective"
   if [ "$url" = "https://api.allyourbase.io/health" ]; then
     body=$(cat "$body_file")
-    [ "$body" = '{"status":"ok","database":"ok"}' ] || fail_arm https-health "body=$body"
+    health_fields=$(json_query '
+import json, sys
+try:
+    payload = json.load(sys.stdin)
+except Exception as exc:
+    raise SystemExit(f"malformed health json: {exc}")
+if not isinstance(payload, dict):
+    raise SystemExit("health response must be an object")
+for field in ("status", "database", "version"):
+    value = payload.get(field, "")
+    if not isinstance(value, str):
+        raise SystemExit(f"health field {field} must be a string")
+    if "\n" in value or "\r" in value:
+        raise SystemExit(f"health field {field} must be a single line")
+    print(value)
+' <"$body_file" 2>&1) || fail_arm https-health "$health_fields"
+    health_status=$(printf '%s\n' "$health_fields" | sed -n '1p')
+    health_database=$(printf '%s\n' "$health_fields" | sed -n '2p')
+    health_version=$(printf '%s\n' "$health_fields" | sed -n '3p')
+    [ "$health_status" = "ok" ] && [ "$health_database" = "ok" ] \
+      || fail_arm https-health "status=${health_status:-missing} database=${health_database:-missing}"
+    [ -n "$health_version" ] || fail_arm https-version "missing version"
+    [ "$health_version" = "$version" ] \
+      || fail_arm https-version "expected=$version actual=$health_version"
     info https-health "json=$body"
   fi
   rm -f "$body_file"
@@ -183,6 +206,7 @@ require_command curl
 require_command docker
 require_command python3
 
+TEMP_DIR=$(mktemp -d) || fail_arm prerequisites "temporary directory creation failed"
 resolve_release
 require_release_assets
 check_image

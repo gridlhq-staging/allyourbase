@@ -7,6 +7,7 @@ import (
 
 	"github.com/allyourbase/ayb/internal/cli"
 	"github.com/allyourbase/ayb/internal/cli/ui"
+	buildversion "github.com/allyourbase/ayb/internal/version"
 )
 
 type errorWithSuggestions interface {
@@ -23,6 +24,7 @@ var (
 
 func main() {
 	cli.SetVersion(version, commit, date)
+	buildversion.Set(version)
 	if err := cli.Execute(); err != nil {
 		fmt.Fprint(os.Stderr, renderTopLevelError(err))
 		os.Exit(1)

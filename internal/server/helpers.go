@@ -11,6 +11,7 @@ import (
 	"github.com/allyourbase/ayb/internal/config"
 	"github.com/allyourbase/ayb/internal/httputil"
 	"github.com/allyourbase/ayb/internal/observability"
+	"github.com/allyourbase/ayb/internal/version"
 	"github.com/allyourbase/ayb/openapi"
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
@@ -38,12 +39,15 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 	type healthResponse struct {
 		Status   string `json:"status"`
 		Database string `json:"database"`
+		Version  string `json:"version"`
 	}
 
+	v := version.Get()
 	if s.pool == nil {
 		httputil.WriteJSON(w, http.StatusOK, healthResponse{
 			Status:   "ok",
 			Database: "not configured",
+			Version:  v,
 		})
 		return
 	}
@@ -55,6 +59,7 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 		httputil.WriteJSON(w, http.StatusServiceUnavailable, healthResponse{
 			Status:   "degraded",
 			Database: "unreachable",
+			Version:  v,
 		})
 		return
 	}
@@ -62,6 +67,7 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 	httputil.WriteJSON(w, http.StatusOK, healthResponse{
 		Status:   "ok",
 		Database: "ok",
+		Version:  v,
 	})
 }
 

@@ -19,6 +19,7 @@ LOGIN_URL="${AYB_BASE_URL}/api/auth/login"
 DEMO_JWT_SECRET="quickstart-e2e-demo-jwt-secret-0123456789abcdef"
 MAX_RETRIES=90
 RETRY_SLEEP_SECONDS=1
+QUICKSTART_BUILD_VERSION="quickstart-e2e"
 
 TMP_DIR="$(mktemp -d)"
 RUNTIME_HOME="$TMP_DIR/home"
@@ -65,7 +66,7 @@ prepare_ayb_binary() {
 
   AYB_BIN="$LOCAL_AYB_BIN"
   mkdir -p "$(dirname "$AYB_BIN")"
-  (cd "$REPO_ROOT" && go build -o "$AYB_BIN" ./cmd/ayb)
+  (cd "$REPO_ROOT" && go build -ldflags "-X main.version=$QUICKSTART_BUILD_VERSION" -o "$AYB_BIN" ./cmd/ayb)
 }
 
 wait_for_ready_health() {
@@ -126,16 +127,25 @@ assert_auth_me_disabled() {
 
 assert_health_contract() {
   local body_file="$1"
-  python3 - "$body_file" <<'PY'
+  local expected_version="$2"
+  python3 - "$body_file" "$expected_version" <<'PY'
 import json
 import sys
 
 with open(sys.argv[1], encoding="utf-8") as handle:
     body = json.load(handle)
 
-expected = {"status": "ok", "database": "ok"}
-if body != expected:
-    raise SystemExit(f"health response mismatch: got {body!r}, want {expected!r}")
+expected_fields = {
+    "status": "ok",
+    "database": "ok",
+    "version": sys.argv[2],
+}
+for field, expected in expected_fields.items():
+    actual = body.get(field)
+    if actual != expected:
+        raise SystemExit(
+            f"health response field {field!r} mismatch: got {actual!r}, want {expected!r}; body={body!r}"
+        )
 PY
 }
 
@@ -439,6 +449,15 @@ assert_generated_scaffold_project() {
 mkdir -p "$RUNTIME_WORKDIR"
 assert_admin_password_predicate_contract
 prepare_ayb_binary
+if ! AYB_EXPECTED_VERSION="$("$AYB_BIN" version --json | python3 -c '
+import json, sys
+version = json.load(sys.stdin).get("version", "")
+if not isinstance(version, str) or not version:
+    raise SystemExit("ayb version --json returned no usable version")
+print(version)
+')"; then
+  fail "could not read the quickstart binary version"
+fi
 export PATH="$(dirname "$AYB_BIN"):$PATH"
 export HOME="$RUNTIME_HOME"
 cd "$RUNTIME_WORKDIR"
@@ -465,7 +484,7 @@ assert_contains "$TMP_DIR/health.json" '"status":"ok"' "health response missing 
 admin_password_is_nonempty "$TMP_DIR/ayb_start.stderr" \
   || fail "startup banner missing non-empty admin password"
 assert_contains "$TMP_DIR/ayb_start.stderr" "To reset: ayb admin reset-password" "startup banner missing reset hint"
-assert_health_contract "$TMP_DIR/health.json"
+assert_health_contract "$TMP_DIR/health.json" "$AYB_EXPECTED_VERSION"
 
 run_extracted_bash_block \
   "quickstart_create_todos" \

@@ -94,8 +94,18 @@ case "$scenario:$url" in
     printf '200 %s\n' "$url"
     exit 0
     ;;
-  *:https://api.allyourbase.io/health)
+  health_stale_version:https://api.allyourbase.io/health)
+    [ -n "$out_file" ] && printf '{"status":"ok","database":"ok","version":"0.0.16-beta"}' >"$out_file"
+    printf '200 %s\n' "$url"
+    exit 0
+    ;;
+  health_missing_version:https://api.allyourbase.io/health)
     [ -n "$out_file" ] && printf '{"status":"ok","database":"ok"}' >"$out_file"
+    printf '200 %s\n' "$url"
+    exit 0
+    ;;
+  *:https://api.allyourbase.io/health)
+    [ -n "$out_file" ] && printf '{"status":"ok","database":"ok","version":"0.0.17-beta"}' >"$out_file"
     printf '200 %s\n' "$url"
     exit 0
     ;;
@@ -239,7 +249,7 @@ assert_contains "$success_out" 'release tag=v0.0.17-beta version=0.0.17-beta'
 assert_contains "$success_out" 'image=ghcr.io/allyourbasehq/allyourbase:0.0.17-beta version=0.0.17-beta'
 assert_contains "$success_out" 'installer version=0.0.17-beta'
 assert_contains "$success_out" 'url=https://allyourbase.io status=200'
-assert_contains "$success_out" 'health json={"status":"ok","database":"ok"}'
+assert_contains "$success_out" 'health json={"status":"ok","database":"ok","version":"0.0.17-beta"}'
 assert_contains "$success_out" 'sha=0123456789abcdef0123456789abcdef01234567'
 assert_contains "$success_out" 'run id=602 status=completed conclusion=success'
 assert_contains "$LOG_FILE" 'gh release view v0.0.17-beta -R AllyourbaseHQ/allyourbase --json assets'
@@ -260,12 +270,17 @@ for case_name in \
   no_app_release release_row_not_object release_trailing_row_not_object release_missing_tag release_missing_is_draft \
   missing_asset malformed_release_view docker_pull docker_version_bad \
   docker_version_malformed install_fail url_docs url_installer url_demo url_kanban \
-  url_polls url_movies url_instantsearch url_health health_bad_json ci_short_sha \
+  url_polls url_movies url_instantsearch url_health health_bad_json health_stale_version \
+  health_missing_version ci_short_sha \
   ci_zero ci_malformed ci_empty ci_duplicate ci_mismatched_head ci_in_progress ci_failure \
   docker_context_probe_fail docker_context_empty
 do
   run_case "$case_name" fail
 done
+
+if [ -n "$(ls -A "$TEST_DIR/tmp")" ]; then
+  fail 'launch-check left temporary files behind after a failed probe'
+fi
 
 assert_contains "$TEST_DIR/ci_zero.out" 'arm=prod-ci'
 assert_contains "$TEST_DIR/ci_zero.out" 'n=0'
@@ -285,5 +300,9 @@ assert_contains "$TEST_DIR/docker_version_bad.out" 'arm=image-version'
 assert_contains "$TEST_DIR/install_fail.out" 'arm=installer'
 assert_contains "$TEST_DIR/url_docs.out" 'arm=https'
 assert_contains "$TEST_DIR/health_bad_json.out" 'arm=https-health'
+assert_contains "$TEST_DIR/health_stale_version.out" 'arm=https-version'
+assert_contains "$TEST_DIR/health_stale_version.out" 'expected=0.0.17-beta'
+assert_contains "$TEST_DIR/health_missing_version.out" 'arm=https-version'
+assert_contains "$TEST_DIR/health_missing_version.out" 'missing version'
 
 printf 'PASS: launch-check deterministic contract\n'
