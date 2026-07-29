@@ -338,6 +338,10 @@ func (s *Service) Logout(ctx context.Context, refreshToken string) error {
 
 // createSession creates a session record for the user with optional authentication context, generating a new refresh token and storing its hash in the database. It records the user agent and IP address from the request context and returns the session ID and plaintext refresh token.
 func (s *Service) createSession(ctx context.Context, userID string, opts *tokenOptions) (string, string, error) {
+	return s.createSessionInDatabase(ctx, s.pool, userID, opts)
+}
+
+func (s *Service) createSessionInDatabase(ctx context.Context, database authDatabase, userID string, opts *tokenOptions) (string, string, error) {
 	raw := make([]byte, refreshTokenBytes)
 	if _, err := rand.Read(raw); err != nil {
 		return "", "", fmt.Errorf("generating refresh token: %w", err)
@@ -358,7 +362,7 @@ func (s *Service) createSession(ctx context.Context, userID string, opts *tokenO
 	}
 
 	var sessionID string
-	err := s.pool.QueryRow(ctx,
+	err := database.QueryRow(ctx,
 		`INSERT INTO _ayb_sessions (user_id, token_hash, expires_at, aal, amr, user_agent, ip_address, last_active_at)
 		 VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())
 		 RETURNING id`,

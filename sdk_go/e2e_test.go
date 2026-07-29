@@ -1,6 +1,7 @@
 package allyourbase
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -85,6 +86,34 @@ func TestE2EContract(t *testing.T) {
 		t.Fatalf("list faceted results: %v", err)
 	}
 	assertFacetCounts(t, faceted.Facets[contract.FacetColumn], contract.ExpectedFacetCounts)
+}
+
+func TestE2EGoRPCLive(t *testing.T) {
+	baseURL := os.Getenv("AYB_TEST_URL")
+	if baseURL == "" {
+		t.Skip("AYB_TEST_URL not set")
+	}
+	adminToken := os.Getenv("AYB_TEST_ADMIN_TOKEN")
+	if adminToken == "" {
+		t.Fatal("AYB_TEST_ADMIN_TOKEN not set")
+	}
+
+	requestFixture := mustLoadContractFixture(t, "rpc_request.json")
+	var args map[string]int
+	if err := json.Unmarshal(requestFixture, &args); err != nil {
+		t.Fatalf("decode rpc request fixture: %v", err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	got, err := NewClient(baseURL, WithAPIKey(adminToken)).RPC(ctx, "sdk_contract_add", args)
+	if err != nil {
+		t.Fatalf("RPC sdk_contract_add: %v", err)
+	}
+	expected := mustLoadContractFixture(t, "rpc_response.json")
+	if !bytes.Equal(got, expected) {
+		t.Fatalf("RPC response = %q, want fixture %q", got, expected)
+	}
 }
 
 func TestE2ERealtimeCreateEventLive(t *testing.T) {

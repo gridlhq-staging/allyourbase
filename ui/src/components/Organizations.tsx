@@ -1,7 +1,8 @@
 import { useCallback, useMemo, useState } from "react";
-import { AlertCircle, Loader2 } from "lucide-react";
+import { Loader2 } from "lucide-react";
 import { useDraftFilters } from "../hooks/useDraftFilters";
 import type { OrgAuditQuery, OrgDetailTab, OrgUsagePeriod, OrgUsageQuery } from "../types/organizations";
+import { ErrorNotice } from "./ErrorNotice";
 import { useOrgManagementState } from "./organization-management-hooks";
 import { useOrgDetailState, useOrgListState, type OrgDetailState } from "./organizations-hooks";
 import { OrgInfoSection, OrgMembersSection, OrgTenantsSection } from "./OrganizationManagementSections";
@@ -310,6 +311,7 @@ interface OrganizationDetailPaneProps {
   selectedTeamId: string | null;
   onTabChange: (tab: OrgDetailTab) => void;
   onSelectTeam: (teamId: string) => void;
+  onRetry: () => void;
   management: OrgManagementState;
   filters: OrganizationFilterState;
 }
@@ -322,6 +324,7 @@ function OrganizationDetailPane({
   selectedTeamId,
   onTabChange,
   onSelectTeam,
+  onRetry,
   management,
   filters,
 }: OrganizationDetailPaneProps) {
@@ -339,9 +342,11 @@ function OrganizationDetailPane({
     if (selectedId && detail.error) {
       return (
         <div className="p-4">
-          <div className="rounded border border-red-200 bg-red-50 text-red-700 px-3 py-2 text-sm">
-            Failed to load organization: {detail.error}
-          </div>
+          <ErrorNotice
+            message={`Failed to load organization: ${detail.error}`}
+            docsPath="/guide/organizations"
+            onAction={onRetry}
+          />
         </div>
       );
     }
@@ -381,8 +386,12 @@ function OrganizationDetailPane({
       ) : (
         <>
           {detail.error && (
-            <div className="mb-3 rounded border border-red-200 bg-red-50 text-red-700 px-3 py-2 text-sm">
-              {detail.error}
+            <div className="mb-3">
+              <ErrorNotice
+                message={`Failed to load organization: ${detail.error}`}
+                docsPath="/guide/organizations"
+                onAction={onRetry}
+              />
             </div>
           )}
           <OrganizationTabContent
@@ -403,7 +412,7 @@ export function Organizations() {
   const { listState, refreshList } = useOrgListState();
   const filters = useOrganizationFilters();
   const selection = useOrganizationSelection();
-  const { detail, setDetail } = useOrgDetailState(
+  const { detail, setDetail, refreshDetail } = useOrgDetailState(
     selection.selectedId,
     selection.activeTab,
     filters.auditQuery,
@@ -432,8 +441,12 @@ export function Organizations() {
   if (listState.error && listState.items.length === 0) {
     return (
       <div data-testid="organizations-view" className="flex-1 flex items-center justify-center p-8">
-        <AlertCircle className="w-5 h-5 text-red-400 mr-2" />
-        <span className="text-red-600 dark:text-red-400">Failed to load organizations: {listState.error}</span>
+        <ErrorNotice
+          message={`Failed to load organizations: ${listState.error}`}
+          docsPath="/guide/organizations"
+          onAction={refreshList}
+          variant="page"
+        />
       </div>
     );
   }
@@ -465,6 +478,7 @@ export function Organizations() {
           selectedTeamId={selection.selectedTeamId}
           onTabChange={selection.handleTabChange}
           onSelectTeam={selection.handleTeamSelect}
+          onRetry={refreshDetail}
           management={management}
           filters={filters}
         />

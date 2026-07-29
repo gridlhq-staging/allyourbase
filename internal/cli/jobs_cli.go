@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"net/url"
 	"os"
 	"strconv"
 	"text/tabwriter"
@@ -15,6 +16,9 @@ import (
 var jobsCmd = &cobra.Command{
 	Use:   "jobs",
 	Short: "Manage background jobs",
+	Example: `ayb jobs list
+ayb jobs list --state failed --limit 10
+ayb jobs retry <job-id>`,
 }
 
 var jobsListCmd = &cobra.Command{
@@ -40,6 +44,9 @@ var jobsCancelCmd = &cobra.Command{
 var schedulesCmd = &cobra.Command{
 	Use:   "schedules",
 	Short: "Manage job schedules",
+	Example: `ayb schedules list
+ayb schedules create --name hourly --job-type cleanup --cron "0 * * * *"
+ayb schedules enable <schedule-id>`,
 }
 
 var schedulesListCmd = &cobra.Command{
@@ -127,15 +134,19 @@ func runJobsList(cmd *cobra.Command, _ []string) error {
 	jobType, _ := cmd.Flags().GetString("type")
 	limit, _ := cmd.Flags().GetInt("limit")
 
-	path := "/api/admin/jobs?"
+	query := url.Values{}
 	if state != "" {
-		path += "state=" + state + "&"
+		query.Set("state", state)
 	}
 	if jobType != "" {
-		path += "type=" + jobType + "&"
+		query.Set("type", jobType)
 	}
 	if limit > 0 {
-		path += fmt.Sprintf("limit=%d&", limit)
+		query.Set("limit", fmt.Sprintf("%d", limit))
+	}
+	path := "/api/admin/jobs"
+	if encoded := query.Encode(); encoded != "" {
+		path += "?" + encoded
 	}
 
 	resp, body, err := adminRequest(cmd, "GET", path, nil)
@@ -185,7 +196,7 @@ func runJobsList(cmd *cobra.Command, _ []string) error {
 // Resets a failed job to queued state via the admin API, allowing it to be retried.
 func runJobsRetry(cmd *cobra.Command, args []string) error {
 	jobID := args[0]
-	resp, body, err := adminRequest(cmd, "POST", "/api/admin/jobs/"+jobID+"/retry", nil)
+	resp, body, err := adminRequest(cmd, "POST", "/api/admin/jobs/"+url.PathEscape(jobID)+"/retry", nil)
 	if err != nil {
 		return err
 	}
@@ -204,7 +215,7 @@ func runJobsRetry(cmd *cobra.Command, args []string) error {
 // Sends a cancel request to the server for a queued job by its ID and reports the cancellation result.
 func runJobsCancel(cmd *cobra.Command, args []string) error {
 	jobID := args[0]
-	resp, body, err := adminRequest(cmd, "POST", "/api/admin/jobs/"+jobID+"/cancel", nil)
+	resp, body, err := adminRequest(cmd, "POST", "/api/admin/jobs/"+url.PathEscape(jobID)+"/cancel", nil)
 	if err != nil {
 		return err
 	}
@@ -348,7 +359,7 @@ func runSchedulesUpdate(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return fmt.Errorf("serializing schedule update payload: %w", err)
 	}
-	resp, respBody, err := adminRequest(cmd, "PUT", "/api/admin/schedules/"+schedID, bytes.NewReader(body))
+	resp, respBody, err := adminRequest(cmd, "PUT", "/api/admin/schedules/"+url.PathEscape(schedID), bytes.NewReader(body))
 	if err != nil {
 		return err
 	}
@@ -366,7 +377,7 @@ func runSchedulesUpdate(cmd *cobra.Command, args []string) error {
 
 func runSchedulesDelete(cmd *cobra.Command, args []string) error {
 	schedID := args[0]
-	resp, respBody, err := adminRequest(cmd, "DELETE", "/api/admin/schedules/"+schedID, nil)
+	resp, respBody, err := adminRequest(cmd, "DELETE", "/api/admin/schedules/"+url.PathEscape(schedID), nil)
 	if err != nil {
 		return err
 	}
@@ -380,7 +391,7 @@ func runSchedulesDelete(cmd *cobra.Command, args []string) error {
 // Enables a disabled schedule via the admin API and reports the result.
 func runSchedulesEnable(cmd *cobra.Command, args []string) error {
 	schedID := args[0]
-	resp, respBody, err := adminRequest(cmd, "POST", "/api/admin/schedules/"+schedID+"/enable", nil)
+	resp, respBody, err := adminRequest(cmd, "POST", "/api/admin/schedules/"+url.PathEscape(schedID)+"/enable", nil)
 	if err != nil {
 		return err
 	}
@@ -399,7 +410,7 @@ func runSchedulesEnable(cmd *cobra.Command, args []string) error {
 // Disables an enabled schedule via the admin API and reports the result.
 func runSchedulesDisable(cmd *cobra.Command, args []string) error {
 	schedID := args[0]
-	resp, respBody, err := adminRequest(cmd, "POST", "/api/admin/schedules/"+schedID+"/disable", nil)
+	resp, respBody, err := adminRequest(cmd, "POST", "/api/admin/schedules/"+url.PathEscape(schedID)+"/disable", nil)
 	if err != nil {
 		return err
 	}

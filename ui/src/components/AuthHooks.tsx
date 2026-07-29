@@ -1,6 +1,7 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { getAuthHooks } from "../api_auth_hooks";
 import type { AuthHooksConfig } from "../types/auth_hooks";
+import { ErrorNotice } from "./ErrorNotice";
 
 const HOOK_LABELS: { key: keyof AuthHooksConfig; label: string }[] = [
   { key: "before_sign_up", label: "Before Sign Up" },
@@ -15,13 +16,18 @@ export function AuthHooks() {
   const [hooks, setHooks] = useState<AuthHooksConfig | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    getAuthHooks()
-      .then(setHooks)
-      .catch((err) =>
-        setError(err instanceof Error ? err.message : "Failed to load"),
-      );
+  const load = useCallback(async () => {
+    try {
+      setError(null);
+      setHooks(await getAuthHooks());
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to load");
+    }
   }, []);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
 
   if (error) {
     return (
@@ -29,7 +35,11 @@ export function AuthHooks() {
         <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-4">
           Auth Hooks
         </h2>
-        <p className="text-red-600 dark:text-red-400">{error}</p>
+        <ErrorNotice
+          message={error}
+          docsPath="/guide/authentication"
+          onAction={() => void load()}
+        />
       </div>
     );
   }

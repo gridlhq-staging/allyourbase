@@ -125,11 +125,21 @@ describe("LogDrains", () => {
     });
   });
 
-  it("shows error state on fetch failure", async () => {
-    (api.listDrains as ReturnType<typeof vi.fn>).mockRejectedValue(new Error("Unavailable"));
+  it("keeps drain controls mounted and retries the exact fetch failure", async () => {
+    (api.listDrains as ReturnType<typeof vi.fn>).mockRejectedValueOnce(
+      new Error("Unavailable"),
+    );
     renderWithProviders(<LogDrains />);
     await waitFor(() => {
       expect(screen.getByText("Unavailable")).toBeInTheDocument();
     });
+    expect(screen.getByRole("button", { name: /create drain/i })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+
+    await waitFor(() => {
+      expect(screen.getByText("datadog-prod")).toBeInTheDocument();
+    });
+    expect(api.listDrains).toHaveBeenCalledTimes(2);
   });
 });

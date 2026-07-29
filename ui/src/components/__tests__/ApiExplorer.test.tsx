@@ -1,6 +1,12 @@
 import { vi, describe, it, expect, beforeEach } from "vitest";
 import { expectWcagContrastToken } from "../../test-utils";
-import { render, screen, waitFor, act } from "@testing-library/react";
+import {
+  render,
+  screen,
+  waitFor,
+  act,
+  within,
+} from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { ApiExplorer } from "../ApiExplorer";
 import { executeApiExplorer } from "../../api";
@@ -174,6 +180,41 @@ describe("ApiExplorer", () => {
     await waitFor(() => {
       expect(screen.getByText("Failed to fetch")).toBeInTheDocument();
     });
+  });
+
+  it("retries the current request from the error panel without unmounting controls", async () => {
+    mockExecute
+      .mockRejectedValueOnce(new Error("API explorer network fault"))
+      .mockResolvedValueOnce(makeResponse({ status: 200, statusText: "OK" }));
+    render(<ApiExplorer schema={makeSchema()} />);
+
+    const user = userEvent.setup();
+    const input = screen.getByLabelText("Request path") as HTMLInputElement;
+    await user.clear(input);
+    await user.type(input, "/api/collections/posts");
+    await user.click(screen.getByText("Query Parameters"));
+    await user.type(screen.getByLabelText("filter"), "title='Retry'");
+    await user.click(screen.getByText("Send"));
+
+    const alert = await screen.findByRole("alert");
+    expect(
+      within(alert).getByText("API explorer network fault", { exact: true }),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Retry" })).toBeInTheDocument();
+    expect(screen.getByLabelText("Request path")).toHaveValue("/api/collections/posts");
+    expect(screen.getByLabelText("filter")).toHaveValue("title='Retry'");
+
+    await user.click(screen.getByRole("button", { name: "Retry" }));
+
+    await waitFor(() => {
+      expect(screen.getByText("200 OK")).toBeInTheDocument();
+    });
+    expect(mockExecute).toHaveBeenNthCalledWith(
+      2,
+      "GET",
+      "/api/collections/posts?filter=title%3D%27Retry%27",
+      undefined,
+    );
   });
 
   it("shows body editor for POST method", async () => {

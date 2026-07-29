@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/url"
 	"os"
 	"strings"
 	"text/tabwriter"
@@ -24,6 +25,9 @@ type orgCLIRecord struct {
 var orgCmd = &cobra.Command{
 	Use:   "org",
 	Short: "Manage organizations",
+	Example: `ayb org list
+ayb org create --name "Acme" --slug acme
+ayb org members list acme`,
 }
 
 var orgCreateCmd = &cobra.Command{
@@ -202,7 +206,7 @@ func runOrgMembersList(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	resp, body, err := adminRequest(cmd, http.MethodGet, "/api/admin/orgs/"+org.ID+"/members", nil)
+	resp, body, err := adminRequest(cmd, http.MethodGet, "/api/admin/orgs/"+url.PathEscape(org.ID)+"/members", nil)
 	if err != nil {
 		return err
 	}
@@ -262,7 +266,7 @@ func runOrgMembersAdd(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("marshaling request: %w", err)
 	}
 
-	resp, body, err := adminRequest(cmd, http.MethodPost, "/api/admin/orgs/"+org.ID+"/members", bytes.NewReader(requestBody))
+	resp, body, err := adminRequest(cmd, http.MethodPost, "/api/admin/orgs/"+url.PathEscape(org.ID)+"/members", bytes.NewReader(requestBody))
 	if err != nil {
 		return err
 	}
@@ -285,7 +289,7 @@ func runOrgTeamsList(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	resp, body, err := adminRequest(cmd, http.MethodGet, "/api/admin/orgs/"+org.ID+"/teams", nil)
+	resp, body, err := adminRequest(cmd, http.MethodGet, "/api/admin/orgs/"+url.PathEscape(org.ID)+"/teams", nil)
 	if err != nil {
 		return err
 	}
@@ -346,7 +350,7 @@ func runOrgTeamsCreate(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("marshaling request: %w", err)
 	}
 
-	resp, body, err := adminRequest(cmd, http.MethodPost, "/api/admin/orgs/"+org.ID+"/teams", bytes.NewReader(requestBody))
+	resp, body, err := adminRequest(cmd, http.MethodPost, "/api/admin/orgs/"+url.PathEscape(org.ID)+"/teams", bytes.NewReader(requestBody))
 	if err != nil {
 		return err
 	}

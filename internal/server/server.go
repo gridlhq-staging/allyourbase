@@ -125,7 +125,8 @@ type Server struct {
 	moviesBYOK             map[string]string // provider name → vault secret name; demo-scope only, non-durable across restarts
 	extService             extensionAdmin    // nil when extensions not wired
 	fdwService             fdwAdmin          // nil when fdw management not wired
-	backupService          backupAdmin       // nil when backup not wired
+	backupLister           backupLister      // nil when backup metadata is unavailable
+	backupService          backupAdmin       // nil when backup actions are not wired
 	branchService          branchAdmin       // nil when branching not wired
 	pitrService            pitrAdmin         // nil when PITR not wired
 	graphqlHandler         http.Handler      // nil when GraphQL not wired

@@ -152,6 +152,24 @@ describe("EdgeFunctions", () => {
     });
   });
 
+  it("recovers from an edge functions load failure through an error-scoped Retry that refetches", async () => {
+    const user = userEvent.setup();
+    mockListEdgeFunctions.mockRejectedValueOnce(new Error("Network error"));
+    mockListEdgeFunctions.mockResolvedValue([makeFn({ id: "ef_r", name: "recovered-fn" })]);
+    renderWithProviders(<EdgeFunctions />);
+
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent("Network error");
+    // List shell (heading + New Function affordance) stays mounted alongside the error.
+    expect(screen.getByRole("heading", { name: "Edge Functions" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /New Function/i })).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Retry" }));
+
+    await waitFor(() => expect(screen.getByText("recovered-fn")).toBeInTheDocument());
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
   it("renders function list with correct details", async () => {
     const fn1 = makeFn({ id: "ef_1", name: "hello-world", public: true });
     const fn2 = makeFn({ id: "ef_2", name: "auth-check", public: false });

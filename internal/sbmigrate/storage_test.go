@@ -224,44 +224,6 @@ func TestBackupStorageObjectUsesStorageRootScratch(t *testing.T) {
 	)
 }
 
-func TestPhaseCountWithStorage(t *testing.T) {
-	t.Parallel()
-	tests := []struct {
-		name string
-		opts MigrationOptions
-		want int
-	}{
-		{
-			name: "all phases with storage",
-			opts: MigrationOptions{StorageExportPath: "/tmp/export"},
-			want: 6, // schema + data + auth + oauth + rls + storage
-		},
-		{
-			name: "skip storage explicitly",
-			opts: MigrationOptions{SkipStorage: true, StorageExportPath: "/tmp/export"},
-			want: 5, // schema + data + auth + oauth + rls
-		},
-		{
-			name: "no storage path = no storage phase",
-			opts: MigrationOptions{},
-			want: 5, // schema + data + auth + oauth + rls
-		},
-		{
-			name: "skip all with storage",
-			opts: MigrationOptions{SkipData: true, SkipOAuth: true, SkipRLS: true, StorageExportPath: "/tmp/export"},
-			want: 2, // auth + storage
-		},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-			m := &Migrator{opts: tt.opts}
-			got := m.phaseCount()
-			testutil.Equal(t, tt.want, got)
-		})
-	}
-}
-
 func TestPrintStatsWithStorage(t *testing.T) {
 	t.Parallel()
 	var buf strings.Builder
@@ -362,6 +324,7 @@ func TestMigrateStorageCopyStorageBucket(t *testing.T) {
 			migrate.Phase{Name: "Storage files", Index: 1, Total: 1},
 			0,
 			&processed,
+			localStorageExportSource{root: t.TempDir()},
 			storageDestination{
 				backend:          backend,
 				backupScratchDir: filepath.Join(t.TempDir(), ".ayb-migration-backups"),
@@ -416,6 +379,7 @@ func TestMigrateStorageCopyStorageBucket(t *testing.T) {
 			migrate.Phase{Name: "Storage files", Index: 1, Total: 1},
 			len(objects),
 			&processed,
+			localStorageExportSource{root: exportPath},
 			storageDestination{
 				backend:          backend,
 				backupScratchDir: filepath.Join(destPath, ".ayb-migration-backups"),
@@ -435,7 +399,7 @@ func TestMigrateStorageCopyStorageBucket(t *testing.T) {
 		testutil.Equal(t, int64(len(validContent)), m.stats.StorageBytes)
 		testutil.SliceLen(t, m.stats.Errors, 2)
 		testutil.Contains(t, strings.Join(m.stats.Errors, "\n"), "path traversal detected")
-		testutil.Contains(t, strings.Join(m.stats.Errors, "\n"), "copying Uploads Assets/missing.bin")
+		testutil.Contains(t, strings.Join(m.stats.Errors, "\n"), "opening Uploads Assets/missing.bin")
 
 		destFile := filepath.Join(destPath, normalizeBucketName(bucket.Name), "images", "photo.jpg")
 		got, readErr := os.ReadFile(destFile)
@@ -474,6 +438,7 @@ func TestMigrateStorageCopyStorageBucket(t *testing.T) {
 			migrate.Phase{Name: "Storage files", Index: 1, Total: 1},
 			1,
 			&processed,
+			localStorageExportSource{root: exportPath},
 			storageDestination{
 				backend:          backend,
 				backupScratchDir: filepath.Join(destPath, ".ayb-migration-backups"),

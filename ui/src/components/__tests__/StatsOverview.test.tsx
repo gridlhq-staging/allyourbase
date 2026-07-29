@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { act, screen, waitFor } from "@testing-library/react";
 import { renderWithProviders } from "../../test-utils";
+import userEvent from "@testing-library/user-event";
 import { StatsOverview } from "../StatsOverview";
 
 vi.mock("../../api_stats", () => ({
@@ -46,6 +47,23 @@ describe("StatsOverview", () => {
     await waitFor(() => {
       expect(screen.getByText("Server down")).toBeInTheDocument();
     });
+  });
+
+  it("recovers from a stats fetch failure through an error-scoped Retry that refetches", async () => {
+    const user = userEvent.setup();
+    // First poll rejects; the beforeEach default (mockStats) satisfies the retry.
+    (api.getStats as ReturnType<typeof vi.fn>).mockRejectedValueOnce(new Error("Server down"));
+    renderWithProviders(<StatsOverview />);
+
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent("Server down");
+    // Panel shell (heading) stays mounted alongside the error.
+    expect(screen.getByRole("heading", { name: "Stats" })).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Retry" }));
+
+    await waitFor(() => expect(screen.getByText("42")).toBeInTheDocument());
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });
 
   it("polls for refreshed stats on the configured interval", async () => {

@@ -173,3 +173,11 @@ class SearchSynonymsRequest(BaseModel):
 
 class SearchSynonymsResponse(BaseModel):
     groups: List[SearchSynonymGroup]
+
+
+class EdgeInvokeResponse(BaseModel):
+    """Raw edge function response envelope returned by ``functions.invoke``."""
+
+    status: int
+    headers: Dict[str, str]
+    raw_body: bytes

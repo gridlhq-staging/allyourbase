@@ -1,5 +1,4 @@
-import { test, expect, execSQL, waitForDashboard } from "../fixtures";
-import type { Page } from "@playwright/test";
+import { test, expect, execSQL, openTableFromSidebar, waitForDashboard } from "../fixtures";
 
 /**
  * SMOKE TEST: Table Browser CRUD Operations
@@ -16,24 +15,6 @@ import type { Page } from "@playwright/test";
 
 test.describe("Smoke: Table Browser CRUD", () => {
   const pendingCleanup: string[] = [];
-  async function openTableFromSidebar(page: Page, tableName: string): Promise<void> {
-    const sidebar = page.locator("aside");
-    const refreshButton = page.getByRole("button", { name: /refresh schema/i });
-    const tableLink = sidebar.getByText(tableName, { exact: true });
-
-    await expect(refreshButton).toBeVisible({ timeout: 5000 });
-    await expect
-      .poll(
-        async () => {
-          await refreshButton.click();
-          return tableLink.isVisible();
-        },
-        { timeout: 15_000 }
-      )
-      .toBe(true);
-
-    await tableLink.click();
-  }
 
   test.afterEach(async ({ request, adminToken }) => {
     for (const sql of pendingCleanup) {
@@ -69,11 +50,15 @@ test.describe("Smoke: Table Browser CRUD", () => {
     await page.goto("/admin/");
     await waitForDashboard(page);
     await openTableFromSidebar(page, tableName);
+    await expect(page.getByRole("complementary").getByText(/^_ayb_/)).toHaveCount(0);
 
     // Assert: all 3 seeded records appear
-    await expect(page.getByText(`First Post ${runId}`)).toBeVisible({ timeout: 5000 });
-    await expect(page.getByText(`Second Post ${runId}`)).toBeVisible();
-    await expect(page.getByText(`Third Post ${runId}`)).toBeVisible();
+    const firstRow = page.locator("tr").filter({ hasText: `First Post ${runId}` }).first();
+    await expect(firstRow).toBeVisible({ timeout: 5000 });
+    await expect(firstRow.getByText("Hello World")).toBeVisible();
+    await expect(firstRow.getByText("published")).toBeVisible();
+    await expect(page.locator("tr").filter({ hasText: `Second Post ${runId}` })).toBeVisible();
+    await expect(page.locator("tr").filter({ hasText: `Third Post ${runId}` })).toBeVisible();
 
     // Cleanup handled by afterEach
   });
@@ -103,6 +88,7 @@ test.describe("Smoke: Table Browser CRUD", () => {
     await page.goto("/admin/");
     await waitForDashboard(page);
     await openTableFromSidebar(page, tableName);
+    await expect(page.getByRole("complementary").getByText(/^_ayb_/)).toHaveCount(0);
 
     // Verify all records visible initially
     await expect(page.getByText(`Unique Search Term ${runId}`)).toBeVisible({ timeout: 5000 });
@@ -155,6 +141,7 @@ test.describe("Smoke: Table Browser CRUD", () => {
     await page.goto("/admin/");
     await waitForDashboard(page);
     await openTableFromSidebar(page, tableName);
+    await expect(page.getByRole("complementary").getByText(/^_ayb_/)).toHaveCount(0);
 
     await expect(page.getByText(`Existing Post ${runId}`)).toBeVisible({
       timeout: 5000,
@@ -284,6 +271,7 @@ test.describe("Smoke: Table Browser CRUD", () => {
     await page.goto("/admin/");
     await waitForDashboard(page);
     await openTableFromSidebar(page, tableName);
+    await expect(page.getByRole("complementary").getByText(/^_ayb_/)).toHaveCount(0);
 
     // Verify all records visible initially
     await expect(page.getByText(`Published Post 1 ${runId}`)).toBeVisible({ timeout: 5000 });

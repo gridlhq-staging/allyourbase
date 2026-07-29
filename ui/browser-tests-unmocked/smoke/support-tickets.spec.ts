@@ -1,6 +1,7 @@
 import {
   test,
   expect,
+  replaceAdminRelationWithEmptyClone,
   seedSupportTicket,
   cleanupSupportTicketByID,
   probeEndpoint,
@@ -66,5 +67,46 @@ test.describe("Smoke: Support Tickets", () => {
     await expect(page.getByText(subject).first()).toBeVisible();
     await expect(page.getByText(message).first()).toBeVisible({ timeout: 5000 });
     await expect(page.getByRole("button", { name: /Apply/i })).toBeVisible();
+  });
+
+  test("empty and unavailable support storage recover through Retry", async ({
+    page,
+    request,
+    adminToken,
+  }) => {
+    const runId = Date.now();
+    const subject = `Retry Support Ticket ${runId}`;
+    const seeded = await seedSupportTicket(request, adminToken, {
+      subject,
+      priority: "normal",
+      status: "open",
+      initialMessage: `Retry support body ${runId}`,
+    });
+    ticketIDs.push(seeded.id);
+    const relationState = await replaceAdminRelationWithEmptyClone(
+      request,
+      adminToken,
+      "_ayb_support_tickets",
+    );
+
+    try {
+      await page.goto("/admin/screens/support-tickets");
+      await waitForDashboard(page);
+      await expect(page.getByText("No support tickets", { exact: true })).toBeVisible();
+
+      await relationState.removeEmptyClone();
+      await page.reload();
+      await waitForDashboard(page);
+      await expect(page.getByText("failed to list support tickets", { exact: true })).toBeVisible();
+      await expect(page.getByRole("heading", { name: /Support Tickets/i })).toBeVisible();
+
+      await relationState.restore();
+      await page.getByRole("button", { name: "Retry", exact: true }).click();
+      await expect(page.getByText(subject, { exact: true }).first()).toBeVisible({
+        timeout: 5000,
+      });
+    } finally {
+      await relationState.restore();
+    }
   });
 });

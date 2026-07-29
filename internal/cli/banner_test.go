@@ -86,9 +86,9 @@ func TestBannerContainsHints(t *testing.T) {
 	cfg := defaultTestConfig()
 	out := bannerToString(cfg, false, false)
 	testutil.Contains(t, out, "Try:")
-	testutil.Contains(t, out, "ayb sql")
-	testutil.Contains(t, out, "CREATE TABLE")
-	testutil.Contains(t, out, "ayb schema")
+	testutil.Contains(t, out, "\nayb sql \"CREATE TABLE posts (id serial PRIMARY KEY, title text)\"\n")
+	testutil.Contains(t, out, "\nayb schema\n")
+	testutil.False(t, strings.Contains(out, "curl http://localhost:8090/api/schema"))
 }
 
 func TestBannerContainsDocsLink(t *testing.T) {

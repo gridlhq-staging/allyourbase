@@ -38,7 +38,7 @@ func TestSchemaQualifiedTableIdentityAndSQL(t *testing.T) {
 	testutil.Contains(t, ddl, `CREATE TABLE IF NOT EXISTS "billing"."invoices"`)
 	testutil.Contains(t, ddl, `CONSTRAINT "invoices_account_id_fkey" FOREIGN KEY ("account_id") REFERENCES "crm"."accounts"("id")`)
 
-	testutil.Equal(t, `SELECT "id", "account_id" FROM "billing"."invoices" ORDER BY 1`, copyTableSelectSQL(billingInvoices))
+	testutil.Equal(t, `SELECT "id", "account_id" FROM ONLY "billing"."invoices" ORDER BY 1`, copyTableSelectSQL(billingInvoices))
 	testutil.Equal(t, `INSERT INTO "billing"."invoices" ("id", "account_id") VALUES ($1, $2) ON CONFLICT DO NOTHING`, copyTableInsertSQL(billingInvoices))
 	testutil.Equal(t,
 		`SELECT setval(pg_get_serial_sequence('"billing"."invoices"', 'id'), COALESCE(MAX("id"), 1), MAX("id") IS NOT NULL) FROM "billing"."invoices"`,
@@ -96,6 +96,75 @@ func TestCreateTableSQLCreatesOwnedSequencesBeforeDefaults(t *testing.T) {
 
 	ddl := createTableSQL(table)
 	testutil.Contains(t, ddl, `DEFAULT nextval('"Billing.Schema"."Invoice.Table_ID_seq"'::regclass)`)
+}
+
+func TestCreateTableSQLIncludesPartitionDefinitions(t *testing.T) {
+	t.Parallel()
+
+	parent := TableInfo{
+		SchemaName: "public",
+		Name:       "events",
+		Columns: []ColumnInfo{
+			{Name: "id", DataType: "integer", IsNullable: false, OrdinalPos: 1},
+			{Name: "payload", DataType: "text", IsNullable: false, OrdinalPos: 2},
+		},
+		PartitionKey: "RANGE (id)",
+	}
+	child := TableInfo{
+		SchemaName:            "public",
+		Name:                  "events_low",
+		PartitionParentSchema: "public",
+		PartitionParentName:   "events",
+		PartitionBound:        "FOR VALUES FROM (0) TO (100)",
+	}
+
+	testutil.Equal(t,
+		"CREATE TABLE IF NOT EXISTS \"public\".\"events\" (\n  \"id\" integer NOT NULL,\n  \"payload\" text NOT NULL\n) PARTITION BY RANGE (id);",
+		createTableSQL(parent),
+	)
+	testutil.Equal(t,
+		"CREATE TABLE IF NOT EXISTS \"public\".\"events_low\" PARTITION OF \"public\".\"events\" FOR VALUES FROM (0) TO (100);",
+		createTableSQL(child),
+	)
+}
+
+func TestDataCopyTablesCopiesPartitionLeavesInsteadOfRoots(t *testing.T) {
+	t.Parallel()
+
+	parent := TableInfo{SchemaName: "public", Name: "events", PartitionKey: "RANGE (id)"}
+	child := TableInfo{
+		SchemaName:            "public",
+		Name:                  "events_low",
+		PartitionParentSchema: "public",
+		PartitionParentName:   "events",
+		PartitionBound:        "FOR VALUES FROM (0) TO (100)",
+	}
+	ordinary := TableInfo{SchemaName: "public", Name: "audit_events"}
+
+	got := dataCopyTables([]TableInfo{child, ordinary, parent})
+
+	testutil.Equal(t, 2, len(got))
+	testutil.Equal(t, child.TableKey(), got[0].TableKey())
+	testutil.Equal(t, ordinary.TableKey(), got[1].TableKey())
+}
+
+func TestTotalDataCopyRowsCountsPartitionRowsOnce(t *testing.T) {
+	t.Parallel()
+
+	tables := []TableInfo{
+		{SchemaName: "public", Name: "events", PartitionKey: "RANGE (id)", RowCount: 30},
+		{
+			SchemaName:            "public",
+			Name:                  "events_low",
+			PartitionParentSchema: "public",
+			PartitionParentName:   "events",
+			PartitionBound:        "FOR VALUES FROM (0) TO (100)",
+			RowCount:              3,
+		},
+		{SchemaName: "public", Name: "audit_events", RowCount: 2},
+	}
+
+	testutil.Equal(t, int64(5), totalDataCopyRows(tables))
 }
 
 func TestCreateViewSQLQualifiesViewName(t *testing.T) {

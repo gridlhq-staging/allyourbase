@@ -271,6 +271,12 @@ func (s *Server) SetFDWService(svc fdwAdmin) {
 // SetBackupService wires the backup service for admin backup endpoints.
 func (s *Server) SetBackupService(svc backupAdmin) {
 	s.backupService = svc
+	s.backupLister = svc
+}
+
+// SetBackupLister exposes backup metadata even when backup actions are disabled.
+func (s *Server) SetBackupLister(lister backupLister) {
+	s.backupLister = lister
 }
 
 // SetBranchService wires the branch service for admin branch endpoints.

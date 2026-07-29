@@ -3,7 +3,6 @@ package sbmigrate
 import (
 	"context"
 	"fmt"
-	"sort"
 
 	"github.com/allyourbase/ayb/internal/migrate"
 	"github.com/allyourbase/ayb/internal/urlutil"
@@ -55,9 +54,7 @@ func (m *Migrator) Analyze(ctx context.Context) (*migrate.AnalysisReport, error)
 			report.Warnings = append(report.Warnings, fmt.Sprintf("could not introspect tables: %v", err))
 		} else {
 			report.Tables = len(tables)
-			for _, t := range tables {
-				report.Records += int(t.RowCount)
-			}
+			report.Records = int(totalDataCopyRows(tables))
 		}
 
 		views, err := introspectViews(ctx, m.source)
@@ -65,6 +62,22 @@ func (m *Migrator) Analyze(ctx context.Context) (*migrate.AnalysisReport, error)
 			report.Warnings = append(report.Warnings, fmt.Sprintf("could not introspect views: %v", err))
 		} else {
 			report.Views = len(views)
+		}
+	}
+
+	if !m.skipFunctions() {
+		functions, err := loadFunctionCatalog(ctx, m.source)
+		if err != nil {
+			report.Warnings = append(report.Warnings, fmt.Sprintf("could not read function catalog: %v", err))
+		} else {
+			report.Functions = functionCatalogDenominator(functions)
+		}
+
+		triggers, err := loadTriggerCatalog(ctx, m.source)
+		if err != nil {
+			report.Warnings = append(report.Warnings, fmt.Sprintf("could not read trigger catalog: %v", err))
+		} else {
+			report.Triggers = triggerCatalogDenominator(triggers, nil, nil)
 		}
 	}
 
@@ -109,6 +122,16 @@ func BuildValidationSummary(report *migrate.AnalysisReport, stats *MigrationStat
 			Label: "Views", SourceCount: report.Views, TargetCount: stats.Views,
 		})
 	}
+	if report.Functions > 0 || stats.Functions > 0 {
+		summary.Rows = append(summary.Rows, migrate.ValidationRow{
+			Label: "Functions", SourceCount: report.Functions, TargetCount: stats.Functions,
+		})
+	}
+	if report.Triggers > 0 || stats.Triggers > 0 {
+		summary.Rows = append(summary.Rows, migrate.ValidationRow{
+			Label: "Triggers", SourceCount: report.Triggers, TargetCount: stats.Triggers,
+		})
+	}
 	if report.Records > 0 || stats.Records > 0 {
 		summary.Rows = append(summary.Rows, migrate.ValidationRow{
 			Label: "Records", SourceCount: report.Records, TargetCount: stats.Records,
@@ -148,6 +171,14 @@ func BuildValidationSummary(report *migrate.AnalysisReport, stats *MigrationStat
 		summary.Warnings = append(summary.Warnings,
 			fmt.Sprintf("table %s skipped during migration: %s", table.QualifiedName(), table.Reason))
 	}
+	for _, function := range sortedSkippedFunctionReports(stats.SkippedFunctions) {
+		summary.Warnings = append(summary.Warnings,
+			fmt.Sprintf("function %s skipped during migration: %s", function.QualifiedName(), function.Reason))
+	}
+	for _, trigger := range sortedSkippedTriggerReports(stats.SkippedTriggers) {
+		summary.Warnings = append(summary.Warnings,
+			fmt.Sprintf("trigger %s skipped during migration: %s", trigger.DisplayName(), trigger.Reason))
+	}
 	if len(stats.Errors) > 0 {
 		summary.Warnings = append(summary.Warnings,
 			fmt.Sprintf("%d errors occurred during migration", len(stats.Errors)))
@@ -164,21 +195,4 @@ func countAdmittedRLSPolicies(policies []RLSPolicy) int {
 		}
 	}
 	return count
-}
-
-func sortedSkippedTableReports(skipped SkippedTableReasons) []SkippedTableReport {
-	reports := make([]SkippedTableReport, 0, len(skipped))
-	for key, reason := range skipped {
-		reports = append(reports, skippedTableReport(key, reason))
-	}
-	sort.Slice(reports, func(i, j int) bool {
-		if reports[i].SchemaName != reports[j].SchemaName {
-			return reports[i].SchemaName < reports[j].SchemaName
-		}
-		if reports[i].TableName != reports[j].TableName {
-			return reports[i].TableName < reports[j].TableName
-		}
-		return reports[i].Reason < reports[j].Reason
-	})
-	return reports
 }

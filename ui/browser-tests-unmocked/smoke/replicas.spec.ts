@@ -4,7 +4,9 @@ import {
   probeEndpoint,
   seedReplica,
   cleanupReplicaByName,
+  failIfReadinessForced,
   fetchReplicaStatuses,
+  readinessNotMet,
   resolveReplicaSeedTarget,
   waitForDashboard,
 } from "../fixtures";
@@ -13,12 +15,17 @@ import {
  * SMOKE TEST: Replicas
  *
  * Critical Path: Seed a replica → Navigate to Replicas → Verify the seeded
- * replica renders in the table body with URL and state. Skip when the
- * environment does not expose a real standby that can pass add-replica checks.
+ * replica renders in the table body with URL and state.
  */
 
 test.describe("Smoke: Replicas", () => {
   const seededReplicaNames: string[] = [];
+  const disabledCapabilities = new Set(
+    (process.env.AYB_BROWSER_DISABLED_CAPABILITIES ?? "")
+      .split(",")
+      .map((capability) => capability.trim())
+      .filter(Boolean),
+  );
 
   test.afterEach(async ({ request, adminToken }) => {
     while (seededReplicaNames.length > 0) {
@@ -28,18 +35,27 @@ test.describe("Smoke: Replicas", () => {
     }
   });
 
-  test("seeded replica renders in the replicas table", async ({ page, request, adminToken }) => {
+  test("seeded replica renders in the replicas table", async ({ page, request, adminToken }, testInfo) => {
+    await failIfReadinessForced(testInfo, "replicas");
+
+    if (disabledCapabilities.has("replicas")) {
+      console.log("CAPABILITY_DISABLED:replicas");
+      return;
+    }
+
     const status = await probeEndpoint(request, adminToken, "/api/admin/replicas");
-    test.skip(
-      status === 501 || status === 404,
-      `Replicas service not configured (status ${status})`,
-    );
+    if (status === 501 || status === 404) {
+      await readinessNotMet(testInfo, "replicas", `replicas endpoint returned status ${status}`);
+    }
 
     const seedTarget = resolveReplicaSeedTarget();
-    test.skip(
-      !seedTarget,
-      "Replicas smoke requires AYB_DATABASE_REPLICA_URLS to point at a reachable standby",
-    );
+    if (!seedTarget) {
+      await readinessNotMet(
+        testInfo,
+        "replicas",
+        "AYB_DATABASE_REPLICA_URLS does not identify a reachable standby",
+      );
+    }
 
     const runId = Date.now();
     const replicaName = `smoke-replica-${runId}`;
@@ -54,10 +70,13 @@ test.describe("Smoke: Replicas", () => {
       });
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      test.skip(
-        /(status 503|replica lifecycle not available|dial connectivity pool|connectivity check failed|target is not a replica|target is not a standby replica)/i.test(message),
-        `Replica seeding unavailable in this environment: ${message}`,
-      );
+      if (
+        /(status 503|replica lifecycle not available|dial connectivity pool|connectivity check failed|target is not a replica|target is not a standby replica)/i.test(
+          message,
+        )
+      ) {
+        await readinessNotMet(testInfo, "replicas", `replica seeding unavailable: ${message}`);
+      }
       throw error;
     }
     seededReplicaNames.push(replicaName);

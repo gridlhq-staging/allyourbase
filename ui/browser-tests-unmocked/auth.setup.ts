@@ -13,7 +13,8 @@ import { adminURL } from "./fixtures/chunks";
  *
  * Admin auth resolution order:
  * 1. AYB_ADMIN_PASSWORD env var
- * 2. ~/.ayb/admin-token file (written by `ayb start`, usually a bearer token)
+ * 2. AYB_ADMIN_TOKEN env var (bearer token exported by the smoke runner)
+ * 3. ~/.ayb/admin-token file (written by `ayb start`, usually a bearer token)
  */
 
 const authDir = "browser-tests-unmocked/.auth";
@@ -80,13 +81,16 @@ async function loginWithPassword(page: import("@playwright/test").Page, password
 
 setup("authenticate as admin", async ({ page }) => {
   const credential = resolveAdminBootstrapCredential();
-  if (credential.source === "saved-admin-auth") {
+  // Only an explicit AYB_ADMIN_PASSWORD is a password; every other source is a
+  // bearer token, so seed localStorage with it and keep the form login as the
+  // fallback for a stale token.
+  if (credential.source === "env-password") {
+    await loginWithPassword(page, credential.value);
+  } else {
     const didBootstrapFromToken = await bootstrapWithSavedToken(page, credential.value);
     if (!didBootstrapFromToken) {
       await loginWithPassword(page, credential.value);
     }
-  } else {
-    await loginWithPassword(page, credential.value);
   }
 
   mkdirSync(authDir, { recursive: true, mode: 0o700 });

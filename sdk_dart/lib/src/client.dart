@@ -63,6 +63,7 @@ class AYBClient {
     storage = StorageClient(this);
     realtime = RealtimeClient(this, options: realtimeOptions);
     push = PushClient(this);
+    functions = FunctionsClient(this);
   }
 
   final String baseUrl;
@@ -76,6 +77,7 @@ class AYBClient {
   late final StorageClient storage;
   late final RealtimeClient realtime;
   late final PushClient push;
+  late final FunctionsClient functions;
 
   http.Client get httpClient => _httpClient;
   String? get token => _token;
@@ -171,6 +173,37 @@ class AYBClient {
     );
   }
 
+  Future<_RawResponse> _requestRaw(
+    String path, {
+    String method = 'GET',
+    Map<String, String>? headers,
+    Object? body,
+    bool skipAuth = false,
+  }) async {
+    final requestHeaders = <String, String>{...?headers};
+    if (!skipAuth && _token != null) {
+      requestHeaders['Authorization'] = 'Bearer $_token';
+    }
+
+    final request = http.Request(method, _buildUri(path));
+    _applyRequestBody(request, requestHeaders, body);
+    request.headers.addAll(requestHeaders);
+
+    final response = await http.Response.fromStream(
+      await _httpClient.send(request),
+    );
+
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      throw _normalizeHttpError(response);
+    }
+
+    return _RawResponse(
+      status: response.statusCode,
+      headers: Map<String, String>.unmodifiable(response.headers),
+      bodyBytes: Uint8List.fromList(response.bodyBytes),
+    );
+  }
+
   void close() {
     _httpClient.close();
   }
@@ -222,6 +255,42 @@ class AYBClient {
       result = result.substring(0, result.length - 1);
     }
     return result;
+  }
+}
+
+class _RawResponse {
+  const _RawResponse({
+    required this.status,
+    required this.headers,
+    required this.bodyBytes,
+  });
+
+  final int status;
+  final Map<String, String> headers;
+  final Uint8List bodyBytes;
+}
+
+class FunctionsClient {
+  FunctionsClient(this.client);
+
+  final AYBClient client;
+
+  Future<EdgeInvokeResponse> invoke(
+    String name, [
+    EdgeInvokeOptions options = const EdgeInvokeOptions(),
+  ]) async {
+    final response = await client._requestRaw(
+      '/functions/v1/${Uri.encodeComponent(name)}',
+      method: options.method,
+      headers: options.headers,
+      body: options.body,
+      skipAuth: options.skipAuth,
+    );
+    return EdgeInvokeResponse(
+      status: response.status,
+      headers: response.headers,
+      rawBody: response.bodyBytes,
+    );
   }
 }
 

@@ -17,6 +17,7 @@ import { Loader2, AlertCircle, Shield, Mail, Key } from "lucide-react";
 import { Passkeys } from "./Passkeys";
 import { readAALFromAuthToken, readIsAnonymousFromAuthToken } from "../webauthn";
 import { useCapability } from "../capabilities";
+import { ErrorNotice } from "./ErrorNotice";
 
 type EnrollStep =
   | { kind: "idle" }
@@ -53,7 +54,8 @@ export function MFAEnrollment({ screenLabel }: MFAEnrollmentProps) {
   const canManageMFA = anonymousBootstrapEnabled || hasReusableUserSession;
   const [factors, setFactors] = useState<MFAFactor[]>([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const [step, setStep] = useState<EnrollStep>({ kind: "idle" });
   const [backupCount, setBackupCount] = useState<number | null>(null);
@@ -109,7 +111,7 @@ export function MFAEnrollment({ screenLabel }: MFAEnrollmentProps) {
   const fetchData = useCallback(async (options?: { background?: boolean }) => {
     const background = options?.background === true;
     try {
-      setError(null);
+      setLoadError(null);
       if (!background) {
         setLoading(true);
       }
@@ -128,7 +130,12 @@ export function MFAEnrollment({ screenLabel }: MFAEnrollmentProps) {
       setFactors(safeFactors);
       setBackupCount(safeRemaining);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed to load MFA data");
+      const message = e instanceof Error ? e.message : "Failed to load MFA data";
+      if (background) {
+        setActionError(message);
+      } else {
+        setLoadError(message);
+      }
     } finally {
       if (!background) {
         setLoading(false);
@@ -143,18 +150,18 @@ export function MFAEnrollment({ screenLabel }: MFAEnrollmentProps) {
   }, [canManageMFA, fetchData]);
 
   const handleTOTPEnroll = async () => {
-    setError(null);
+    setActionError(null);
     setSuccess(null);
     try {
       const enrollment = await enrollTOTP();
       setStep({ kind: "totp-enroll", enrollment });
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed to start TOTP enrollment");
+      setActionError(e instanceof Error ? e.message : "Failed to start TOTP enrollment");
     }
   };
 
   const handleTOTPConfirm = async () => {
-    setError(null);
+    setActionError(null);
     try {
       await confirmTOTPEnroll(totpCode);
       setSuccess("TOTP MFA enrolled successfully");
@@ -162,24 +169,24 @@ export function MFAEnrollment({ screenLabel }: MFAEnrollmentProps) {
       setTotpCode("");
       void fetchData();
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed to confirm TOTP enrollment");
+      setActionError(e instanceof Error ? e.message : "Failed to confirm TOTP enrollment");
     }
   };
 
   const handleEmailMFAEnroll = async () => {
-    setError(null);
+    setActionError(null);
     setSuccess(null);
     try {
       await enrollEmailMFA();
       setStep({ kind: "email-enroll-pending" });
       setSuccess("Verification code sent to your email");
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed to start email MFA enrollment");
+      setActionError(e instanceof Error ? e.message : "Failed to start email MFA enrollment");
     }
   };
 
   const handleEmailMFAConfirm = async () => {
-    setError(null);
+    setActionError(null);
     try {
       await confirmEmailMFAEnroll(emailCode);
       setSuccess("Email MFA enrolled successfully");
@@ -187,31 +194,31 @@ export function MFAEnrollment({ screenLabel }: MFAEnrollmentProps) {
       setEmailCode("");
       void fetchData();
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed to confirm email MFA enrollment");
+      setActionError(e instanceof Error ? e.message : "Failed to confirm email MFA enrollment");
     }
   };
 
   const handleGenerateBackup = async () => {
-    setError(null);
+    setActionError(null);
     setSuccess(null);
     try {
       const res = await generateBackupCodes();
       setStep({ kind: "backup-display", codes: res.codes });
       setBackupCount(res.codes.length);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed to generate backup codes");
+      setActionError(e instanceof Error ? e.message : "Failed to generate backup codes");
     }
   };
 
   const handleRegenerateBackup = async () => {
-    setError(null);
+    setActionError(null);
     setSuccess(null);
     try {
       const res = await regenerateBackupCodes();
       setStep({ kind: "backup-display", codes: res.codes });
       setBackupCount(res.codes.length);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed to regenerate backup codes");
+      setActionError(e instanceof Error ? e.message : "Failed to regenerate backup codes");
     }
   };
 
@@ -229,9 +236,16 @@ export function MFAEnrollment({ screenLabel }: MFAEnrollmentProps) {
         </div>
       </div>
 
-      {error && (
+      {loadError && (
+        <ErrorNotice
+          message={loadError}
+          docsPath="/guide/auth"
+          onAction={() => void fetchData()}
+        />
+      )}
+      {actionError && (
         <div className="px-4 py-2 bg-red-50 border border-red-200 rounded-lg text-red-800 text-sm">
-          {error}
+          {actionError}
         </div>
       )}
       {success && (

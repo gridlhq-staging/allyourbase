@@ -2,54 +2,70 @@ import {
   test,
   expect,
   cleanupTenantDashboardSmokeTenant,
+  replaceAdminRelationWithEmptyClone,
   seedTenantDashboardSmokeTenant,
   waitForDashboard,
 } from "../fixtures";
-import type { Page, Response } from "@playwright/test";
-
-const TENANT_LIST_PATH = "/api/admin/tenants";
-
-async function waitForTenantListResponse(page: Page): Promise<Response> {
-  return page.waitForResponse((response) => {
-    const url = new URL(response.url());
-    return url.pathname === TENANT_LIST_PATH && response.request().method() === "GET";
-  });
-}
-
-async function assertTenantsPageOutcome(
-  page: Page,
-  tenantListResponse: Response,
-  seededTenantName: string,
-): Promise<void> {
-  if (tenantListResponse.status() === 503) {
-    await expect(page.getByText(/failed to load tenants/i)).toBeVisible();
-    return;
-  }
-
-  expect(tenantListResponse.ok()).toBeTruthy();
-  await expect(page.getByRole("button", { name: new RegExp(seededTenantName, "i") })).toBeVisible();
-}
 
 test.describe("Smoke: Tenants Dashboard", () => {
-  test("admin can open tenants page and view seeded tenant row or 503 fallback", async ({
+  test("admin can open tenants and view a uniquely seeded tenant", async ({
     page,
     request,
     adminToken,
   }) => {
-    const runSuffix = Date.now().toString();
-    const seededTenant = await seedTenantDashboardSmokeTenant(request, adminToken, runSuffix);
+    const seededTenant = await seedTenantDashboardSmokeTenant(
+      request,
+      adminToken,
+      Date.now().toString(),
+    );
 
     try {
-      await page.goto("/admin/");
+      await page.goto("/admin/screens/tenants");
       await waitForDashboard(page);
-
-      const listResponsePromise = waitForTenantListResponse(page);
-      await page.locator("aside").getByRole("button", { name: /^Tenants$/i }).click();
-      await expect(page.getByTestId("tenants-view")).toBeVisible({ timeout: 5000 });
-
-      const listResponse = await listResponsePromise;
-      await assertTenantsPageOutcome(page, listResponse, seededTenant.tenantName);
+      await expect(
+        page.getByTestId("tenant-list-panel").getByText(seededTenant.tenantName, { exact: true }),
+      ).toBeVisible();
     } finally {
+      await cleanupTenantDashboardSmokeTenant(request, adminToken, seededTenant.tenantId);
+    }
+  });
+
+  test("empty and unavailable tenant storage recover through Retry", async ({
+    page,
+    request,
+    adminToken,
+  }) => {
+    const seededTenant = await seedTenantDashboardSmokeTenant(
+      request,
+      adminToken,
+      Date.now().toString(),
+    );
+    const relationState = await replaceAdminRelationWithEmptyClone(
+      request,
+      adminToken,
+      "_ayb_tenants",
+    );
+
+    try {
+      await page.goto("/admin/screens/tenants");
+      await waitForDashboard(page);
+      await expect(page.getByText("No tenants found", { exact: true })).toBeVisible();
+
+      await relationState.removeEmptyClone();
+      await page.reload();
+      await waitForDashboard(page);
+      const errorNotice = page.getByRole("alert");
+      await expect(
+        errorNotice.getByText("Failed to load tenants: failed to list tenants", { exact: true }),
+      ).toBeVisible();
+
+      await relationState.restore();
+      await errorNotice.getByRole("button", { name: "Retry", exact: true }).click();
+      await expect(
+        page.getByTestId("tenant-list-panel").getByText(seededTenant.tenantName, { exact: true }),
+      ).toBeVisible();
+    } finally {
+      await relationState.restore();
       await cleanupTenantDashboardSmokeTenant(request, adminToken, seededTenant.tenantId);
     }
   });

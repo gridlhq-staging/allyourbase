@@ -79,6 +79,33 @@ class RequestBuilder(
 
 private fun String.urlEncode(): String = URLEncoder.encode(this, StandardCharsets.UTF_8)
 
+internal fun encodePathSegment(value: String): String {
+    val bytes = value.encodeToByteArray()
+    val encoded = StringBuilder(bytes.size)
+    bytes.forEach { rawByte ->
+        val byte = rawByte.toInt() and 0xff
+        if (byte.isUnreservedPathByte()) {
+            encoded.append(byte.toChar())
+        } else {
+            encoded.append('%')
+            encoded.append(HEX_DIGITS[byte ushr 4])
+            encoded.append(HEX_DIGITS[byte and 0x0f])
+        }
+    }
+    return encoded.toString()
+}
+
+private val HEX_DIGITS = "0123456789ABCDEF".toCharArray()
+
+private fun Int.isUnreservedPathByte(): Boolean =
+    this in 'A'.code..'Z'.code ||
+        this in 'a'.code..'z'.code ||
+        this in '0'.code..'9'.code ||
+        this == '-'.code ||
+        this == '_'.code ||
+        this == '.'.code ||
+        this == '~'.code
+
 private fun MutableMap<String, String>.putIfMissingHeader(name: String, value: String) {
     if (!containsHeader(name)) {
         this[name] = value

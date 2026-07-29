@@ -79,6 +79,13 @@ test.describe("Smoke: Admin Login", () => {
 
     // Step 5: Verify dashboard loads
     await waitForDashboard(page);
+    const main = page.getByRole("main");
+    await expect(
+      main
+        .getByText("Select a table from the sidebar")
+        .or(main.getByPlaceholder("Search..."))
+        .first(),
+    ).toBeVisible({ timeout: 5000 });
   });
 
   test("admin login rejects wrong password inline", async ({ page }) => {
@@ -154,5 +161,12 @@ test.describe("Smoke: Admin Login", () => {
 
     await expect(page).toHaveURL(/\/admin\/$/);
     await waitForDashboard(page);
+    const main = page.getByRole("main");
+    await expect(
+      main
+        .getByText("Select a table from the sidebar")
+        .or(main.getByPlaceholder("Search..."))
+        .first(),
+    ).toBeVisible({ timeout: 5000 });
   });
 });

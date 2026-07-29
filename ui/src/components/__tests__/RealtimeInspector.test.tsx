@@ -135,4 +135,24 @@ describe("RealtimeInspector", () => {
     await screen.findByText(/network failure/i);
     expect(screen.queryByText(/No active subscriptions/i)).not.toBeInTheDocument();
   });
+
+  it("recovers from a snapshot failure through an error-scoped Retry that refetches", async () => {
+    const user = userEvent.setup();
+    mockedGet.mockRejectedValueOnce(new Error("network failure"));
+
+    render(<RealtimeInspector />);
+
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent("network failure");
+    // Panel shell (heading + subscription filter) stays mounted alongside the error.
+    expect(screen.getByRole("heading", { name: "Realtime Inspector" })).toBeInTheDocument();
+    expect(screen.getByPlaceholderText("Filter subscriptions")).toBeInTheDocument();
+
+    const callsBeforeRetry = mockedGet.mock.calls.length;
+    await user.click(screen.getByRole("button", { name: "Retry" }));
+
+    await waitFor(() => expect(mockedGet.mock.calls.length).toBeGreaterThan(callsBeforeRetry));
+    await screen.findByText("public_posts");
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
 });

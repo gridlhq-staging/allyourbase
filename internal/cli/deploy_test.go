@@ -139,14 +139,14 @@ func TestRegisterDeployProviderRejectsNilAndDuplicate(t *testing.T) {
 
 func TestDeployCommandHelp(t *testing.T) {
 	resetJSONFlag()
-	rootHelp := captureStderr(t, func() {
+	rootHelp := captureStdout(t, func() {
 		rootCmd.SetArgs([]string{"--help"})
 		err := rootCmd.Execute()
 		testutil.NoError(t, err)
 	})
 	testutil.Contains(t, rootHelp, "deploy")
 
-	deployHelp := captureStderr(t, func() {
+	deployHelp := captureStdout(t, func() {
 		rootCmd.SetArgs([]string{"deploy", "--help"})
 		err := rootCmd.Execute()
 		testutil.NoError(t, err)
@@ -271,7 +271,7 @@ func TestOutputDeployResultJSONUsesCommandWriter(t *testing.T) {
 func TestDeployFlyHelpIncludesFlyFlags(t *testing.T) {
 	resetJSONFlag()
 
-	help := captureStderr(t, func() {
+	help := captureStdout(t, func() {
 		rootCmd.SetArgs([]string{"deploy", "fly", "--help"})
 		err := rootCmd.Execute()
 		testutil.NoError(t, err)

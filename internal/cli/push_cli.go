@@ -18,6 +18,9 @@ import (
 var pushCmd = &cobra.Command{
 	Use:   "push",
 	Short: "Manage push devices and deliveries",
+	Example: `ayb push list-devices
+ayb push register-device --app-id <app-id> --user-id <user-id> --provider fcm --platform android --token <token>
+ayb push send --app-id <app-id> --user-id <user-id> --title "Hello" --body "Message"`,
 }
 
 var pushListDevicesCmd = &cobra.Command{

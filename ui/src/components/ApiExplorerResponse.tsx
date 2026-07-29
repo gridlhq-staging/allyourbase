@@ -1,6 +1,7 @@
-import { Clock, Copy, Check, AlertCircle } from "lucide-react";
+import { Clock, Copy, Check } from "lucide-react";
 import { cn } from "../lib/utils";
 import type { ApiExplorerResponse as ApiExplorerResponseData } from "../types";
+import { ErrorNotice } from "./ErrorNotice";
 import {
   formatJson,
   generateCurl,
@@ -20,6 +21,7 @@ interface ApiExplorerResponseProps {
   copied: boolean;
   onSnippetTabChange: (tab: "curl" | "js") => void;
   onCopySnippet: (text: string) => void;
+  onRetry?: () => void;
 }
 
 export function ApiExplorerResponse({
@@ -33,13 +35,17 @@ export function ApiExplorerResponse({
   copied,
   onSnippetTabChange,
   onCopySnippet,
+  onRetry,
 }: ApiExplorerResponseProps) {
   return (
     <div className="flex-1 overflow-auto">
       {error && (
-        <div className="m-4 p-3 bg-red-50 border border-red-200 rounded-lg flex items-start gap-2">
-          <AlertCircle className="w-4 h-4 text-red-500 mt-0.5 shrink-0" />
-          <pre className="text-sm text-red-700 whitespace-pre-wrap font-mono">{error}</pre>
+        <div className="m-4">
+          <ErrorNotice
+            message={error}
+            docsPath="/guide/api"
+            onAction={onRetry}
+          />
         </div>
       )}
 

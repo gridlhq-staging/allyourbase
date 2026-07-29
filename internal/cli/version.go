@@ -10,8 +10,9 @@ import (
 )
 
 var versionCmd = &cobra.Command{
-	Use:   "version",
-	Short: "Print AYB version",
+	Use:     "version",
+	Short:   "Print AYB version",
+	Example: `ayb version`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		jsonOut, _ := cmd.Flags().GetBool("json")
 		if jsonOut {

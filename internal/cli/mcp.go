@@ -22,24 +22,18 @@ tools, resources, and prompts for AI coding assistants.
 The MCP server connects to a running AYB instance and provides structured
 access to your database for tools like Claude Code, Cursor, and Windsurf.
 
-Stdio mode (for Claude Desktop / Claude Code):
-  ayb mcp
-
-With explicit server URL:
-  ayb mcp --url http://localhost:8090
-
-With admin token for SQL access:
-  ayb mcp --admin-token YOUR_TOKEN
-
 Configuration in Claude Desktop (claude_desktop_config.json):
-  {
-    "mcpServers": {
-      "ayb": {
-        "command": "ayb",
-        "args": ["mcp", "--admin-token", "YOUR_TOKEN"]
-      }
+{
+  "mcpServers": {
+    "ayb": {
+      "command": "ayb",
+      "args": ["mcp", "--admin-token", "YOUR_TOKEN"]
     }
-  }`,
+  }
+}`,
+	Example: `ayb mcp  # Stdio mode for Claude Desktop / Claude Code
+ayb mcp --url http://localhost:8090  # Explicit server URL
+ayb mcp --admin-token YOUR_TOKEN  # Enable SQL access`,
 	RunE: runMCP,
 }
 

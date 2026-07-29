@@ -8,7 +8,7 @@ AYB runs as a single `ayb` binary. In containers, the Dockerfile builds an image
 
 The image also sets `AYB_SERVER_HOST=0.0.0.0`, so `-p 8090:8090` works without adding a custom bind host override.
 
-Public container-image pulls are not available right now because the current GitHub Container Registry package is still private. The commands below use a locally built image from the public repository checkout instead.
+Public multi-arch images are published at `ghcr.io/allyourbasehq/allyourbase`. The Docker examples below use that package by default and retain a source-build fallback for validating local changes.
 
 ## Docker
 
@@ -16,20 +16,33 @@ For the tested two-node compose cell with nginx load balancing, see
 [High Availability](./ha.md). This page keeps the single-container and general
 runtime configuration details.
 
-### Build the image locally
+### Pull the published image
+
+For local evaluation, you can follow the moving `latest` tag:
+
+```bash
+export AYB_IMAGE="ghcr.io/allyourbasehq/allyourbase:latest"
+docker pull "$AYB_IMAGE"
+```
+
+### Build the image locally (source-build fallback)
 
 ```bash
 git clone https://github.com/AllyourbaseHQ/allyourbase.git
 cd allyourbase
 DOCKER_BUILDKIT=1 docker build -t ayb-local .
+export AYB_IMAGE="ayb-local"
 ```
+
+Choose either image path above. Both set `AYB_IMAGE`, which the remaining
+single-container examples use.
 
 ### Quick start (managed PostgreSQL)
 
 ```bash
 docker run --rm -p 8090:8090 \
   -e AYB_ADMIN_PASSWORD="change-me-to-a-strong-random-password" \
-  ayb-local
+  "$AYB_IMAGE"
 ```
 
 This starts `ayb start` in managed PostgreSQL mode (`AYB_DATABASE_URL` unset).
@@ -52,7 +65,7 @@ docker run --rm -p 8090:8090 \
   -e AYB_STORAGE_LOCAL_PATH=/ayb_storage \
   -v "$PWD/ayb-pgdata:/ayb_pgdata" \
   -v "$PWD/ayb-storage:/ayb_storage" \
-  ayb-local
+  "$AYB_IMAGE"
 ```
 
 This is the recommended shape for Docker smoke validation because it exercises:
@@ -67,7 +80,7 @@ This is the recommended shape for Docker smoke validation because it exercises:
 docker run --rm -p 8090:8090 \
   -e AYB_DATABASE_URL="postgresql://user:pass@host:5432/mydb" \
   -e AYB_ADMIN_PASSWORD="change-me-to-a-strong-random-password" \
-  ayb-local
+  "$AYB_IMAGE"
 ```
 
 ### Dynamic port platforms
@@ -78,7 +91,7 @@ For platforms that inject a runtime port, set `AYB_SERVER_PORT` and expose/map t
 docker run --rm -p 8080:8080 \
   -e AYB_SERVER_PORT=8080 \
   -e AYB_ADMIN_PASSWORD="change-me" \
-  ayb-local
+  "$AYB_IMAGE"
 ```
 
 ### Docker Compose
@@ -86,7 +99,7 @@ docker run --rm -p 8080:8080 \
 ```yaml
 services:
   ayb:
-    image: ayb-local
+    image: ${AYB_IMAGE:?Set AYB_IMAGE to an explicit image tag or digest}
     ports:
       - "8090:8090"
     environment:
@@ -191,6 +204,17 @@ sudo systemctl start ayb
 - Required for public auth flows: `AYB_AUTH_ENABLED=true` plus either `AYB_AUTH_JWT_SECRET` or, in the container image, a mounted JWT secret volume for the entrypoint-managed key
 - Required for storage API flows: `AYB_STORAGE_ENABLED=true`
 - Often required on managed platforms: `AYB_SERVER_PORT`
+
+## Production hardening checklist
+
+Before exposing AYB beyond a local development host, close these checks against the same deployment artifact you plan to run:
+
+- Pin `AYB_IMAGE` to an explicit release tag or immutable digest. Do not use the moving `latest` tag for production deployments.
+- Enable [Authentication](/guide/authentication) for public auth flows and apply Row-level security (RLS) policies from the [Security](/guide/security) guide to tables that can be reached by user traffic.
+- Review [Configuration](/guide/configuration) before changing bind settings. `internal/config/config_defaults_sections.go` defaults the server host to loopback; `AYB_SERVER_HOST=0.0.0.0` or any other non-loopback exposure needs auth plus TLS, firewall rules, and reverse proxy controls.
+- Persist secrets outside the checkout with your platform secret manager or the patterns in [Secrets](/guide/secrets). Do not bake admin passwords, JWT signing secrets, database URLs, or provider keys into images or committed files.
+- Run a backup and restore rehearsal using the [Backups](/guide/backups) guide before you accept production writes. A backup that has not been restored into a clean environment is only an unproven artifact.
+- Establish a launch load profile from your expected traffic shape, then run the synced safe smoke and soak commands in `tests/load/README.md`. The internal `_dev/performance_baseline.md` measurements are development-local observations, so use them only as a prompt to measure your own deployment rather than as production capacity claims.
 
 ## PostGIS
 

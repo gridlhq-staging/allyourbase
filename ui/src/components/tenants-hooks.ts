@@ -112,6 +112,7 @@ export function useTenantDetailState(
   auditQuery: TenantAuditQuery,
 ) {
   const [detail, setDetail] = useState<DetailState>(EMPTY_DETAIL_STATE);
+  const [refreshKey, setRefreshKey] = useState(0);
   const activeRef = useRef(0);
   const previousSelectedIdRef = useRef<string | null>(null);
 
@@ -172,7 +173,9 @@ export function useTenantDetailState(
       if (id !== activeRef.current) return;
       setDetail((state) => ({ ...state, isLoading: false, error: String(error?.message ?? error) }));
     });
-  }, [selectedId, activeTab, auditQuery]);
+  }, [selectedId, activeTab, auditQuery, refreshKey]);
 
-  return { detail, setDetail };
+  const refreshDetail = useCallback(() => setRefreshKey((key) => key + 1), []);
+
+  return { detail, setDetail, refreshDetail };
 }

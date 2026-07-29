@@ -212,14 +212,24 @@ describe("Sites", () => {
     expect(screen.getByRole("heading", { name: /delete site/i })).toBeInTheDocument();
   });
 
-  it("renders error state on list fetch failure", async () => {
-    (api.listSites as ReturnType<typeof vi.fn>).mockRejectedValue(new Error("List failed"));
+  it("retries the list fetch from the exact primary-load error", async () => {
+    (api.listSites as ReturnType<typeof vi.fn>).mockRejectedValueOnce(
+      new Error("List failed"),
+    );
 
     renderWithProviders(<Sites />);
 
     await waitFor(() => {
       expect(screen.getByText("List failed")).toBeInTheDocument();
     });
+    expect(screen.getByRole("heading", { name: /^sites$/i })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+
+    await waitFor(() => {
+      expect(screen.getByText("Marketing")).toBeInTheDocument();
+    });
+    expect(api.listSites).toHaveBeenCalledTimes(2);
   });
 
   it("detail view renders site settings and deploy table", async () => {

@@ -1,4 +1,6 @@
 import { describe, it, expect, expectTypeOf, vi, beforeEach, afterEach } from "vitest";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { AYBClient } from "./client";
 import { AYBError } from "./errors";
 import type { ListParams, RpcNotifyOption, RpcOptions, SearchHit } from "./index";
@@ -2156,5 +2158,133 @@ describe("realtime WS", () => {
     ws._receiveJSON({ type: "event", action: "create", table: "posts", record: { id: 1 } });
 
     expect(callback).not.toHaveBeenCalled();
+  });
+});
+
+// --- Edge function invoke (functions.invoke) ---
+
+const SDK_CONTRACT_FIXTURE_DIR = resolve(
+  __dirname,
+  "../../tests/contract/fixtures/sdk_contract",
+);
+
+function edgeFixtureText(name: string): string {
+  return readFileSync(resolve(SDK_CONTRACT_FIXTURE_DIR, name), "utf8");
+}
+
+// canonicalJSON reproduces the compact wire bytes the server emits from a
+// pretty-printed fixture file, so byte-for-byte comparisons stay newline- and
+// whitespace-insensitive against the on-disk fixture.
+function canonicalJSON(text: string): string {
+  return JSON.stringify(JSON.parse(text));
+}
+
+function mockEdgeFetch(
+  status: number,
+  bodyText: string,
+  headers?: Record<string, string>,
+): typeof globalThis.fetch {
+  return vi.fn().mockResolvedValue({
+    ok: status >= 200 && status < 300,
+    status,
+    statusText: status === 204 ? "No Content" : "OK",
+    headers: new Headers(headers),
+    text: () => Promise.resolve(bodyText),
+    json: () => Promise.resolve(JSON.parse(bodyText || "null")),
+  }) as unknown as typeof globalThis.fetch;
+}
+
+describe("functions.invoke", () => {
+  const requestBody = JSON.parse(edgeFixtureText("edge_invoke_request.json")) as {
+    message: string;
+  };
+  const canonicalRequest = canonicalJSON(edgeFixtureText("edge_invoke_request.json"));
+  const canonicalResponse = canonicalJSON(edgeFixtureText("edge_invoke_response.json"));
+
+  it("sends POST /functions/v1/{name} with the bearer, caller headers, and exact bytes", async () => {
+    const fetchFn = mockEdgeFetch(200, canonicalResponse, {
+      "content-type": "application/json",
+    });
+    const client = new AYBClient("http://localhost:8090", { fetch: fetchFn });
+    client.setApiKey("edge-token");
+
+    const res = await client.functions.invoke("sdk-contract-echo", {
+      body: requestBody,
+      headers: { "X-Trace": "abc" },
+    });
+
+    const call = (fetchFn as unknown as ReturnType<typeof vi.fn>).mock.calls[0];
+    expect(call[0]).toBe("http://localhost:8090/functions/v1/sdk-contract-echo");
+    const init = call[1] as RequestInit;
+    expect(init.method).toBe("POST");
+    expect(init.body).toBe(canonicalRequest);
+    const sentHeaders = init.headers as Record<string, string>;
+    expect(sentHeaders.Authorization).toBe("Bearer edge-token");
+    expect(sentHeaders["X-Trace"]).toBe("abc");
+    expect(sentHeaders["Content-Type"]).toBe("application/json");
+
+    expect(res.status).toBe(200);
+    expect(res.rawBody).toBe(canonicalResponse);
+    expect(JSON.parse(res.rawBody)).toEqual({
+      message: "sdk-live",
+      method: "POST",
+      specimen: "sdk-contract-echo",
+    });
+    expect(res.headers["content-type"]).toBe("application/json");
+  });
+
+  it("encodes the function name as a single path segment", async () => {
+    const fetchFn = mockEdgeFetch(200, "{}");
+    const client = new AYBClient("http://localhost:8090", { fetch: fetchFn });
+
+    await client.functions.invoke("weird/name with spaces");
+
+    const call = (fetchFn as unknown as ReturnType<typeof vi.fn>).mock.calls[0];
+    expect(call[0]).toBe(
+      "http://localhost:8090/functions/v1/weird%2Fname%20with%20spaces",
+    );
+  });
+
+  it("does not attach a bearer when the client is unauthenticated", async () => {
+    const fetchFn = mockEdgeFetch(200, "{}");
+    const client = new AYBClient("http://localhost:8090", { fetch: fetchFn });
+
+    await client.functions.invoke("sdk-contract-echo", { body: requestBody });
+
+    const call = (fetchFn as unknown as ReturnType<typeof vi.fn>).mock.calls[0];
+    const sentHeaders = (call[1] as RequestInit).headers as Record<string, string>;
+    expect(sentHeaders.Authorization).toBeUndefined();
+  });
+
+  it("treats 202 and other 2xx statuses as success", async () => {
+    const fetchFn = mockEdgeFetch(202, canonicalResponse);
+    const client = new AYBClient("http://localhost:8090", { fetch: fetchFn });
+
+    const res = await client.functions.invoke("sdk-contract-echo", {
+      body: requestBody,
+    });
+    expect(res.status).toBe(202);
+    expect(res.rawBody).toBe(canonicalResponse);
+  });
+
+  it("returns an empty rawBody on 204", async () => {
+    const fetchFn = mockEdgeFetch(204, "");
+    const client = new AYBClient("http://localhost:8090", { fetch: fetchFn });
+
+    const res = await client.functions.invoke("sdk-contract-echo");
+    expect(res.status).toBe(204);
+    expect(res.rawBody).toBe("");
+  });
+
+  it("propagates non-2xx failures through AYBError", async () => {
+    const fetchFn = mockEdgeFetch(500, JSON.stringify({ message: "boom", code: "edge_error" }));
+    const client = new AYBClient("http://localhost:8090", { fetch: fetchFn });
+
+    await expect(
+      client.functions.invoke("sdk-contract-echo", { body: requestBody }),
+    ).rejects.toMatchObject({ status: 500, message: "boom", code: "edge_error" });
+    await expect(
+      client.functions.invoke("sdk-contract-echo", { body: requestBody }),
+    ).rejects.toBeInstanceOf(AYBError);
   });
 });

@@ -11,12 +11,14 @@ If you have not installed AYB yet, follow [Install](/guide/getting-started#insta
 # Install
 curl -fsSLo /tmp/ayb-install.sh https://install.allyourbase.io/install.sh
 sh /tmp/ayb-install.sh
+export PATH="$HOME/.ayb/bin:$PATH"
 
 # Start with managed PostgreSQL (zero config)
 ayb start
 ```
 
 AYB starts in detached mode and is available at `http://127.0.0.1:8090` (`localhost:8090` on standard local hosts).
+For persistent shell setup details, see [Getting Started](/guide/getting-started#install).
 
 If this is your first run and `admin.password` is unset, startup prints a generated admin password and a reset hint:
 

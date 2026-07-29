@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import type { PerformanceAdvisorReport } from "../../types";
@@ -76,5 +76,25 @@ describe("PerformanceAdvisor", () => {
     render(<PerformanceAdvisor />);
 
     await screen.findByText(toPanelError(apiError));
+  });
+
+  it("recovers a failed performance report through an error-scoped Retry that refetches", async () => {
+    const user = userEvent.setup();
+    const apiError = new ApiError(500, "query insights unavailable");
+    mockedGet.mockRejectedValueOnce(apiError);
+    render(<PerformanceAdvisor />);
+
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent(toPanelError(apiError));
+    // Panel shell (heading + range selector) stays mounted alongside the error.
+    expect(screen.getByRole("heading", { name: "Performance Advisor" })).toBeInTheDocument();
+    expect(screen.getByLabelText(/Time range/i)).toBeInTheDocument();
+
+    const callsBeforeRetry = mockedGet.mock.calls.length;
+    await user.click(screen.getByRole("button", { name: "Retry" }));
+
+    await waitFor(() => expect(mockedGet.mock.calls.length).toBeGreaterThan(callsBeforeRetry));
+    await screen.findByRole("button", { name: /fp1/i });
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });
 });

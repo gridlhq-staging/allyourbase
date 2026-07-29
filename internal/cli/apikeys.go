@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/url"
 	"os"
 	"strings"
 	"text/tabwriter"
@@ -16,6 +17,9 @@ import (
 var apikeysCmd = &cobra.Command{
 	Use:   "apikeys",
 	Short: "Manage API keys on the running AYB server",
+	Example: `ayb apikeys list
+ayb apikeys create --user-id <user-id> --name mobile-client
+ayb apikeys revoke <id>`,
 }
 
 var apikeysListCmd = &cobra.Command{
@@ -215,7 +219,7 @@ func runAPIKeysCreate(cmd *cobra.Command, args []string) error {
 func runAPIKeysRevoke(cmd *cobra.Command, args []string) error {
 	id := args[0]
 
-	resp, body, err := adminRequest(cmd, "DELETE", "/api/admin/api-keys/"+id, nil)
+	resp, body, err := adminRequest(cmd, "DELETE", "/api/admin/api-keys/"+url.PathEscape(id), nil)
 	if err != nil {
 		return err
 	}

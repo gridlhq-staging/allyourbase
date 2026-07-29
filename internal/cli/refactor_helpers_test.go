@@ -1,7 +1,10 @@
 package cli
 
 import (
+	"bytes"
 	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -45,6 +48,70 @@ func TestBuildQueryRequestBuildsURLAndAuthHeader(t *testing.T) {
 	for key, want := range expect {
 		if got := values.Get(key); got != want {
 			t.Fatalf("expected %s=%q, got %q", key, want, got)
+		}
+	}
+}
+
+func TestBuildQueryRequestEscapesTablePathSegment(t *testing.T) {
+	req, err := buildQueryRequest(queryRequestConfig{
+		table:   "posts/../../admin?x=1",
+		baseURL: "http://127.0.0.1:8090",
+		page:    1,
+		limit:   20,
+	})
+	if err != nil {
+		t.Fatalf("buildQueryRequest returned error: %v", err)
+	}
+	if got, want := req.URL.EscapedPath(), "/api/collections/posts%2F..%2F..%2Fadmin%3Fx=1"; got != want {
+		t.Fatalf("expected escaped collection path %q, got %q", want, got)
+	}
+	if req.URL.Query().Get("x") != "" {
+		t.Fatalf("table name injected query parameter into %q", req.URL.String())
+	}
+}
+
+func TestStorageCommandsEscapePathSegments(t *testing.T) {
+	bucket := "bucket/../../admin?x=1"
+	name := "object/../../secrets?y=1"
+	expectedRequests := []string{
+		"GET /api/storage/bucket%2F..%2F..%2Fadmin%3Fx=1",
+		"DELETE /api/storage/bucket%2F..%2F..%2Fadmin%3Fx=1/object%2F..%2F..%2Fsecrets%3Fy=1",
+	}
+	var gotRequests []string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotRequests = append(gotRequests, r.Method+" "+r.RequestURI)
+		if r.URL.Query().Get("x") != "" || r.URL.Query().Get("y") != "" {
+			t.Fatalf("storage names injected query parameters into %q", r.RequestURI)
+		}
+		switch r.Method {
+		case http.MethodGet:
+			_, _ = w.Write([]byte(`{"items":[],"totalItems":0}`))
+		case http.MethodDelete:
+			w.WriteHeader(http.StatusNoContent)
+		default:
+			t.Fatalf("unexpected method %s", r.Method)
+		}
+	}))
+	defer server.Close()
+
+	cmd := &cobra.Command{}
+	cmd.Flags().String("admin-token", "tok", "")
+	cmd.Flags().String("url", server.URL, "")
+
+	captureStdout(t, func() {
+		if err := runStorageLs(cmd, []string{bucket}); err != nil {
+			t.Fatalf("runStorageLs returned error: %v", err)
+		}
+		if err := runStorageDelete(cmd, []string{bucket, name}); err != nil {
+			t.Fatalf("runStorageDelete returned error: %v", err)
+		}
+	})
+	if len(gotRequests) != len(expectedRequests) {
+		t.Fatalf("expected %d requests, got %d: %v", len(expectedRequests), len(gotRequests), gotRequests)
+	}
+	for i, want := range expectedRequests {
+		if gotRequests[i] != want {
+			t.Fatalf("request %d: expected %q, got %q", i, want, gotRequests[i])
 		}
 	}
 }
@@ -112,7 +179,7 @@ func TestUninstallPreflightNotInstalledJSON(t *testing.T) {
 	var proceed bool
 	output := captureStdout(t, func() {
 		var err error
-		proceed, err = uninstallPreflight(aybDir, true, false, false)
+		proceed, err = uninstallPreflight(&cobra.Command{}, aybDir, true, false, false)
 		if err != nil {
 			t.Fatalf("uninstallPreflight returned error: %v", err)
 		}
@@ -126,6 +193,54 @@ func TestUninstallPreflightNotInstalledJSON(t *testing.T) {
 	}
 	if parsed["status"] != "not_installed" {
 		t.Fatalf("expected status not_installed, got %v", parsed["status"])
+	}
+}
+
+func TestStreamRoutingUninstallDeclineUsesStderr(t *testing.T) {
+	homeDir := t.TempDir()
+	t.Setenv("HOME", homeDir)
+	resetJSONFlag()
+	aybDir := filepath.Join(homeDir, ".ayb")
+	if err := os.MkdirAll(aybDir, 0o755); err != nil {
+		t.Fatalf("create AYB directory: %v", err)
+	}
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	uninstallCmd.SetIn(strings.NewReader("n\n"))
+	uninstallCmd.SetOut(&stdout)
+	uninstallCmd.SetErr(&stderr)
+	t.Cleanup(func() {
+		uninstallCmd.SetIn(nil)
+		uninstallCmd.SetOut(nil)
+		uninstallCmd.SetErr(nil)
+		if err := uninstallCmd.Flags().Set("purge", "false"); err != nil {
+			t.Errorf("reset purge flag: %v", err)
+		}
+		if err := uninstallCmd.Flags().Set("yes", "false"); err != nil {
+			t.Errorf("reset yes flag: %v", err)
+		}
+	})
+	if err := uninstallCmd.Flags().Set("purge", "true"); err != nil {
+		t.Fatalf("set purge flag: %v", err)
+	}
+	if err := uninstallCmd.Flags().Set("yes", "false"); err != nil {
+		t.Fatalf("clear yes flag: %v", err)
+	}
+
+	if err := runUninstall(uninstallCmd, nil); err != nil {
+		t.Fatalf("declining uninstall returned an error: %v", err)
+	}
+	if stdout.Len() != 0 {
+		t.Fatalf("expected empty stdout when declining purge, got %q", stdout.String())
+	}
+	for _, expected := range []string{"delete your embedded database", "Continue? [y/N]", "Aborted."} {
+		if !strings.Contains(stderr.String(), expected) {
+			t.Fatalf("expected stderr to contain %q, got %q", expected, stderr.String())
+		}
+	}
+	if _, err := os.Stat(aybDir); err != nil {
+		t.Fatalf("declined purge should preserve %s: %v", aybDir, err)
 	}
 }
 

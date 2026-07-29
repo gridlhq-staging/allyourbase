@@ -20,12 +20,10 @@ var schemaCmd = &cobra.Command{
 	Long: `Display database schema information from the running AYB server.
 
 Without arguments, lists all tables with their column count and kind.
-With a table name, shows full detail: columns, types, foreign keys, indexes.
-
-Examples:
-  ayb schema
-  ayb schema posts
-  ayb schema --json`,
+With a table name, shows full detail: columns, types, foreign keys, indexes.`,
+	Example: `ayb schema
+ayb schema posts
+ayb schema --json`,
 	Args: cobra.MaximumNArgs(1),
 	RunE: runSchema,
 }

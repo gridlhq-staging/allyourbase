@@ -30,7 +30,7 @@ class OkHttpSseTransport(
             request.headers.forEach { (name, value) ->
                 header(name, value)
             }
-        }.method(request.method.toOkHttpMethod(), request.body.toOkHttpRequestBody(request.method)).build()
+        }.method(request.method.name, request.body.toOkHttpRequestBody(request.method)).build()
 
         val call = client.newCall(okRequest)
         val response = call.execute()
@@ -78,14 +78,6 @@ class OkHttpSseConnection(
         call.cancel()
         response.close()
     }
-}
-
-private fun HttpMethod.toOkHttpMethod(): String = when (this) {
-    HttpMethod.GET -> "GET"
-    HttpMethod.POST -> "POST"
-    HttpMethod.PUT -> "PUT"
-    HttpMethod.PATCH -> "PATCH"
-    HttpMethod.DELETE -> "DELETE"
 }
 
 private fun ByteArray?.toOkHttpRequestBody(method: HttpMethod): RequestBody? {

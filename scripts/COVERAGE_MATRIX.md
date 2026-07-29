@@ -98,6 +98,117 @@
 | CRUD-capable views missing full lifecycle | 0 |
 | Views missing mocked coverage | 30 |
 
+## Admin degraded-state inventory
+
+> Single source of truth for the **shipped** loading / empty / error / retry state
+> of every admin screen. Exactly one row per ID in `ADMIN_VIEWS`
+> (`ui/src/screens/registry.ts`); `scripts/check-coverage-matrix.sh` fails when the
+> row set drifts from the registry, when a status leaves the controlled vocabulary,
+> when the evidence entries disagree with the statuses, or when any referenced file
+> does not exist. Every total below the table is derived from these rows — none of
+> them are hand-entered.
+>
+> Path roots (omitted from cells): `Component` and `Evidence` resolve under
+> `ui/src/components/`, `Screen spec` under `docs/reference/screen_specs/`, and
+> `Unmocked proof` under `ui/browser-tests-unmocked/`.
+
+Status vocabulary — exactly one of `present`, `missing`, `not-applicable`:
+
+| State | `present` | `missing` | `not-applicable` |
+|---|---|---|---|
+| **Loading** | a distinct loading affordance renders while the primary request is in flight | the screen issues a primary request but renders no affordance | the screen issues no data request of its own |
+| **Empty** | a dedicated zero-result message renders for the primary collection | the screen has a primary collection but no zero-result message | the primary surface is not a collection |
+| **Error** | a primary-request failure renders a user-visible message | a primary-request failure renders nothing | the screen issues no data request of its own |
+| **Retry** | the error surface offers a re-attempt control | no error-scoped re-attempt control | required whenever **Error** is `not-applicable` |
+
+`Evidence` carries one `<state>=<path>:L<line>` entry for each state whose status is
+`present`, and nothing else — a `missing` or `not-applicable` state must not carry
+evidence. `Unmocked proof` records real-server browser proof of a degraded state and
+counts only when the spec seeds or verifies real state and asserts a unique page-body
+value; conditional `A.or(B)` fallbacks do not count. `Requires` mirrors the registry's
+capability gate so capability-gated screens stay in the denominator.
+
+**This section records shipped truth, not target behavior.** Target behavior is owned
+by each screen spec's `## State contract`; verified deltas are owned by that spec's
+`## Current implementation gaps` records. A `missing` row is a Stage 3 migration
+candidate, not a gate failure.
+
+| Screen | Component | Requires | Loading | Empty | Error | Retry | Evidence | Screen spec | Unmocked proof |
+|---|---|---|---|---|---|---|---|---|---|
+| `webhooks` | `Webhooks.tsx` | none | present | present | present | present | loading=Webhooks.tsx:L107; empty=Webhooks.tsx:L154; error=Webhooks.tsx:L121; retry=Webhooks.tsx:L129 | `webhooks.md` | none |
+| `storage` | `StorageBrowser.tsx` | none | present | present | present | present | loading=StorageBrowser.tsx:L247; empty=StorageBrowser.tsx:L260; error=StorageBrowser.tsx:L225; retry=StorageBrowser.tsx:L228 | `storage.md` | empty=smoke/storage-upload.spec.ts; error=smoke/storage-upload.spec.ts |
+| `sites` | `Sites.tsx` | none | present | present | present | present | loading=Sites.tsx:L521; empty=Sites.tsx:L520; error=Sites.tsx:L523; retry=Sites.tsx:L525 | `sites.md` | empty=smoke/sites-hosting.spec.ts; error=smoke/sites-hosting.spec.ts |
+| `users` | `Users.tsx` | none | present | present | present | present | loading=Users.tsx:L75; empty=Users.tsx:L150; error=Users.tsx:L89; retry=Users.tsx:L97 | `users.md` | none |
+| `functions` | `FunctionBrowser.tsx` | none | not-applicable | present | not-applicable | not-applicable | empty=FunctionBrowser.tsx:L71 | `functions.md` | none |
+| `edge-functions` | `EdgeFunctions.tsx` | none | present | present | present | present | loading=edge-functions/FunctionList.tsx:L30; empty=edge-functions/FunctionList.tsx:L44; error=edge-functions/FunctionList.tsx:L38; retry=edge-functions/FunctionList.tsx:L38 | `edge_functions.md` | empty=smoke/edge-functions-crud.spec.ts; error=smoke/edge-functions-crud.spec.ts |
+| `apps` | `Apps.tsx` | none | present | present | present | present | loading=Apps.tsx:L105; empty=Apps.tsx:L152; error=Apps.tsx:L119; retry=Apps.tsx:L127 | `apps.md` | none |
+| `api-keys` | `ApiKeys.tsx` | none | present | present | present | present | loading=ApiKeys.tsx:L122; empty=ApiKeys.tsx:L169; error=ApiKeys.tsx:L136; retry=ApiKeys.tsx:L144 | `api_keys.md` | none |
+| `oauth-clients` | `OAuthClients.tsx` | none | present | present | present | present | loading=OAuthClients.tsx:L132; empty=OAuthClients.tsx:L179; error=OAuthClients.tsx:L146; retry=OAuthClients.tsx:L154 | `oauth_clients.md` | none |
+| `api-explorer` | `ApiExplorer.tsx` | none | present | not-applicable | present | present | loading=ApiExplorerRequest.tsx:L125; error=ApiExplorerResponse.tsx:L44; retry=ApiExplorerResponse.tsx:L47 | `api_explorer.md` | error=smoke/api-explorer-view.spec.ts |
+| `rls` | `RlsPolicies.tsx` | none | present | present | present | present | loading=RlsPolicies.tsx:L256; empty=RlsPolicies.tsx:L328; error=RlsPolicies.tsx:L263; retry=RlsPolicies.tsx:L267 | `rls_policies.md` | none |
+| `sql-editor` | `SqlEditor.tsx` | none | present | present | present | present | loading=SqlEditor.tsx:L333; empty=SqlEditor.tsx:L429; error=SqlEditor.tsx:L351; retry=SqlEditor.tsx:L354 | `sql_editor.md` | error=full/sql-editor-lifecycle.spec.ts |
+| `graphql` | `GraphqlExplorer.tsx` | none | present | not-applicable | present | present | loading=GraphqlExplorerRequest.tsx:L100; error=GraphqlExplorerResponse.tsx:L22; retry=GraphqlExplorerResponse.tsx:L25 | none | error=smoke/graphql-explorer.spec.ts |
+| `schema-designer` | `SchemaDesigner.tsx` | none | present | present | present | present | loading=SchemaDesigner.tsx:L76; empty=SchemaDesigner.tsx:L96; error=SchemaDesigner.tsx:L82; retry=SchemaDesigner.tsx:L85 | `schema_designer.md` | none |
+| `sms-health` | `SMSHealth.tsx` | none | present | not-applicable | present | present | loading=SMSHealth.tsx:L60; error=SMSHealth.tsx:L74; retry=SMSHealth.tsx:L79 | `sms_health.md` | none |
+| `sms-messages` | `SMSMessages.tsx` | none | present | present | present | present | loading=SMSMessages.tsx:L49; empty=SMSMessages.tsx:L75; error=SMSMessages.tsx:L63; retry=SMSMessages.tsx:L68 | `sms_messages.md` | none |
+| `email-templates` | `EmailTemplates.tsx` | none | present | present | present | present | loading=EmailTemplates.tsx:L299; empty=EmailTemplates.tsx:L371; error=EmailTemplates.tsx:L313; retry=EmailTemplates.tsx:L321 | `email_templates.md` | none |
+| `push` | `PushNotifications.tsx` | none | present | present | present | present | loading=PushNotifications.tsx:L245; empty=push-notifications/PushNotificationsDevicesTab.tsx:L79; error=PushNotifications.tsx:L259; retry=PushNotifications.tsx:L266 | `push_notifications.md` | none |
+| `jobs` | `Jobs.tsx` | none | present | present | present | present | loading=Jobs.tsx:L160; empty=Jobs.tsx:L275; error=Jobs.tsx:L174; retry=Jobs.tsx:L182 | `jobs.md` | none |
+| `schedules` | `Schedules.tsx` | none | present | present | present | present | loading=Schedules.tsx:L202; empty=Schedules.tsx:L249; error=Schedules.tsx:L216; retry=Schedules.tsx:L224 | `schedules.md` | none |
+| `matviews` | `MatviewsAdmin.tsx` | none | present | present | present | present | loading=MatviewsAdmin.tsx:L163; empty=MatviewsAdmin.tsx:L210; error=MatviewsAdmin.tsx:L177; retry=MatviewsAdmin.tsx:L185 | `matviews.md` | none |
+| `auth-settings` | `AuthSettings.tsx` | none | present | present | present | present | loading=AuthSettings.tsx:L246; empty=AuthSettingsProviders.tsx:L59; error=AuthSettings.tsx:L260; retry=AuthSettings.tsx:L262 | `auth_settings.md` | none |
+| `mfa-management` | `MFAEnrollment.tsx` | none | present | present | present | present | loading=MFAEnrollment.tsx:L264; empty=MFAEnrollment.tsx:L272; error=MFAEnrollment.tsx:L240; retry=MFAEnrollment.tsx:L243 | `mfa_enrollment.md` | empty=smoke/mfa-management-view.spec.ts; error=smoke/mfa-management-view.spec.ts |
+| `account-linking` | `AccountLinking.tsx` | none | not-applicable | not-applicable | not-applicable | not-applicable | none | `account_linking.md` | none |
+| `branches` | `Branches.tsx` | none | present | present | present | present | loading=Branches.tsx:L91; empty=Branches.tsx:L125; error=Branches.tsx:L112; retry=Branches.tsx:L120 | `branches.md` | none |
+| `realtime-inspector` | `RealtimeInspector.tsx` | none | present | present | present | present | loading=RealtimeInspector.tsx:L45; empty=RealtimeInspector.tsx:L71; error=RealtimeInspector.tsx:L39; retry=RealtimeInspector.tsx:L42 | `realtime_inspector.md` | empty=smoke/realtime-inspector-view.spec.ts; error=smoke/realtime-inspector-view.spec.ts |
+| `security-advisor` | `SecurityAdvisor.tsx` | none | present | present | present | present | loading=SecurityAdvisor.tsx:L48; empty=SecurityAdvisor.tsx:L82; error=SecurityAdvisor.tsx:L50; retry=SecurityAdvisor.tsx:L53 | `security_advisor.md` | empty=smoke/security-advisor-view.spec.ts; error=smoke/security-advisor-view.spec.ts |
+| `performance-advisor` | `PerformanceAdvisor.tsx` | none | present | present | present | present | loading=PerformanceAdvisor.tsx:L58; empty=PerformanceAdvisor.tsx:L69; error=PerformanceAdvisor.tsx:L60; retry=PerformanceAdvisor.tsx:L63 | `performance_advisor.md` | empty=smoke/performance-advisor-view.spec.ts; error=smoke/performance-advisor-view.spec.ts |
+| `backups` | `Backups.tsx` | none | present | present | present | present | loading=Backups.tsx:L281; empty=Backups.tsx:L344; error=Backups.tsx:L295; retry=Backups.tsx:L300 | `backups.md` | none |
+| `analytics` | `Analytics.tsx` | none | present | present | present | present | loading=Analytics.tsx:L412; empty=Analytics.tsx:L574; error=Analytics.tsx:L426; retry=Analytics.tsx:L438 | `analytics.md` | empty=smoke/analytics.spec.ts |
+| `usage` | `UsageMetering.tsx` | none | present | present | present | present | loading=UsageMetering.tsx:L435; empty=UsageMeteringSections.tsx:L340; error=UsageMetering.tsx:L449; retry=UsageMetering.tsx:L454 | `usage_metering.md` | none |
+| `replicas` | `Replicas.tsx` | none | present | present | present | present | loading=Replicas.tsx:L200; empty=Replicas.tsx:L389; error=Replicas.tsx:L214; retry=Replicas.tsx:L219 | `replicas.md` | none |
+| `ai-assistant` | `AIAssistant.tsx` | none | present | present | present | present | loading=AIAssistant.tsx:L166; empty=ai/AILogsTab.tsx:L91; error=AIAssistant.tsx:L181; retry=AIAssistant.tsx:L186 | `ai_assistant.md` | none |
+| `audit-logs` | `AuditLogs.tsx` | none | present | present | present | present | loading=AuditLogs.tsx:L119; empty=AuditLogs.tsx:L118; error=AuditLogs.tsx:L121; retry=AuditLogs.tsx:L123 | `audit_logs.md` | empty=smoke/audit-logs.spec.ts; error=smoke/audit-logs.spec.ts |
+| `admin-logs` | `AdminLogs.tsx` | none | present | present | present | present | loading=AdminLogs.tsx:L407; empty=AdminLogs.tsx:L420; error=AdminLogs.tsx:L401; retry=AdminLogs.tsx:L404 | `admin_logs.md` | empty=smoke/admin-logs.spec.ts; error=smoke/admin-logs.spec.ts |
+| `secrets` | `Secrets.tsx` | none | present | present | present | present | loading=Secrets.tsx:L227; empty=Secrets.tsx:L226; error=Secrets.tsx:L229; retry=Secrets.tsx:L231 | `secrets.md` | empty=smoke/secrets.spec.ts; error=smoke/secrets.spec.ts |
+| `saml` | `SAMLConfig.tsx` | none | present | present | present | present | loading=SAMLConfig.tsx:L231; empty=SAMLConfig.tsx:L230; error=SAMLConfig.tsx:L233; retry=SAMLConfig.tsx:L235 | `saml_config.md` | empty=smoke/saml.spec.ts; error=smoke/saml.spec.ts |
+| `custom-domains` | `CustomDomains.tsx` | none | present | present | present | present | loading=CustomDomains.tsx:L185; empty=CustomDomains.tsx:L184; error=CustomDomains.tsx:L187; retry=CustomDomains.tsx:L189 | `custom_domains.md` | empty=smoke/custom-domains.spec.ts; error=smoke/custom-domains.spec.ts |
+| `extensions` | `Extensions.tsx` | none | present | present | present | present | loading=Extensions.tsx:L92; empty=Extensions.tsx:L91; error=Extensions.tsx:L94; retry=Extensions.tsx:L96 | `extensions.md` | empty=smoke/extensions.spec.ts; error=smoke/extensions.spec.ts |
+| `search` | `Search.tsx` | none | present | present | present | present | loading=TableBrowserGrid.tsx:L130; empty=Search.tsx:L362; error=Search.tsx:L349; retry=Search.tsx:L350 | `search_playground.md` | empty=full/search-playground-journey.spec.ts |
+| `vector-indexes` | `VectorIndexes.tsx` | none | present | present | present | present | loading=VectorIndexes.tsx:L161; empty=VectorIndexes.tsx:L160; error=VectorIndexes.tsx:L163; retry=VectorIndexes.tsx:L165 | `vector_indexes.md` | empty=smoke/vector-indexes.spec.ts; error=smoke/vector-indexes.spec.ts |
+| `log-drains` | `LogDrains.tsx` | none | present | present | present | present | loading=LogDrains.tsx:L227; empty=LogDrains.tsx:L226; error=LogDrains.tsx:L229; retry=LogDrains.tsx:L231 | `log_drains.md` | empty=smoke/log-drains.spec.ts; error=smoke/log-drains.spec.ts |
+| `stats` | `StatsOverview.tsx` | none | present | not-applicable | present | present | loading=StatsOverview.tsx:L68; error=StatsOverview.tsx:L53; retry=StatsOverview.tsx:L56 | `stats_overview.md` | error=smoke/stats.spec.ts |
+| `auth-hooks` | `AuthHooks.tsx` | none | present | not-applicable | present | present | loading=AuthHooks.tsx:L51; error=AuthHooks.tsx:L38; retry=AuthHooks.tsx:L41 | `auth_hooks.md` | error=smoke/auth-hooks.spec.ts |
+| `notifications` | `Notifications.tsx` | none | not-applicable | not-applicable | not-applicable | not-applicable | none | `notifications.md` | none |
+| `fdw` | `FDWManagement.tsx` | none | present | present | present | present | loading=FDWManagement.tsx:L279; empty=FDWManagement.tsx:L278; error=FDWManagement.tsx:L281; retry=FDWManagement.tsx:L283 | `fdw.md` | empty=smoke/fdw.spec.ts; error=smoke/fdw.spec.ts |
+| `incidents` | `Incidents.tsx` | status | present | present | present | present | loading=Incidents.tsx:L206; empty=Incidents.tsx:L205; error=Incidents.tsx:L208; retry=Incidents.tsx:L210 | `incidents.md` | empty=smoke/incidents.spec.ts; error=smoke/incidents.spec.ts |
+| `support-tickets` | `SupportTickets.tsx` | support | present | present | present | present | loading=SupportTickets.tsx:L175; empty=SupportTickets.tsx:L174; error=SupportTickets.tsx:L177; retry=SupportTickets.tsx:L179 | `support_tickets.md` | empty=smoke/support-tickets.spec.ts; error=smoke/support-tickets.spec.ts |
+| `tenants` | `Tenants.tsx` | none | present | present | present | present | loading=Tenants.tsx:L245; empty=Tenants.tsx:L369; error=Tenants.tsx:L256; retry=Tenants.tsx:L259 | `tenants.md` | empty=smoke/tenants.spec.ts; error=smoke/tenants.spec.ts |
+| `organizations` | `Organizations.tsx` | none | present | present | present | present | loading=Organizations.tsx:L433; empty=Organizations.tsx:L355; error=Organizations.tsx:L444; retry=Organizations.tsx:L447 | `organizations.md` | empty=smoke/organizations.spec.ts; error=smoke/organizations.spec.ts |
+
+### Reading the derived totals
+
+`scripts/check-coverage-matrix.sh` prints `DEGRADED_STATE_INVENTORY:<rows>/<registry screens>`,
+one `DEGRADED_STATE_<STATE>` line per degraded state, `DEGRADED_STATE_SCREEN_SPEC`, and
+`DEGRADED_STATE_UNMOCKED_PROOF`. `internal/codehealth` owns the expected values, so a
+silently flipped status cell fails `TestCheckCoverageMatrixScriptReportsDegradedStateInventoryTotals`.
+
+Notable rows:
+
+- `graphql` is the only screen with no paired screen spec — every other ID maps to one,
+  including the deliberate renames `mfa-management` → `mfa_enrollment.md`,
+  `saml` → `saml_config.md`, `stats` → `stats_overview.md`, `push` → `push_notifications.md`,
+  `rls` → `rls_policies.md`, and `search` → `search_playground.md`.
+- `account-linking` and `notifications` are pure mutation forms with no primary data
+  request, so all four states are `not-applicable`. They are not Stage 3 migration targets.
+- `incidents` (`requires: status`) and `support-tickets` (`requires: support`) are
+  capability-gated but stay in the 50-screen denominator.
+- Only two screens carry real-server degraded-state proof: `analytics` (filters the request
+  log to a unique path and asserts `No request logs found`) and `search` (searches a
+  misspelled term and asserts `No results matched this search`). The `tenants`,
+  `organizations`, and `matviews` smoke specs assert a degraded state only inside an
+  `.or()` fallback, so they do not count.
+
 ## Stage Gap Lists
 
 ### Stage 3 — Smoke specs needing rewrite (heading-only)
@@ -173,7 +284,9 @@ The previously tracked Stage 5 closeout remains true for the original 22-row aud
 
 ### Stage 6 — Views missing mocked coverage
 
-29 views remaining. 10 highest-priority mutation surfaces now covered:
+30 views remaining, matching the row-derived `Views missing mocked coverage` metric in
+`## Gap Summary` (the previous "29" was hand-maintained and one behind the rows).
+10 highest-priority mutation surfaces now covered:
 `api-keys`, `oauth-clients`, `webhooks`, `storage`, `secrets`, `sql-editor`, `notifications`, `support-tickets`, `incidents`, `fdw`.
 
 ## Prioritization (product-surface-first)

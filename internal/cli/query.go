@@ -17,12 +17,10 @@ import (
 var queryCmd = &cobra.Command{
 	Use:   "query <table>",
 	Short: "Query records from a table on the running AYB server",
-	Long: `Query records from a collection via the running AYB server's REST API.
-
-Examples:
-  ayb query posts
-  ayb query users --filter "email LIKE '%@example.com'" --sort -created_at --limit 5
-  ayb query posts --fields id,title,created_at --json`,
+	Long:  `Query records from a collection via the running AYB server's REST API.`,
+	Example: `ayb query posts
+ayb query users --filter "email LIKE '%@example.com'" --sort -created_at --limit 5
+ayb query posts --fields id,title,created_at --json`,
 	Args: cobra.ExactArgs(1),
 	RunE: runQuery,
 }
@@ -124,7 +122,7 @@ func buildQueryRequest(cfg queryRequestConfig) (*http.Request, error) {
 	qs.Set("page", fmt.Sprintf("%d", cfg.page))
 	qs.Set("perPage", fmt.Sprintf("%d", cfg.limit))
 
-	reqURL := fmt.Sprintf("%s/api/collections/%s?%s", cfg.baseURL, cfg.table, qs.Encode())
+	reqURL := fmt.Sprintf("%s/api/collections/%s?%s", cfg.baseURL, url.PathEscape(cfg.table), qs.Encode())
 	req, err := http.NewRequest("GET", reqURL, nil)
 	if err != nil {
 		return nil, err

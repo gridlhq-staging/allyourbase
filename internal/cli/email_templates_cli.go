@@ -17,6 +17,9 @@ import (
 var emailTemplatesCmd = &cobra.Command{
 	Use:   "email-templates",
 	Short: "Manage custom email templates",
+	Example: `ayb email-templates list
+ayb email-templates set welcome --subject "Welcome" --html-file welcome.html
+ayb email-templates preview welcome --vars '{"name":"Ada"}'`,
 }
 
 var emailTemplatesListCmd = &cobra.Command{

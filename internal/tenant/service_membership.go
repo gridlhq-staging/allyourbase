@@ -46,7 +46,7 @@ func (s *Service) AddMembership(ctx context.Context, tenantID, userID, role stri
 		return nil, ErrInvalidRole
 	}
 
-	m, err := scanMembership(s.pool.QueryRow(ctx,
+	m, err := scanMembership(s.database().QueryRow(ctx,
 		`INSERT INTO _ayb_tenant_memberships (tenant_id, user_id, role)
 		 VALUES ($1, $2, $3)
 		 RETURNING id, tenant_id, user_id, role, created_at`,
@@ -60,7 +60,9 @@ func (s *Service) AddMembership(ctx context.Context, tenantID, userID, role stri
 		return nil, fmt.Errorf("adding membership: %w", err)
 	}
 
-	s.logger.Info("membership added", "tenant_id", tenantID, "user_id", userID, "role", role)
+	if s.tx == nil && s.logger != nil {
+		s.logger.Info("membership added", "tenant_id", tenantID, "user_id", userID, "role", role)
+	}
 	return m, nil
 }
 

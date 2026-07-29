@@ -2,6 +2,7 @@ import {
   adminPath,
   buildParallelSafeRunID,
   execSQL,
+  expectOfflineRetryRecovery,
   expect,
   probeEndpoint,
   sqlLiteral,
@@ -23,6 +24,7 @@ test.describe("GraphQL explorer", () => {
 
   test("queries seeded data and explores the live schema", async ({
     adminToken,
+    context,
     page,
     request,
   }, testInfo) => {
@@ -107,6 +109,29 @@ test.describe("GraphQL explorer", () => {
     const renderedResponse = page.getByTestId("graphql-response-body");
     await expect(renderedResponse).toContainText(seed.title);
     expect(JSON.parse((await renderedResponse.textContent()) ?? "")).toEqual(expectedEnvelope);
+
+    // Closest-real proxy: GraphQL query execution reports fetch rejection when
+    // the live GraphQL endpoint is unreachable, then retries the same query.
+    await expectOfflineRetryRecovery(
+      page,
+      context,
+      async () => {
+        await page.getByRole("button", { name: "Send", exact: true }).click();
+      },
+      async () => {
+        await expect(page.getByText("200 OK", { exact: true })).toBeVisible();
+        await expect(page.getByTestId("graphql-response-body")).toContainText(seed.title);
+        // CodeMirror exposes each source line only through its internal line nodes.
+        await expect(
+          // eslint-disable-next-line playwright/no-raw-locators
+          page.getByLabel("GraphQL query").locator(".cm-line"),
+        ).toHaveText(query.split("\n"));
+      },
+    );
+    expect(consoleErrors).toEqual([
+      "Failed to load resource: net::ERR_INTERNET_DISCONNECTED",
+    ]);
+    consoleErrors.length = 0;
 
     await page.getByRole("button", { name: "History (1)", exact: true }).click();
     await expect(page.getByText("Recent Queries", { exact: true })).toBeVisible();

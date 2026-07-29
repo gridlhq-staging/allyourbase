@@ -114,6 +114,10 @@ type tokenRevokeListenerWaiter interface {
 	WaitForListener(ctx context.Context, name string) error
 }
 
+type authDatabase interface {
+	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
+}
+
 // EmailTemplateRenderer renders email templates by key with variable substitution.
 // When set on auth.Service, email flows use custom templates with fallback to built-in defaults.
 type EmailTemplateRenderer interface {

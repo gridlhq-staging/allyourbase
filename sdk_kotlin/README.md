@@ -18,6 +18,37 @@ dependencies {
 }
 ```
 
+## PostgreSQL RPC
+
+`suspend fun rpc(functionName: String, args: JsonObject? = null)` returns a
+`JsonElement?`. A 204 or empty response returns `null`.
+
+```kotlin
+val total = ayb.rpc(
+    "leaderboard_total",
+    buildJsonObject { put("club_id", "abc123") },
+)
+```
+
+## Edge functions
+
+`client.functions.invoke(name, options)` returns `status: Int`,
+`headers: Map<String, String>`, and `rawBody: ByteArray`.
+
+```kotlin
+val response = ayb.functions.invoke(
+    "send-digest",
+    EdgeInvokeOptions(
+        body = buildJsonObject { put("club_id", "abc123") },
+    ),
+)
+println("${response.status}: ${response.rawBody.size} bytes")
+```
+
+GraphQL and admin/org typed clients are JS-only scope today. Kotlin
+applications can use AYB REST endpoints or custom HTTP calls for those
+surfaces.
+
 ## OAuth
 
 The JVM SDK builds the provider start URL and leaves browser, popup, or custom

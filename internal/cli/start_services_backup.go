@@ -15,7 +15,13 @@ import (
 
 // wireBackupServices initializes and starts the backup service if enabled, configuring S3 storage, scheduling, and optionally Point-in-Time Recovery infrastructure.
 func wireBackupServices(ctx context.Context, srv *server.Server, cfg *config.Config, pool *postgres.Pool, state *shutdownState, logger *slog.Logger) {
-	if !cfg.Backup.Enabled || pool == nil {
+	if pool == nil {
+		return
+	}
+
+	bkRepo := backup.NewRepository(pool.DB())
+	srv.SetBackupLister(bkRepo)
+	if !cfg.Backup.Enabled {
 		return
 	}
 
@@ -39,7 +45,6 @@ func wireBackupServices(ctx context.Context, srv *server.Server, cfg *config.Con
 	}
 
 	dbName := extractDBName(cfg.Database.URL)
-	bkRepo := backup.NewRepository(pool.DB())
 	bkDumper := &backup.DumpRunner{}
 	bkNotify := backup.NewLogNotifier(logger)
 

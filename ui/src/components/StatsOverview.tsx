@@ -1,6 +1,7 @@
 import { getStats } from "../api_stats";
 import type { StatsOverview as StatsData } from "../types/stats";
 import { usePolling } from "../hooks/usePolling";
+import { ErrorNotice } from "./ErrorNotice";
 
 function formatBytes(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
@@ -41,7 +42,7 @@ function StatCard({ label, value }: StatCardProps) {
 }
 
 export function StatsOverview() {
-  const { data, error } = usePolling<StatsData>(getStats, 5000);
+  const { data, error, refresh } = usePolling<StatsData>(getStats, 5000);
 
   if (error) {
     return (
@@ -49,9 +50,11 @@ export function StatsOverview() {
         <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-4">
           Stats
         </h2>
-        <p className="text-red-600 dark:text-red-400">
-          {error instanceof Error ? error.message : "Failed to load"}
-        </p>
+        <ErrorNotice
+          message={error instanceof Error ? error.message : "Failed to load"}
+          docsPath="/guide/admin-dashboard"
+          onAction={() => void refresh()}
+        />
       </div>
     );
   }

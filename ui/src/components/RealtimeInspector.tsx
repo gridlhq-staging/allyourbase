@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import { getRealtimeInspectorSnapshot } from "../api";
 import { usePolling } from "../hooks/usePolling";
 import { toPanelError } from "./advisors/panelError";
+import { ErrorNotice } from "./ErrorNotice";
 
 export function RealtimeInspector({ pollMs = 10000 }: { pollMs?: number }) {
   const [subFilter, setSubFilter] = useState("");
@@ -34,7 +35,13 @@ export function RealtimeInspector({ pollMs = 10000 }: { pollMs?: number }) {
         </div>
       </div>
 
-      {Boolean(error) && <div className="text-sm text-red-600">{toPanelError(error)}</div>}
+      {Boolean(error) && (
+        <ErrorNotice
+          message={toPanelError(error)}
+          docsPath="/guide/admin-dashboard"
+          onAction={() => void refresh()}
+        />
+      )}
       {loading && !data && <div className="text-sm text-gray-500">Loading realtime telemetry...</div>}
 
       <div className="grid grid-cols-2 lg:grid-cols-5 gap-2">

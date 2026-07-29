@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	neturl "net/url"
 	"os"
 	"strconv"
 	"time"
@@ -16,13 +17,11 @@ import (
 var logsCmd = &cobra.Command{
 	Use:   "logs",
 	Short: "Show AYB server logs",
-	Long: `Display recent server logs or stream them in real-time.
-
-Examples:
-  ayb logs                   # Show last 100 log lines
-  ayb logs -n 50             # Show last 50 log lines
-  ayb logs --follow          # Stream logs in real-time
-  ayb logs --level error     # Filter by log level`,
+	Long:  `Display recent server logs or stream them in real-time.`,
+	Example: `ayb logs                   # Show last 100 log lines
+ayb logs -n 50             # Show last 50 log lines
+ayb logs --follow          # Stream logs in real-time
+ayb logs --level error     # Filter by log level`,
 	RunE: runLogs,
 }
 
@@ -45,12 +44,13 @@ func runLogs(cmd *cobra.Command, args []string) error {
 
 	// Build request URL
 	endpoint := url + "/api/admin/logs"
-	params := "?lines=" + strconv.Itoa(lines)
+	params := neturl.Values{}
+	params.Set("lines", strconv.Itoa(lines))
 	if follow {
-		params += "&follow=true"
+		params.Set("follow", "true")
 	}
 	if level != "" {
-		params += "&level=" + level
+		params.Set("level", level)
 	}
 
 	client := &http.Client{Timeout: 0} // no timeout for streaming
@@ -58,7 +58,7 @@ func runLogs(cmd *cobra.Command, args []string) error {
 		client.Timeout = 10 * time.Second
 	}
 
-	req, err := http.NewRequest("GET", endpoint+params, nil)
+	req, err := http.NewRequest("GET", endpoint+"?"+params.Encode(), nil)
 	if err != nil {
 		return fmt.Errorf("creating request: %w", err)
 	}
@@ -108,11 +108,9 @@ var statsCmd = &cobra.Command{
 	Use:   "stats",
 	Short: "Show AYB server statistics",
 	Long: `Display current server statistics including uptime, request counts,
-active connections, and database pool info.
-
-Examples:
-  ayb stats             # Show stats in table format
-  ayb stats --json      # Show stats as JSON`,
+active connections, and database pool info.`,
+	Example: `ayb stats             # Show stats in table format
+ayb stats --json      # Show stats as JSON`,
 	RunE: runStats,
 }
 
@@ -190,9 +188,10 @@ func runStats(cmd *cobra.Command, args []string) error {
 }
 
 var secretsCmd = &cobra.Command{
-	Use:   "secrets",
-	Short: "Manage server secrets",
-	Long:  `Manage sensitive server configuration like JWT secrets.`,
+	Use:     "secrets",
+	Short:   "Manage server secrets",
+	Long:    `Manage sensitive server configuration like JWT secrets.`,
+	Example: `ayb secrets rotate`,
 }
 
 var secretsRotateCmd = &cobra.Command{

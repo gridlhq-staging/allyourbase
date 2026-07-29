@@ -1,3 +1,7 @@
+import 'dart:convert';
+import 'dart:io';
+import 'dart:typed_data';
+
 import 'package:allyourbase/allyourbase.dart';
 import 'package:test/test.dart';
 
@@ -19,11 +23,13 @@ void main() {
       expect(client.storage, isA<StorageClient>());
       expect(client.realtime, isA<RealtimeClient>());
       expect(client.push, isA<PushClient>());
+      expect(client.functions, isA<FunctionsClient>());
       expect(identical(client.auth.client, client), isTrue);
       expect(identical(client.records.client, client), isTrue);
       expect(identical(client.storage.client, client), isTrue);
       expect(identical(client.realtime.client, client), isTrue);
       expect(identical(client.push.client, client), isTrue);
+      expect(identical(client.functions.client, client), isTrue);
     });
 
     test('uses injected http client instance', () {
@@ -269,6 +275,120 @@ void main() {
           'Bearer jwt_abc');
     });
   });
+
+  group('functions.invoke', () {
+    final requestFixture = _loadJsonFixture('edge_invoke_request.json');
+    final responseFixtureBytes = _loadFixtureBytes('edge_invoke_response.json');
+
+    test('posts fixture json body with bearer and caller headers', () async {
+      final http = DeterministicHttpClient([
+        StubResponse.text(
+          200,
+          utf8.decode(responseFixtureBytes),
+          headers: const {'x-edge-run': 'deterministic'},
+        ),
+      ]);
+      final client = AYBClient('https://api.example.com', httpClient: http);
+      client.setTokens('jwt_edge', 'refresh_edge');
+
+      final response = await client.functions.invoke(
+        'sdk-contract-echo',
+        EdgeInvokeOptions(
+          body: requestFixture,
+          headers: const {'X-Trace-Id': 'trace-1'},
+        ),
+      );
+
+      final req = http.requests.single;
+      expect(req.method, 'POST');
+      expect(
+        req.url.toString(),
+        'https://api.example.com/functions/v1/sdk-contract-echo',
+      );
+      expect(_header(req.headers, 'Authorization'), 'Bearer jwt_edge');
+      expect(_header(req.headers, 'X-Trace-Id'), 'trace-1');
+      expect(_header(req.headers, 'Content-Type'), 'application/json');
+      expect(req.bodyBytes, utf8.encode(jsonEncode(requestFixture)));
+      expect(response.status, 200);
+      expect(response.headers, containsPair('x-edge-run', 'deterministic'));
+      expect(response.rawBody, responseFixtureBytes);
+    });
+
+    test('encodes function name as one RFC 3986 path segment', () async {
+      final http = DeterministicHttpClient([StubResponse.empty(204)]);
+      final client = AYBClient('https://api.example.com', httpClient: http);
+
+      await client.functions.invoke('schema/fn name');
+
+      expect(
+        http.requests.single.url.path,
+        '/functions/v1/schema%2Ffn%20name',
+      );
+    });
+
+    test('skipAuth omits bearer without bypassing normalized errors', () async {
+      final http = DeterministicHttpClient([
+        StubResponse.json(403, const {
+          'message': 'edge denied',
+          'code': 'edge/denied',
+          'data': {'function': 'sdk-contract-echo'},
+          'doc_url': 'https://allyourbase.io/docs/errors#edge-denied',
+        }),
+      ]);
+      final client = AYBClient('https://api.example.com', httpClient: http);
+      client.setTokens('jwt_edge', 'refresh_edge');
+
+      await expectLater(
+        () => client.functions.invoke(
+          'sdk-contract-echo',
+          const EdgeInvokeOptions(skipAuth: true),
+        ),
+        throwsA(
+          isA<AYBError>()
+              .having((e) => e.status, 'status', 403)
+              .having((e) => e.message, 'message', 'edge denied')
+              .having((e) => e.code, 'code', 'edge/denied')
+              .having((e) => e.data, 'data',
+                  {'function': 'sdk-contract-echo'}).having(
+            (e) => e.docUrl,
+            'docUrl',
+            'https://allyourbase.io/docs/errors#edge-denied',
+          ),
+        ),
+      );
+      expect(_header(http.requests.single.headers, 'Authorization'), isNull);
+    });
+
+    test('preserves 202 status, headers, and raw response bytes', () async {
+      final http = DeterministicHttpClient([
+        StubResponse.text(
+          202,
+          utf8.decode(responseFixtureBytes),
+          headers: const {'x-edge-status': 'accepted'},
+        ),
+      ]);
+      final client = AYBClient('https://api.example.com', httpClient: http);
+
+      final response = await client.functions.invoke('sdk-contract-echo');
+
+      expect(response.status, 202);
+      expect(response.headers, containsPair('x-edge-status', 'accepted'));
+      expect(response.rawBody, responseFixtureBytes);
+    });
+
+    test('preserves 204 status and headers with empty raw body', () async {
+      final http = DeterministicHttpClient([
+        StubResponse.empty(204, headers: const {'x-edge-empty': 'true'}),
+      ]);
+      final client = AYBClient('https://api.example.com', httpClient: http);
+
+      final response = await client.functions.invoke('sdk-contract-echo');
+
+      expect(response.status, 204);
+      expect(response.headers, containsPair('x-edge-empty', 'true'));
+      expect(response.rawBody, isEmpty);
+    });
+  });
 }
 
 String? _header(Map<String, String> headers, String key) {
@@ -278,4 +398,14 @@ String? _header(Map<String, String> headers, String key) {
     }
   }
   return null;
+}
+
+JsonMap _loadJsonFixture(String name) {
+  final bytes = _loadFixtureBytes(name);
+  return jsonDecode(utf8.decode(bytes)) as JsonMap;
+}
+
+Uint8List _loadFixtureBytes(String name) {
+  return File('../tests/contract/fixtures/sdk_contract/$name')
+      .readAsBytesSync();
 }

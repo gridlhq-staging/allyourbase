@@ -25,7 +25,7 @@ test.describe("Users Lifecycle (Full E2E)", () => {
   });
 
   test("load-and-verify seeded user, search, and delete via UI", async ({ page, request, adminToken }) => {
-    const probeStatus = await probeEndpoint(request, adminToken, "/api/admin/users/");
+    const probeStatus = await probeEndpoint(request, adminToken, "/api/admin/users");
     test.skip(
       probeStatus === 503 || probeStatus === 404 || probeStatus === 501,
       `Users service unavailable (status ${probeStatus})`,
@@ -35,16 +35,23 @@ test.describe("Users Lifecycle (Full E2E)", () => {
     const seededEmail = `user-full-seeded-${runId}@example.test`;
     const deletableEmail = `user-full-delete-${runId}@example.test`;
 
-    await ensureUserByEmail(request, adminToken, seededEmail);
+    const seededUser = await ensureUserByEmail(request, adminToken, seededEmail);
     userEmails.push(seededEmail);
-    await ensureUserByEmail(request, adminToken, deletableEmail);
+    const deletableUser = await ensureUserByEmail(request, adminToken, deletableEmail);
     userEmails.push(deletableEmail);
 
     await page.goto("/admin/");
     await waitForDashboard(page);
 
-    await page.locator("aside").getByRole("button", { name: /^Users$/i }).click();
+    await page
+      .getByRole("complementary")
+      .getByRole("button", { name: /^Users$/i })
+      .click();
     await expect(page.getByRole("heading", { name: /^Users$/i })).toBeVisible({ timeout: 5000 });
+    await expect(page.getByRole("columnheader", { name: "Email" })).toBeVisible();
+    await expect(page.getByRole("columnheader", { name: "Verified" })).toBeVisible();
+    await expect(page.getByRole("columnheader", { name: "Created" })).toBeVisible();
+    await expect(page.getByRole("columnheader", { name: "Actions" })).toBeVisible();
 
     // Search for the seeded user
     const main = page.getByRole("main");
@@ -57,6 +64,11 @@ test.describe("Users Lifecycle (Full E2E)", () => {
 
     const seededRow = page.getByRole("row", { name: new RegExp(seededEmail) }).first();
     await expect(seededRow).toBeVisible({ timeout: 5000 });
+    await expect(seededRow.getByText(seededUser.id)).toBeVisible();
+    await expect(page.getByText(/^1 user$/)).toBeVisible();
+    await expect(page.getByText("1 / 1")).toBeVisible();
+    await expect(page.getByRole("button", { name: "Previous page" })).toBeDisabled();
+    await expect(page.getByRole("button", { name: "Next page" })).toBeDisabled();
 
     // Clear search and find the deletable user
     await clearSearchButton.click();
@@ -66,6 +78,7 @@ test.describe("Users Lifecycle (Full E2E)", () => {
 
     const deletableRow = page.getByRole("row", { name: new RegExp(deletableEmail) }).first();
     await expect(deletableRow).toBeVisible({ timeout: 5000 });
+    await expect(deletableRow.getByText(deletableUser.id)).toBeVisible();
 
     // Delete the user via UI
     await deletableRow.getByRole("button", { name: /Delete/i }).click();

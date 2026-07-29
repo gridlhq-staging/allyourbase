@@ -18,6 +18,22 @@ enum ContractFixtures {
         return json
     }
 
+    private static func loadDataFixture(at relativePath: String) -> Data {
+        let url = fixtureRoot.appendingPathComponent(relativePath)
+        guard let data = try? Data(contentsOf: url) else {
+            fatalError("Failed to load fixture data: \(relativePath)")
+        }
+        return data
+    }
+
+    private static func loadResponseBodyDataFixture(at relativePath: String) -> Data {
+        var data = loadDataFixture(at: relativePath)
+        if data.last == 0x0A {
+            data.removeLast()
+        }
+        return data
+    }
+
     private static func loadArrayFixture(at relativePath: String) -> [[String: Any]] {
         let url = fixtureRoot.appendingPathComponent(relativePath)
         guard let data = try? Data(contentsOf: url),
@@ -48,6 +64,11 @@ enum ContractFixtures {
     ]
 
     nonisolated(unsafe) static let anonymousAuthResponse: [String: Any] = loadParityResponse("anonymous.json")
+    nonisolated(unsafe) static let rpcRequest: [String: Any] = loadFixture(at: "sdk_contract/rpc_request.json")
+    nonisolated(unsafe) static let rpcResponse: [String: Any] = loadFixture(at: "sdk_contract/rpc_response.json")
+    nonisolated(unsafe) static let edgeInvokeRequest: [String: Any] = loadFixture(at: "sdk_contract/edge_invoke_request.json")
+    nonisolated(unsafe) static let edgeInvokeResponse: [String: Any] = loadFixture(at: "sdk_contract/edge_invoke_response.json")
+    static let edgeInvokeResponseData: Data = loadResponseBodyDataFixture(at: "sdk_contract/edge_invoke_response.json")
     nonisolated(unsafe) static let magicLinkRequestResponse: [String: Any] = loadFixture(at: "sdk_contract/magic_link_request_response.json")
     nonisolated(unsafe) static let magicLinkConfirmResponse: [String: Any] = loadFixture(at: "sdk_contract/magic_link_confirm_success_response.json")
     nonisolated(unsafe) static let magicLinkConfirmPendingMFAResponse: [String: Any] = loadFixture(at: "sdk_contract/magic_link_confirm_pending_mfa_response.json")

@@ -2,9 +2,11 @@ package cli
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"net"
 	"os"
 	"path/filepath"
@@ -12,6 +14,8 @@ import (
 	"testing"
 
 	"github.com/allyourbase/ayb/internal/config"
+	"github.com/allyourbase/ayb/internal/migrate"
+	"github.com/allyourbase/ayb/internal/sbmigrate"
 	"github.com/pelletier/go-toml/v2"
 	"github.com/spf13/cobra"
 )
@@ -111,6 +115,191 @@ func TestVersionCommand(t *testing.T) {
 	}
 	if !strings.Contains(output, "2026-02-07") {
 		t.Fatalf("expected date in output, got %q", output)
+	}
+}
+
+func TestRootVersionFlagUsesInjectedVersion(t *testing.T) {
+	const injectedVersion = "9.8.7-stage1"
+	commandCountBefore := len(topLevelCommands(rootCmd))
+	if commandCountBefore != expectedOwnedTopLevelCommands {
+		t.Fatalf("expected %d top-level commands, got %d", expectedOwnedTopLevelCommands, commandCountBefore)
+	}
+
+	SetVersion(injectedVersion, "stage1commit", "2026-07-27")
+	defer SetVersion("dev", "none", "unknown")
+	if commandCountAfter := len(topLevelCommands(rootCmd)); commandCountAfter != commandCountBefore {
+		t.Fatalf("SetVersion changed top-level command count from %d to %d", commandCountBefore, commandCountAfter)
+	}
+
+	var output bytes.Buffer
+	rootCmd.SetOut(&output)
+	rootCmd.SetErr(&output)
+	defer rootCmd.SetOut(nil)
+	defer rootCmd.SetErr(nil)
+	rootCmd.SetArgs([]string{"--version"})
+
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("ayb --version returned an error: %v", err)
+	}
+	if got := strings.TrimSpace(output.String()); got != injectedVersion {
+		t.Fatalf("expected exact version %q, got %q", injectedVersion, got)
+	}
+}
+
+func TestRootHelpGroupsAppearExactlyOnce(t *testing.T) {
+	t.Setenv("NO_COLOR", "1")
+
+	var output bytes.Buffer
+	rootCmd.SetOut(&output)
+	t.Cleanup(func() {
+		rootCmd.SetOut(nil)
+		if helpFlag := rootCmd.Flags().Lookup("help"); helpFlag != nil {
+			if err := helpFlag.Value.Set("false"); err != nil {
+				t.Errorf("reset root help flag: %v", err)
+			}
+		}
+	})
+	rootCmd.SetArgs([]string{"--help"})
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("ayb --help returned an error: %v", err)
+	}
+
+	for _, group := range []string{
+		"CORE",
+		"DATA & SCHEMA",
+		"AUTH & SECURITY",
+		"MIGRATIONS",
+		"CONFIGURATION",
+	} {
+		if count := strings.Count(output.String(), group); count != 1 {
+			t.Errorf("expected help group %q exactly once, got %d\noutput:\n%s", group, count, output.String())
+		}
+	}
+}
+
+func TestStreamRoutingRootHelpUsesStdout(t *testing.T) {
+	t.Setenv("NO_COLOR", "1")
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	rootCmd.SetOut(&stdout)
+	rootCmd.SetErr(&stderr)
+	t.Cleanup(func() {
+		rootCmd.SetOut(nil)
+		rootCmd.SetErr(nil)
+		if helpFlag := rootCmd.Flags().Lookup("help"); helpFlag != nil {
+			if err := helpFlag.Value.Set("false"); err != nil {
+				t.Errorf("reset root help flag: %v", err)
+			}
+		}
+	})
+	rootCmd.SetArgs([]string{"--help"})
+
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("ayb --help returned an error: %v", err)
+	}
+	if !strings.Contains(stdout.String(), "USAGE") {
+		t.Fatalf("expected rendered help on stdout, got %q", stdout.String())
+	}
+	if stderr.Len() != 0 {
+		t.Fatalf("expected empty stderr for successful help, got %q", stderr.String())
+	}
+}
+
+func TestStreamRoutingInvalidInputReturnsErrorOnly(t *testing.T) {
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	rootCmd.SetOut(&stdout)
+	rootCmd.SetErr(&stderr)
+	t.Cleanup(func() {
+		rootCmd.SetOut(nil)
+		rootCmd.SetErr(nil)
+	})
+	rootCmd.SetArgs([]string{"db", "restore"})
+
+	err := rootCmd.Execute()
+	if err == nil {
+		t.Fatal("ayb db restore should reject a missing backup ID")
+	}
+
+	if stdout.Len() != 0 {
+		t.Fatalf("expected empty stdout for invalid input, got %q", stdout.String())
+	}
+	if stderr.Len() != 0 {
+		t.Fatalf("expected root command Execute to leave stderr to the top-level error renderer, got %q", stderr.String())
+	}
+	for _, expected := range []string{
+		"provide a local backup path or an S3 backup ID",
+		"Usage: ayb db restore <path> or ayb db restore --from <backup-id>",
+		"Example: ayb db restore backup.dump",
+	} {
+		if !strings.Contains(err.Error(), expected) {
+			t.Fatalf("expected returned error to contain %q, got %q", expected, err.Error())
+		}
+	}
+}
+
+func TestConfigCommandMasksSentinelSecrets(t *testing.T) {
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, "sentinel.toml")
+	sentinels := []string{
+		"STAGE1_DATABASE_PASSWORD_SENTINEL",
+		"STAGE1_ADMIN_PASSWORD_SENTINEL",
+		"STAGE1_JWT_SECRET_SENTINEL_0123456789",
+	}
+	configBody := fmt.Sprintf(`[database]
+url = "postgresql://stage1:%s@db.invalid:5432/app"
+[admin]
+password = "%s"
+[auth]
+jwt_secret = "%s"
+`, sentinels[0], sentinels[1], sentinels[2])
+	if err := os.WriteFile(configPath, []byte(configBody), 0o600); err != nil {
+		t.Fatalf("write sentinel config: %v", err)
+	}
+	t.Setenv("AYB_DATABASE_URL", "")
+	t.Setenv("AYB_ADMIN_PASSWORD", "")
+	t.Setenv("AYB_AUTH_JWT_SECRET", "")
+
+	for _, jsonOutput := range []bool{false, true} {
+		name := "toml"
+		if jsonOutput {
+			name = "json"
+		}
+		t.Run(name, func(t *testing.T) {
+			cmd := &cobra.Command{}
+			cmd.Flags().String("config", "", "")
+			cmd.Flags().Bool("json", false, "")
+			if err := cmd.Flags().Set("config", configPath); err != nil {
+				t.Fatalf("set config flag: %v", err)
+			}
+			if jsonOutput {
+				if err := cmd.Flags().Set("json", "true"); err != nil {
+					t.Fatalf("set json flag: %v", err)
+				}
+			}
+
+			var stdout string
+			stderr := captureStderr(t, func() {
+				stdout = captureStdout(t, func() {
+					if err := runConfig(cmd, nil); err != nil {
+						t.Fatalf("run config: %v", err)
+					}
+				})
+			})
+
+			if !strings.Contains(stdout, "***") {
+				t.Fatalf("expected masked secret marker in %s output, got %q", name, stdout)
+			}
+			for _, sentinel := range sentinels {
+				if strings.Contains(stdout, sentinel) || strings.Contains(stderr, sentinel) {
+					t.Fatalf("%s output exposed sentinel %q", name, sentinel)
+				}
+			}
+			if !jsonOutput && !strings.Contains(stderr, "Secrets are redacted") {
+				t.Fatalf("expected TOML redaction notice, got %q", stderr)
+			}
+		})
 	}
 }
 
@@ -423,7 +612,7 @@ func TestMigrateSupabaseRequiresFlags(t *testing.T) {
 
 func TestMigrateSupabaseFlagDefinitions(t *testing.T) {
 	flags := migrateSupabaseCmd.Flags()
-	for _, name := range []string{"source-url", "database-url", "storage-export", "storage-path", "dry-run", "force", "verbose", "skip-rls", "skip-oauth", "skip-data", "skip-storage", "include-anonymous", "yes", "json"} {
+	for _, name := range []string{"source-url", "database-url", "storage-export", "storage-path", "storage-s3-endpoint", "storage-s3-region", "storage-s3-access-key", "storage-s3-secret-key", "storage-s3-use-ssl", "dry-run", "force", "verbose", "skip-rls", "skip-oauth", "skip-data", "skip-functions", "skip-storage", "include-anonymous", "yes", "json"} {
 		f := flags.Lookup(name)
 		if f == nil {
 			t.Errorf("expected flag %q on migrate supabase command", name)
@@ -431,7 +620,7 @@ func TestMigrateSupabaseFlagDefinitions(t *testing.T) {
 		}
 		// Verify boolean flags have correct type.
 		switch name {
-		case "source-url", "database-url", "storage-export", "storage-path":
+		case "source-url", "database-url", "storage-export", "storage-path", "storage-s3-endpoint", "storage-s3-region", "storage-s3-access-key", "storage-s3-secret-key":
 			if f.Value.Type() != "string" {
 				t.Errorf("flag %q should be string, got %s", name, f.Value.Type())
 			}
@@ -440,6 +629,12 @@ func TestMigrateSupabaseFlagDefinitions(t *testing.T) {
 				t.Errorf("flag %q should be bool, got %s", name, f.Value.Type())
 			}
 		}
+	}
+	if sslFlag := flags.Lookup("storage-s3-use-ssl"); sslFlag != nil && sslFlag.DefValue != "true" {
+		t.Errorf("flag %q should default to true, got %q", "storage-s3-use-ssl", sslFlag.DefValue)
+	}
+	if flags.Lookup("storage-s3-bucket") != nil {
+		t.Error("migrate supabase must not define --storage-s3-bucket")
 	}
 }
 
@@ -623,6 +818,67 @@ func TestStartFromInvalidSource(t *testing.T) {
 	// Should fail on analysis (source doesn't exist), not on source detection
 	if !strings.Contains(err.Error(), "migration failed") {
 		t.Fatalf("expected migration error, got %q", err.Error())
+	}
+}
+
+func TestRunFromMigrationRedactsUnknownSourceURL(t *testing.T) {
+	err := runFromMigration(
+		context.Background(),
+		"mysql://user:secret-password@localhost/mydb",
+		"postgres://target",
+		slog.New(slog.NewTextHandler(io.Discard, nil)),
+	)
+	if err == nil {
+		t.Fatal("expected unsupported source error")
+	}
+	if strings.Contains(err.Error(), "secret-password") {
+		t.Fatalf("unsupported source error leaked credentials: %q", err.Error())
+	}
+	if !strings.Contains(err.Error(), "mysql://***@localhost/mydb") {
+		t.Fatalf("unsupported source error did not include redacted URL, got %q", err.Error())
+	}
+}
+
+func TestRunFromSupabaseWarnsAboutMissingStorageExport(t *testing.T) {
+	oldFactory := newSupabaseMigrator
+	oldSummary := buildSupabaseValidationSummary
+	t.Cleanup(func() {
+		newSupabaseMigrator = oldFactory
+		buildSupabaseValidationSummary = oldSummary
+	})
+
+	newSupabaseMigrator = func(opts sbmigrate.MigrationOptions) (supabaseMigrator, error) {
+		return fakeSupabaseMigrator{
+			analyzeFn: func(context.Context) (*migrate.AnalysisReport, error) {
+				return &migrate.AnalysisReport{SourceType: "Supabase", Files: 7}, nil
+			},
+			migrateFn: func(context.Context) (*sbmigrate.MigrationStats, error) {
+				return &sbmigrate.MigrationStats{}, nil
+			},
+		}, nil
+	}
+	buildSupabaseValidationSummary = func(report *migrate.AnalysisReport, stats *sbmigrate.MigrationStats) *migrate.ValidationSummary {
+		return &migrate.ValidationSummary{
+			SourceLabel: "Supabase (source)",
+			TargetLabel: "AYB (target)",
+		}
+	}
+
+	output := captureStderr(t, func() {
+		err := runFromSupabase(
+			context.Background(),
+			"postgres://source.supabase.test/postgres",
+			"postgres://target/postgres",
+			slog.New(slog.NewTextHandler(io.Discard, nil)),
+		)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	})
+
+	const warning = "7 analyzed storage files will not migrate; supply --storage-export or --storage-s3-* credentials, or intentionally choose --skip-storage."
+	if count := strings.Count(output, warning); count != 1 {
+		t.Fatalf("expected storage warning once, got %d in output %q", count, output)
 	}
 }
 
@@ -3065,9 +3321,9 @@ func TestLaunchCriticalHelpContainsExampleBeforeUsage(t *testing.T) {
 			}
 
 			var output bytes.Buffer
-			rootCmd.SetErr(&output)
+			rootCmd.SetOut(&output)
 			t.Cleanup(func() {
-				rootCmd.SetErr(nil)
+				rootCmd.SetOut(nil)
 				if helpFlag := command.Flags().Lookup("help"); helpFlag != nil {
 					if err := helpFlag.Value.Set("false"); err != nil {
 						t.Errorf("reset %s help flag: %v", test.command, err)

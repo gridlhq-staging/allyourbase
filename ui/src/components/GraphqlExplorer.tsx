@@ -216,7 +216,11 @@ export function GraphqlExplorer() {
         />
       )}
 
-      <GraphqlExplorerResponse error={requestError} response={response} />
+      <GraphqlExplorerResponse
+        error={requestError}
+        response={response}
+        onRetry={execute}
+      />
     </div>
   );
 }

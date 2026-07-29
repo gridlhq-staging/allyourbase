@@ -2,56 +2,73 @@ import {
   test,
   expect,
   cleanupOrganizationDashboardSmokeOrg,
+  replaceAdminRelationWithEmptyClone,
   seedOrganizationDashboardSmokeOrg,
   waitForDashboard,
 } from "../fixtures";
-import type { Page, Response } from "@playwright/test";
-
-const ORG_LIST_PATH = "/api/admin/orgs";
-
-async function waitForOrgListResponse(page: Page): Promise<Response> {
-  return page.waitForResponse((response) => {
-    const url = new URL(response.url());
-    return url.pathname === ORG_LIST_PATH && response.request().method() === "GET";
-  });
-}
-
-async function assertOrganizationsPageOutcome(
-  page: Page,
-  orgListResponse: Response,
-  seededOrgName: string,
-): Promise<void> {
-  if (orgListResponse.status() === 503) {
-    await expect(page.getByText(/failed to load organizations/i)).toBeVisible();
-    return;
-  }
-
-  expect(orgListResponse.ok()).toBeTruthy();
-  await expect(
-    page.getByTestId("org-list-panel").getByRole("button", { name: new RegExp(seededOrgName, "i") }),
-  ).toBeVisible();
-}
 
 test.describe("Smoke: Organizations Dashboard", () => {
-  test("admin can open organizations page and view seeded org row or 503 fallback", async ({
+  test("admin can open organizations and view a uniquely seeded organization", async ({
     page,
     request,
     adminToken,
   }) => {
-    const runSuffix = Date.now().toString();
-    const seededOrg = await seedOrganizationDashboardSmokeOrg(request, adminToken, runSuffix);
+    const seededOrg = await seedOrganizationDashboardSmokeOrg(
+      request,
+      adminToken,
+      Date.now().toString(),
+    );
 
     try {
-      await page.goto("/admin/");
+      await page.goto("/admin/screens/organizations");
       await waitForDashboard(page);
-
-      const listResponsePromise = waitForOrgListResponse(page);
-      await page.locator("aside").getByRole("button", { name: /^Organizations$/i }).click();
-      await expect(page.getByTestId("organizations-view")).toBeVisible({ timeout: 5000 });
-
-      const listResponse = await listResponsePromise;
-      await assertOrganizationsPageOutcome(page, listResponse, seededOrg.orgName);
+      await expect(
+        page.getByTestId("org-list-panel").getByText(seededOrg.orgName, { exact: true }),
+      ).toBeVisible();
     } finally {
+      await cleanupOrganizationDashboardSmokeOrg(request, adminToken, seededOrg.orgId);
+    }
+  });
+
+  test("empty and unavailable organization storage recover through Retry", async ({
+    page,
+    request,
+    adminToken,
+  }) => {
+    const seededOrg = await seedOrganizationDashboardSmokeOrg(
+      request,
+      adminToken,
+      Date.now().toString(),
+    );
+    const relationState = await replaceAdminRelationWithEmptyClone(
+      request,
+      adminToken,
+      "_ayb_organizations",
+    );
+
+    try {
+      await page.goto("/admin/screens/organizations");
+      await waitForDashboard(page);
+      await expect(page.getByText("No organizations found", { exact: true })).toBeVisible();
+
+      await relationState.removeEmptyClone();
+      await page.reload();
+      await waitForDashboard(page);
+      const errorNotice = page.getByRole("alert");
+      await expect(
+        errorNotice.getByText(
+          "Failed to load organizations: failed to list orgs",
+          { exact: true },
+        ),
+      ).toBeVisible();
+
+      await relationState.restore();
+      await errorNotice.getByRole("button", { name: "Retry", exact: true }).click();
+      await expect(
+        page.getByTestId("org-list-panel").getByText(seededOrg.orgName, { exact: true }),
+      ).toBeVisible();
+    } finally {
+      await relationState.restore();
       await cleanupOrganizationDashboardSmokeOrg(request, adminToken, seededOrg.orgId);
     }
   });

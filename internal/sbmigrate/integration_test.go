@@ -510,7 +510,9 @@ func TestE2E_NonPublicUserSchemaMigration(t *testing.T) {
 	testutil.Equal(t, 3, stats.Records)
 	testutil.Equal(t, 1, stats.Users)
 	testutil.Equal(t, 1, stats.Policies)
-	testutil.Equal(t, 0, stats.Skipped)
+	testutil.Equal(t, 1, stats.Skipped)
+	authUID := FunctionIdentity{SchemaName: "auth", Name: "uid"}
+	testutil.Equal(t, "function belongs to excluded schema auth", stats.SkippedFunctions[authUID.Key()])
 
 	assertTableExists(t, targetDB, "public", "invoices", true)
 	assertTableExists(t, targetDB, "billing", "invoices", true)
@@ -2060,11 +2062,14 @@ func TestE2E_SchemaMigrationSkipsIncompatibleFKChains(t *testing.T) {
 			deleted_at TIMESTAMPTZ,
 			is_anonymous BOOLEAN DEFAULT false
 		);
+		CREATE OR REPLACE FUNCTION auth.uid() RETURNS UUID AS $$
+			SELECT gen_random_uuid();
+		$$ LANGUAGE SQL;
 		CREATE FUNCTION legacy_parent_source_only_uuid()
 		RETURNS UUID
 		LANGUAGE SQL
 		AS $$
-			SELECT gen_random_uuid();
+			SELECT auth.uid();
 		$$;
 
 		-- Intentionally uses gen_random_uuid() so this FK-skip fixture avoids optional uuid-ossp setup.
@@ -2198,7 +2203,7 @@ func TestE2E_SchemaMigrationSkipsQualifiedNonPublicObjectOnly(t *testing.T) {
 		RETURNS UUID
 		LANGUAGE SQL
 		AS $$
-			SELECT gen_random_uuid();
+			SELECT auth.uid();
 		$$;
 		CREATE TABLE billing.legacy_problem (
 			id UUID PRIMARY KEY DEFAULT billing.source_only_uuid(),

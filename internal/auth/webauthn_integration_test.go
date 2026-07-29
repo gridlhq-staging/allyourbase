@@ -356,6 +356,25 @@ func TestWebAuthnMFA_DuplicateCredentialReturnsCleanConfirmError(t *testing.T) {
 	testutil.Contains(t, confirm.Body.String(), "WebAuthn enrollment verification failed")
 }
 
+func TestWebAuthnMFA_EnrollResidentKey_ServedContract(t *testing.T) {
+	srv, _, _ := setupMFAServer(t)
+	token := registerAndGetToken(t, srv, "webauthn-resident-key@example.com")
+
+	enroll := doJSON(t, srv, "POST", "/api/auth/mfa/webauthn/enroll", nil, token)
+	testutil.StatusCode(t, http.StatusOK, enroll.Code)
+
+	var response struct {
+		AuthenticatorSelection struct {
+			ResidentKey        string `json:"residentKey"`
+			RequireResidentKey *bool  `json:"requireResidentKey"`
+		} `json:"authenticatorSelection"`
+	}
+	testutil.NoError(t, json.Unmarshal(enroll.Body.Bytes(), &response))
+	testutil.Equal(t, "preferred", response.AuthenticatorSelection.ResidentKey)
+	testutil.NotNil(t, response.AuthenticatorSelection.RequireResidentKey)
+	testutil.False(t, *response.AuthenticatorSelection.RequireResidentKey)
+}
+
 func TestWebAuthnMFA_EnrollConfirmChallengeVerify_Contract(t *testing.T) {
 	srv, authSvc, _ := setupMFAServer(t)
 	accessToken, userID := registerForMFA(t, srv, "webauthn-e2e@example.com")

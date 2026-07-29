@@ -126,17 +126,6 @@ export function Incidents() {
     },
   ];
 
-  if (error) {
-    return (
-      <div className="p-6">
-        <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-4">
-          Incidents
-        </h2>
-        <p className="text-red-600 dark:text-red-400">{error}</p>
-      </div>
-    );
-  }
-
   const expandedIncident = data?.find((i) => i.id === expandedId);
 
   return (
@@ -209,19 +198,17 @@ export function Incidents() {
         </div>
       )}
 
-      {loading ? (
-        <p className="text-sm text-gray-500 dark:text-gray-400">Loading...</p>
-      ) : (
-        <AdminTable
-          columns={columns}
-          rows={data ?? []}
-          rowKey="id"
-          page={1}
-          totalPages={1}
-          onPageChange={() => {}}
-          emptyMessage="No incidents"
-        />
-      )}
+      <AdminTable
+        columns={columns}
+        rows={data ?? []}
+        rowKey="id"
+        emptyMessage="No incidents"
+        loading={loading}
+        loadingMessage="Loading..."
+        error={error}
+        docsPath="/guide/admin-dashboard"
+        onRetry={refresh}
+      />
 
       {expandedIncident && (
         <IncidentTimeline

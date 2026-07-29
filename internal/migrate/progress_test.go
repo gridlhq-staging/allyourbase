@@ -176,6 +176,8 @@ func TestAnalysisReport_PrintReport(t *testing.T) {
 			SourceInfo:         "SQLite 7.2 MB",
 			Tables:             12,
 			Views:              2,
+			Functions:          4,
+			Triggers:           5,
 			Records:            8432,
 			AuthUsers:          347,
 			RLSPolicies:        8,
@@ -193,6 +195,8 @@ func TestAnalysisReport_PrintReport(t *testing.T) {
 		testutil.Contains(t, output, "SQLite 7.2 MB")
 		testutil.Contains(t, output, "Tables:       12")
 		testutil.Contains(t, output, "Views:        2")
+		testutil.Contains(t, output, "Functions:    4")
+		testutil.Contains(t, output, "Triggers:     5")
 		testutil.Contains(t, output, "Records:      8432")
 		testutil.Contains(t, output, "Auth users:   347")
 		testutil.Contains(t, output, "RLS policies: 8")
@@ -220,6 +224,12 @@ func TestAnalysisReport_PrintReport(t *testing.T) {
 		// Should not contain lines for zero-value fields
 		if bytes.Contains(buf.Bytes(), []byte("Views:")) {
 			t.Error("should not show Views when 0")
+		}
+		if bytes.Contains(buf.Bytes(), []byte("Functions:")) {
+			t.Error("should not show Functions when 0")
+		}
+		if bytes.Contains(buf.Bytes(), []byte("Triggers:")) {
+			t.Error("should not show Triggers when 0")
 		}
 		if bytes.Contains(buf.Bytes(), []byte("Auth users:")) {
 			t.Error("should not show Auth users when 0")

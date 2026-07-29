@@ -1,6 +1,7 @@
 import {
   test,
   expect,
+  replaceAdminRelationWithEmptyClone,
   seedIncident,
   cleanupIncidentByID,
   probeEndpoint,
@@ -61,5 +62,47 @@ test.describe("Smoke: Incidents", () => {
     });
     await expect(page.getByText(updateMessage)).toBeVisible({ timeout: 5000 });
     await expect(page.getByRole("button", { name: /Create Incident/i })).toBeVisible();
+  });
+
+  test("empty and unavailable incident storage recover through Retry", async ({
+    page,
+    request,
+    adminToken,
+  }) => {
+    const runId = Date.now();
+    const incidentTitle = `Retry Incident ${runId}`;
+    const seeded = await seedIncident(request, adminToken, {
+      title: incidentTitle,
+      status: "investigating",
+      affectedServices: ["api"],
+      initialUpdateMessage: `Retry incident update ${runId}`,
+      initialUpdateStatus: "investigating",
+    });
+    incidentIDs.push(seeded.id);
+    const relationState = await replaceAdminRelationWithEmptyClone(
+      request,
+      adminToken,
+      "_ayb_incidents",
+    );
+
+    try {
+      await page.goto("/admin/screens/incidents");
+      await waitForDashboard(page);
+      await expect(page.getByText("No incidents", { exact: true })).toBeVisible();
+
+      await relationState.removeEmptyClone();
+      await page.reload();
+      await waitForDashboard(page);
+      await expect(page.getByText("failed to list incidents", { exact: true })).toBeVisible();
+      await expect(page.getByRole("heading", { name: /Incidents/i })).toBeVisible();
+
+      await relationState.restore();
+      await page.getByRole("button", { name: "Retry", exact: true }).click();
+      await expect(page.getByText(incidentTitle, { exact: true }).first()).toBeVisible({
+        timeout: 5000,
+      });
+    } finally {
+      await relationState.restore();
+    }
   });
 });

@@ -165,19 +165,6 @@ export function FDWManagement({ screenLabel }: FDWManagementProps) {
     },
   ];
 
-  const error = servers.error || tables.error;
-
-  if (error) {
-    return (
-      <div className="p-6">
-        <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-4">
-          {screenLabel}
-        </h2>
-        <p className="text-red-600 dark:text-red-400">{error}</p>
-      </div>
-    );
-  }
-
   return (
     <div className="p-6">
       <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-4">
@@ -284,19 +271,17 @@ export function FDWManagement({ screenLabel }: FDWManagementProps) {
           </div>
         )}
 
-        {servers.loading ? (
-          <p className="text-sm text-gray-500 dark:text-gray-400">Loading...</p>
-        ) : (
-          <AdminTable
-            columns={serverColumns}
-            rows={servers.data ?? []}
-            rowKey="name"
-            page={1}
-            totalPages={1}
-            onPageChange={() => {}}
-            emptyMessage="No foreign servers"
-          />
-        )}
+        <AdminTable
+          columns={serverColumns}
+          rows={servers.data ?? []}
+          rowKey="name"
+          emptyMessage="No foreign servers"
+          loading={servers.loading}
+          loadingMessage="Loading..."
+          error={servers.error}
+          docsPath="/guide/admin-dashboard"
+          onRetry={servers.refresh}
+        />
       </div>
 
       {/* Tables Section */}
@@ -362,19 +347,17 @@ export function FDWManagement({ screenLabel }: FDWManagementProps) {
           </div>
         )}
 
-        {tables.loading ? (
-          <p className="text-sm text-gray-500 dark:text-gray-400">Loading...</p>
-        ) : (
-          <AdminTable
-            columns={tableColumns}
-            rows={tables.data ?? []}
-            rowKey="name"
-            page={1}
-            totalPages={1}
-            onPageChange={() => {}}
-            emptyMessage="No foreign tables"
-          />
-        )}
+        <AdminTable
+          columns={tableColumns}
+          rows={tables.data ?? []}
+          rowKey="name"
+          emptyMessage="No foreign tables"
+          loading={tables.loading}
+          loadingMessage="Loading..."
+          error={tables.error}
+          docsPath="/guide/admin-dashboard"
+          onRetry={tables.refresh}
+        />
       </div>
 
       {/* Drop Server Confirm */}

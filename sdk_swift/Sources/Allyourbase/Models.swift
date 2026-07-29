@@ -103,6 +103,46 @@ public enum AYBJSON {
     }
 }
 
+public struct EdgeInvokeOptions {
+    public let method: String
+    public let headers: [String: String]
+    public let body: Any?
+    public let skipAuth: Bool
+
+    public init(
+        method: String = HTTPMethod.post.rawValue,
+        headers: [String: String] = [:],
+        body: Any? = nil,
+        skipAuth: Bool = false
+    ) {
+        self.method = method
+        self.headers = headers
+        self.body = body
+        self.skipAuth = skipAuth
+    }
+
+    public init(
+        method: HTTPMethod,
+        headers: [String: String] = [:],
+        body: Any? = nil,
+        skipAuth: Bool = false
+    ) {
+        self.init(method: method.rawValue, headers: headers, body: body, skipAuth: skipAuth)
+    }
+}
+
+public struct EdgeInvokeResponse {
+    public let status: Int
+    public let headers: [String: String]
+    public let rawBody: Data
+
+    public init(status: Int, headers: [String: String], rawBody: Data) {
+        self.status = status
+        self.headers = headers
+        self.rawBody = rawBody
+    }
+}
+
 private enum QueryItemFactory {
     static func string(_ name: String, _ value: String?) -> URLQueryItem? {
         value.map { URLQueryItem(name: name, value: $0) }

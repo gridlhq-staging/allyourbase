@@ -103,6 +103,38 @@ func TestBuiltBinaryMissingInitArgumentExitsWithGuidance(t *testing.T) {
 	testutil.Contains(t, stderr.String(), "ayb init my-app")
 }
 
+func TestBuiltBinaryVersionFlagUsesInjectedVersion(t *testing.T) {
+	const injectedVersion = "9.8.7-stage1"
+
+	buildContext, cancelBuild := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancelBuild()
+
+	binaryPath := filepath.Join(t.TempDir(), "ayb")
+	build := exec.CommandContext(
+		buildContext,
+		"go",
+		"build",
+		"-ldflags",
+		"-X main.version="+injectedVersion+" -X main.commit=stage1commit -X main.date=2026-07-27",
+		"-o",
+		binaryPath,
+		"./cmd/ayb",
+	)
+	build.Dir = filepath.Join("..", "..")
+	if output, err := build.CombinedOutput(); err != nil {
+		t.Fatalf("build injected ./cmd/ayb: %v\n%s", err, output)
+	}
+
+	runContext, cancelRun := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancelRun()
+	command := exec.CommandContext(runContext, binaryPath, "--version")
+	output, err := command.CombinedOutput()
+	if err != nil {
+		t.Fatalf("run injected ayb --version: %v\n%s", err, output)
+	}
+	testutil.Equal(t, injectedVersion+"\n", string(output))
+}
+
 func occupyPort(t *testing.T) (int, func()) {
 	t.Helper()
 

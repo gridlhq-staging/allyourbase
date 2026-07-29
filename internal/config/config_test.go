@@ -2056,12 +2056,14 @@ func TestApplyEnvBillingStripeMode(t *testing.T) {
 	testutil.Equal(t, 900, cfg.Billing.UsageSyncIntervalSecs)
 }
 
-func TestApplyEnvSupportWebhookSecret(t *testing.T) {
+func TestApplyEnvSupportConfig(t *testing.T) {
+	t.Setenv("AYB_SUPPORT_ENABLED", "true")
 	t.Setenv("AYB_SUPPORT_WEBHOOK_SECRET", "support-whsec")
 
 	cfg := Default()
 	err := applyEnv(cfg)
 	testutil.NoError(t, err)
+	testutil.True(t, cfg.Support.Enabled)
 	testutil.Equal(t, "support-whsec", cfg.Support.WebhookSecret)
 }
 

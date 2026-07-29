@@ -134,11 +134,21 @@ describe("CustomDomains", () => {
     });
   });
 
-  it("shows error state on fetch failure", async () => {
-    (api.listDomains as ReturnType<typeof vi.fn>).mockRejectedValue(new Error("Timeout"));
+  it("keeps domain controls mounted and retries the exact fetch failure", async () => {
+    (api.listDomains as ReturnType<typeof vi.fn>).mockRejectedValueOnce(
+      new Error("Timeout"),
+    );
     renderWithProviders(<CustomDomains />);
     await waitFor(() => {
       expect(screen.getByText("Timeout")).toBeInTheDocument();
     });
+    expect(screen.getByRole("button", { name: "Add Domain" })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+
+    await waitFor(() => {
+      expect(screen.getByText("api.example.com")).toBeInTheDocument();
+    });
+    expect(api.listDomains).toHaveBeenCalledTimes(2);
   });
 });

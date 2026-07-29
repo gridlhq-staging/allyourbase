@@ -16,6 +16,9 @@ import (
 var usersCmd = &cobra.Command{
 	Use:   "users",
 	Short: "Manage users on the running AYB server",
+	Example: `ayb users list
+ayb users list --search admin@example.com
+ayb users delete <id>`,
 }
 
 var usersListCmd = &cobra.Command{
@@ -121,7 +124,7 @@ func runUsersList(cmd *cobra.Command, args []string) error {
 func runUsersDelete(cmd *cobra.Command, args []string) error {
 	id := args[0]
 
-	resp, body, err := adminRequest(cmd, "DELETE", "/api/admin/users/"+id, nil)
+	resp, body, err := adminRequest(cmd, "DELETE", "/api/admin/users/"+url.PathEscape(id), nil)
 	if err != nil {
 		return err
 	}

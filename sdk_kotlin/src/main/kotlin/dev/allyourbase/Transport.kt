@@ -10,12 +10,14 @@ import io.ktor.client.request.setBody
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.seconds
 
-enum class HttpMethod {
-    GET,
-    POST,
-    PUT,
-    PATCH,
-    DELETE,
+data class HttpMethod(val name: String) {
+    companion object {
+        val GET = HttpMethod("GET")
+        val POST = HttpMethod("POST")
+        val PUT = HttpMethod("PUT")
+        val PATCH = HttpMethod("PATCH")
+        val DELETE = HttpMethod("DELETE")
+    }
 }
 
 data class HttpRequest(
@@ -50,7 +52,7 @@ class KtorHttpTransport(
 
     override suspend fun send(request: HttpRequest): HttpResponse {
         val response = client.request(request.url) {
-            method = request.method.toKtor()
+            method = io.ktor.http.HttpMethod(request.method.name)
             request.headers.forEach { (name, value) ->
                 header(name, value)
             }
@@ -68,12 +70,4 @@ class KtorHttpTransport(
             body = response.body(),
         )
     }
-}
-
-private fun HttpMethod.toKtor(): io.ktor.http.HttpMethod = when (this) {
-    HttpMethod.GET -> io.ktor.http.HttpMethod.Get
-    HttpMethod.POST -> io.ktor.http.HttpMethod.Post
-    HttpMethod.PUT -> io.ktor.http.HttpMethod.Put
-    HttpMethod.PATCH -> io.ktor.http.HttpMethod.Patch
-    HttpMethod.DELETE -> io.ktor.http.HttpMethod.Delete
 }

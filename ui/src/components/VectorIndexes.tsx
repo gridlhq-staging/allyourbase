@@ -5,7 +5,7 @@ import { useAdminResource } from "../hooks/useAdminResource";
 import { AdminTable, type Column } from "./shared/AdminTable";
 
 export function VectorIndexes() {
-  const { data, loading, error, actionLoading, runAction } =
+  const { data, loading, error, actionLoading, refresh, runAction } =
     useAdminResource(listVectorIndexes);
   const [showCreate, setShowCreate] = useState(false);
   const [schema, setSchema] = useState("public");
@@ -47,17 +47,6 @@ export function VectorIndexes() {
     { key: "table", header: "Table" },
     { key: "method", header: "Method" },
   ];
-
-  if (error) {
-    return (
-      <div className="p-6">
-        <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-4">
-          Vector Indexes
-        </h2>
-        <p className="text-red-600 dark:text-red-400">{error}</p>
-      </div>
-    );
-  }
 
   return (
     <div className="p-6">
@@ -164,19 +153,17 @@ export function VectorIndexes() {
         </div>
       )}
 
-      {loading ? (
-        <p className="text-sm text-gray-500 dark:text-gray-400">Loading...</p>
-      ) : (
-        <AdminTable
-          columns={columns}
-          rows={data ?? []}
-          rowKey="name"
-          page={1}
-          totalPages={1}
-          onPageChange={() => {}}
-          emptyMessage="No vector indexes found"
-        />
-      )}
+      <AdminTable
+        columns={columns}
+        rows={data ?? []}
+        rowKey="name"
+        emptyMessage="No vector indexes found"
+        loading={loading}
+        loadingMessage="Loading..."
+        error={error}
+        docsPath="/guide/vector-search"
+        onRetry={refresh}
+      />
     </div>
   );
 }

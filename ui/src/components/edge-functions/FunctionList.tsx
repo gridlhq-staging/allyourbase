@@ -1,7 +1,8 @@
-import { Plus, Loader2, AlertCircle, Zap } from "lucide-react";
+import { Plus, Loader2, Zap } from "lucide-react";
 import { cn } from "../../lib/utils";
 import { formatTimeout, formatLastInvoked } from "./helpers";
 import type { EdgeFunctionResponse } from "../../types";
+import { ErrorNotice } from "../ErrorNotice";
 
 interface FunctionListProps {
   functions: EdgeFunctionResponse[];
@@ -9,9 +10,10 @@ interface FunctionListProps {
   error: string | null;
   onSelect: (id: string) => void;
   onCreate: () => void;
+  onRetry: () => void;
 }
 
-export function FunctionList({ functions, loading, error, onSelect, onCreate }: FunctionListProps) {
+export function FunctionList({ functions, loading, error, onSelect, onCreate, onRetry }: FunctionListProps) {
   return (
     <>
       <div className="flex items-center justify-between mb-6">
@@ -33,10 +35,7 @@ export function FunctionList({ functions, loading, error, onSelect, onCreate }: 
       )}
 
       {error && (
-        <div className="flex items-center gap-2 text-red-600 bg-red-50 border border-red-200 rounded-lg p-4">
-          <AlertCircle className="w-5 h-5 shrink-0" />
-          <span className="text-sm">{error}</span>
-        </div>
+        <ErrorNotice message={error} docsPath="/guide/edge-functions" onAction={onRetry} />
       )}
 
       {!loading && !error && functions.length === 0 && (

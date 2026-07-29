@@ -89,6 +89,7 @@ export function useOrgDetailState(
   selectedTeamId: string | null,
 ) {
   const [detail, setDetail] = useState<OrgDetailState>(EMPTY_DETAIL);
+  const [refreshKey, setRefreshKey] = useState(0);
   const activeRef = useRef(0);
   const previousSelectedIdRef = useRef<string | null>(null);
 
@@ -164,7 +165,9 @@ export function useOrgDetailState(
       if (id !== activeRef.current) return;
       setDetail((state) => ({ ...state, isLoading: false, error: String(error?.message ?? error) }));
     });
-  }, [selectedId, activeTab, auditQuery, usageQuery, selectedTeamId]);
+  }, [selectedId, activeTab, auditQuery, usageQuery, selectedTeamId, refreshKey]);
 
-  return { detail, setDetail };
+  const refreshDetail = useCallback(() => setRefreshKey((key) => key + 1), []);
+
+  return { detail, setDetail, refreshDetail };
 }

@@ -19,7 +19,10 @@ test.describe("Smoke: Admin SQL Query", () => {
     await waitForDashboard(page);
 
     // Step 2: Navigate to SQL Editor via sidebar
-    await page.locator("aside").getByRole("button", { name: /^SQL Editor$/i }).click();
+    await page
+      .getByRole("complementary")
+      .getByRole("button", { name: /^SQL Editor$/i })
+      .click();
 
     // Step 3: Find SQL input
     const sqlInput = page.getByLabel("SQL query");

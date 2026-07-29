@@ -157,6 +157,288 @@ if (missingViews.length > 0 || extraViews.length > 0) {
 console.log(
   `Coverage matrix view inventory matches ${layoutTypesPath} and ${adminViewsPath}: ${uniqueViews.length} views.`,
 );
+
+// ---------------------------------------------------------------------------
+// Admin degraded-state inventory
+//
+// One row per ADMIN_VIEWS screen recording the shipped loading/empty/error/retry
+// state, the component and browser-test files that prove it, and the paired
+// screen spec. Every total is derived from the rows, so a hand-edited summary
+// cannot drift away from the inventory it claims to summarise.
+//
+// The section deliberately lives after "## Gap Summary": the view matcher above
+// only scans the text before that heading and would reject the component and
+// spec filenames in these rows as unknown views.
+// ---------------------------------------------------------------------------
+
+const DEGRADED_STATE_HEADING = "## Admin degraded-state inventory";
+const DEGRADED_STATES = ["loading", "empty", "error", "retry"];
+const STATUS_VALUES = ["present", "missing", "not-applicable"];
+const COMPONENT_ROOT = "ui/src/components/";
+const SCREEN_SPEC_ROOT = "docs/reference/screen_specs/";
+const UNMOCKED_ROOT = "ui/browser-tests-unmocked/";
+const UNMOCKED_SUITES = ["smoke/", "full/"];
+const INVENTORY_COLUMNS = [
+  "screen",
+  "component",
+  "requires",
+  ...DEGRADED_STATES,
+  "evidence",
+  "screenSpec",
+  "unmockedProof",
+];
+
+const inventoryErrors = [];
+
+function inventoryError(message) {
+  inventoryErrors.push(`Coverage matrix degraded-state inventory: ${message}`);
+}
+
+function unquote(cell) {
+  const match = cell.match(/^`(.*)`$/);
+  return match ? match[1] : cell;
+}
+
+function degradedStateSection(source) {
+  const occurrences = source.split(DEGRADED_STATE_HEADING).length - 1;
+  if (occurrences === 0) {
+    inventoryError(`${matrixPath} is missing the "${DEGRADED_STATE_HEADING}" section`);
+    return null;
+  }
+  if (occurrences > 1) {
+    inventoryError(`${matrixPath} declares the "${DEGRADED_STATE_HEADING}" section ${occurrences} times`);
+    return null;
+  }
+
+  const body = source.slice(source.indexOf(DEGRADED_STATE_HEADING) + DEGRADED_STATE_HEADING.length);
+  const next = body.search(/^## /m);
+  return next < 0 ? body : body.slice(0, next);
+}
+
+// The section also documents the status vocabulary in a lead-in table, so rows
+// are recognised by the inventory's own column count rather than by position.
+function parseInventoryRows(section) {
+  return section
+    .split("\n")
+    .map((line) => line.trim())
+    .filter((line) => line.startsWith("|") && line.endsWith("|"))
+    .map((line) => line.slice(1, -1).split("|").map((cell) => cell.trim()))
+    .filter((cells) => cells.length === INVENTORY_COLUMNS.length)
+    .filter((cells) => unquote(cells[0]) !== "Screen" && !/^:?-+:?$/.test(cells[0]))
+    .map((cells) => Object.fromEntries(INVENTORY_COLUMNS.map((name, index) => [name, cells[index]])));
+}
+
+// SCREEN_REGISTRY declares one screen per line, so a same-line lookup keeps the
+// capability owner in registry.ts instead of re-listing gated screens here.
+function parseScreenCapabilities(source) {
+  const capabilities = new Map();
+  for (const line of source.split("\n")) {
+    const id = line.match(/\bid:\s*"([^"]+)"/);
+    if (!id) {
+      continue;
+    }
+    const requires = line.match(/\brequires:\s*"([^"]+)"/);
+    capabilities.set(id[1], requires ? requires[1] : "none");
+  }
+  return capabilities;
+}
+
+const lineCounts = new Map();
+
+function fileLineCount(path) {
+  if (!lineCounts.has(path)) {
+    lineCounts.set(path, fs.readFileSync(path, "utf8").split("\n").length);
+  }
+  return lineCounts.get(path);
+}
+
+function parseEvidence(screen, cell) {
+  const evidence = new Map();
+  if (unquote(cell) === "none") {
+    return evidence;
+  }
+
+  for (const entry of cell.split(";").map((part) => part.trim()).filter(Boolean)) {
+    const match = unquote(entry).match(/^([a-z]+)=(\S+):L(\d+)$/);
+    if (!match) {
+      inventoryError(`${screen} evidence entry "${entry}" is not <state>=<path>:L<line>`);
+      continue;
+    }
+    const [, state, path, line] = match;
+    if (!DEGRADED_STATES.includes(state)) {
+      inventoryError(`${screen} evidence names unknown state "${state}"`);
+      continue;
+    }
+    if (evidence.has(state)) {
+      inventoryError(`${screen} has more than one ${state} evidence entry`);
+      continue;
+    }
+    evidence.set(state, { path: COMPONENT_ROOT + path, line: Number(line) });
+  }
+  return evidence;
+}
+
+function validateEvidence(screen, row, evidence) {
+  for (const state of DEGRADED_STATES) {
+    const entry = evidence.get(state);
+    if (row[state] !== "present") {
+      if (entry) {
+        inventoryError(`${screen} has evidence for ${state} but its status is "${row[state]}"`);
+      }
+      continue;
+    }
+    if (!entry) {
+      inventoryError(`${screen} is missing evidence for ${state}`);
+      continue;
+    }
+    if (!fs.existsSync(entry.path)) {
+      inventoryError(`${screen} ${state} evidence not found: ${entry.path}`);
+      continue;
+    }
+    if (entry.line > fileLineCount(entry.path)) {
+      inventoryError(`${screen} ${state} evidence line ${entry.line} is past the end of ${entry.path}`);
+    }
+  }
+}
+
+function validateUnmockedProof(screen, row, cell) {
+  if (unquote(cell) === "none") {
+    return 0;
+  }
+
+  let proofs = 0;
+  for (const entry of cell.split(";").map((part) => part.trim()).filter(Boolean)) {
+    const match = unquote(entry).match(/^([a-z]+)=(\S+)$/);
+    if (!match) {
+      inventoryError(`${screen} unmocked proof entry "${entry}" is not <state>=<path>`);
+      continue;
+    }
+    const [, state, path] = match;
+    if (!DEGRADED_STATES.includes(state)) {
+      inventoryError(`${screen} unmocked proof names unknown state "${state}"`);
+      continue;
+    }
+    proofs += 1;
+    if (row[state] !== "present") {
+      inventoryError(`${screen} ${state} unmocked proof requires ${state} status "present", got "${row[state]}"`);
+    }
+    if (!UNMOCKED_SUITES.some((suite) => path.startsWith(suite)) || !path.endsWith(".spec.ts")) {
+      inventoryError(`${screen} ${state} unmocked proof must be a smoke/ or full/ spec, got ${path}`);
+      continue;
+    }
+    if (!fs.existsSync(UNMOCKED_ROOT + path)) {
+      inventoryError(`${screen} ${state} unmocked proof not found: ${UNMOCKED_ROOT + path}`);
+    }
+  }
+  return proofs;
+}
+
+function validateInventoryRow(row, capabilities, totals) {
+  const screen = unquote(row.screen);
+
+  const component = COMPONENT_ROOT + unquote(row.component);
+  if (!fs.existsSync(component)) {
+    inventoryError(`${screen} component not found: ${component}`);
+  }
+
+  const declared = capabilities.get(screen);
+  if (declared !== undefined && unquote(row.requires) !== declared) {
+    inventoryError(`${screen} requires is "${unquote(row.requires)}" but the registry declares "${declared}"`);
+  }
+
+  for (const state of DEGRADED_STATES) {
+    if (!STATUS_VALUES.includes(row[state])) {
+      inventoryError(
+        `${screen} ${state} status is "${row[state]}" (expected ${STATUS_VALUES.join(", ")})`,
+      );
+      continue;
+    }
+    totals[state][row[state]] += 1;
+  }
+  if (row.error === "not-applicable" && row.retry !== "not-applicable") {
+    inventoryError(`${screen} retry status must be "not-applicable" when error is "not-applicable"`);
+  }
+
+  validateEvidence(screen, row, parseEvidence(screen, row.evidence));
+
+  const screenSpec = unquote(row.screenSpec);
+  if (screenSpec === "none") {
+    totals.screenSpec.missing += 1;
+  } else if (!fs.existsSync(SCREEN_SPEC_ROOT + screenSpec)) {
+    inventoryError(`${screen} screen spec not found: ${SCREEN_SPEC_ROOT + screenSpec}`);
+  } else {
+    totals.screenSpec.present += 1;
+  }
+
+  const proofs = validateUnmockedProof(screen, row, row.unmockedProof);
+  totals.unmockedProof.proofs += proofs;
+  totals.unmockedProof.screens += proofs > 0 ? 1 : 0;
+}
+
+function emptyTotals() {
+  const totals = {
+    screenSpec: { present: 0, missing: 0 },
+    unmockedProof: { proofs: 0, screens: 0 },
+  };
+  for (const state of DEGRADED_STATES) {
+    totals[state] = Object.fromEntries(STATUS_VALUES.map((value) => [value, 0]));
+  }
+  return totals;
+}
+
+function reportInventory(rowCount, screenCount, totals) {
+  console.log(`DEGRADED_STATE_INVENTORY:${rowCount}/${screenCount}`);
+  for (const state of DEGRADED_STATES) {
+    const counts = STATUS_VALUES.map((value) => `${value}=${totals[state][value]}`).join(" ");
+    console.log(`DEGRADED_STATE_${state.toUpperCase()}:${counts}`);
+  }
+  console.log(
+    `DEGRADED_STATE_SCREEN_SPEC:present=${totals.screenSpec.present} missing=${totals.screenSpec.missing}`,
+  );
+  console.log(
+    `DEGRADED_STATE_UNMOCKED_PROOF:proofs=${totals.unmockedProof.proofs} screens=${totals.unmockedProof.screens}`,
+  );
+}
+
+const adminScreens = parseStringLiteralArray(adminViewsSource, "ADMIN_VIEWS");
+const section = degradedStateSection(matrixSource);
+const inventoryRows = section === null ? [] : parseInventoryRows(section);
+const totals = emptyTotals();
+const capabilities = parseScreenCapabilities(adminViewsSource);
+
+const seen = new Set();
+const duplicated = [];
+for (const row of inventoryRows) {
+  const screen = unquote(row.screen);
+  if (seen.has(screen)) {
+    duplicated.push(screen);
+  }
+  seen.add(screen);
+  validateInventoryRow(row, capabilities, totals);
+}
+
+if (section !== null) {
+  const missingScreens = adminScreens.filter((screen) => !seen.has(screen));
+  const unknownScreens = [...seen].filter((screen) => !adminScreens.includes(screen));
+  if (missingScreens.length > 0) {
+    inventoryError(`missing degraded-state rows for registry screens: ${missingScreens.join(", ")}`);
+  }
+  if (unknownScreens.length > 0) {
+    inventoryError(`degraded-state rows for unknown screens: ${unknownScreens.join(", ")}`);
+  }
+  if (duplicated.length > 0) {
+    inventoryError(`duplicate degraded-state rows: ${duplicated.join(", ")}`);
+  }
+}
+
+if (inventoryErrors.length > 0) {
+  for (const message of inventoryErrors) {
+    console.error(message);
+  }
+  process.exit(1);
+}
+
+reportInventory(inventoryRows.length, adminScreens.length, totals);
 NODE
 
 echo "Coverage matrix summary from $MATRIX_PATH"

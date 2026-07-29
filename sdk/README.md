@@ -8,6 +8,8 @@ JavaScript/TypeScript client SDK for [Allyourbase](https://github.com/gridlhq-st
 npm install @allyourbase/js
 ```
 
+The published npm package currently resolves at version `0.2.0`.
+
 ## Quick Start
 
 ```ts
@@ -65,6 +67,34 @@ const ayb = new AYBClient("http://localhost:8090");
 // With custom fetch (e.g. for Node.js < 18)
 const ayb = new AYBClient("http://localhost:8090", { fetch: myFetch });
 ```
+
+### PostgreSQL RPC
+
+Call PostgreSQL functions with
+`client.rpc<T>(functionName, args?, options?)`. Void and empty responses resolve
+to `undefined`.
+
+```ts
+const total = await ayb.rpc<number>("leaderboard_total", {
+  club_id: "abc123",
+});
+```
+
+### Edge functions
+
+`client.functions.invoke(name, options?)` returns the raw response as
+`{ status, headers, rawBody }`.
+
+```ts
+const response = await ayb.functions.invoke("send-digest", {
+  body: { club_id: "abc123" },
+});
+console.log(response.status, response.headers, response.rawBody);
+```
+
+GraphQL and admin/org typed clients are JS-only scope today and live on
+`client.graphql` and `client.admin(...)`. The other SDKs intentionally do not
+define those typed clients yet.
 
 ### Records
 

@@ -1,6 +1,10 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import { readFileSync, readdirSync } from "node:fs";
 import { resolve } from "node:path";
+import {
+  failIfReadinessForced,
+  readinessNotMet,
+} from "../../browser-tests-unmocked/fixtures/conditional-readiness";
 
 function readProjectFile(relativePath: string): string {
   return readFileSync(resolve(__dirname, "..", "..", relativePath), "utf8");
@@ -17,6 +21,41 @@ function readFullLifecycleSpecFiles(): Array<{ name: string; content: string }> 
 }
 
 describe("browser-unmocked test hygiene", () => {
+  it("records structured readiness evidence before failing the test", async () => {
+    const attach = vi.fn().mockResolvedValue(undefined);
+
+    await expect(
+      readinessNotMet({ attach }, "usage", "usage aggregation service returned 503"),
+    ).rejects.toThrow(/^READINESS_NOT_MET:/);
+    expect(attach).toHaveBeenCalledWith("readiness-not-met", {
+      body: JSON.stringify({
+        kind: "READINESS_NOT_MET",
+        screenID: "usage",
+        reason: "usage aggregation service returned 503",
+      }),
+      contentType: "application/json",
+    });
+  });
+
+  it("forces readiness failures through the shared evidence owner", async () => {
+    const attach = vi.fn().mockResolvedValue(undefined);
+    vi.stubEnv("AYB_BROWSER_FORCE_READINESS_NOT_MET", "usage, admin-logs");
+
+    await expect(failIfReadinessForced({ attach }, "admin-logs")).rejects.toThrow(
+      "READINESS_NOT_MET: admin-logs:",
+    );
+    expect(attach).toHaveBeenCalledWith("readiness-not-met", {
+      body: JSON.stringify({
+        kind: "READINESS_NOT_MET",
+        screenID: "admin-logs",
+        reason: "admin-logs backend forced unavailable for readiness proof",
+      }),
+      contentType: "application/json",
+    });
+
+    vi.unstubAllEnvs();
+  });
+
   it("does not log admin credentials or token fragments in auth setup", () => {
     const authSetup = readProjectFile("browser-tests-unmocked/auth.setup.ts");
 
@@ -109,17 +148,16 @@ describe("browser-unmocked test hygiene", () => {
   it("Stage 5 accessibility smoke covers the expanded dashboard suite", () => {
     const accessibilitySmoke = readProjectFile("browser-tests-unmocked/smoke/accessibility.spec.ts");
 
-    const testCount = accessibilitySmoke.match(/\btest\(/g)?.length ?? 0;
-
-    expect(testCount).toBe(50);
+    expect(accessibilitySmoke).toContain("registryScreenScans");
+    expect(accessibilitySmoke).toContain("registry accessibility scan metadata covers every admin view");
     expect(accessibilitySmoke).toContain("buildParallelSafeRunID");
     expect(accessibilitySmoke).toContain("dropTableIfExists");
     expect(accessibilitySmoke).toContain('test("table browser page is accessible"');
-    expect(accessibilitySmoke).toContain('navigateAndScan(page, /^Storage$/i, "Storage")');
-    expect(accessibilitySmoke).toContain('navigateAndScan(page, /^SQL Editor$/i, "SQL Editor")');
-    expect(accessibilitySmoke).toContain('navigateAndScan(page, /^API Keys$/i, "API Keys")');
-    expect(accessibilitySmoke).toContain('navigateAndScan(page, /^Organizations$/i, "Organizations")');
-    expect(accessibilitySmoke).toContain('navigateAndScan(page, /^Auth Settings$/i, "Auth Settings")');
+    expect(accessibilitySmoke).toContain('graphql: { buttonName: /^GraphQL$/i, pageName: "GraphQL" }');
+    expect(accessibilitySmoke).toContain('search: { buttonName: /^Search$/i, pageName: "Search" }');
+    expect(accessibilitySmoke).toContain('requires: "status"');
+    expect(accessibilitySmoke).toContain('requires: "support"');
+    expect(accessibilitySmoke).toContain("CAPABILITY_DISABLED:");
     expect(accessibilitySmoke).not.toContain('/Table Editor/i');
     expect(accessibilitySmoke).not.toContain('test("settings page is accessible"');
     expect(accessibilitySmoke).not.toContain('navigateAndScan(page, /SQL Editor/i, "SQL Editor")');
@@ -128,11 +166,34 @@ describe("browser-unmocked test hygiene", () => {
   it("run-with-ayb script sets high default API/auth limits for parallel browser suites", () => {
     const runner = readProjectFile("../scripts/run-with-ayb.sh");
 
+    expect(runner).toContain('export AYB_AUTH_ENABLED="${AYB_AUTH_ENABLED:-true}"');
     expect(runner).toContain('export AYB_AUTH_RATE_LIMIT="${AYB_AUTH_RATE_LIMIT:-10000}"');
     expect(runner).toContain('export AYB_AUTH_ANONYMOUS_RATE_LIMIT="${AYB_AUTH_ANONYMOUS_RATE_LIMIT:-10000}"');
     expect(runner).toContain('export AYB_RATE_LIMIT_API="${AYB_RATE_LIMIT_API:-10000/min}"');
     expect(runner).toContain(
       'export AYB_RATE_LIMIT_API_ANONYMOUS="${AYB_RATE_LIMIT_API_ANONYMOUS:-10000/min}"',
+    );
+    expect(runner).toContain('export AYB_STATUS_ENABLED="${AYB_STATUS_ENABLED:-true}"');
+    expect(runner).toContain('export AYB_SUPPORT_ENABLED="${AYB_SUPPORT_ENABLED:-true}"');
+  });
+
+  it("runs unmocked projects serially while smoke specs mutate shared backend relations", () => {
+    const playwrightConfig = readProjectFile("playwright.config.ts");
+
+    expect(playwrightConfig).toContain("fullyParallel: false");
+    expect(playwrightConfig).toContain("workers: 1");
+  });
+
+  it("shared runner records the replica smoke capability as disabled without a standby", () => {
+    const runner = readProjectFile("../scripts/run-with-ayb.sh");
+    const replicas = readProjectFile("browser-tests-unmocked/smoke/replicas.spec.ts");
+
+    expect(runner).toContain(
+      'export AYB_BROWSER_DISABLED_CAPABILITIES="${AYB_BROWSER_DISABLED_CAPABILITIES-replicas}"',
+    );
+    expect(replicas).toContain('console.log("CAPABILITY_DISABLED:replicas")');
+    expect(replicas.indexOf('failIfReadinessForced(testInfo, "replicas")')).toBeLessThan(
+      replicas.indexOf('disabledCapabilities.has("replicas")'),
     );
   });
 
@@ -161,8 +222,60 @@ describe("browser-unmocked test hygiene", () => {
     const usersList = readProjectFile("browser-tests-unmocked/smoke/users-list.spec.ts");
 
     expect(usersList).toContain("probeEndpoint");
-    expect(usersList).toContain('"/api/admin/users/"');
+    expect(usersList).toContain('"/api/admin/users"');
+    expect(usersList).not.toContain('"/api/admin/users/"');
     expect(usersList).toContain("test.skip(");
+  });
+
+  it("conditional-readiness smoke specs fail non-green instead of passing on absent backends", () => {
+    const fixturesBarrel = readProjectFile("browser-tests-unmocked/fixtures/index.ts");
+    const conditionalReadinessSpecs = [
+      "backups",
+      "replicas",
+      "vector-indexes",
+      "notifications",
+      "usage-metering",
+      "admin-logs",
+    ];
+
+    expect(fixturesBarrel).toContain('export * from "./conditional-readiness"');
+    for (const specName of conditionalReadinessSpecs) {
+      const spec = readProjectFile(`browser-tests-unmocked/smoke/${specName}.spec.ts`);
+      expect(spec).toMatch(
+        /import\s*\{\s*[^}]*\breadinessNotMet\b[^}]*\}\s*from\s*"\.\.\/fixtures"/,
+      );
+      expect(spec).toContain("failIfReadinessForced");
+      expect(spec).not.toContain("test.skip(");
+    }
+
+    const usageMetering = readProjectFile("browser-tests-unmocked/smoke/usage-metering.spec.ts");
+    expect(usageMetering).not.toContain("503 fallback");
+    expect(usageMetering).not.toMatch(
+      /if\s*\(\s*usageResponse\.status\(\)\s*===\s*503\s*\)\s*\{[^}]*\breturn\b/,
+    );
+
+    const adminLogs = readProjectFile("browser-tests-unmocked/smoke/admin-logs.spec.ts");
+    expect(adminLogs).not.toMatch(
+      /if\s*\(\s*isBufferingUnavailable\(initialPayload\)\s*\)\s*\{[^}]*\breturn\b/,
+    );
+  });
+
+  it("full storage lifecycle does not preflight-skip before bucket setup", () => {
+    const storageLifecycle = readProjectFile("browser-tests-unmocked/full/storage-lifecycle.spec.ts");
+
+    expect(storageLifecycle).not.toContain("probeEndpoint");
+    expect(storageLifecycle).not.toMatch(/probeStatus\s*===\s*(404|500|501|503)/);
+    expect(storageLifecycle).toContain("ensureStorageBucket");
+  });
+
+  it("full and smoke users proofs probe the same mounted users list route", () => {
+    const usersLifecycle = readProjectFile("browser-tests-unmocked/full/users-lifecycle.spec.ts");
+    const usersList = readProjectFile("browser-tests-unmocked/smoke/users-list.spec.ts");
+
+    expect(usersLifecycle).toContain('"/api/admin/users"');
+    expect(usersLifecycle).not.toContain('"/api/admin/users/"');
+    expect(usersList).toContain('"/api/admin/users"');
+    expect(usersList).not.toContain('"/api/admin/users/"');
   });
 
   it("edge-function lookup fixture resolves functions via by-name admin endpoint", () => {

@@ -9,12 +9,13 @@ import {
 } from "../api_secrets";
 import type { SecretMetadata } from "../types/secrets";
 import { useAdminResource } from "../hooks/useAdminResource";
+import { ErrorNotice } from "./ErrorNotice";
 import { AdminTable, type Column } from "./shared/AdminTable";
 import { ConfirmDialog } from "./shared/ConfirmDialog";
 import { KeyRound } from "lucide-react";
 
 export function Secrets() {
-  const { data, loading, error, actionLoading, runAction } =
+  const { data, loading, error, actionLoading, refresh, runAction } =
     useAdminResource(listSecrets);
   const [showCreate, setShowCreate] = useState(false);
   const [createName, setCreateName] = useState("");
@@ -126,17 +127,6 @@ export function Secrets() {
     },
   ];
 
-  if (error) {
-    return (
-      <div className="p-6">
-        <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-4">
-          Secrets
-        </h2>
-        <p className="text-red-600 dark:text-red-400">{error}</p>
-      </div>
-    );
-  }
-
   return (
     <div className="p-6">
       <div className="flex items-center justify-between mb-4">
@@ -158,6 +148,17 @@ export function Secrets() {
           </button>
         </div>
       </div>
+
+      {error && data ? (
+        <div className="mb-4">
+          <ErrorNotice
+            message={error}
+            docsPath="/guide/security"
+            actionLabel="Retry"
+            onAction={refresh}
+          />
+        </div>
+      ) : null}
 
       {showCreate && (
         <div className="mb-4 p-4 border border-gray-200 dark:border-gray-700 rounded bg-white dark:bg-gray-900">
@@ -203,9 +204,7 @@ export function Secrets() {
         </div>
       )}
 
-      {loading ? (
-        <p className="text-sm text-gray-500 dark:text-gray-400">Loading...</p>
-      ) : (data ?? []).length === 0 ? (
+      {!loading && data?.length === 0 ? (
         <div className="text-center py-12 border rounded-lg bg-gray-50 dark:bg-gray-800 px-6">
           <KeyRound className="w-9 h-9 text-gray-300 dark:text-gray-500 mx-auto mb-3" />
           <h3 className="text-sm font-medium text-gray-800 dark:text-gray-200">No secrets configured yet</h3>
@@ -224,10 +223,12 @@ export function Secrets() {
           columns={columns}
           rows={data ?? []}
           rowKey="name"
-          page={1}
-          totalPages={1}
-          onPageChange={() => {}}
-          emptyMessage=""
+          emptyMessage="No secrets configured yet"
+          loading={loading}
+          loadingMessage="Loading..."
+          error={data ? null : error}
+          docsPath="/guide/security"
+          onRetry={refresh}
         />
       )}
 

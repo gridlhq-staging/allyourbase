@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/url"
 	"os"
 	"text/tabwriter"
 
@@ -17,6 +18,9 @@ var extensionsCmd = &cobra.Command{
 	Use:   "extensions",
 	Short: "Manage PostgreSQL extensions",
 	Long:  `List, enable, and disable PostgreSQL extensions on the connected database.`,
+	Example: `ayb extensions list
+ayb extensions enable pgvector
+ayb extensions disable pgvector --config ayb.toml`,
 }
 
 var extensionsListCmd = &cobra.Command{
@@ -137,7 +141,7 @@ func runExtensionsEnable(cmd *cobra.Command, args []string) error {
 func runExtensionsDisable(cmd *cobra.Command, args []string) error {
 	name := args[0]
 
-	resp, body, err := adminRequest(cmd, "DELETE", "/api/admin/extensions/"+name, nil)
+	resp, body, err := adminRequest(cmd, "DELETE", "/api/admin/extensions/"+url.PathEscape(name), nil)
 	if err != nil {
 		return err
 	}

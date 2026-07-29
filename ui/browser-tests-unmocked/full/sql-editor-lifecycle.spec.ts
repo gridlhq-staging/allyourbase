@@ -1,4 +1,10 @@
-import { test, expect, execSQL, waitForDashboard } from "../fixtures";
+import {
+  test,
+  expect,
+  execSQL,
+  expectOfflineRetryRecovery,
+  waitForDashboard,
+} from "../fixtures";
 import type { Page } from "@playwright/test";
 
 /**
@@ -39,7 +45,12 @@ test.describe("SQL Editor Lifecycle (Full E2E)", () => {
     }
   });
 
-  test("execute DDL, DML, SELECT, and DROP via admin SQL Editor", async ({ page, request, adminToken }) => {
+  test("execute DDL, DML, SELECT, and DROP via admin SQL Editor", async ({
+    page,
+    request,
+    adminToken,
+    context,
+  }) => {
     const runId = Date.now();
     const tableName = `_test_sql_editor_${runId}`;
     tablesToDrop.push(tableName);
@@ -95,6 +106,23 @@ test.describe("SQL Editor Lifecycle (Full E2E)", () => {
     await page.getByRole("button", { name: /Execute/i }).click();
     await expectMissingRelationError(page, "definitely_missing_admin_sql_table");
     expect(await getStoredSQLQuery(page)).toBe(storedSuccessfulQuery);
+
+    await sqlInput.fill(`SELECT name, value FROM ${tableName} ORDER BY value;`);
+    // Closest-real proxy: SQL execution failures use the admin SQL fetch
+    // boundary, so offline mode proves ErrorNotice retry reuses this query.
+    await expectOfflineRetryRecovery(
+      page,
+      context,
+      async () => {
+        await page.getByRole("button", { name: /Execute/i }).click();
+      },
+      async () => {
+        await expect(page.getByRole("cell", { name: "alpha" })).toBeVisible();
+        await expect(page.getByRole("cell", { name: "beta" })).toBeVisible();
+        expect(await getStoredSQLQuery(page)).toBe(`SELECT name, value FROM ${tableName} ORDER BY value;`);
+      },
+      { errorText: "TypeError: Failed to fetch" },
+    );
 
     // DDL: DROP TABLE
     await sqlInput.fill(`DROP TABLE ${tableName};`);

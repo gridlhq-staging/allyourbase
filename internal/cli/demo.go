@@ -145,13 +145,11 @@ The command handles everything:
 
 Search docs:
   Non-vector collection search: https://allyourbase.io/guide/search
-  Algolia migration map:       https://allyourbase.io/guide/migrating-from-algolia
-
-Examples:
-  ayb demo instantsearch
-  ayb demo kanban
-  ayb demo live-polls
-  ayb demo movies`,
+  Algolia migration map:       https://allyourbase.io/guide/migrating-from-algolia`,
+	Example: `ayb demo instantsearch
+ayb demo kanban
+ayb demo live-polls
+ayb demo movies`,
 	Args:      exactArgsWithHelp(1, "ayb demo kanban"),
 	ValidArgs: []string{"instantsearch", "kanban", "live-polls", "movies"},
 	RunE:      runDemo,

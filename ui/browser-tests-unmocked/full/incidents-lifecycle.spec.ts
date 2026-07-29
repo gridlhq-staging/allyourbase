@@ -46,7 +46,10 @@ test.describe("Incidents Lifecycle (Full E2E)", () => {
     await page.goto("/admin/");
     await waitForDashboard(page);
 
-    await page.locator("aside").getByRole("button", { name: /^Incidents$/i }).click();
+    await page
+      .getByRole("complementary")
+      .getByRole("button", { name: "Incidents", exact: true })
+      .click();
     await expect(page.getByRole("heading", { name: /Incidents/i })).toBeVisible({ timeout: 5000 });
 
     // Verify seeded incident
@@ -77,6 +80,7 @@ test.describe("Incidents Lifecycle (Full E2E)", () => {
 
     // Resolve the created incident
     await createdRow.getByRole("button", { name: /Resolve/i }).click();
+    await page.getByRole("button", { name: /Show All/i }).click();
     await expect(createdRow).toContainText("resolved", { timeout: 5000 });
   });
 });

@@ -12,6 +12,8 @@ AYB ships two OpenAPI surfaces plus a docs UI:
 - `GET /api/openapi.json` serves a generated JSON OpenAPI document built from the live schema cache.
 - `GET /api/docs` serves Swagger UI HTML wired to `/api/openapi.json`.
 
+`openapi/openapi.yaml` is the canonical checked-in static YAML export. `api-docs/` is generated from `openapi/openapi.yaml` during docs deployment and is not a source input. `GET /api/openapi.json` is generated at runtime from the live schema cache. The runtime JSON is authoritative for the current database schema but is not expected to byte-match the static YAML file.
+
 ## JSON spec behavior (`/api/openapi.json`)
 
 - Returns `503` with `schema cache not ready` when schema cache data is not available.

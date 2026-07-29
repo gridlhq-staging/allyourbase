@@ -14,6 +14,9 @@ var functionsCmd = &cobra.Command{
 Subcommands let you list, inspect, scaffold, deploy, invoke, delete,
 and view logs for edge functions. All commands require --admin-token
 (or AYB_ADMIN_TOKEN env var) and --url pointing at the server.`,
+	Example: `ayb functions list
+ayb functions new hello-world
+ayb functions deploy hello-world --source ./hello-world.js`,
 }
 
 var functionsListCmd = &cobra.Command{

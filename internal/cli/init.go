@@ -16,13 +16,11 @@ var initCmd = &cobra.Command{
 	Long: fmt.Sprintf(`Scaffold a new project with AYB configuration, schema, SDK client,
 and context files for AI coding tools.
 
-Available templates: %s
-
-Examples:
-  ayb init my-app                         # React (default)
-  ayb init my-app --template next         # Next.js
-  ayb init my-app --template express      # Express/Node backend
-  ayb init my-app --template plain        # Minimal TypeScript`, strings.Join(templateNames(), ", ")),
+Available templates: %s`, strings.Join(templateNames(), ", ")),
+	Example: `ayb init my-app                         # React (default)
+ayb init my-app --template next         # Next.js
+ayb init my-app --template express      # Express/Node backend
+ayb init my-app --template plain        # Minimal TypeScript`,
 	Args: exactArgsWithHelp(1, "ayb init my-app"),
 	RunE: runInit,
 }

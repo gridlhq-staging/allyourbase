@@ -2,6 +2,19 @@
 
 > This file is the curated public shipped-history ledger, synced to staging and prod via debbie. Raw per-lane archive notes live in `implemented/` and are not part of the public sync.
 
+> **Scope note (2026-07-27):** the authoritative per-release history is [`CHANGELOG.md`](../CHANGELOG.md); current feature/execution status is tracked in the project roadmap. The detailed batch narratives below run through 2026-07-12 (v0.0.15-beta); releases and hardening batches since then are summarized in the catch-up entry immediately below and detailed in `CHANGELOG.md`.
+
+### Catch-up — v0.0.16-beta → v0.0.20-beta and launch-readiness hardening (2026-07-12 → 2026-07-27)
+
+Summary only; see `CHANGELOG.md` for authoritative per-release detail.
+
+- **v0.0.16-beta (2026-07-12)** — realtime tenant-isolation fail-closed fix.
+- **v0.0.17-beta (2026-07-15)** — discoverable (usernameless) passkey login across all six SDKs; load-balanced cell-topology HA E2E plus the OSS HA guide; kanban/movies demo deploy workflows; WebAuthn legacy-column cleanup and credential-change notifications.
+- **v0.0.18-beta (2026-07-18)** — server-driven console capability endpoint plus a single-owner dashboard screen registry; console cross-origin token-leak fix.
+- **v0.0.19-beta (2026-07-20)** — dashboard GraphQL explorer; Kanban file attachments; `ayb config` secret masking.
+- **v0.0.20-beta (2026-07-23/24)** — first release carrying full-SHA provenance; marketed-claims⇄reality honesty pass; the `make demo-check` demo-verification aggregate; automatic managed-PostgreSQL WAL archival; loopback-only tokenless `/metrics`; one-command `ayb demo instantsearch`.
+- **Merged since v0.0.20-beta (on `main`, awaiting the next tag)** — SAML assertion signature verification; enforcing CSP + HSTS; contributor doc-comment cleanup (349 stubs → 0); hosted RLS pool-role hardening; govulncheck toolchain floor; Supabase migration depth (storage metadata, user metadata, non-public schemas); request/query-logs viewer depth (aggregation charts, SSE live-tail, `tenant_id`); search relevance-score transparency; a `version` field in `/health`; Swift + Go SDK test lanes in CI; a first-user audit that retired the stale internal `_qa/` tree.
+
 ### Ship-it batch — v0.0.15-beta release, live demo surface, SDK auth/realtime parity, passkeys UI (jul11_pm waves 1–3 + jul12_am_1, merged and closed 2026-07-12)
 
 Sixteen lanes across three waves ship the accumulated multi-tenant/multi-node backend work to users and close the highest-value SDK parity gaps; a same-day remediation lane fixed a realtime regression the release surfaced.

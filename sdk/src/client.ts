@@ -5,6 +5,7 @@ import { StorageClient } from "./storage";
 import { RealtimeClient } from "./realtime";
 import { GraphQLClient } from "./graphql";
 import { SearchSettingsClient } from "./search_settings";
+import { FunctionsClient } from "./functions";
 import { AdminClient } from "./admin_orgs";
 import { encodePathSegment } from "./helpers";
 import type {
@@ -12,6 +13,8 @@ import type {
   AuthStateListener,
   AuthSession,
   ClientOptions,
+  EdgeInvokeOptions,
+  EdgeInvokeResponse,
   HealthResponse,
   PersistedAuthSession,
   RpcOptions,
@@ -25,6 +28,18 @@ function normalizeErrorCode(rawCode: unknown): string | undefined {
     return String(rawCode);
   }
   return undefined;
+}
+
+/** Whether a body value should be sent verbatim rather than JSON-serialized. */
+function isRawBody(body: unknown): body is BodyInit {
+  return (
+    typeof body === "string" ||
+    body instanceof Blob ||
+    body instanceof ArrayBuffer ||
+    ArrayBuffer.isView(body) ||
+    body instanceof URLSearchParams ||
+    body instanceof FormData
+  );
 }
 
 export class AYBClient {
@@ -42,6 +57,7 @@ export class AYBClient {
   readonly realtime: RealtimeClient;
   readonly graphql: GraphQLClient;
   readonly searchSettings: SearchSettingsClient;
+  readonly functions: FunctionsClient;
 
   constructor(baseURL: string, options?: ClientOptions) {
     this.baseURL = baseURL.replace(/\/+$/, "");
@@ -54,6 +70,7 @@ export class AYBClient {
     this.realtime = new RealtimeClient(this);
     this.graphql = new GraphQLClient(this);
     this.searchSettings = new SearchSettingsClient(this);
+    this.functions = new FunctionsClient(this);
 
     this.restoreSessionPromise = this.restorePersistedSession();
   }
@@ -196,6 +213,49 @@ export class AYBClient {
     return this.request<T>(`/api/rpc/${encodePathSegment(functionName)}`, {
       ...init,
     });
+  }
+
+  /**
+   * @internal Invoke an edge function over the shared request/auth/error seam
+   * and return the raw HTTP response envelope. Non-2xx statuses propagate as
+   * AYBError; 2xx statuses (including 202 and 204) are returned to the caller.
+   */
+  async invokeEdge(
+    path: string,
+    options?: EdgeInvokeOptions,
+  ): Promise<EdgeInvokeResponse> {
+    const headers: Record<string, string> = { ...options?.headers };
+    const init: RequestInit & { skipAuth?: boolean } = {
+      method: options?.method ?? "POST",
+      skipAuth: options?.skipAuth,
+    };
+
+    if (options?.body !== undefined) {
+      if (isRawBody(options.body)) {
+        init.body = options.body;
+      } else {
+        init.body = JSON.stringify(options.body);
+        const hasContentType = Object.keys(headers).some(
+          (key) => key.toLowerCase() === "content-type",
+        );
+        if (!hasContentType) {
+          headers["Content-Type"] = "application/json";
+        }
+      }
+    }
+
+    init.headers = headers;
+    const res = await this.requestResponse(path, init);
+    const rawBody = res.status === 204 ? "" : await res.text();
+    const responseHeaders: Record<string, string> = {};
+    res.headers.forEach((value, key) => {
+      responseHeaders[key] = value;
+    });
+    return {
+      status: res.status,
+      headers: responseHeaders,
+      rawBody,
+    };
   }
 
   /** Create an explicit-token admin surface for routes guarded by s.requireAdminToken, distinct from user auth. */

@@ -2,7 +2,7 @@
 
 # Migrating from Supabase
 
-This guide covers the Supabase migration behavior implemented by `ayb migrate supabase`. It uses direct PostgreSQL connections for database content and an optional local export directory for Supabase Storage files.
+This guide covers the Supabase migration behavior implemented by `ayb migrate supabase`. It uses direct PostgreSQL connections for database content. Storage can come from either a local `--storage-export` tree or direct S3 pull credentials, while `--storage-path` remains the AYB local destination for copied bytes.
 
 For the high-level migration matrix, see [Migrations](/guide/migrations). This page owns the runnable Supabase procedure.
 
@@ -11,7 +11,7 @@ For the high-level migration matrix, see [Migrations](/guide/migrations). This p
 - A direct Supabase PostgreSQL connection URL for the source database. Use the database connection on port 5432, not the pooler on port 6543.
 - An initialized AYB target database. The target must already contain `_ayb_users`; run `ayb start` or `ayb migrate up` before importing into an empty database.
 - A target PostgreSQL connection URL for AYB.
-- Optional storage export files arranged as `<export>/<source bucket>/<object name>`. For example, the source object `avatars/users/alice.png` in bucket `avatars` must exist at `./supabase-storage-export/avatars/users/alice.png`.
+- An optional storage source: either export files arranged as `<export>/<source bucket>/<object name>` or Supabase S3 endpoint and access credentials. For the local flow, the source object `avatars/users/alice.png` in bucket `avatars` must exist at `./supabase-storage-export/avatars/users/alice.png`.
 - Optional local destination path for copied storage files. The migration command writes directly to the local backend rooted at `--storage-path`; it does not read or change the running AYB server's storage configuration.
 - To verify migrated public objects through `/api/storage/...`, run AYB with storage enabled, the local backend, and `storage.local_path` / `AYB_STORAGE_LOCAL_PATH` resolving to the same directory passed to `--storage-path`. A disabled or S3-backed AYB server cannot serve the files copied by this guide's local storage migration.
 
@@ -48,7 +48,9 @@ local_path = "/absolute/path/to/ayb_storage"
 In either form, `storage.local_path` / `AYB_STORAGE_LOCAL_PATH` and
 `--storage-path` must resolve to the same directory.
 
-## Dry run
+## Local storage export
+
+### Dry run
 
 Preview the source shape and planned migration without changing the database or storage:
 
@@ -62,7 +64,7 @@ ayb migrate supabase \
 
 `--dry-run` analyzes and reports the plan, then rolls back the database transaction and skips storage writes. Neither the AYB database nor the storage directory changes.
 
-## Confirmed run
+### Confirmed run
 
 Run the migration after the dry-run report matches the source you intend to move:
 
@@ -77,6 +79,65 @@ ayb migrate supabase \
 
 Storage is copied only when `--storage-export` is set and `--skip-storage` is not set. Omitting `--storage-export` leaves storage files untouched; add `--skip-storage` when that omission is intentional.
 
+## Direct S3 pull
+
+Use Supabase's S3-compatible endpoint and S3 access credentials to pull object
+bytes without creating a local source export. Enable the S3 protocol, then copy the endpoint and region from your project's Storage S3 configuration. Read those
+values and the generated credentials without putting them in shell history:
+
+```bash
+read -rp 'Supabase S3 endpoint: ' SUPABASE_S3_ENDPOINT && export SUPABASE_S3_ENDPOINT
+read -rp 'Supabase S3 region: ' SUPABASE_S3_REGION && export SUPABASE_S3_REGION
+read -rp 'Supabase S3 access key: ' SUPABASE_S3_ACCESS_KEY && export SUPABASE_S3_ACCESS_KEY
+read -rsp 'Supabase S3 secret key: ' SUPABASE_S3_SECRET_KEY && export SUPABASE_S3_SECRET_KEY
+printf '\n'
+```
+
+The migration reads source bucket names from the Supabase PostgreSQL
+`storage.buckets` inventory, so there is intentionally no
+`--storage-s3-bucket` flag. `--storage-export` and `--storage-s3-*` are mutually
+exclusive, and `--skip-storage` skips both the local-export and direct-S3
+sources.
+
+Preview the direct pull without changing the target database or destination:
+
+```bash
+ayb migrate supabase \
+  --source-url "$SUPABASE_DB_URL" \
+  --database-url "$AYB_DATABASE_URL" \
+  --storage-s3-endpoint "$SUPABASE_S3_ENDPOINT" \
+  --storage-s3-region "$SUPABASE_S3_REGION" \
+  --storage-s3-access-key "$SUPABASE_S3_ACCESS_KEY" \
+  --storage-s3-secret-key "$SUPABASE_S3_SECRET_KEY" \
+  --storage-s3-use-ssl=true \
+  --storage-path "$AYB_STORAGE_LOCAL_PATH" \
+  --dry-run
+```
+
+After the dry-run report matches the source inventory, run the confirmed
+migration:
+
+```bash
+ayb migrate supabase \
+  --source-url "$SUPABASE_DB_URL" \
+  --database-url "$AYB_DATABASE_URL" \
+  --storage-s3-endpoint "$SUPABASE_S3_ENDPOINT" \
+  --storage-s3-region "$SUPABASE_S3_REGION" \
+  --storage-s3-access-key "$SUPABASE_S3_ACCESS_KEY" \
+  --storage-s3-secret-key "$SUPABASE_S3_SECRET_KEY" \
+  --storage-s3-use-ssl=true \
+  --storage-path "$AYB_STORAGE_LOCAL_PATH" \
+  -y
+```
+
+The flags expand the S3 credentials into the `ayb` process arguments, so run
+the command on a trusted administrative host with dedicated, short-lived
+credentials. Remove them from the environment afterward:
+
+```bash
+unset SUPABASE_S3_ACCESS_KEY SUPABASE_S3_SECRET_KEY
+```
+
 ## CLI flags
 
 Command-specific flags:
@@ -87,6 +148,11 @@ Command-specific flags:
 | `--database-url` | Yes | empty | AYB PostgreSQL target connection URL. |
 | `--storage-export` | No | empty | Local Supabase Storage export root laid out as `<export>/<source bucket>/<object name>`. |
 | `--storage-path` | No | `./ayb_storage` | Destination directory for AYB local storage files. |
+| `--storage-s3-endpoint` | No | empty | S3-compatible source endpoint. |
+| `--storage-s3-region` | No | empty | S3-compatible source region. |
+| `--storage-s3-access-key` | No | empty | S3-compatible source access key. |
+| `--storage-s3-secret-key` | No | empty | S3-compatible source secret key. |
+| `--storage-s3-use-ssl` | No | `true` | Use HTTPS when the S3 endpoint has no explicit scheme; set `false` only for an HTTP endpoint. |
 | `--dry-run` | No | `false` | Preview analysis and migration phases without database or storage changes. |
 | `--force` | No | `false` | Allow migration when `_ayb_users` already contains users. |
 | `--verbose` | No | `false` | Show detailed progress. |
@@ -112,20 +178,24 @@ Global flags:
   to reset recognized serial sequences on supported primary-key columns; reset failures
   are reported as warnings.
 - Views in admitted user schemas are created on a best-effort basis; views that cannot be created are skipped with a warning.
+- AYB recreates admitted user-schema `plpgsql` and `sql` functions whose signatures are safe to install before tables and views and whose definitions do not reference excluded schemas. Function definitions, overload identity arguments, and supported attributes come from the source PostgreSQL catalog.
+- After tables and data are migrated, AYB recreates ordinary table triggers whose handlers were migrated. Trigger definitions and enabled or disabled states come from the source PostgreSQL catalog, including supported triggers on partitioned tables.
 - Email-based `auth.users` rows are inserted into `_ayb_users` with preserved UUIDs, lower-cased email addresses, email verification state, timestamps, and existing password hashes. Supabase `auth.users.raw_user_meta_data` maps to AYB `_ayb_users.raw_user_meta_data`, and Supabase `auth.users.raw_app_meta_data` maps to AYB `_ayb_users.raw_app_meta_data`. Nested JSON is preserved verbatim as JSONB rather than expanded into first-class auth fields or exposed through the user-facing auth API. Supabase bcrypt password hashes continue to verify through AYB login and are upgraded after successful login.
 - OAuth identities from `auth.identities` are inserted into `_ayb_oauth_accounts` for non-email providers when a provider user ID is available.
 - RLS policies are recreated on migrated tables in admitted user schemas after applying the four rewrite rules owned by `RewriteRLSExpression`: text-cast `auth.uid()` / `uid()` becomes `current_setting('ayb.user_id', true)`, UUID `auth.uid()` / `uid()` becomes `current_setting('ayb.user_id', true)::uuid`, `auth.role()` / `role()` becomes `current_setting('ayb.user_role', true)`, and `auth.jwt() ->> 'email'` / `jwt() ->> 'email'` becomes `current_setting('ayb.user_email', true)`.
-- Storage files are copied from the local export into the AYB storage backend when `--storage-export` is provided. Bucket names are normalized to AYB-compatible names, bucket metadata is registered in `_ayb_storage_buckets`, and object metadata is registered in `_ayb_storage_objects`.
+- Storage files are copied from either the local export or direct S3 source into the AYB storage backend when one source is configured. Bucket names are normalized to AYB-compatible names, bucket metadata is registered in `_ayb_storage_buckets`, and object metadata is registered in `_ayb_storage_objects`.
 
 ## What is not migrated yet
 
 - Phone-only users and MFA factors.
 - Email-less users, even with `--include-anonymous`; the flag only includes anonymous rows in the source query before the no-email skip is applied.
 - Secondary indexes.
-- Functions and triggers.
+- Functions with excluded-schema body references; C, `internal`, and unknown function languages; extension-owned functions; aggregate, window, and operator implementation functions; procedures; and functions whose signatures depend on table- or view-defined composite types are skipped and reported.
+- Event triggers and constraint triggers are skipped and reported. Ordinary table triggers are also skipped when their handlers were skipped or not migrated, or when their definitions reference an excluded schema.
 - Full custom-type fidelity beyond the types handled by the table DDL generator.
 - Source schema, table, and sequence grants. Non-`public` schemas remain inaccessible
   to `ayb_authenticated` until an operator explicitly grants the required privileges.
+- Direct S3 pull is shipped. Its credential-gated live confirmation against `https://<project>.storage.supabase.co/storage/v1/s3` requires operator credentials and does not gate downstream AI work.
 
 ## Post-migration verification
 
@@ -181,6 +251,47 @@ WHERE n.nspname = :'schema'
 SQL
 ) || exit 1
 test "$ACTUAL_POLICY_EXPRESSION" = "$EXPECTED_POLICY_EXPRESSION"
+)
+```
+
+Inspect one named migrated function and one named migrated trigger, and require
+their exact expected definitions. Choose supported specimens before migration,
+capture the expected `pg_get_functiondef` and `pg_get_triggerdef` values from the
+source, and export them as `EXPECTED_FUNCTION_DEFINITION` and
+`EXPECTED_TRIGGER_DEFINITION`. The sample identities below match the Stage 4
+integration specimens; replace them with specimens from your source:
+
+```bash
+(
+set -euo pipefail
+
+FUNCTION_IDENTITY='public.plpgsql_increment(integer)'
+: "${EXPECTED_FUNCTION_DEFINITION:?export the exact expected pg_get_functiondef value}"
+ACTUAL_FUNCTION_DEFINITION=$(psql -X -v ON_ERROR_STOP=1 \
+  -v function_identity="$FUNCTION_IDENTITY" "$AYB_DATABASE_URL" -At <<'SQL'
+SELECT pg_get_functiondef(to_regprocedure(:'function_identity'));
+SQL
+) || exit 1
+test "$ACTUAL_FUNCTION_DEFINITION" = "$EXPECTED_FUNCTION_DEFINITION"
+
+TRIGGER_SCHEMA='public'
+TRIGGER_TABLE='trigger_specimens'
+TRIGGER_NAME='trigger_specimens_before_insert'
+: "${EXPECTED_TRIGGER_DEFINITION:?export the exact expected pg_get_triggerdef value}"
+ACTUAL_TRIGGER_DEFINITION=$(psql -X -v ON_ERROR_STOP=1 \
+  -v schema="$TRIGGER_SCHEMA" -v table="$TRIGGER_TABLE" -v trigger="$TRIGGER_NAME" \
+  "$AYB_DATABASE_URL" -At <<'SQL'
+SELECT pg_get_triggerdef(t.oid)
+FROM pg_trigger t
+JOIN pg_class c ON c.oid = t.tgrelid
+JOIN pg_namespace n ON n.oid = c.relnamespace
+WHERE n.nspname = :'schema'
+  AND c.relname = :'table'
+  AND t.tgname = :'trigger'
+  AND NOT t.tgisinternal;
+SQL
+) || exit 1
+test "$ACTUAL_TRIGGER_DEFINITION" = "$EXPECTED_TRIGGER_DEFINITION"
 )
 ```
 
@@ -261,7 +372,10 @@ SQL
 )
 ```
 
-For a selected public storage object, require a source bucket with `public=true`, download the AYB object, and compare bytes with the exported file:
+For a selected public storage object migrated through the local-export flow,
+require a source bucket with `public=true`, download the AYB object, and compare
+bytes with the exported file. This export-file comparison is local-export-specific;
+the direct S3 procedure does not create a local source file:
 
 ```bash
 (

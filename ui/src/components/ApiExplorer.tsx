@@ -227,6 +227,7 @@ export function ApiExplorer({ schema }: ApiExplorerProps) {
         copied={copied}
         onSnippetTabChange={setSnippetTab}
         onCopySnippet={copySnippet}
+        onRetry={execute}
       />
     </div>
   );

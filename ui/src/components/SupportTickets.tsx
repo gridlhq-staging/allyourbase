@@ -146,17 +146,6 @@ export function SupportTickets() {
     },
   ];
 
-  if (error) {
-    return (
-      <div className="p-6">
-        <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-4">
-          Support Tickets
-        </h2>
-        <p className="text-red-600 dark:text-red-400">{error}</p>
-      </div>
-    );
-  }
-
   return (
     <div className="p-6">
       <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-4">
@@ -177,21 +166,19 @@ export function SupportTickets() {
         }}
       />
 
-      {loading ? (
-        <p className="text-sm text-gray-500 dark:text-gray-400 mt-4">
-          Loading...
-        </p>
-      ) : (
+      <div className="mt-4">
         <AdminTable
           columns={columns}
           rows={data ?? []}
           rowKey="id"
-          page={1}
-          totalPages={1}
-          onPageChange={() => {}}
           emptyMessage="No support tickets"
+          loading={loading}
+          loadingMessage="Loading..."
+          error={error}
+          docsPath="/guide/admin-dashboard"
+          onRetry={refresh}
         />
-      )}
+      </div>
 
       {expandedTicket && (
         <TicketDetail

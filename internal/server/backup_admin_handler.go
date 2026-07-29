@@ -10,15 +10,19 @@ import (
 	"github.com/allyourbase/ayb/internal/httputil"
 )
 
-// backupAdmin is the interface the backup admin handlers need.
-type backupAdmin interface {
+type backupLister interface {
 	List(ctx context.Context, f backup.ListFilter) ([]backup.BackupRecord, int, error)
+}
+
+// backupAdmin is the interface the backup action handlers need.
+type backupAdmin interface {
+	backupLister
 	TriggerBackup(ctx context.Context) (backup.RunResult, error)
 }
 
 // handleAdminBackupList handles requests to list backup records with optional filtering by status and pagination via limit and offset query parameters, defaulting to a limit of 50 and offset of 0.
 func (s *Server) handleAdminBackupList(w http.ResponseWriter, r *http.Request) {
-	if s.backupService == nil {
+	if s.backupLister == nil {
 		httputil.WriteJSON(w, http.StatusOK, map[string]any{"backups": []backup.BackupRecord{}, "total": 0})
 		return
 	}
@@ -40,7 +44,7 @@ func (s *Server) handleAdminBackupList(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	records, total, err := s.backupService.List(r.Context(), backup.ListFilter{
+	records, total, err := s.backupLister.List(r.Context(), backup.ListFilter{
 		Status: status,
 		Limit:  limit,
 		Offset: offset,

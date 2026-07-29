@@ -4,6 +4,7 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonObject
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.seconds
 
@@ -59,6 +60,7 @@ class AYBClient(
     val records: RecordsClient by lazy { RecordsClient(this) }
     val storage: StorageClient by lazy { StorageClient(this) }
     val realtime: RealtimeClient by lazy { RealtimeClient(this) }
+    val functions: FunctionsClient by lazy { FunctionsClient(this) }
 
     init {
         val normalizedBaseURL = baseURL.trimEnd('/')
@@ -143,6 +145,30 @@ class AYBClient(
         }
     }
 
+    internal suspend fun requestRaw(
+        path: String,
+        method: String = HttpMethod.GET.name,
+        headers: Map<String, String> = emptyMap(),
+        body: JsonElement? = null,
+        rawBody: ByteArray? = null,
+        skipAuth: Boolean = false,
+    ): HttpResponse {
+        val bearerToken = if (skipAuth) null else tokenStore.accessToken()
+        val request = requestBuilder.buildRequest(
+            path = path,
+            method = HttpMethod(method),
+            headers = headers,
+            body = body,
+            rawBody = rawBody,
+            bearerToken = bearerToken,
+        )
+        val response = sendWithRetries(request)
+        if (response.statusCode !in 200..299) {
+            throw AYBException.from(response)
+        }
+        return response
+    }
+
     fun setTokens(token: String, refreshToken: String) {
         tokenStore.save(token, refreshToken)
     }
@@ -158,6 +184,14 @@ class AYBClient(
     fun clearApiKey() {
         tokenStore.clear()
     }
+
+    suspend fun rpc(functionName: String, args: JsonObject? = null): JsonElement? =
+        request(
+            path = "/api/rpc/${encodePathSegment(functionName)}",
+            method = HttpMethod.POST,
+            body = args,
+            decode = { it },
+        )
 
     fun onAuthStateChange(listener: (AuthStateEvent, AuthSession?) -> Unit): () -> Unit {
         val id = java.util.UUID.randomUUID().toString()

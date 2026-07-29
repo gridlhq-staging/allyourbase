@@ -2,33 +2,12 @@ import { describe, expect, it } from "vitest";
 import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import {
-  makeOrgDetail,
-  makeOrgListResponse,
-  makeTeam,
-  makeTeamList,
-  makeTeamMemberList,
-  makeTeamMembership,
-  mockAddOrgMember,
-  mockAddTeamMember,
-  mockAssignTenantToOrg,
-  mockCreateTeam,
-  mockDeleteTeam,
-  mockDeleteOrg,
-  mockFetchOrgAudit,
-  mockFetchOrgList,
-  mockFetchTeams,
-  mockFetchOrgUsage,
-  mockFetchTeamMembers,
-  mockCreateOrg,
-  mockGetTeam,
-  mockGetOrg,
-  mockRemoveOrgMember,
-  mockUnassignTenantFromOrg,
-  mockUpdateTeam,
-  mockUpdateOrg,
-  mockUpdateOrgMemberRole,
-  mockUpdateTeamMemberRole,
-  mockRemoveTeamMember,
+  makeOrgDetail, makeOrgListResponse, makeTeam, makeTeamList, makeTeamMemberList,
+  makeTeamMembership, mockAddOrgMember, mockAddTeamMember, mockAssignTenantToOrg,
+  mockCreateTeam, mockDeleteTeam, mockDeleteOrg, mockFetchOrgAudit, mockFetchOrgList,
+  mockFetchTeams, mockFetchOrgUsage, mockFetchTeamMembers, mockCreateOrg, mockGetTeam,
+  mockGetOrg, mockRemoveOrgMember, mockUnassignTenantFromOrg, mockUpdateTeam,
+  mockUpdateOrg, mockUpdateOrgMemberRole, mockUpdateTeamMemberRole, mockRemoveTeamMember,
 } from "./orgs-test-helpers";
 import { renderWithProviders } from "../../test-utils";
 import { Organizations } from "../Organizations";
@@ -52,10 +31,18 @@ describe("Organizations", () => {
     await expect(screen.findByText(/no organizations found/i)).resolves.toBeInTheDocument();
   });
 
-  it("renders error state when list fetch fails", async () => {
-    mockFetchOrgList.mockRejectedValueOnce(new Error("server error"));
+  it("retries an initial organization-list failure through the existing list loader", async () => {
+    mockFetchOrgList.mockRejectedValueOnce(new Error("organization list unavailable"));
     renderWithProviders(<Organizations />);
-    await expect(screen.findByText(/failed to load organizations/i)).resolves.toBeInTheDocument();
+    const user = userEvent.setup();
+    const alert = await screen.findByRole("alert");
+    expect(within(alert).getByText(
+      "Failed to load organizations: organization list unavailable",
+      { exact: true },
+    )).toBeInTheDocument();
+    await user.click(within(alert).getByRole("button", { name: "Retry", exact: true }));
+    await waitFor(() => expect(mockFetchOrgList).toHaveBeenCalledTimes(2));
+    await expect(screen.findByText("Acme Inc")).resolves.toBeInTheDocument();
   });
 
   it("selects org and loads detail panel with info tab", async () => {
@@ -66,6 +53,24 @@ describe("Organizations", () => {
     const infoSection = await screen.findByTestId("org-info-section");
     expect(within(infoSection).getByText("acme-inc")).toBeInTheDocument();
     expect(within(infoSection).getByText("pro")).toBeInTheDocument();
+  });
+
+  it("retries organization-detail failure while preserving the surrounding organization list", async () => {
+    mockGetOrg.mockRejectedValueOnce(new Error("organization detail unavailable"));
+    renderWithProviders(<Organizations />);
+    const user = userEvent.setup();
+    await screen.findByText("Acme Inc");
+    await user.click(screen.getByText("Acme Inc"));
+    const alert = await screen.findByRole("alert");
+    expect(within(alert).getByText(
+      "Failed to load organization: organization detail unavailable",
+      { exact: true },
+    )).toBeInTheDocument();
+    expect(screen.getByTestId("org-list-panel")).toBeInTheDocument();
+    expect(screen.getByText("Beta Corp")).toBeInTheDocument();
+    await user.click(within(alert).getByRole("button", { name: "Retry", exact: true }));
+    await waitFor(() => expect(mockGetOrg).toHaveBeenCalledTimes(2));
+    await expect(screen.findByRole("heading", { name: "Acme Inc" })).resolves.toBeInTheDocument();
   });
 
   it("shows enriched counts in detail header", async () => {

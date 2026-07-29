@@ -52,6 +52,12 @@ func (m *Migrator) printStats() {
 	if m.stats.Views > 0 {
 		fmt.Fprintf(m.output, "  Views:      %d\n", m.stats.Views)
 	}
+	if m.stats.Functions > 0 {
+		fmt.Fprintf(m.output, "  Functions:  %d\n", m.stats.Functions)
+	}
+	if m.stats.Triggers > 0 {
+		fmt.Fprintf(m.output, "  Triggers:   %d\n", m.stats.Triggers)
+	}
 	if m.stats.Records > 0 {
 		fmt.Fprintf(m.output, "  Records:    %d\n", m.stats.Records)
 	}
@@ -121,6 +127,31 @@ func (m *Migrator) markSkippedTable(table TableInfo, err error) {
 	}
 	key := table.TableKey()
 	m.skippedTables[key] = err.Error()
+}
+
+type tableIdentitySet map[string]struct{}
+
+func (m *Migrator) markSchemaTableCreated(table TableInfo) {
+	if m.schemaTables == nil {
+		m.schemaTables = make(tableIdentitySet)
+	}
+	m.schemaTables[table.TableKey()] = struct{}{}
+}
+
+func (m *Migrator) markSkippedFunction(function FunctionIdentity, err error) {
+	if m.skippedFunctions == nil {
+		m.skippedFunctions = make(map[string]string)
+		m.stats.SkippedFunctions = SkippedFunctionReasons(m.skippedFunctions)
+	}
+	m.skippedFunctions[function.Key()] = err.Error()
+}
+
+func (m *Migrator) markSkippedTrigger(trigger TriggerIdentity, err error) {
+	if m.skippedTriggers == nil {
+		m.skippedTriggers = make(map[string]string)
+		m.stats.SkippedTriggers = SkippedTriggerReasons(m.skippedTriggers)
+	}
+	m.skippedTriggers[trigger.Key()] = err.Error()
 }
 
 func (m *Migrator) isSkippedTable(table TableInfo) bool {

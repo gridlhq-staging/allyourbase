@@ -16,6 +16,9 @@ import (
 var auditCmd = &cobra.Command{
 	Use:   "audit",
 	Short: "Audit log tools",
+	Example: `ayb audit export
+ayb audit export --table posts --operation UPDATE
+ayb audit export --format csv --limit 500`,
 }
 
 var auditExportCmd = &cobra.Command{

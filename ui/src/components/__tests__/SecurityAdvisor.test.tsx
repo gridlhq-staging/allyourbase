@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import type { SecurityAdvisorReport } from "../../types";
@@ -83,5 +83,25 @@ describe("SecurityAdvisor", () => {
     render(<SecurityAdvisor />);
 
     await screen.findByText(toPanelError(apiError));
+  });
+
+  it("recovers a failed security report through an error-scoped Retry that refetches", async () => {
+    const user = userEvent.setup();
+    const apiError = new ApiError(500, "telemetry backend unavailable");
+    mockedGet.mockRejectedValueOnce(apiError);
+    render(<SecurityAdvisor />);
+
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent(toPanelError(apiError));
+    // Panel shell (heading + filters) stays mounted alongside the error.
+    expect(screen.getByRole("heading", { name: "Security Advisor" })).toBeInTheDocument();
+    expect(screen.getByLabelText(/Severity/i)).toBeInTheDocument();
+
+    const callsBeforeRetry = mockedGet.mock.calls.length;
+    await user.click(screen.getByRole("button", { name: "Retry" }));
+
+    await waitFor(() => expect(mockedGet.mock.calls.length).toBeGreaterThan(callsBeforeRetry));
+    await screen.findByText(/RLS disabled on public.posts/i);
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });
 });

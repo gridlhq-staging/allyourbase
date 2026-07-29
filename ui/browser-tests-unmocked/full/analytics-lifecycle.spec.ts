@@ -245,7 +245,7 @@ test.describe("Analytics Lifecycle (Full E2E)", () => {
     await drawer.getByRole("button", { name: "Close" }).click();
 
     await page.getByLabel("Path").fill(`${pathPrefix}*`);
-    await page.getByLabel("Status Class").selectOption("4xx");
+    await page.getByLabel("Status Class", { exact: true }).selectOption("4xx");
     await page.getByLabel("Minimum Latency (ms)").fill("300");
     await page.getByLabel("Maximum Latency (ms)").fill("400");
     await page.getByRole("button", { name: "Apply Filters" }).click();

@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { AlertCircle, Loader2 } from "lucide-react";
+import { Loader2 } from "lucide-react";
 import { createTenant } from "../api_tenants";
 import { DEFAULT_CREATE_TENANT_ISOLATION_MODE, DEFAULT_CREATE_TENANT_PLAN_TIER } from "../types/tenants";
 import type { DetailTab, Tenant, TenantAuditQuery } from "../types/tenants";
 import { useDraftFilters } from "../hooks/useDraftFilters";
+import { ErrorNotice } from "./ErrorNotice";
 import { useTenantDetailState, useTenantListState } from "./tenants-hooks";
 import { useTenantManagementState } from "./tenant-management-hooks";
 import {
@@ -101,7 +102,7 @@ export function Tenants() {
     [appliedAuditFilters],
   );
 
-  const { detail, setDetail } = useTenantDetailState(selectedId, activeTab, auditQuery);
+  const { detail, setDetail, refreshDetail } = useTenantDetailState(selectedId, activeTab, auditQuery);
   const {
     roleDraftByUserId,
     updatingUserId,
@@ -252,8 +253,12 @@ export function Tenants() {
   if (listState.error && listState.items.length === 0) {
     return (
       <div data-testid="tenants-view" className="flex-1 flex items-center justify-center p-8">
-        <AlertCircle className="w-5 h-5 text-red-400 mr-2" />
-        <span className="text-red-600 dark:text-red-400">Failed to load tenants: {listState.error}</span>
+        <ErrorNotice
+          message={`Failed to load tenants: ${listState.error}`}
+          docsPath="/guide/tenants"
+          onAction={refreshList}
+          variant="page"
+        />
       </div>
     );
   }
@@ -288,8 +293,12 @@ export function Tenants() {
             ) : (
               <>
                 {detail.error && (
-                  <div className="mb-3 rounded border border-red-200 bg-red-50 text-red-700 px-3 py-2 text-sm">
-                    {detail.error}
+                  <div className="mb-3">
+                    <ErrorNotice
+                      message={`Failed to load tenant: ${detail.error}`}
+                      docsPath="/guide/tenants"
+                      onAction={refreshDetail}
+                    />
                   </div>
                 )}
                 {activeTab === "info" ? (
@@ -349,9 +358,11 @@ export function Tenants() {
           </div>
         ) : selectedId && detail.error ? (
           <div className="p-4">
-            <div className="rounded border border-red-200 bg-red-50 text-red-700 px-3 py-2 text-sm">
-              Failed to load tenant: {detail.error}
-            </div>
+            <ErrorNotice
+              message={`Failed to load tenant: ${detail.error}`}
+              docsPath="/guide/tenants"
+              onAction={refreshDetail}
+            />
           </div>
         ) : (
           <div className="flex items-center justify-center h-full text-gray-500 dark:text-gray-300">

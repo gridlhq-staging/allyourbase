@@ -16,7 +16,7 @@ const extensionStatusMap: Record<string, "success" | "warning" | "default"> = {
 };
 
 export function Extensions() {
-  const { data, loading, error, actionLoading, runAction } = useAdminResource(
+  const { data, loading, error, actionLoading, refresh, runAction } = useAdminResource(
     () => listExtensions().then((r) => r.extensions),
   );
   const [disableTarget, setDisableTarget] = useState<string | null>(null);
@@ -78,36 +78,23 @@ export function Extensions() {
     },
   ];
 
-  if (error) {
-    return (
-      <div className="p-6">
-        <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-4">
-          Extensions
-        </h2>
-        <p className="text-red-600 dark:text-red-400">{error}</p>
-      </div>
-    );
-  }
-
   return (
     <div className="p-6">
       <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-4">
         Extensions
       </h2>
 
-      {loading ? (
-        <p className="text-sm text-gray-500 dark:text-gray-300">Loading...</p>
-      ) : (
-        <AdminTable
-          columns={columns}
-          rows={data ?? []}
-          rowKey="name"
-          page={1}
-          totalPages={1}
-          onPageChange={() => {}}
-          emptyMessage="No extensions available"
-        />
-      )}
+      <AdminTable
+        columns={columns}
+        rows={data ?? []}
+        rowKey="name"
+        emptyMessage="No extensions available"
+        loading={loading}
+        loadingMessage="Loading..."
+        error={error}
+        docsPath="/guide/admin-dashboard"
+        onRetry={refresh}
+      />
 
       <ConfirmDialog
         open={disableTarget !== null}

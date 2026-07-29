@@ -74,8 +74,17 @@ func initHelp() {
 
 // styledHelp renders colorful help output.
 func styledHelp(cmd *cobra.Command, _ []string) {
+	renderStyledHelp(cmd.OutOrStdout(), cmd)
+}
+
+// styledUsage renders help on the error stream when Cobra requests usage.
+func styledUsage(cmd *cobra.Command) error {
+	renderStyledHelp(cmd.ErrOrStderr(), cmd)
+	return nil
+}
+
+func renderStyledHelp(w io.Writer, cmd *cobra.Command) {
 	c := colorEnabled()
-	w := cmd.ErrOrStderr()
 
 	// Description.
 	if cmd.Long != "" {
@@ -105,33 +114,17 @@ func styledHelp(cmd *cobra.Command, _ []string) {
 
 	fmt.Fprintln(w)
 
-	// Usage.
-	fmt.Fprintf(w, "%s\n", heading("USAGE", c))
-	useLine := cmd.UseLine()
-	if cmd.HasAvailableSubCommands() {
-		useLine = cmd.CommandPath() + " [command]"
-	}
-	fmt.Fprintf(w, "  %s\n", useLine)
-	fmt.Fprintln(w)
-
-	// Examples.
-	if cmd.Example != "" {
-		fmt.Fprintf(w, "%s\n", heading("EXAMPLES", c))
-		for _, line := range strings.Split(cmd.Example, "\n") {
-			if strings.TrimSpace(line) == "" {
-				fmt.Fprintln(w)
-			} else {
-				fmt.Fprintf(w, "  %s\n", green(strings.TrimSpace(line), c))
-			}
-		}
-		fmt.Fprintln(w)
-	}
+	// Examples come before usage: concrete invocations are more useful on first
+	// read than the abstract use line, and they printed here before they moved
+	// out of Long into the Example field.
+	printExamples(w, cmd, c)
+	printUsage(w, cmd, c)
 
 	// Subcommands.
-	printCommands(cmd, c)
+	printCommands(w, cmd, c)
 
 	// Flags.
-	printFlags(cmd, c)
+	printFlags(w, cmd, c)
 
 	// Demo hints (root only), derived from demoRegistry.
 	if cmd == rootCmd {
@@ -150,19 +143,39 @@ func styledHelp(cmd *cobra.Command, _ []string) {
 	}
 }
 
-// styledUsage renders just the usage section (shown on errors).
-func styledUsage(cmd *cobra.Command) error {
-	styledHelp(cmd, nil)
-	return nil
+// printExamples renders the EXAMPLES section from the command's Example field.
+func printExamples(w io.Writer, cmd *cobra.Command, c bool) {
+	if cmd.Example == "" {
+		return
+	}
+	fmt.Fprintf(w, "%s\n", heading("EXAMPLES", c))
+	for _, line := range strings.Split(cmd.Example, "\n") {
+		if strings.TrimSpace(line) == "" {
+			fmt.Fprintln(w)
+		} else {
+			fmt.Fprintf(w, "  %s\n", green(strings.TrimSpace(line), c))
+		}
+	}
+	fmt.Fprintln(w)
+}
+
+// printUsage renders the USAGE section.
+func printUsage(w io.Writer, cmd *cobra.Command, c bool) {
+	useLine := cmd.UseLine()
+	if cmd.HasAvailableSubCommands() {
+		useLine = cmd.CommandPath() + " [command]"
+	}
+	fmt.Fprintf(w, "%s\n", heading("USAGE", c))
+	fmt.Fprintf(w, "  %s\n", useLine)
+	fmt.Fprintln(w)
 }
 
 // printCommands renders grouped or ungrouped subcommands.
-func printCommands(cmd *cobra.Command, c bool) {
+func printCommands(w io.Writer, cmd *cobra.Command, c bool) {
 	if !cmd.HasAvailableSubCommands() {
 		return
 	}
 
-	w := cmd.ErrOrStderr()
 	groups := cmd.Groups()
 
 	if len(groups) > 0 {
@@ -227,9 +240,7 @@ func printCommandList(w io.Writer, cmds []*cobra.Command, c bool) {
 }
 
 // printFlags renders local and inherited flags.
-func printFlags(cmd *cobra.Command, c bool) {
-	w := cmd.ErrOrStderr()
-
+func printFlags(w io.Writer, cmd *cobra.Command, c bool) {
 	if cmd == rootCmd {
 		// Root: show all flags (persistent + local) together.
 		all := cmd.Flags()

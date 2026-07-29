@@ -8,6 +8,7 @@ import (
 
 	"github.com/allyourbase/ayb/internal/httputil"
 	"github.com/allyourbase/ayb/internal/observability"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"go.opentelemetry.io/otel"
@@ -53,20 +54,25 @@ func (s *Service) Register(ctx context.Context, email, password string) (*User, 
 		}
 	}
 
-	var user User
-	err = s.pool.QueryRow(ctx,
-		`INSERT INTO _ayb_users (email, password_hash) VALUES ($1, $2)
-		 RETURNING id, email, is_anonymous, created_at, updated_at`,
-		email, hash,
-	).Scan(&user.ID, &user.Email, &user.IsAnonymous, &user.CreatedAt, &user.UpdatedAt)
+	tx, err := s.pool.Begin(ctx)
 	if err != nil {
-		var pgErr *pgconn.PgError
-		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
+		observability.RecordSpanError(span, err)
+		return nil, "", "", fmt.Errorf("beginning registration transaction: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	user, accessToken, refreshToken, err := s.registerInTransaction(ctx, tx, email, hash)
+	if err != nil {
+		if errors.Is(err, ErrEmailTaken) {
 			observability.RecordSpanError(span, ErrEmailTaken)
 			return nil, "", "", ErrEmailTaken
 		}
 		observability.RecordSpanError(span, err)
-		return nil, "", "", fmt.Errorf("inserting user: %w", err)
+		return nil, "", "", err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		observability.RecordSpanError(span, err)
+		return nil, "", "", fmt.Errorf("committing registration: %w", err)
 	}
 
 	s.logger.Info("user registered", "user_id", user.ID, "email", user.Email)
@@ -76,13 +82,20 @@ func (s *Service) Register(ctx context.Context, email, password string) (*User, 
 		s.logger.Error("failed to send verification email on register", "error", err)
 	}
 
-	userOut, accessToken, refreshToken, err := s.issueTokens(ctx, &user)
-	if err != nil {
-		observability.RecordSpanError(span, err)
-		return nil, "", "", err
-	}
 	if s.hookDispatcher != nil {
 		s.hookDispatcher.AfterSignUp(ctx, user.ID, user.Email, nil)
+	}
+	return user, accessToken, refreshToken, nil
+}
+
+func (s *Service) registerInTransaction(ctx context.Context, tx pgx.Tx, email, passwordHash string) (*User, string, string, error) {
+	user, err := insertUser(ctx, tx, email, passwordHash)
+	if err != nil {
+		return nil, "", "", fmt.Errorf("inserting user: %w", err)
+	}
+	userOut, accessToken, refreshToken, err := s.issueTokensInScope(ctx, user, "", s.transactionWriteScope(tx))
+	if err != nil {
+		return nil, "", "", err
 	}
 	return userOut, accessToken, refreshToken, nil
 }
@@ -103,18 +116,26 @@ func CreateUser(ctx context.Context, pool *pgxpool.Pool, email, password string,
 		return nil, fmt.Errorf("hashing password: %w", err)
 	}
 
+	user, err := insertUser(ctx, pool, email, hash)
+	if err != nil {
+		return nil, fmt.Errorf("inserting user: %w", err)
+	}
+	return user, nil
+}
+
+func insertUser(ctx context.Context, database authDatabase, email, passwordHash string) (*User, error) {
 	var user User
-	err = pool.QueryRow(ctx,
+	err := database.QueryRow(ctx,
 		`INSERT INTO _ayb_users (email, password_hash) VALUES ($1, $2)
 		 RETURNING id, email, is_anonymous, created_at, updated_at`,
-		email, hash,
+		email, passwordHash,
 	).Scan(&user.ID, &user.Email, &user.IsAnonymous, &user.CreatedAt, &user.UpdatedAt)
 	if err != nil {
 		var pgErr *pgconn.PgError
 		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
 			return nil, ErrEmailTaken
 		}
-		return nil, fmt.Errorf("inserting user: %w", err)
+		return nil, err
 	}
 	return &user, nil
 }

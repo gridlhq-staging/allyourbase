@@ -239,7 +239,7 @@ func TestPhaseCount(t *testing.T) {
 		{
 			name: "all phases enabled",
 			opts: MigrationOptions{},
-			want: 5, // schema + data + auth + oauth + rls
+			want: 7, // schema + data + functions + triggers + auth + oauth + rls
 		},
 		{
 			name: "skip data",
@@ -249,12 +249,12 @@ func TestPhaseCount(t *testing.T) {
 		{
 			name: "skip oauth",
 			opts: MigrationOptions{SkipOAuth: true},
-			want: 4, // schema + data + auth + rls
+			want: 6, // schema + data + functions + triggers + auth + rls
 		},
 		{
 			name: "skip rls",
 			opts: MigrationOptions{SkipRLS: true},
-			want: 4, // schema + data + auth + oauth
+			want: 6, // schema + data + functions + triggers + auth + oauth
 		},
 		{
 			name: "skip all optional",
@@ -405,7 +405,7 @@ func TestMigrationStatsSkippedTablesJSONUsesCollisionSafeStructuredRows(t *testi
 
 	data, err := json.Marshal(m.stats)
 	testutil.NoError(t, err)
-	testutil.Equal(t, `{"users":0,"oauthLinks":0,"policies":0,"tables":0,"views":0,"records":0,"sequences":0,"storageFiles":0,"storageBytes":0,"skipped":0,"skippedTables":[{"schema":"a","table":"b.c","reason":"billing reason"},{"schema":"a.b","table":"c","reason":"public reason"}]}`, string(data))
+	testutil.Equal(t, `{"users":0,"oauthLinks":0,"policies":0,"tables":0,"views":0,"functions":0,"triggers":0,"records":0,"sequences":0,"storageFiles":0,"storageBytes":0,"skipped":0,"skippedTables":[{"schema":"a","table":"b.c","reason":"billing reason"},{"schema":"a.b","table":"c","reason":"public reason"}]}`, string(data))
 	testutil.False(t, strings.Contains(string(data), `["a","b.c"]`), "internal table key must not leak into JSON output")
 	testutil.False(t, strings.Contains(string(data), `["a.b","c"]`), "internal table key must not leak into JSON output")
 

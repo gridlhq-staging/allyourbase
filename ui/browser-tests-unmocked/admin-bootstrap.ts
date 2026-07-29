@@ -4,12 +4,12 @@ import { join } from "path";
 import { homedir } from "os";
 
 export type AdminBootstrapCredential = {
-  source: "env-password" | "saved-admin-auth";
+  source: "env-password" | "env-admin-token" | "saved-admin-auth";
   value: string;
 };
 
 const MISSING_ADMIN_BOOTSTRAP_CREDENTIAL_MESSAGE =
-  "No admin password found. Either set AYB_ADMIN_PASSWORD or ensure `ayb start` is running (writes ~/.ayb/admin-token).";
+  "No admin credential found. Set AYB_ADMIN_PASSWORD or AYB_ADMIN_TOKEN, or ensure `ayb start` is running (writes ~/.ayb/admin-token).";
 
 class MissingAdminBootstrapCredentialError extends Error {
   constructor() {
@@ -44,6 +44,15 @@ function readSavedAdminAuth(): string {
 export function resolveAdminBootstrapCredential(): AdminBootstrapCredential {
   if (process.env.AYB_ADMIN_PASSWORD) {
     return { source: "env-password", value: process.env.AYB_ADMIN_PASSWORD };
+  }
+
+  // Prefer the exported token over the file. Every `ayb` shutdown removes the
+  // shared ~/.ayb/admin-token (internal/cli/start_services_lifecycle.go), so on
+  // a host running concurrent AYB runtimes the file can vanish mid-suite. The
+  // smoke runner resolves the token once up front and exports it here.
+  const exportedToken = process.env.AYB_ADMIN_TOKEN?.trim();
+  if (exportedToken) {
+    return { source: "env-admin-token", value: exportedToken };
   }
 
   try {

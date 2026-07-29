@@ -14,10 +14,11 @@ import (
 )
 
 var statusCmd = &cobra.Command{
-	Use:   "status",
-	Short: "Show AYB server status",
-	Long:  `Show the running state of the Allyourbase server.`,
-	RunE:  runStatus,
+	Use:     "status",
+	Short:   "Show AYB server status",
+	Long:    `Show the running state of the Allyourbase server.`,
+	Example: `ayb status`,
+	RunE:    runStatus,
 }
 
 func init() {

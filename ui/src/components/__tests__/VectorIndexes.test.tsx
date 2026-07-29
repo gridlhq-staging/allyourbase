@@ -72,11 +72,21 @@ describe("VectorIndexes", () => {
     });
   });
 
-  it("shows error state on fetch failure", async () => {
-    (api.listVectorIndexes as ReturnType<typeof vi.fn>).mockRejectedValue(new Error("Not found"));
+  it("keeps index controls mounted and retries the exact fetch failure", async () => {
+    (api.listVectorIndexes as ReturnType<typeof vi.fn>).mockRejectedValueOnce(
+      new Error("Not found"),
+    );
     renderWithProviders(<VectorIndexes />);
     await waitFor(() => {
       expect(screen.getByText("Not found")).toBeInTheDocument();
     });
+    expect(screen.getByRole("button", { name: /create index/i })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+
+    await waitFor(() => {
+      expect(screen.getByText("idx_embeddings_hnsw")).toBeInTheDocument();
+    });
+    expect(api.listVectorIndexes).toHaveBeenCalledTimes(2);
   });
 });

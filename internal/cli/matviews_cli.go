@@ -16,6 +16,9 @@ import (
 var matviewsCmd = &cobra.Command{
 	Use:   "matviews",
 	Short: "Manage materialized view registrations",
+	Example: `ayb matviews list
+ayb matviews register --schema public --view daily_stats --mode concurrent
+ayb matviews refresh public.daily_stats`,
 }
 
 var matviewsListCmd = &cobra.Command{

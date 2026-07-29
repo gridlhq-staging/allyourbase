@@ -16,27 +16,44 @@ type deferredSchemaTable struct {
 	lastErr error
 }
 
-func (m *Migrator) migrateSchema(ctx context.Context, tx *sql.Tx, phaseIdx, totalPhases int) error {
-	phase := migrate.Phase{Name: "Schema", Index: phaseIdx, Total: totalPhases}
+type schemaPhaseItems struct {
+	tables []TableInfo
+	views  []ViewInfo
+}
+
+func (m *Migrator) prepareSchemaMigration(
+	ctx context.Context,
+	tx *sql.Tx,
+	functions []functionCatalogEntry,
+) (*schemaPhaseItems, error) {
 	tables, views, err := m.loadSchemaPhaseItems(ctx)
 	if err != nil {
-		return err
+		return nil, err
 	}
+	schemas := userSchemasForMigration(tables, views, functionSchemasForMigration(functions))
+	if err := createUserSchemas(ctx, tx, schemas); err != nil {
+		return nil, err
+	}
+	return &schemaPhaseItems{tables: tables, views: views}, nil
+}
 
-	totalItems := len(tables) + len(views)
+func (m *Migrator) migrateSchema(
+	ctx context.Context,
+	tx *sql.Tx,
+	items *schemaPhaseItems,
+	phase migrate.Phase,
+) error {
+	totalItems := len(items.tables) + len(items.views)
 	start := m.startSchemaPhase(phase, totalItems)
 
-	if err := createUserSchemas(ctx, tx, userSchemasForMigration(tables, views)); err != nil {
-		return err
-	}
-	deferred, err := m.createInitialSchemaTables(ctx, tx, phase, totalItems, tables)
+	deferred, err := m.createInitialSchemaTables(ctx, tx, phase, totalItems, items.tables)
 	if err != nil {
 		return err
 	}
 	if err := m.retryDeferredSchemaTables(ctx, tx, deferred); err != nil {
 		return err
 	}
-	if err := m.createSchemaViews(ctx, tx, views); err != nil {
+	if err := m.createSchemaViews(ctx, tx, items.views); err != nil {
 		return err
 	}
 
@@ -57,13 +74,16 @@ func (m *Migrator) loadSchemaPhaseItems(ctx context.Context) ([]TableInfo, []Vie
 	return tables, views, nil
 }
 
-func userSchemasForMigration(tables []TableInfo, views []ViewInfo) []string {
+func userSchemasForMigration(tables []TableInfo, views []ViewInfo, functionSchemas []string) []string {
 	seen := map[string]struct{}{}
 	for _, table := range tables {
 		addNonPublicSchema(seen, table.SchemaName)
 	}
 	for _, view := range views {
 		addNonPublicSchema(seen, view.SchemaName)
+	}
+	for _, schema := range functionSchemas {
+		addNonPublicSchema(seen, schema)
 	}
 
 	schemas := make([]string, 0, len(seen))
@@ -125,6 +145,7 @@ func (m *Migrator) createInitialSchemaTables(
 		}
 
 		m.stats.Tables++
+		m.markSchemaTableCreated(table)
 		m.progress.Progress(phase, idx+1, totalItems)
 		m.logSchemaTableCreated(table)
 	}
@@ -161,6 +182,7 @@ func (m *Migrator) retryDeferredSchemaTables(
 
 			progressed = true
 			m.stats.Tables++
+			m.markSchemaTableCreated(item.table)
 			m.logSchemaTableCreated(item.table)
 		}
 		if !progressed {

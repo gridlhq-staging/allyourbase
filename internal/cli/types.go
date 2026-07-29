@@ -20,11 +20,9 @@ var typesCmd = &cobra.Command{
 	Long: `Generate typed interfaces by introspecting a running PostgreSQL database.
 
 Supported formats:
-  typescript    Generate TypeScript interfaces (.d.ts)
-
-Example:
-  ayb types typescript --database-url postgresql://user:pass@localhost:5432/mydb
-  ayb types typescript --database-url postgresql://... -o src/types/ayb.d.ts`,
+  typescript    Generate TypeScript interfaces (.d.ts)`,
+	Example: `ayb types typescript --database-url postgresql://user:pass@localhost:5432/mydb
+ayb types typescript --database-url postgresql://localhost/mydb -o src/types/ayb.d.ts`,
 }
 
 var typesTypeScriptCmd = &cobra.Command{
@@ -65,24 +63,9 @@ func init() {
 }
 
 func runTypesTypeScript(cmd *cobra.Command, args []string) error {
-	dbURL, _ := cmd.Flags().GetString("database-url")
-	if dbURL == "" {
-		dbURL = os.Getenv("DATABASE_URL")
-	}
-	if dbURL == "" {
-		// Auto-discover: use config's explicit URL, or derive embedded Postgres URL
-		// if the server is running (PID file exists).
-		cfg, err := config.Load("", nil)
-		if err == nil {
-			if cfg.Database.URL != "" {
-				dbURL = cfg.Database.URL
-			} else if _, _, pidErr := readAYBPID(); pidErr == nil {
-				dbURL = fmt.Sprintf("postgresql://ayb:ayb@127.0.0.1:%d/ayb?sslmode=disable", cfg.Database.EmbeddedPort)
-			}
-		}
-	}
-	if dbURL == "" {
-		return fmt.Errorf("--database-url is required (or set DATABASE_URL)")
+	dbURL, err := resolveTypesDatabaseURL(cmd)
+	if err != nil {
+		return err
 	}
 
 	output, _ := cmd.Flags().GetString("output")
@@ -123,22 +106,9 @@ func runTypesTypeScript(cmd *cobra.Command, args []string) error {
 }
 
 func runTypesOpenAPI(cmd *cobra.Command, args []string) error {
-	dbURL, _ := cmd.Flags().GetString("database-url")
-	if dbURL == "" {
-		dbURL = os.Getenv("DATABASE_URL")
-	}
-	if dbURL == "" {
-		cfg, err := config.Load("", nil)
-		if err == nil {
-			if cfg.Database.URL != "" {
-				dbURL = cfg.Database.URL
-			} else if _, _, pidErr := readAYBPID(); pidErr == nil {
-				dbURL = fmt.Sprintf("postgresql://ayb:ayb@127.0.0.1:%d/ayb?sslmode=disable", cfg.Database.EmbeddedPort)
-			}
-		}
-	}
-	if dbURL == "" {
-		return fmt.Errorf("--database-url is required (or set DATABASE_URL)")
+	dbURL, err := resolveTypesDatabaseURL(cmd)
+	if err != nil {
+		return err
 	}
 
 	output, _ := cmd.Flags().GetString("output")
@@ -179,4 +149,32 @@ func runTypesOpenAPI(cmd *cobra.Command, args []string) error {
 	}
 	fmt.Fprintf(os.Stderr, "Wrote %d bytes to %s\n", len(data), output)
 	return nil
+}
+
+// resolveTypesDatabaseURL owns database discovery for both types output formats.
+// Types directly prioritize DATABASE_URL, then config.Load applies ayb.toml plus
+// normal AYB_* overrides such as AYB_DATABASE_URL, before the managed-Postgres
+// fallback. resolveDBURL is not reused because it has no PID fallback.
+func resolveTypesDatabaseURL(cmd *cobra.Command) (string, error) {
+	if dbURL, _ := cmd.Flags().GetString("database-url"); dbURL != "" {
+		return dbURL, nil
+	}
+	if dbURL := os.Getenv("DATABASE_URL"); dbURL != "" {
+		return dbURL, nil
+	}
+
+	cfg, err := config.Load("", nil)
+	if err != nil {
+		return "", fmt.Errorf("loading config: %w", err)
+	}
+	if cfg.Database.URL != "" {
+		return cfg.Database.URL, nil
+	}
+	if _, _, err := readAYBPID(); err == nil {
+		return fmt.Sprintf(
+			"postgresql://ayb:ayb@127.0.0.1:%d/ayb?sslmode=disable",
+			cfg.Database.EmbeddedPort,
+		), nil
+	}
+	return "", fmt.Errorf("--database-url is required (or set DATABASE_URL, AYB_DATABASE_URL, or database.url in ayb.toml)")
 }

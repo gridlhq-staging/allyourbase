@@ -18,6 +18,18 @@ object ContractFixtures {
         return json.parseToJsonElement(payload)
     }
 
+    private fun loadBytes(relativePath: String): ByteArray =
+        Files.readAllBytes(fixtureRoot.resolve(relativePath))
+
+    private fun loadResponseBodyBytes(relativePath: String): ByteArray =
+        loadBytes(relativePath).let { bytes ->
+            if (bytes.lastOrNull() == '\n'.code.toByte()) {
+                bytes.copyOf(bytes.size - 1)
+            } else {
+                bytes
+            }
+        }
+
     private fun loadJsonObject(relativePath: String): JsonObject =
         loadJsonElement(relativePath).jsonObject
 
@@ -41,6 +53,11 @@ object ContractFixtures {
     val webAuthnMfaVerifyRequest: JsonObject = loadJsonObject("sdk_contract/webauthn_mfa_verify_request.json")
     val webAuthnMfaVerifyResponse: JsonObject = loadJsonObject("sdk_contract/webauthn_mfa_verify_response.json")
     val authResponse: JsonObject = loadJsonObject("sdk_contract/auth_response.json")
+    val rpcRequest: JsonObject = loadJsonObject("sdk_contract/rpc_request.json")
+    val rpcResponse: JsonObject = loadJsonObject("sdk_contract/rpc_response.json")
+    val edgeInvokeRequest: JsonObject = loadJsonObject("sdk_contract/edge_invoke_request.json")
+    val edgeInvokeResponse: JsonObject = loadJsonObject("sdk_contract/edge_invoke_response.json")
+    val edgeInvokeResponseBytes: ByteArray = loadResponseBodyBytes("sdk_contract/edge_invoke_response.json")
     val searchSynonymsRequest: JsonObject = loadJsonObject("sdk_contract/search_synonyms_request.json")
     val searchSynonymsResponse: JsonObject = loadJsonObject("sdk_contract/search_synonyms_response.json")
     val anonymousResponse: JsonObject = parityResponse("anonymous.json")

@@ -16,6 +16,9 @@ var configCmd = &cobra.Command{
 	Short: "Print resolved configuration",
 	Long: `Load and print the resolved AYB configuration as TOML.
 Shows the result of merging defaults, ayb.toml, environment variables, and flags.`,
+	Example: `ayb config
+ayb config get server.port
+ayb config set server.port 3000`,
 	RunE: runConfig,
 }
 

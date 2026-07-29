@@ -1,4 +1,4 @@
-import { render, screen, waitFor, act, fireEvent } from "@testing-library/react";
+import { render, screen, waitFor, act, fireEvent, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { MockApiError } from "../../test-utils";
@@ -201,6 +201,38 @@ describe("SqlEditor", () => {
       "href",
       docsUrl("/guide/patterns"),
     );
+  });
+
+  it("retries the current query from the error panel without replacing the editor", async () => {
+    const { ApiError } = await import("../../api");
+    mockExecuteSQL
+      .mockRejectedValueOnce(new ApiError(400, "retryable SQL execution fault"))
+      .mockResolvedValueOnce({
+        columns: ["answer"],
+        rows: [[42]],
+        rowCount: 1,
+        durationMs: 7,
+      });
+    localStorage.setItem("ayb_sql_query", "SELECT retryable_value();");
+    const user = userEvent.setup();
+
+    render(<SqlEditor />);
+    await user.click(screen.getByRole("button", { name: /Execute/ }));
+
+    const alert = await screen.findByRole("alert");
+    expect(
+      within(alert).getByText("retryable SQL execution fault", { exact: true }),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Retry" })).toBeInTheDocument();
+    expect(screen.getByTestId("cm-editor")).toHaveValue("SELECT retryable_value();");
+
+    await user.click(screen.getByRole("button", { name: "Retry" }));
+
+    await waitFor(() => {
+      expect(screen.getByText("answer")).toBeInTheDocument();
+      expect(screen.getByText("42")).toBeInTheDocument();
+    });
+    expect(mockExecuteSQL).toHaveBeenNthCalledWith(2, "SELECT retryable_value();");
   });
 
   it("renders null cells as italic null", async () => {

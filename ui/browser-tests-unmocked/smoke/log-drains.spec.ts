@@ -1,4 +1,12 @@
-import { test, expect, seedLogDrain, cleanupLogDrain, probeEndpoint, waitForDashboard } from "../fixtures";
+import {
+  test,
+  expect,
+  cleanupLogDrain,
+  fetchAdminJSON,
+  probeEndpoint,
+  seedLogDrain,
+  waitForDashboard,
+} from "../fixtures";
 
 /**
  * SMOKE TEST: Log Drains
@@ -49,5 +57,41 @@ test.describe("Smoke: Log Drains", () => {
 
     // Verify create button
     await expect(page.getByRole("button", { name: /Create Drain/i })).toBeVisible();
+  });
+
+  test("empty state recovers after the admin API becomes reachable", async ({
+    page,
+    request,
+    adminToken,
+    context,
+  }) => {
+    const status = await probeEndpoint(request, adminToken, "/api/admin/logging/drains");
+    test.skip(status === 501 || status === 404, `Log drains service not configured (status ${status})`);
+    expect(await fetchAdminJSON(request, adminToken, "/api/admin/logging/drains")).toEqual([]);
+
+    await page.goto("/admin/");
+    await waitForDashboard(page);
+    await page.locator("aside").getByRole("button", { name: /API Explorer/i }).click();
+    await expect(page.getByRole("heading", { name: /API Explorer/i })).toBeVisible();
+    await page.locator("aside").getByRole("button", { name: /Log Drains/i }).click();
+    await expect(page.getByText("No log drains configured", { exact: true })).toBeVisible();
+
+    try {
+      // Closest-real proxy: the in-memory list handler has no fallible backing
+      // capability, so browser offline mode makes the live API unreachable.
+      // Bias: broader than one endpoint. Tolerance: only the exact fetch error
+      // and recovery of this screen's empty state are asserted.
+      await context.setOffline(true);
+      await page.locator("aside").getByRole("button", { name: /API Explorer/i }).click();
+      await page.locator("aside").getByRole("button", { name: /Log Drains/i }).click();
+      await expect(page.getByText("Failed to fetch", { exact: true })).toBeVisible();
+      await expect(page.getByRole("button", { name: "Retry", exact: true })).toBeVisible();
+
+      await context.setOffline(false);
+      await page.getByRole("button", { name: "Retry", exact: true }).click();
+      await expect(page.getByText("No log drains configured", { exact: true })).toBeVisible();
+    } finally {
+      await context.setOffline(false);
+    }
   });
 });

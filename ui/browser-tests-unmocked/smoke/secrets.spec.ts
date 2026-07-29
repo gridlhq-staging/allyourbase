@@ -1,6 +1,7 @@
 import {
   test,
   expect,
+  replaceAdminRelationWithEmptyClone,
   seedSecret,
   cleanupSecret,
   waitForDashboard,
@@ -54,5 +55,39 @@ test.describe("Smoke: Secrets", () => {
     // Verify action buttons
     await expect(page.getByRole("button", { name: /Create Secret/i })).toBeVisible();
     await expect(page.getByRole("button", { name: /Rotate JWT Secret/i })).toBeVisible();
+  });
+
+  test("empty and unavailable secret storage recover through Retry", async ({
+    page,
+    request,
+    adminToken,
+  }) => {
+    const runId = Date.now();
+    const secretName = `RETRY_SECRET_${runId}`;
+    await seedSecret(request, adminToken, secretName, `retry-secret-value-${runId}`);
+    seededSecretNames.push(secretName);
+    const relationState = await replaceAdminRelationWithEmptyClone(
+      request,
+      adminToken,
+      "_ayb_vault_secrets",
+    );
+
+    try {
+      await page.goto("/admin/screens/secrets");
+      await waitForDashboard(page);
+      await expect(page.getByText("No secrets configured yet", { exact: true })).toBeVisible();
+
+      await relationState.removeEmptyClone();
+      await page.reload();
+      await waitForDashboard(page);
+      await expect(page.getByText("failed to list secrets", { exact: true })).toBeVisible();
+      await expect(page.getByRole("heading", { name: /^Secrets$/i })).toBeVisible();
+
+      await relationState.restore();
+      await page.getByRole("button", { name: "Retry", exact: true }).click();
+      await expect(page.getByText(secretName, { exact: true })).toBeVisible({ timeout: 5000 });
+    } finally {
+      await relationState.restore();
+    }
   });
 });

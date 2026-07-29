@@ -56,14 +56,15 @@ func isAdmittedUserTable(schema, name string) bool {
 	return !isInternalTable(name) && !isAYBTable(name)
 }
 
-// introspectTables queries information_schema for user-owned schema tables,
-// skipping Supabase internals and AYB system tables.
+// introspectTables queries pg_catalog for user-owned ordinary and partitioned
+// tables, skipping Supabase internals and AYB system tables.
 func introspectTables(ctx context.Context, db *sql.DB) ([]TableInfo, error) {
 	rows, err := db.QueryContext(ctx, `
-		SELECT table_schema, table_name
-		FROM information_schema.tables
-		WHERE table_type = 'BASE TABLE'
-		ORDER BY table_schema, table_name
+		SELECT n.nspname, c.relname
+		FROM pg_class c
+		JOIN pg_namespace n ON n.oid = c.relnamespace
+		WHERE c.relkind IN ('r', 'p')
+		ORDER BY n.nspname, c.relname
 	`)
 	if err != nil {
 		return nil, fmt.Errorf("querying tables: %w", err)
@@ -97,6 +98,7 @@ func introspectTables(ctx context.Context, db *sql.DB) ([]TableInfo, error) {
 		}
 		tables = append(tables, *ti)
 	}
+	sortTablesForSchemaCreation(tables)
 
 	return tables, nil
 }
@@ -104,6 +106,9 @@ func introspectTables(ctx context.Context, db *sql.DB) ([]TableInfo, error) {
 // introspectTable gets detailed column/constraint info for a single table.
 func introspectTable(ctx context.Context, db *sql.DB, schemaName, tableName string) (*TableInfo, error) {
 	ti := &TableInfo{SchemaName: schemaName, Name: tableName}
+	if err := introspectTablePartitioning(ctx, db, ti); err != nil {
+		return nil, err
+	}
 
 	// Columns.
 	colRows, err := db.QueryContext(ctx, `
@@ -182,8 +187,10 @@ func introspectTable(ctx context.Context, db *sql.DB, schemaName, tableName stri
 	}
 	ti.Sequences = sequences
 
-	// Row count (approximate is fine for pre-flight; exact for small tables).
-	err = db.QueryRowContext(ctx, fmt.Sprintf(`SELECT COUNT(*) FROM %s`, ti.quotedName())).Scan(&ti.RowCount)
+	// Count only rows physically stored in this relation. Descendants are
+	// inventoried independently so excluded inheritance/partition children never
+	// leak into the admitted-table denominator.
+	err = db.QueryRowContext(ctx, fmt.Sprintf(`SELECT COUNT(*) FROM ONLY %s`, ti.quotedName())).Scan(&ti.RowCount)
 	if err != nil {
 		return nil, fmt.Errorf("counting rows: %w", err)
 	}
@@ -286,6 +293,10 @@ func pgTypeName(infoSchemaType string) string {
 // createTableSQL generates a CREATE TABLE DDL statement from a TableInfo.
 // This is a pure function with no DB dependencies, easy to unit test.
 func createTableSQL(table TableInfo) string {
+	if table.PartitionParentName != "" {
+		return createPartitionSQL(table)
+	}
+
 	var sb strings.Builder
 	fmt.Fprintf(&sb, "CREATE TABLE IF NOT EXISTS %s (\n", table.quotedName())
 
@@ -326,7 +337,11 @@ func createTableSQL(table TableInfo) string {
 		sb.WriteString("\n")
 	}
 
-	sb.WriteString(");")
+	sb.WriteString(")")
+	if table.PartitionKey != "" {
+		fmt.Fprintf(&sb, " PARTITION BY %s", table.PartitionKey)
+	}
+	sb.WriteString(";")
 	return sb.String()
 }
 
@@ -337,7 +352,7 @@ func createViewSQL(view ViewInfo) string {
 
 func copyTableSelectSQL(table TableInfo) string {
 	colList := tableColumnList(table)
-	return fmt.Sprintf("SELECT %s FROM %s ORDER BY 1", colList, table.quotedName())
+	return fmt.Sprintf("SELECT %s FROM ONLY %s ORDER BY 1", colList, table.quotedName())
 }
 
 func copyTableInsertSQL(table TableInfo) string {

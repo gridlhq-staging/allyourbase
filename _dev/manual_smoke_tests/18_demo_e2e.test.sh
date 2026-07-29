@@ -70,6 +70,7 @@ fail() {
 }
 
 ensure_stopped() {
+    local wait_count
     sleep 1
     # Every managed port is selected at preflight. Never inspect or stop the
     # universal defaults, which may belong to another worktree on a shared host.
@@ -78,6 +79,14 @@ ensure_stopped() {
         if [ -z "$port" ]; then
             continue
         fi
+        # `ayb stop` can return while managed Postgres is still releasing its
+        # listener. Give owned teardown a bounded grace period before treating
+        # the remaining listener as an unknown process.
+        wait_count=0
+        while lsof -ti :"$port" >/dev/null 2>&1 && [ "$wait_count" -lt 20 ]; do
+            sleep 0.5
+            wait_count=$((wait_count + 1))
+        done
         if ! require_free_port "$port" "port ${port} is still occupied after ayb stop" "kill"; then
             return 1
         fi

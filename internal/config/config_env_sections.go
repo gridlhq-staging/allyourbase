@@ -341,6 +341,9 @@ func applyBillingEnv(cfg *Config) error {
 }
 
 func applySupportEnv(cfg *Config) {
+	if v := os.Getenv("AYB_SUPPORT_ENABLED"); v != "" {
+		cfg.Support.Enabled = v == "true" || v == "1"
+	}
 	if v := os.Getenv("AYB_SUPPORT_WEBHOOK_SECRET"); v != "" {
 		cfg.Support.WebhookSecret = v
 	}

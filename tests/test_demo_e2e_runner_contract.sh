@@ -19,6 +19,9 @@ case "${1:-}" in
     printf 'test-ayb\n'
     ;;
   stop)
+    if [ -n "${AYB_TEST_STOP_MARKER:-}" ]; then
+      : > "$AYB_TEST_STOP_MARKER"
+    fi
     exit 0
     ;;
   demo)
@@ -40,6 +43,19 @@ for arg in "$@"; do
       ;;
   esac
 done
+if [ -n "${AYB_TEST_DELAYED_PORT:-}" ] &&
+    [ "$requested_port" = "$AYB_TEST_DELAYED_PORT" ] &&
+    [ -f "${AYB_TEST_STOP_MARKER:-}" ] &&
+    [ ! -f "${AYB_TEST_RELEASE_MARKER:-}" ]; then
+  delayed_checks=0
+  if [ -f "${AYB_TEST_DELAYED_COUNTER:-}" ]; then
+    delayed_checks="$(cat "$AYB_TEST_DELAYED_COUNTER")"
+  fi
+  delayed_checks=$((delayed_checks + 1))
+  printf '%s\n' "$delayed_checks" > "${AYB_TEST_DELAYED_COUNTER:?}"
+  printf '4343\n'
+  exit 0
+fi
 case ",${AYB_TEST_OCCUPIED_PORTS:-}," in
   *,"$requested_port",*)
     printf '4242\n'
@@ -47,6 +63,17 @@ case ",${AYB_TEST_OCCUPIED_PORTS:-}," in
     ;;
 esac
 exit 1
+SH
+
+cat > "$commands_dir/sleep" <<'SH'
+#!/usr/bin/env bash
+if [ "${1:-}" = "0.5" ] &&
+    [ -n "${AYB_TEST_RELEASE_MARKER:-}" ] &&
+    [ -f "${AYB_TEST_STOP_MARKER:-}" ]; then
+  : > "$AYB_TEST_RELEASE_MARKER"
+  exit 0
+fi
+exec /bin/sleep "$@"
 SH
 
 cat > "$commands_dir/curl" <<'SH'
@@ -66,7 +93,7 @@ printf '%s\n' "$*" >> "${AYB_TEST_NODE_LOG:?}"
 sleep 30
 SH
 
-chmod +x "$commands_dir/ayb" "$commands_dir/lsof" "$commands_dir/curl" "$commands_dir/npm" "$commands_dir/node"
+chmod +x "$commands_dir/ayb" "$commands_dir/lsof" "$commands_dir/sleep" "$commands_dir/curl" "$commands_dir/npm" "$commands_dir/node"
 
 output="$tmp_dir/output.log"
 node_log="$tmp_dir/node.log"
@@ -90,6 +117,28 @@ case "$(cat "$npm_log")" in
   *"ayb_server_url=http://127.0.0.1:48090"*|*"ayb_server_url=http://127.0.0.1:49090"*|*"ayb_server_url=http://127.0.0.1:50090"*|*"ayb_server_url=http://127.0.0.1:51090"*|*"ayb_server_url=http://127.0.0.1:52090"*) ;;
   *) fail "runner should expose the isolated AYB server URL to the kanban Vite process" ;;
 esac
+
+: > "$ayb_log"
+stop_marker="$tmp_dir/stop.marker"
+delayed_counter="$tmp_dir/delayed.counter"
+release_marker="$tmp_dir/release.marker"
+if PATH="$commands_dir:$PATH" \
+    AYB_BIN="$commands_dir/ayb" \
+    AYB_TEST_LOG="$ayb_log" \
+    AYB_TEST_NPM_LOG="$npm_log" \
+    AYB_TEST_STOP_MARKER="$stop_marker" \
+    AYB_TEST_DELAYED_COUNTER="$delayed_counter" \
+    AYB_TEST_DELAYED_PORT="45432" \
+    AYB_TEST_RELEASE_MARKER="$release_marker" \
+    bash _dev/manual_smoke_tests/18_demo_e2e.test.sh kanban > "$output" 2>&1; then
+  fail "kanban demo E2E runner should reach the intentional fake npm failure"
+fi
+
+assert_contains "$output" "npm ci failed" "runner should reach the fake npm failure before delayed cleanup"
+assert_not_contains "$output" "port 45432 is still occupied after ayb stop" "runner should wait for managed Postgres to release its port"
+if [ ! -f "$release_marker" ] || [ "$(cat "$delayed_counter")" -lt 1 ]; then
+  fail "runner should retry the delayed managed Postgres port probe"
+fi
 
 : > "$ayb_log"
 before_demo_dirs="$(ls -d /tmp/ayb-demoe2e.* 2>/dev/null | sort || true)"

@@ -1,5 +1,19 @@
 /** @module Browser-test core helpers for SQL execution, response validation, and endpoint probing. */
-import { expect, type APIRequestContext, type Page } from "@playwright/test";
+import {
+  expect,
+  type APIRequestContext,
+  type BrowserContext,
+  type Page,
+} from "@playwright/test";
+
+const SAFE_SQL_IDENTIFIER = /^[A-Za-z_][A-Za-z0-9_]*$/;
+
+export function assertSafeSQLIdentifier(identifier: string, label: string): string {
+  if (!SAFE_SQL_IDENTIFIER.test(identifier)) {
+    throw new Error(`Unsafe SQL identifier for ${label}: ${identifier}`);
+  }
+  return identifier;
+}
 
 /** Builds a console URL path for the admin base used by the current Playwright run. */
 export function adminPath(
@@ -64,6 +78,19 @@ export async function validateResponse(
     }
     throw new Error(errorMsg);
   }
+}
+
+/** Fetches and validates an authenticated admin JSON response for spec-level state assertions. */
+export async function fetchAdminJSON(
+  request: APIRequestContext,
+  token: string,
+  path: string,
+): Promise<unknown> {
+  const res = await request.get(path, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  await validateResponse(res, `Fetch admin JSON ${path}`);
+  return res.json();
 }
 
 export async function checkAuthEnabled(
@@ -178,6 +205,37 @@ export async function waitForDashboard(page: Page): Promise<void> {
   }
 
   await shellSearchButton.waitFor({ state: "visible", timeout: 1000 });
+}
+
+export async function expectOfflineRetryRecovery(
+  page: Page,
+  context: BrowserContext,
+  triggerFailure: () => Promise<void>,
+  assertRecovered: () => Promise<void>,
+  options: { errorText?: string } = {},
+): Promise<void> {
+  const errorText = options.errorText ?? "Failed to fetch";
+  try {
+    await context.setOffline(true);
+    await triggerFailure();
+    const errorNotice = page.getByRole("alert").filter({ hasText: errorText }).first();
+    await expect(errorNotice).toBeVisible();
+    const retry = errorNotice.getByRole("button", { name: "Retry", exact: true });
+    await expect(retry).toBeVisible();
+
+    await context.setOffline(false);
+    await retry.click();
+    await assertRecovered();
+  } finally {
+    await context.setOffline(false);
+  }
+}
+
+export async function navigateDashboardScreenInPage(page: Page, screenId: string): Promise<void> {
+  await page.evaluate((nextScreenId) => {
+    window.history.pushState(null, "", `/admin/screens/${nextScreenId}`);
+    window.dispatchEvent(new PopStateEvent("popstate"));
+  }, screenId);
 }
 
 /** Asserts that an RLS policy card appears in the page's main aria snapshot with the expected name, command, and USING expression. */

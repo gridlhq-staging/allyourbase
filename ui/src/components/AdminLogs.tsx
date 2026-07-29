@@ -4,6 +4,7 @@ import { usePolling } from "../hooks/usePolling";
 import { parseDateTimeToMs } from "../lib/dateTime";
 import type { AdminLogEntry, AdminLogLevel } from "../types/logs";
 import { toPanelError } from "./advisors/panelError";
+import { ErrorNotice } from "./ErrorNotice";
 import { useAppToast } from "./ToastProvider";
 
 interface AdminLogsProps {
@@ -396,7 +397,13 @@ export function AdminLogs({ pollMs = 10000 }: AdminLogsProps) {
           Refresh
         </button>
       </div>
-      {Boolean(error) && <div className="text-sm text-red-600">{toPanelError(error)}</div>}
+      {Boolean(error) && (
+        <ErrorNotice
+          message={toPanelError(error)}
+          docsPath="/guide/logging"
+          onAction={() => void refresh()}
+        />
+      )}
       {loading && !data && <div className="text-sm text-gray-500">Loading admin logs...</div>}
       {data && !data.bufferingEnabled && (
         <div className="text-sm text-amber-700 dark:text-amber-300" data-testid="admin-logs-buffering-message">

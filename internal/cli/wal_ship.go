@@ -49,10 +49,11 @@ var (
 )
 
 var walShipCmd = &cobra.Command{
-	Use:   "wal-ship <wal-file-path> <wal-file-name>",
-	Short: "Ship a single PostgreSQL WAL segment to PITR archive storage",
-	Args:  cobra.ExactArgs(2),
-	RunE:  runWALShip,
+	Use:     "wal-ship <wal-file-path> <wal-file-name>",
+	Short:   "Ship a single PostgreSQL WAL segment to PITR archive storage",
+	Example: `ayb wal-ship /var/lib/postgresql/data/pg_wal/000000010000000000000001 000000010000000000000001`,
+	Args:    cobra.ExactArgs(2),
+	RunE:    runWALShip,
 }
 
 func init() {

@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/url"
 	"os"
 	"strings"
 	"text/tabwriter"
@@ -16,6 +17,9 @@ import (
 var appsCmd = &cobra.Command{
 	Use:   "apps",
 	Short: "Manage applications on the running AYB server",
+	Example: `ayb apps list
+ayb apps create my-app --owner-id <user-id>
+ayb apps delete <id>`,
 }
 
 var appsListCmd = &cobra.Command{
@@ -160,7 +164,7 @@ func runAppsCreate(cmd *cobra.Command, args []string) error {
 func runAppsDelete(cmd *cobra.Command, args []string) error {
 	id := args[0]
 
-	resp, body, err := adminRequest(cmd, "DELETE", "/api/admin/apps/"+id, nil)
+	resp, body, err := adminRequest(cmd, "DELETE", "/api/admin/apps/"+url.PathEscape(id), nil)
 	if err != nil {
 		return err
 	}

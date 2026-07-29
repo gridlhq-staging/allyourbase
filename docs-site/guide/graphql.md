@@ -25,6 +25,120 @@ curl -X POST http://localhost:8090/api/graphql \
   -d '{"query":"{ posts(limit: 5) { id title } }"}'
 ```
 
+## Tutorial: table to JavaScript SDK
+
+This walkthrough starts from a new table, inserts deterministic rows through `POST /api/graphql`, queries a hand-calculated result, then runs the same query through the JavaScript SDK GraphQL client.
+
+Enable GraphQL before starting the server:
+
+```toml
+[graphql]
+enabled = true
+```
+
+```bash
+export AYB_BASE_URL="http://127.0.0.1:8090"
+
+ayb sql "DROP TABLE IF EXISTS docs_graphql_users;
+CREATE TABLE docs_graphql_users (
+  id INTEGER PRIMARY KEY,
+  name TEXT NOT NULL,
+  tier TEXT NOT NULL,
+  score INTEGER NOT NULL
+)"
+```
+
+Insert two known rows with a parameterized GraphQL mutation:
+
+```bash
+curl -sS -X POST "$AYB_BASE_URL/api/graphql" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "query": "mutation InsertTutorialUsers($objects: [DocsGraphqlUsersInsertInput!]!) { insert_docs_graphql_users(objects: $objects) { affected_rows returning { id name tier score } } }",
+    "variables": {
+      "objects": [
+        { "id": 1, "name": "Ada Lovelace", "tier": "gold", "score": 98 },
+        { "id": 2, "name": "Grace Hopper", "tier": "silver", "score": 91 }
+      ]
+    }
+  }'
+```
+
+Expected response:
+
+```json
+{
+  "data": {
+    "insert_docs_graphql_users": {
+      "affected_rows": 2,
+      "returning": [
+        { "id": 1, "name": "Ada Lovelace", "tier": "gold", "score": 98 },
+        { "id": 2, "name": "Grace Hopper", "tier": "silver", "score": 91 }
+      ]
+    }
+  }
+}
+```
+
+Query only the gold-tier row:
+
+```bash
+curl -sS -X POST "$AYB_BASE_URL/api/graphql" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "query": "query TutorialUsers($tier: String!) { docs_graphql_users(where: { tier: { _eq: $tier } }, order_by: { id: ASC }) { id name tier score } }",
+    "variables": { "tier": "gold" }
+  }'
+```
+
+Expected response:
+
+```json
+{
+  "data": {
+    "docs_graphql_users": [
+      { "id": 1, "name": "Ada Lovelace", "tier": "gold", "score": 98 }
+    ]
+  }
+}
+```
+
+Run the same query through the JavaScript SDK:
+
+```js
+import { AYBClient } from "@allyourbase/js";
+
+const ayb = new AYBClient(process.env.AYB_BASE_URL || "http://127.0.0.1:8090");
+
+const data = await ayb.graphql.query(`
+  query TutorialUsers($tier: String!) {
+    docs_graphql_users(
+      where: { tier: { _eq: $tier } }
+      order_by: { id: ASC }
+    ) {
+      id
+      name
+      tier
+      score
+    }
+  }
+`, { tier: "gold" });
+
+console.log(JSON.stringify(data.docs_graphql_users));
+```
+
+Expected output:
+
+```text
+[{"id":1,"name":"Ada Lovelace","tier":"gold","score":98}]
+```
+
+Clean up the tutorial table:
+
+```bash
+ayb sql "DROP TABLE IF EXISTS docs_graphql_users"
+```
+
 ## Query example
 
 Table names become root fields.

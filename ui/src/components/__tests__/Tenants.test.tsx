@@ -63,10 +63,19 @@ describe("Tenants", () => {
     await expect(screen.findByText(/no tenants found/i)).resolves.toBeInTheDocument();
   });
 
-  it("renders error state when list fetch fails", async () => {
-    mockFetchTenantList.mockRejectedValueOnce(new Error("server error"));
+  it("retries an initial tenant-list failure through the existing list loader", async () => {
+    mockFetchTenantList.mockRejectedValueOnce(new Error("tenant list unavailable"));
     renderWithProviders(<Tenants />);
-    await expect(screen.findByText(/failed to load tenants/i)).resolves.toBeInTheDocument();
+    const user = userEvent.setup();
+
+    const alert = await screen.findByRole("alert");
+    expect(within(alert).getByText("Failed to load tenants: tenant list unavailable", { exact: true }))
+      .toBeInTheDocument();
+
+    await user.click(within(alert).getByRole("button", { name: "Retry", exact: true }));
+
+    await waitFor(() => expect(mockFetchTenantList).toHaveBeenCalledTimes(2));
+    await expect(screen.findByText("Acme")).resolves.toBeInTheDocument();
   });
 
   it("renders pagination showing page info", async () => {
@@ -84,6 +93,26 @@ describe("Tenants", () => {
     expect(within(infoSection).getByText("acme")).toBeInTheDocument();
     expect(within(infoSection).getByText("shared")).toBeInTheDocument();
     expect(within(infoSection).getByText("pro")).toBeInTheDocument();
+  });
+
+  it("retries tenant-detail failure while preserving the surrounding tenant list", async () => {
+    mockGetTenant.mockRejectedValueOnce(new Error("tenant detail unavailable"));
+    renderWithProviders(<Tenants />);
+    const user = userEvent.setup();
+    await screen.findByText("Acme");
+
+    await user.click(screen.getByText("Acme"));
+
+    const alert = await screen.findByRole("alert");
+    expect(within(alert).getByText("Failed to load tenant: tenant detail unavailable", { exact: true }))
+      .toBeInTheDocument();
+    expect(screen.getByTestId("tenant-list-panel")).toBeInTheDocument();
+    expect(screen.getByText("Beta Corp")).toBeInTheDocument();
+
+    await user.click(within(alert).getByRole("button", { name: "Retry", exact: true }));
+
+    await waitFor(() => expect(mockGetTenant).toHaveBeenCalledTimes(2));
+    await expect(screen.findByRole("heading", { name: "Acme" })).resolves.toBeInTheDocument();
   });
 
   it("clears stale tenant detail while a newly selected tenant is loading", async () => {

@@ -1,28 +1,29 @@
-import { AlertCircle, Clock } from "lucide-react";
+import { Clock } from "lucide-react";
 import type { GraphqlTransportResult } from "../api_admin";
 import { cn } from "../lib/utils";
 import { statusColor } from "./api-explorer-helpers";
+import { ErrorNotice } from "./ErrorNotice";
 
 interface GraphqlExplorerResponseProps {
   response: GraphqlTransportResult | null;
   error: string | null;
+  onRetry?: () => void;
 }
 
 export function GraphqlExplorerResponse({
   response,
   error,
+  onRetry,
 }: GraphqlExplorerResponseProps) {
   return (
     <div className="flex-1 overflow-auto">
       {error && (
-        <div
-          className="m-4 flex items-start gap-2 rounded-lg border border-red-200 bg-red-50 p-3"
-          role="alert"
-        >
-          <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-red-500" />
-          <pre className="whitespace-pre-wrap font-mono text-sm text-red-700">
-            {error}
-          </pre>
+        <div className="m-4">
+          <ErrorNotice
+            message={error}
+            docsPath="/guide/graphql"
+            onAction={onRetry}
+          />
         </div>
       )}
 

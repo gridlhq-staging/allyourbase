@@ -142,6 +142,76 @@ export AYB_URL="http://127.0.0.1:8090"
 export AYB_ADMIN_TOKEN="<admin-token>"
 ```
 
+## Tutorial: write, deploy, and invoke
+
+Start AYB locally with `ayb start`. While the server is running, it stores the loopback admin token in `~/.ayb/admin-token`. The examples below keep the base URL and token explicit so the same commands work from a temporary directory.
+
+```bash
+export AYB_BASE_URL="http://127.0.0.1:8090"
+export AYB_ADMIN_TOKEN="$(cat ~/.ayb/admin-token)"
+workdir="$(mktemp -d)"
+
+cat > "$workdir/hello_docs.js" <<'JS'
+export default function handler(req) {
+  const payload = req.body ? JSON.parse(req.body) : {};
+  const name = payload.name || "friend";
+
+  return {
+    statusCode: 201,
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      ok: true,
+      message: `Hello, ${name}!`,
+      path: req.path,
+      method: req.method,
+    }),
+  };
+}
+JS
+
+ayb functions deploy hello-docs \
+  --source "$workdir/hello_docs.js" \
+  --public \
+  --url "$AYB_BASE_URL" \
+  --admin-token "$AYB_ADMIN_TOKEN"
+
+ayb functions invoke hello-docs \
+  --method POST \
+  --path /hello-docs/admin \
+  --header "Content-Type:application/json" \
+  --body '{"name":"Admin"}' \
+  --url "$AYB_BASE_URL" \
+  --admin-token "$AYB_ADMIN_TOKEN"
+
+curl -sS -X POST "$AYB_BASE_URL/functions/v1/hello-docs/public" \
+  -H "Content-Type: application/json" \
+  -d '{"name":"Public"}'
+```
+
+The admin CLI invocation calls `POST /api/admin/functions/{id}/invoke`. It is for management and testing, so it always requires the admin token. The public invocation calls `/functions/v1/hello-docs/public`; because the deployment used `--public`, callers do not need a bearer token. Private functions use the same public URL shape but require a bearer token accepted by the auth service.
+
+Expected semantic output from the two invocations:
+
+```text
+Status: 201
+Body:
+{"ok":true,"message":"Hello, Admin!","path":"/hello-docs/admin","method":"POST"}
+```
+
+```json
+{"ok":true,"message":"Hello, Public!","path":"/hello-docs/public","method":"POST"}
+```
+
+Clean up the tutorial function and temporary source when you are done:
+
+```bash
+ayb functions delete hello-docs --force \
+  --url "$AYB_BASE_URL" \
+  --admin-token "$AYB_ADMIN_TOKEN"
+
+rm -rf "$workdir"
+```
+
 ### List
 
 ```bash

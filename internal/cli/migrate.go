@@ -22,16 +22,10 @@ var migrateCmd = &cobra.Command{
 	Use:   "migrate",
 	Short: "Manage database migrations",
 	Long: `Manage user SQL migrations. Migrations are .sql files in the migrations
-directory (default: ./migrations), applied in filename order.
-
-Create a new migration:
-  ayb migrate create add_posts_table
-
-Apply pending migrations:
-  ayb migrate up
-
-Check migration status:
-  ayb migrate status`,
+directory (default: ./migrations), applied in filename order.`,
+	Example: `ayb migrate create add_posts_table
+ayb migrate up
+ayb migrate status`,
 }
 
 var migrateUpCmd = &cobra.Command{

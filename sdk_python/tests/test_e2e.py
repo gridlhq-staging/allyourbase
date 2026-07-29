@@ -221,3 +221,32 @@ async def test_e2e_synonyms_round_trip_live_server() -> None:
             await client.records.set_synonyms(collection, original_groups)
     finally:
         await client.close()
+
+
+@pytest.mark.asyncio
+async def test_e2e_edge_invoke_live_server() -> None:
+    # Fail closed rather than skip-green: the public `sdk-contract-echo` edge
+    # specimen only needs a live base URL, so assert it is present instead of
+    # guarding with skipif that would silently pass a misconfigured live lane.
+    base_url = os.environ.get("AYB_TEST_URL")
+    assert base_url, "AYB_TEST_URL must be set for the edge invoke live proof"
+
+    request_body = json.loads(
+        (_CONTRACT_FIXTURE_DIR / "edge_invoke_request.json").read_text()
+    )
+    expected = json.loads(
+        (_CONTRACT_FIXTURE_DIR / "edge_invoke_response.json").read_text()
+    )
+    # Compact wire bytes the server emits, reconstructed from the on-disk fixture.
+    expected_bytes = json.dumps(expected, separators=(",", ":")).encode()
+
+    client = AYBClient(base_url)
+    try:
+        result = await client.functions.invoke(
+            "sdk-contract-echo", body=request_body
+        )
+        assert result.status == 200
+        assert result.raw_body == expected_bytes
+        assert json.loads(result.raw_body) == expected
+    finally:
+        await client.close()

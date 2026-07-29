@@ -549,6 +549,61 @@ export async function cleanupFDWServer(
   }
 }
 
+/** Seeds only list metadata when the managed Postgres build has no FDW extension. */
+export async function seedFDWServerListEntry(
+  request: APIRequestContext,
+  token: string,
+  name: string,
+): Promise<void> {
+  /* eslint-disable no-restricted-syntax -- Stage 1 product gap: FDW list metadata has no extension-independent seed API. */
+  await execSQL(
+    request,
+    token,
+    `INSERT INTO _ayb_fdw_servers (name, fdw_type, options)
+     VALUES ('${sqlLiteral(name)}', 'fixture_fdw', '{}'::jsonb)`,
+  );
+  /* eslint-enable no-restricted-syntax */
+}
+
+/** Makes the isolated FDW relation return metadata with invalid JSON options. */
+export async function seedUnreadableFDWServerListEntry(
+  request: APIRequestContext,
+  token: string,
+  name: string,
+): Promise<void> {
+  /*
+   * Keep the options column as jsonb so the SELECT result type is unchanged: a
+   * type change would invalidate the pooled connection's cached plan and surface
+   * a nondeterministic "cached plan must not change result type" error at the
+   * iterate branch instead of the intended decode branch. A well-formed jsonb
+   * whose value is a number cannot decode into the handler's map[string]string,
+   * so ListForeignServers deterministically fails at the decode-options branch
+   * (internal/fdw/fdw_tables.go:39) on every connection regardless of plan cache.
+   */
+  /* eslint-disable no-restricted-syntax -- Stage 1 product gap: FDW list metadata has no fault-injection API. */
+  await execSQL(
+    request,
+    token,
+    `INSERT INTO _ayb_fdw_servers (name, fdw_type, options)
+     VALUES ('${sqlLiteral(name)}', 'fixture_fdw', '{"broken":0}'::jsonb)`,
+  );
+  /* eslint-enable no-restricted-syntax */
+}
+
+export async function cleanupFDWServerListEntry(
+  request: APIRequestContext,
+  token: string,
+  name: string,
+): Promise<void> {
+  /* eslint-disable no-restricted-syntax -- Stage 1 product gap: FDW list metadata has no extension-independent cleanup API. */
+  await execSQL(
+    request,
+    token,
+    `DELETE FROM _ayb_fdw_servers WHERE name = '${sqlLiteral(name)}'`,
+  );
+  /* eslint-enable no-restricted-syntax */
+}
+
 export async function seedAIPrompt(
   request: APIRequestContext,
   token: string,

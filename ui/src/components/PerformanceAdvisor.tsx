@@ -3,6 +3,7 @@ import { getPerformanceAdvisorReport } from "../api";
 import type { DashboardTimeRange, PerformanceQueryStat } from "../types";
 import { usePolling } from "../hooks/usePolling";
 import { toPanelError } from "./advisors/panelError";
+import { ErrorNotice } from "./ErrorNotice";
 
 const ranges: DashboardTimeRange[] = ["15m", "1h", "6h", "24h", "7d"];
 const PAGE_SIZE = 20;
@@ -13,7 +14,7 @@ export function PerformanceAdvisor({ pollMs = 30000 }: { pollMs?: number }) {
   const [selected, setSelected] = useState<PerformanceQueryStat | null>(null);
   const [page, setPage] = useState(1);
 
-  const { data, loading, error } = usePolling(
+  const { data, loading, error, refresh } = usePolling(
     () => getPerformanceAdvisorReport({ range }),
     pollMs,
     { refreshKey: range },
@@ -55,7 +56,13 @@ export function PerformanceAdvisor({ pollMs = 30000 }: { pollMs?: number }) {
       </div>
 
       {loading && !data && <div className="text-sm text-gray-500">Loading performance telemetry...</div>}
-      {Boolean(error) && <div className="text-sm text-red-600">{toPanelError(error)}</div>}
+      {Boolean(error) && (
+        <ErrorNotice
+          message={toPanelError(error)}
+          docsPath="/guide/admin-dashboard"
+          onAction={() => void refresh()}
+        />
+      )}
       {data?.stale && <div className="text-sm text-amber-600">Telemetry may be stale</div>}
 
       {pageRows.length === 0 ? (

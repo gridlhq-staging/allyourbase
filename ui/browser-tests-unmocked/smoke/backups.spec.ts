@@ -4,7 +4,9 @@ import {
   probeEndpoint,
   seedBackup,
   cleanupBackupsByDbName,
+  failIfReadinessForced,
   listBackups,
+  readinessNotMet,
   waitForDashboard,
 } from "../fixtures";
 
@@ -26,12 +28,13 @@ test.describe("Smoke: Backups", () => {
     }
   });
 
-  test("seeded backup renders in the backups table", async ({ page, request, adminToken }) => {
+  test("seeded backup renders in the backups table", async ({ page, request, adminToken }, testInfo) => {
+    await failIfReadinessForced(testInfo, "backups");
+
     const status = await probeEndpoint(request, adminToken, "/api/admin/backups");
-    test.skip(
-      status === 501 || status === 404,
-      `Backup service not configured (status ${status})`,
-    );
+    if (status === 501 || status === 404) {
+      await readinessNotMet(testInfo, "backups", `backup endpoint returned status ${status}`);
+    }
 
     const runId = Date.now();
     const dbName = `smoke_backup_${runId}`;
@@ -50,7 +53,13 @@ test.describe("Smoke: Backups", () => {
       const hasSeededBackup = backupList.backups.some(
         (backup) => backup?.db_name === dbName,
       );
-      test.skip(!hasSeededBackup, "Backup admin service is not surfacing seeded rows in this environment");
+      if (!hasSeededBackup) {
+        await readinessNotMet(
+          testInfo,
+          "backups",
+          "backup service did not surface the seeded backup row",
+        );
+      }
     }
 
     await page.goto("/admin/");

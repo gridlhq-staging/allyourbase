@@ -54,6 +54,7 @@ public final class AYBClient {
     public lazy var records: RecordsClient = RecordsClient(client: self)
     public lazy var storage: StorageClient = StorageClient(client: self)
     public lazy var realtime: RealtimeClient = RealtimeClient(client: self)
+    public lazy var functions: FunctionsClient = FunctionsClient(client: self)
 
     public init(
         _ baseURL: String,
@@ -212,14 +213,71 @@ public final class AYBClient {
         }
     }
 
+    func requestRaw(
+        _ path: String,
+        method: String = HTTPMethod.get.rawValue,
+        headers: [String: String] = [:],
+        body: Any? = nil,
+        skipAuth: Bool = false
+    ) async throws -> HTTPResponse {
+        let bearerToken = skipAuth ? nil : tokenStore.accessToken()
+        let request = try requestBuilder.buildRequest(
+            path: path,
+            method: HTTPMethod(method),
+            headers: headers,
+            body: body,
+            bearerToken: bearerToken
+        )
+        let response = try await sendWithRetries(request)
+        guard (200..<300).contains(response.statusCode) else {
+            throw AYBError.from(response: response)
+        }
+        return response
+    }
+
     public func requestJSON(_ path: String, method: HTTPMethod = .get) async throws -> [String: Any] {
         return try await request(path, method: method, decode: { value in
             try AYBJSON.expectDictionary(value, "requestJSON")
         })
     }
 
+    public func rpc(_ functionName: String, args: [String: Any]? = nil) async throws -> Any? {
+        try await request(
+            "/api/rpc/\(encodePathSegment(functionName))",
+            method: .post,
+            body: args,
+            decode: { $0 }
+        )
+    }
+
     func makeURL(path: String, queryItems: [URLQueryItem] = []) throws -> URL {
         try requestBuilder.makeURL(path: path, queryItems: queryItems)
+    }
+}
+
+public final class FunctionsClient {
+    private unowned let client: AYBClient
+
+    init(client: AYBClient) {
+        self.client = client
+    }
+
+    public func invoke(
+        _ name: String,
+        options: EdgeInvokeOptions = EdgeInvokeOptions()
+    ) async throws -> EdgeInvokeResponse {
+        let response = try await client.requestRaw(
+            "/functions/v1/\(encodePathSegment(name))",
+            method: options.method,
+            headers: options.headers,
+            body: options.body,
+            skipAuth: options.skipAuth
+        )
+        return EdgeInvokeResponse(
+            status: response.statusCode,
+            headers: response.headers,
+            rawBody: response.body
+        )
     }
 }
 
@@ -617,11 +675,6 @@ public final class RecordsClient {
 
     private func searchSynonymsPath(_ collection: String) -> String {
         "/api/collections/\(encodePathSegment(collection))/synonyms/"
-    }
-
-    private func encodePathSegment(_ value: String) -> String {
-        let allowed = CharacterSet(charactersIn: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_.~")
-        return value.addingPercentEncoding(withAllowedCharacters: allowed) ?? value
     }
 }
 

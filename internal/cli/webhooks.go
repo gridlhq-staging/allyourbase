@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/url"
 	"os"
 	"strings"
 	"text/tabwriter"
@@ -16,6 +17,9 @@ import (
 var webhooksCmd = &cobra.Command{
 	Use:   "webhooks",
 	Short: "Manage webhooks on the running AYB server",
+	Example: `ayb webhooks list
+ayb webhooks create --webhook-url https://example.com/hooks/ayb
+ayb webhooks delete <id>`,
 }
 
 var webhooksListCmd = &cobra.Command{
@@ -174,7 +178,7 @@ func runWebhooksCreate(cmd *cobra.Command, args []string) error {
 func runWebhooksDelete(cmd *cobra.Command, args []string) error {
 	id := args[0]
 
-	resp, body, err := adminRequest(cmd, "DELETE", "/api/webhooks/"+id, nil)
+	resp, body, err := adminRequest(cmd, "DELETE", "/api/webhooks/"+url.PathEscape(id), nil)
 	if err != nil {
 		return err
 	}

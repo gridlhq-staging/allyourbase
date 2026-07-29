@@ -110,6 +110,47 @@ describe("SupportTickets", () => {
     ).toBeInTheDocument();
   });
 
+  it("updates ticket status through its label and refreshes the detail", async () => {
+    const updatedTicketWithMessages = {
+      ...mockTicketWithMessages,
+      ticket: {
+        ...mockTicketWithMessages.ticket,
+        status: "in_progress",
+      },
+    };
+    (api.adminGetTicket as ReturnType<typeof vi.fn>)
+      .mockResolvedValueOnce(mockTicketWithMessages)
+      .mockResolvedValueOnce(updatedTicketWithMessages);
+
+    renderWithProviders(<SupportTickets />);
+    await waitFor(() => {
+      expect(
+        screen.getByText("Cannot connect to database"),
+      ).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getAllByRole("button", { name: /details/i })[0]);
+
+    await waitFor(() => {
+      expect(
+        screen.getByText("I keep getting connection timeouts"),
+      ).toBeInTheDocument();
+    });
+    expect(api.adminGetTicket).toHaveBeenNthCalledWith(1, "t-1");
+
+    const statusControl = screen.getByLabelText("Ticket status");
+    expect(statusControl).toHaveValue("open");
+    fireEvent.change(statusControl, { target: { value: "in_progress" } });
+
+    await waitFor(() => {
+      expect(api.adminUpdateTicket).toHaveBeenCalledWith("t-1", {
+        status: "in_progress",
+      });
+      expect(api.adminGetTicket).toHaveBeenNthCalledWith(2, "t-1");
+      expect(screen.getByLabelText("Ticket status")).toHaveValue("in_progress");
+    });
+  });
+
   it("admin can add reply via message form", async () => {
     renderWithProviders(<SupportTickets />);
     await waitFor(() => {
@@ -140,13 +181,23 @@ describe("SupportTickets", () => {
     });
   });
 
-  it("shows error state on fetch failure", async () => {
-    (api.adminListTickets as ReturnType<typeof vi.fn>).mockRejectedValue(
+  it("keeps filters mounted and retries the exact fetch failure", async () => {
+    (api.adminListTickets as ReturnType<typeof vi.fn>).mockRejectedValueOnce(
       new Error("Network error"),
     );
     renderWithProviders(<SupportTickets />);
     await waitFor(() => {
       expect(screen.getByText("Network error")).toBeInTheDocument();
     });
+    expect(
+      screen.getByRole("button", { name: /apply filters/i }),
+    ).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+
+    await waitFor(() => {
+      expect(screen.getByText("Cannot connect to database")).toBeInTheDocument();
+    });
+    expect(api.adminListTickets).toHaveBeenCalledTimes(2);
   });
 });

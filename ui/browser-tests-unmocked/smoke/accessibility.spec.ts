@@ -6,9 +6,14 @@ import {
   getAdminCapabilities,
   buildParallelSafeRunID,
   dropTableIfExists,
+  type AdminCapabilities,
+  type AdminCapabilityName,
 } from "../fixtures";
 import AxeBuilder from "@axe-core/playwright";
 import type { Page } from "@playwright/test";
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+import { resolve } from "node:path";
 
 /**
  * SMOKE TEST: Accessibility (axe-core)
@@ -22,6 +27,104 @@ test.describe("Smoke: Accessibility", () => {
   test.describe.configure({ mode: "parallel" });
 
   const pendingCleanupTables: string[] = [];
+  type RegistryScreenScan = {
+    readonly buttonName: RegExp;
+    readonly pageName: string;
+    readonly requires?: AdminCapabilityName;
+  };
+
+  const registryScreenScans = {
+    "sql-editor": { buttonName: /^SQL Editor$/i, pageName: "SQL Editor" },
+    graphql: { buttonName: /^GraphQL$/i, pageName: "GraphQL" },
+    functions: { buttonName: /^Functions$/i, pageName: "Functions" },
+    rls: { buttonName: /^RLS Policies$/i, pageName: "RLS Policies" },
+    search: { buttonName: /^Search$/i, pageName: "Search" },
+    matviews: { buttonName: /^Materialized Views$/i, pageName: "Materialized Views" },
+    "schema-designer": { buttonName: /^Schema Designer$/i, pageName: "Schema Designer" },
+    fdw: { buttonName: /^FDW Management$/i, pageName: "FDW Management" },
+    storage: { buttonName: /^Storage$/i, pageName: "Storage" },
+    sites: { buttonName: /^Sites$/i, pageName: "Sites" },
+    "edge-functions": { buttonName: /^Edge Functions$/i, pageName: "Edge Functions" },
+    webhooks: { buttonName: /^Webhooks$/i, pageName: "Webhooks" },
+    "sms-health": { buttonName: /^SMS Health$/i, pageName: "SMS Health" },
+    "sms-messages": { buttonName: /^SMS Messages$/i, pageName: "SMS Messages" },
+    "email-templates": { buttonName: /^Email Templates$/i, pageName: "Email Templates" },
+    push: { buttonName: /^Push Notifications$/i, pageName: "Push Notifications" },
+    users: { buttonName: /^Users$/i, pageName: "Users" },
+    apps: { buttonName: /^Applications$/i, pageName: "Applications" },
+    "api-keys": { buttonName: /^API Keys$/i, pageName: "API Keys" },
+    "oauth-clients": { buttonName: /^OAuth Clients$/i, pageName: "OAuth Clients" },
+    "api-explorer": { buttonName: /^API Explorer$/i, pageName: "API Explorer" },
+    jobs: { buttonName: /^Jobs$/i, pageName: "Jobs" },
+    schedules: { buttonName: /^Schedules$/i, pageName: "Schedules" },
+    "realtime-inspector": { buttonName: /^Realtime Inspector$/i, pageName: "Realtime Inspector" },
+    "security-advisor": { buttonName: /^Security Advisor$/i, pageName: "Security Advisor" },
+    "performance-advisor": { buttonName: /^Performance Advisor$/i, pageName: "Performance Advisor" },
+    backups: { buttonName: /^Backups & PITR$/i, pageName: "Backups & PITR" },
+    analytics: { buttonName: /^Analytics$/i, pageName: "Analytics" },
+    usage: { buttonName: /^Usage Metering$/i, pageName: "Usage Metering" },
+    replicas: { buttonName: /^Replicas$/i, pageName: "Replicas" },
+    branches: { buttonName: /^Branches$/i, pageName: "Branches" },
+    "audit-logs": { buttonName: /^Audit Logs$/i, pageName: "Audit Logs" },
+    "admin-logs": { buttonName: /^Admin Logs$/i, pageName: "Admin Logs" },
+    secrets: { buttonName: /^Secrets$/i, pageName: "Secrets" },
+    "custom-domains": { buttonName: /^Custom Domains$/i, pageName: "Custom Domains" },
+    extensions: { buttonName: /^Extensions$/i, pageName: "Extensions" },
+    "vector-indexes": { buttonName: /^Vector Indexes$/i, pageName: "Vector Indexes" },
+    "log-drains": { buttonName: /^Log Drains$/i, pageName: "Log Drains" },
+    stats: { buttonName: /^Stats$/i, pageName: "Stats" },
+    notifications: { buttonName: /^Notifications$/i, pageName: "Notifications" },
+    incidents: { buttonName: /^Incidents$/i, pageName: "Incidents", requires: "status" },
+    "support-tickets": {
+      buttonName: /^Support Tickets$/i,
+      pageName: "Support Tickets",
+      requires: "support",
+    },
+    tenants: { buttonName: /^Tenants$/i, pageName: "Tenants" },
+    organizations: { buttonName: /^Organizations$/i, pageName: "Organizations" },
+    "ai-assistant": { buttonName: /^AI Assistant$/i, pageName: "AI Assistant" },
+    "auth-settings": { buttonName: /^Auth Settings$/i, pageName: "Auth Settings" },
+    "mfa-management": {
+      buttonName: /^Multi-Factor Authentication$/i,
+      pageName: "Multi-Factor Authentication",
+    },
+    "account-linking": { buttonName: /^Link Your Account$/i, pageName: "Link Your Account" },
+    saml: { buttonName: /^SAML Configuration$/i, pageName: "SAML Configuration" },
+    "auth-hooks": { buttonName: /^Auth Hooks$/i, pageName: "Auth Hooks" },
+  } as const satisfies Record<string, RegistryScreenScan>;
+
+  const uiRoot = resolve(fileURLToPath(import.meta.url), "..", "..", "..");
+
+  function adminViewIdsFromRegistrySource(): string[] {
+    const registrySource = readFileSync(
+      resolve(uiRoot, "src", "screens", "registry.ts"),
+      "utf8",
+    );
+    const adminViewsMatch = registrySource.match(/export const ADMIN_VIEWS = \[([\s\S]*?)\] as const;/);
+    if (!adminViewsMatch) {
+      throw new Error("Unable to read ADMIN_VIEWS from ui/src/screens/registry.ts");
+    }
+    return Array.from(adminViewsMatch[1].matchAll(/"([^"]+)"/g), (match) => match[1]);
+  }
+
+  test("registry accessibility scan metadata covers every admin view", () => {
+    const adminViewIds = adminViewIdsFromRegistrySource();
+    const scannedIds = Object.keys(registryScreenScans);
+    const missing = adminViewIds.filter((id) => !scannedIds.includes(id));
+
+    console.log(`A11Y_REGISTRY_METADATA:${scannedIds.length}/${adminViewIds.length}`);
+    expect(
+      missing,
+      `missing: ${missing.join(", ")}; covered/total: ${scannedIds.length}/${adminViewIds.length}`,
+    ).toEqual([]);
+  });
+
+  function isCapabilityEnabled(
+    capabilities: AdminCapabilities,
+    requiredCapability: AdminCapabilityName | undefined,
+  ): boolean {
+    return requiredCapability ? capabilities[requiredCapability] : true;
+  }
 
   test.afterEach(async ({ request, adminToken }) => {
     for (const tableName of pendingCleanupTables) {
@@ -39,6 +142,7 @@ test.describe("Smoke: Accessibility", () => {
   async function assertAccessible(page: Page, pageName: string) {
     const results = await new AxeBuilder({ page })
       .withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"])
+      // CodeMirror owns its internal editor DOM; the surrounding dashboard chrome remains scanned.
       .exclude(".cm-editor")
       .analyze();
 
@@ -125,297 +229,19 @@ test.describe("Smoke: Accessibility", () => {
     await assertAccessible(page, "Table Browser");
   });
 
-  test("database: SQL editor page is accessible", async ({ page }) => {
-    await page.goto("/admin/");
-    await waitForDashboard(page);
-    await navigateAndScan(page, /^SQL Editor$/i, "SQL Editor");
-  });
+  for (const [registryId, scan] of Object.entries(registryScreenScans)) {
+    test(`registry: ${scan.pageName} page is accessible`, async ({ page, request, adminToken }) => {
+      if (scan.requires) {
+        const capabilities = await getAdminCapabilities(request, adminToken);
+        if (!isCapabilityEnabled(capabilities, scan.requires)) {
+          console.log(`CAPABILITY_DISABLED:${registryId}`);
+          return;
+        }
+      }
 
-  test("database: Functions page is accessible", async ({ page }) => {
-    await page.goto("/admin/");
-    await waitForDashboard(page);
-    await navigateAndScan(page, /^Functions$/i, "Functions");
-  });
-
-  test("database: RLS policies page is accessible", async ({ page }) => {
-    await page.goto("/admin/");
-    await waitForDashboard(page);
-    await navigateAndScan(page, /^RLS Policies$/i, "RLS Policies");
-  });
-
-  test("database: Matviews page is accessible", async ({ page }) => {
-    await page.goto("/admin/");
-    await waitForDashboard(page);
-    await navigateAndScan(page, /^Materialized Views$/i, "Materialized Views");
-  });
-
-  test("database: Schema designer page is accessible", async ({ page }) => {
-    await page.goto("/admin/");
-    await waitForDashboard(page);
-    await navigateAndScan(page, /^Schema Designer$/i, "Schema Designer");
-  });
-
-  test("database: FDW page is accessible", async ({ page }) => {
-    await page.goto("/admin/");
-    await waitForDashboard(page);
-    await navigateAndScan(page, /^FDW Management$/i, "FDW Management");
-  });
-
-  test("services: Storage page is accessible", async ({ page }) => {
-    await page.goto("/admin/");
-    await waitForDashboard(page);
-    await navigateAndScan(page, /^Storage$/i, "Storage");
-  });
-
-  test("services: Sites page is accessible", async ({ page }) => {
-    await page.goto("/admin/");
-    await waitForDashboard(page);
-    await navigateAndScan(page, /^Sites$/i, "Sites");
-  });
-
-  test("services: Edge functions page is accessible", async ({ page }) => {
-    await page.goto("/admin/");
-    await waitForDashboard(page);
-    await navigateAndScan(page, /^Edge Functions$/i, "Edge Functions");
-  });
-
-  test("services: Webhooks page is accessible", async ({ page }) => {
-    await page.goto("/admin/");
-    await waitForDashboard(page);
-    await navigateAndScan(page, /^Webhooks$/i, "Webhooks");
-  });
-
-  test("messaging: SMS health page is accessible", async ({ page }) => {
-    await page.goto("/admin/");
-    await waitForDashboard(page);
-    await navigateAndScan(page, /^SMS Health$/i, "SMS Health");
-  });
-
-  test("messaging: SMS messages page is accessible", async ({ page }) => {
-    await page.goto("/admin/");
-    await waitForDashboard(page);
-    await navigateAndScan(page, /^SMS Messages$/i, "SMS Messages");
-  });
-
-  test("messaging: Email templates page is accessible", async ({ page }) => {
-    await page.goto("/admin/");
-    await waitForDashboard(page);
-    await navigateAndScan(page, /^Email Templates$/i, "Email Templates");
-  });
-
-  test("messaging: Push notifications page is accessible", async ({ page }) => {
-    await page.goto("/admin/");
-    await waitForDashboard(page);
-    await navigateAndScan(page, /^Push Notifications$/i, "Push Notifications");
-  });
-
-  test("admin: Users page is accessible", async ({ page }) => {
-    await page.goto("/admin/");
-    await waitForDashboard(page);
-    await navigateAndScan(page, /^Users$/i, "Users");
-  });
-
-  test("admin: Apps page is accessible", async ({ page }) => {
-    await page.goto("/admin/");
-    await waitForDashboard(page);
-    await navigateAndScan(page, /^Applications$/i, "Applications");
-  });
-
-  test("admin: API keys page is accessible", async ({ page }) => {
-    await page.goto("/admin/");
-    await waitForDashboard(page);
-    await navigateAndScan(page, /^API Keys$/i, "API Keys");
-  });
-
-  test("admin: OAuth clients page is accessible", async ({ page }) => {
-    await page.goto("/admin/");
-    await waitForDashboard(page);
-    await navigateAndScan(page, /^OAuth Clients$/i, "OAuth Clients");
-  });
-
-  test("admin: API explorer page is accessible", async ({ page }) => {
-    await page.goto("/admin/");
-    await waitForDashboard(page);
-    await navigateAndScan(page, /^API Explorer$/i, "API Explorer");
-  });
-
-  test("admin: Jobs page is accessible", async ({ page }) => {
-    await page.goto("/admin/");
-    await waitForDashboard(page);
-    await navigateAndScan(page, /^Jobs$/i, "Jobs");
-  });
-
-  test("admin: Schedules page is accessible", async ({ page }) => {
-    await page.goto("/admin/");
-    await waitForDashboard(page);
-    await navigateAndScan(page, /^Schedules$/i, "Schedules");
-  });
-
-  test("admin: Realtime inspector page is accessible", async ({ page }) => {
-    await page.goto("/admin/");
-    await waitForDashboard(page);
-    await navigateAndScan(page, /^Realtime Inspector$/i, "Realtime Inspector");
-  });
-
-  test("admin: Security advisor page is accessible", async ({ page }) => {
-    await page.goto("/admin/");
-    await waitForDashboard(page);
-    await navigateAndScan(page, /^Security Advisor$/i, "Security Advisor");
-  });
-
-  test("admin: Performance advisor page is accessible", async ({ page }) => {
-    await page.goto("/admin/");
-    await waitForDashboard(page);
-    await navigateAndScan(page, /^Performance Advisor$/i, "Performance Advisor");
-  });
-
-  test("admin: Backups page is accessible", async ({ page }) => {
-    await page.goto("/admin/");
-    await waitForDashboard(page);
-    await navigateAndScan(page, /^Backups & PITR$/i, "Backups & PITR");
-  });
-
-  test("admin: Analytics page is accessible", async ({ page }) => {
-    await page.goto("/admin/");
-    await waitForDashboard(page);
-    await navigateAndScan(page, /^Analytics$/i, "Analytics");
-  });
-
-  test("admin: Usage page is accessible", async ({ page }) => {
-    await page.goto("/admin/");
-    await waitForDashboard(page);
-    await navigateAndScan(page, /^Usage Metering$/i, "Usage Metering");
-  });
-
-  test("admin: Replicas page is accessible", async ({ page }) => {
-    await page.goto("/admin/");
-    await waitForDashboard(page);
-    await navigateAndScan(page, /^Replicas$/i, "Replicas");
-  });
-
-  test("admin: Branches page is accessible", async ({ page }) => {
-    await page.goto("/admin/");
-    await waitForDashboard(page);
-    await navigateAndScan(page, /^Branches$/i, "Branches");
-  });
-
-  test("admin: Audit logs page is accessible", async ({ page }) => {
-    await page.goto("/admin/");
-    await waitForDashboard(page);
-    await navigateAndScan(page, /^Audit Logs$/i, "Audit Logs");
-  });
-
-  test("admin: Admin logs page is accessible", async ({ page }) => {
-    await page.goto("/admin/");
-    await waitForDashboard(page);
-    await navigateAndScan(page, /^Admin Logs$/i, "Admin Logs");
-  });
-
-  test("admin: Secrets page is accessible", async ({ page }) => {
-    await page.goto("/admin/");
-    await waitForDashboard(page);
-    await navigateAndScan(page, /^Secrets$/i, "Secrets");
-  });
-
-  test("admin: Custom domains page is accessible", async ({ page }) => {
-    await page.goto("/admin/");
-    await waitForDashboard(page);
-    await navigateAndScan(page, /^Custom Domains$/i, "Custom Domains");
-  });
-
-  test("admin: Extensions page is accessible", async ({ page }) => {
-    await page.goto("/admin/");
-    await waitForDashboard(page);
-    await navigateAndScan(page, /^Extensions$/i, "Extensions");
-  });
-
-  test("admin: Vector indexes page is accessible", async ({ page }) => {
-    await page.goto("/admin/");
-    await waitForDashboard(page);
-    await navigateAndScan(page, /^Vector Indexes$/i, "Vector Indexes");
-  });
-
-  test("admin: Log drains page is accessible", async ({ page }) => {
-    await page.goto("/admin/");
-    await waitForDashboard(page);
-    await navigateAndScan(page, /^Log Drains$/i, "Log Drains");
-  });
-
-  test("admin: Stats page is accessible", async ({ page }) => {
-    await page.goto("/admin/");
-    await waitForDashboard(page);
-    await navigateAndScan(page, /^Stats$/i, "Stats");
-  });
-
-  test("admin: Notifications page is accessible", async ({ page }) => {
-    await page.goto("/admin/");
-    await waitForDashboard(page);
-    await navigateAndScan(page, /^Notifications$/i, "Notifications");
-  });
-
-  test("admin: Incidents page is accessible", async ({ page, request, adminToken }) => {
-    const capabilities = await getAdminCapabilities(request, adminToken);
-    test.skip(!capabilities.status, "Status capability disabled");
-
-    await page.goto("/admin/");
-    await waitForDashboard(page);
-    await navigateAndScan(page, /^Incidents$/i, "Incidents");
-  });
-
-  test("admin: Support tickets page is accessible", async ({ page, request, adminToken }) => {
-    const capabilities = await getAdminCapabilities(request, adminToken);
-    test.skip(!capabilities.support, "Support capability disabled");
-
-    await page.goto("/admin/");
-    await waitForDashboard(page);
-    await navigateAndScan(page, /^Support Tickets$/i, "Support Tickets");
-  });
-
-  test("admin: Tenants page is accessible", async ({ page }) => {
-    await page.goto("/admin/");
-    await waitForDashboard(page);
-    await navigateAndScan(page, /^Tenants$/i, "Tenants");
-  });
-
-  test("admin: Organizations page is accessible", async ({ page }) => {
-    await page.goto("/admin/");
-    await waitForDashboard(page);
-    await navigateAndScan(page, /^Organizations$/i, "Organizations");
-  });
-
-  test("ai: AI assistant page is accessible", async ({ page }) => {
-    await page.goto("/admin/");
-    await waitForDashboard(page);
-    await navigateAndScan(page, /^AI Assistant$/i, "AI Assistant");
-  });
-
-  test("auth: Auth settings page is accessible", async ({ page }) => {
-    await page.goto("/admin/");
-    await waitForDashboard(page);
-    await navigateAndScan(page, /^Auth Settings$/i, "Auth Settings");
-  });
-
-  test("auth: MFA management page is accessible", async ({ page }) => {
-    await page.goto("/admin/");
-    await waitForDashboard(page);
-    await navigateAndScan(page, /^Multi-Factor Authentication$/i, "Multi-Factor Authentication");
-  });
-
-  test("auth: Account linking page is accessible", async ({ page }) => {
-    await page.goto("/admin/");
-    await waitForDashboard(page);
-    await navigateAndScan(page, /^Link Your Account$/i, "Link Your Account");
-  });
-
-  test("auth: SAML page is accessible", async ({ page }) => {
-    await page.goto("/admin/");
-    await waitForDashboard(page);
-    await navigateAndScan(page, /^SAML Configuration$/i, "SAML Configuration");
-  });
-
-  test("auth: Auth hooks page is accessible", async ({ page }) => {
-    await page.goto("/admin/");
-    await waitForDashboard(page);
-    await navigateAndScan(page, /^Auth Hooks$/i, "Auth Hooks");
-  });
+      await page.goto("/admin/");
+      await waitForDashboard(page);
+      await navigateAndScan(page, scan.buttonName, scan.pageName);
+    });
+  }
 });

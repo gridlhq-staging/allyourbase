@@ -162,13 +162,41 @@ describe("FDWManagement", () => {
     });
   });
 
-  it("shows error state on fetch failure", async () => {
-    (api.listServers as ReturnType<typeof vi.fn>).mockRejectedValue(
+  it("keeps table state mounted and retries an exact server fetch failure", async () => {
+    (api.listServers as ReturnType<typeof vi.fn>).mockRejectedValueOnce(
       new Error("Connection refused"),
     );
     renderWithProviders(<FDWManagement screenLabel="FDW Management" />);
     await waitFor(() => {
       expect(screen.getByText("Connection refused")).toBeInTheDocument();
     });
+    expect(screen.getByText("users")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+
+    await waitFor(() => {
+      expect(screen.getByText("postgres_fdw")).toBeInTheDocument();
+    });
+    expect(api.listServers).toHaveBeenCalledTimes(2);
+    expect(api.listTables).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps server state mounted and retries an exact table fetch failure", async () => {
+    (api.listTables as ReturnType<typeof vi.fn>).mockRejectedValueOnce(
+      new Error("Tables unavailable"),
+    );
+    renderWithProviders(<FDWManagement screenLabel="FDW Management" />);
+    await waitFor(() => {
+      expect(screen.getByText("Tables unavailable")).toBeInTheDocument();
+    });
+    expect(screen.getByText("postgres_fdw")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+
+    await waitFor(() => {
+      expect(screen.getByText("users")).toBeInTheDocument();
+    });
+    expect(api.listTables).toHaveBeenCalledTimes(2);
+    expect(api.listServers).toHaveBeenCalledTimes(1);
   });
 });

@@ -121,13 +121,23 @@ describe("AuditLogs", () => {
     });
   });
 
-  it("shows error state on fetch failure", async () => {
-    (api.listAuditLogs as ReturnType<typeof vi.fn>).mockRejectedValue(
+  it("keeps filters mounted and retries the exact fetch failure", async () => {
+    (api.listAuditLogs as ReturnType<typeof vi.fn>).mockRejectedValueOnce(
       new Error("Connection refused"),
     );
     renderWithProviders(<AuditLogs />);
     await waitFor(() => {
       expect(screen.getByText("Connection refused")).toBeInTheDocument();
     });
+    expect(
+      screen.getByRole("button", { name: /apply filters/i }),
+    ).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+
+    await waitFor(() => {
+      expect(screen.getByText("users")).toBeInTheDocument();
+    });
+    expect(api.listAuditLogs).toHaveBeenCalledTimes(2);
   });
 });

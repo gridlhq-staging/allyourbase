@@ -1,0 +1,8 @@
+[support]
+enabled = true
+
+[status]
+enabled = true
+
+[graphql]
+enabled = true

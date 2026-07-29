@@ -3,6 +3,9 @@ import {
   expect,
   probeEndpoint,
   execSQL,
+  failIfReadinessForced,
+  fetchAdminJSON,
+  readinessNotMet,
   waitForDashboard,
 } from "../fixtures";
 
@@ -28,12 +31,17 @@ test.describe("Smoke: Vector Indexes", () => {
     }
   });
 
-  test("seeded vector index renders in vector indexes table", async ({ page, request, adminToken }) => {
+  test("seeded vector index renders in vector indexes table", async ({ page, request, adminToken }, testInfo) => {
+    await failIfReadinessForced(testInfo, "vector-indexes");
+
     const status = await probeEndpoint(request, adminToken, "/api/admin/vector/indexes");
-    test.skip(
-      status === 501 || status === 404,
-      `Vector indexes endpoint not available (status ${status})`,
-    );
+    if (status === 501 || status === 404) {
+      await readinessNotMet(
+        testInfo,
+        "vector-indexes",
+        `vector indexes endpoint returned status ${status}`,
+      );
+    }
 
     const vectorExtensionAvailability = await execSQL(
       request,
@@ -45,7 +53,13 @@ test.describe("Smoke: Vector Indexes", () => {
        )`,
     );
     const isVectorExtensionAvailable = vectorExtensionAvailability.rows[0]?.[0] === true;
-    test.skip(!isVectorExtensionAvailable, "vector extension is not available in this Postgres environment");
+    if (!isVectorExtensionAvailable) {
+      await readinessNotMet(
+        testInfo,
+        "vector-indexes",
+        "vector extension is unavailable in Postgres",
+      );
+    }
 
     const runId = Date.now();
     const tableName = `smoke_vectors_${runId}`;
@@ -83,5 +97,51 @@ test.describe("Smoke: Vector Indexes", () => {
     await expect(seededIndexRow.getByText("public")).toBeVisible();
     await expect(seededIndexRow.getByText(tableName)).toBeVisible();
     await expect(seededIndexRow.getByText(/hnsw/i)).toBeVisible();
+  });
+
+  test("empty state recovers after the admin API becomes reachable", async ({
+    page,
+    request,
+    adminToken,
+    context,
+  }, testInfo) => {
+    await failIfReadinessForced(testInfo, "vector-indexes");
+
+    const status = await probeEndpoint(request, adminToken, "/api/admin/vector/indexes");
+    if (status === 501 || status === 404) {
+      await readinessNotMet(
+        testInfo,
+        "vector-indexes",
+        `vector indexes endpoint returned status ${status}`,
+      );
+    }
+    expect(await fetchAdminJSON(request, adminToken, "/api/admin/vector/indexes")).toEqual({
+      indexes: [],
+    });
+
+    await page.goto("/admin/");
+    await waitForDashboard(page);
+    await page.locator("aside").getByRole("button", { name: /API Explorer/i }).click();
+    await expect(page.getByRole("heading", { name: /API Explorer/i })).toBeVisible();
+    await page.locator("aside").getByRole("button", { name: /Vector Indexes/i }).click();
+    await expect(page.getByText("No vector indexes found", { exact: true })).toBeVisible();
+
+    try {
+      // Closest-real proxy: the schema-cache list handler intentionally returns
+      // 200 with an empty collection when its cache is absent, so browser
+      // offline mode makes the live API unreachable. Bias: broader than one
+      // endpoint. Tolerance: only this screen's exact error and recovery count.
+      await context.setOffline(true);
+      await page.locator("aside").getByRole("button", { name: /API Explorer/i }).click();
+      await page.locator("aside").getByRole("button", { name: /Vector Indexes/i }).click();
+      await expect(page.getByText("Failed to fetch", { exact: true })).toBeVisible();
+      await expect(page.getByRole("button", { name: "Retry", exact: true })).toBeVisible();
+
+      await context.setOffline(false);
+      await page.getByRole("button", { name: "Retry", exact: true }).click();
+      await expect(page.getByText("No vector indexes found", { exact: true })).toBeVisible();
+    } finally {
+      await context.setOffline(false);
+    }
   });
 });

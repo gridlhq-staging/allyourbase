@@ -44,7 +44,10 @@ test.describe("Support Tickets Lifecycle (Full E2E)", () => {
     await page.goto("/admin/");
     await waitForDashboard(page);
 
-    await page.locator("aside").getByRole("button", { name: /^Support Tickets$/i }).click();
+    await page
+      .getByRole("complementary")
+      .getByRole("button", { name: "Support Tickets", exact: true })
+      .click();
     await expect(page.getByRole("heading", { name: /Support Tickets/i })).toBeVisible({ timeout: 5000 });
 
     // Verify seeded ticket in table
@@ -57,13 +60,11 @@ test.describe("Support Tickets Lifecycle (Full E2E)", () => {
     await ticketRow.getByRole("button", { name: /Details/i }).click();
 
     // Change status to in_progress
-    const statusDropdown = page.getByRole("combobox").filter({ hasText: /open/i }).first();
-    await statusDropdown.selectOption("in_progress");
-    await expect(ticketRow).toContainText("in progress", { timeout: 5000 });
+    await page.getByLabel("Ticket status").selectOption("in_progress");
+    await expect(ticketRow).toContainText("in_progress", { timeout: 5000 });
 
     // Change priority to high
-    const priorityDropdown = page.getByRole("combobox").filter({ hasText: /normal/i }).first();
-    await priorityDropdown.selectOption("high");
+    await page.getByLabel("Ticket priority").selectOption("high");
     await expect(ticketRow).toContainText("high", { timeout: 5000 });
 
     // Send a reply

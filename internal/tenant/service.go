@@ -39,8 +39,19 @@ const (
 // Service handles tenant CRUD and lifecycle operations.
 type Service struct {
 	pool              *pgxpool.Pool
+	tx                pgx.Tx
 	logger            *slog.Logger
 	schemaProvisioner *SchemaProvisioner
+}
+
+type tenantDatabase interface {
+	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
+}
+
+// TransactionalWriter exposes the tenant writes that can join a caller-owned transaction.
+type TransactionalWriter interface {
+	CreateTenant(ctx context.Context, name, slug, isolationMode, planTier, region string, orgMetadata json.RawMessage, idempotencyKey string) (*Tenant, error)
+	AddMembership(ctx context.Context, tenantID, userID, role string) (*TenantMembership, error)
 }
 
 // NewService creates a new tenant Service.
@@ -49,6 +60,19 @@ func NewService(pool *pgxpool.Pool, logger *slog.Logger) *Service {
 		pool:              pool,
 		logger:            logger,
 		schemaProvisioner: NewSchemaProvisioner(pool, logger),
+	}
+}
+
+// NewTransactionalWriter creates a narrow tenant writer whose operations join the supplied transaction.
+func NewTransactionalWriter(tx pgx.Tx, logger *slog.Logger) TransactionalWriter {
+	return newServiceWithTx(tx, logger)
+}
+
+func newServiceWithTx(tx pgx.Tx, logger *slog.Logger) *Service {
+	return &Service{
+		tx:                tx,
+		logger:            logger,
+		schemaProvisioner: newSchemaProvisioner(tx, logger),
 	}
 }
 
@@ -77,8 +101,43 @@ func scanTenant(row pgx.Row) (*Tenant, error) {
 // If idempotencyKey is non-empty and a tenant with that key already exists, the
 // existing tenant is returned instead of creating a duplicate.
 func (s *Service) CreateTenant(ctx context.Context, name, slug, isolationMode, planTier, region string, orgMetadata json.RawMessage, idempotencyKey string) (*Tenant, error) {
+	if s.tx != nil {
+		created, _, err := s.createTenant(ctx, name, slug, isolationMode, planTier, region, orgMetadata, idempotencyKey)
+		return created, err
+	}
+
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("beginning tenant creation transaction: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	transactionService := newServiceWithTx(tx, s.logger)
+	created, inserted, err := transactionService.createTenant(
+		ctx,
+		name,
+		slug,
+		isolationMode,
+		planTier,
+		region,
+		orgMetadata,
+		idempotencyKey,
+	)
+	if err != nil {
+		return nil, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return nil, fmt.Errorf("committing tenant creation: %w", err)
+	}
+	if inserted && s.logger != nil {
+		s.logger.Info("tenant created", "tenant_id", created.ID, "slug", created.Slug)
+	}
+	return created, nil
+}
+
+func (s *Service) createTenant(ctx context.Context, name, slug, isolationMode, planTier, region string, orgMetadata json.RawMessage, idempotencyKey string) (*Tenant, bool, error) {
 	if name == "" {
-		return nil, ErrTenantNameRequired
+		return nil, false, ErrTenantNameRequired
 	}
 	isolationMode = NormalizeIsolationMode(isolationMode)
 	if orgMetadata == nil {
@@ -90,22 +149,23 @@ func (s *Service) CreateTenant(ctx context.Context, name, slug, isolationMode, p
 		idemKey = &idempotencyKey
 	}
 
-	t, err := scanTenant(s.pool.QueryRow(ctx,
+	t, err := scanTenant(s.database().QueryRow(ctx,
 		`INSERT INTO _ayb_tenants (name, slug, isolation_mode, plan_tier, region, org_metadata, idempotency_key)
 		 VALUES ($1, $2, $3, $4, $5, $6, $7)
+		 ON CONFLICT (idempotency_key) WHERE idempotency_key IS NOT NULL DO NOTHING
 		 RETURNING `+tenantColumns,
 		name, slug, isolationMode, planTier, region, []byte(orgMetadata), idemKey,
 	))
 	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) && idempotencyKey != "" {
+			existing, lookupErr := s.getTenantByIdempotencyKey(ctx, idempotencyKey)
+			return existing, false, lookupErr
+		}
 		var pgErr *pgconn.PgError
 		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
-			// If the conflict is on idempotency_key, return the existing tenant.
-			if idempotencyKey != "" && pgErr.ConstraintName == "idx_ayb_tenants_idempotency_key" {
-				return s.getTenantByIdempotencyKey(ctx, idempotencyKey)
-			}
-			return nil, ErrTenantSlugTaken
+			return nil, false, ErrTenantSlugTaken
 		}
-		return nil, fmt.Errorf("creating tenant: %w", err)
+		return nil, false, fmt.Errorf("creating tenant: %w", err)
 	}
 
 	if t.IsolationMode == "schema" {
@@ -113,12 +173,18 @@ func (s *Service) CreateTenant(ctx context.Context, name, slug, isolationMode, p
 			if s.logger != nil {
 				s.logger.Error("tenant schema provisioning failed", "tenant_id", t.ID, "slug", t.Slug, "error", err)
 			}
-			return t, fmt.Errorf("provisioning tenant schema: %w", err)
+			return nil, false, fmt.Errorf("provisioning tenant schema: %w", err)
 		}
 	}
 
-	s.logger.Info("tenant created", "tenant_id", t.ID, "slug", slug)
-	return t, nil
+	return t, true, nil
+}
+
+func (s *Service) database() tenantDatabase {
+	if s.tx != nil {
+		return s.tx
+	}
+	return s.pool
 }
 
 // DeleteTenantSchema drops the schema for a schema-isolated tenant.
@@ -134,7 +200,7 @@ func (s *Service) DeleteTenantSchema(ctx context.Context, slug string) error {
 
 // getTenantByIdempotencyKey retrieves a tenant by its idempotency key.
 func (s *Service) getTenantByIdempotencyKey(ctx context.Context, key string) (*Tenant, error) {
-	t, err := scanTenant(s.pool.QueryRow(ctx,
+	t, err := scanTenant(s.database().QueryRow(ctx,
 		`SELECT `+tenantColumns+` FROM _ayb_tenants WHERE idempotency_key = $1`,
 		key,
 	))

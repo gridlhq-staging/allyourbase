@@ -16,13 +16,11 @@ var branchCmd = &cobra.Command{
 	Use:   "branch",
 	Short: "Database branch management commands",
 	Long: `Create, list, and delete database branches. Branches are isolated copies of your
-database that share the same schema and data at the point of creation.
-
-Examples:
-  ayb branch create feature-auth
-  ayb branch list
-  ayb branch delete feature-auth --yes
-  ayb branch diff feature-auth staging`,
+database that share the same schema and data at the point of creation.`,
+	Example: `ayb branch create feature-auth
+ayb branch list
+ayb branch delete feature-auth --yes
+ayb branch diff feature-auth staging`,
 }
 
 var branchCreateCmd = &cobra.Command{

@@ -1,0 +1,374 @@
+name: SDK Publish Readiness
+
+on:
+  workflow_dispatch:
+    inputs:
+      sdk_version:
+        description: "sdk release version without leading v"
+        required: true
+      sdk_confirmation:
+        description: "Repeat sdk_version to enable its non-dry-run publish step"
+        required: false
+        default: ""
+      sdk_react_version:
+        description: "sdk_react release version without leading v"
+        required: true
+      sdk_react_confirmation:
+        description: "Repeat sdk_react_version to enable its non-dry-run publish step"
+        required: false
+        default: ""
+      sdk_ssr_version:
+        description: "sdk_ssr release version without leading v"
+        required: true
+      sdk_ssr_confirmation:
+        description: "Repeat sdk_ssr_version to enable its non-dry-run publish step"
+        required: false
+        default: ""
+      sdk_python_version:
+        description: "sdk_python release version without leading v"
+        required: true
+      sdk_python_confirmation:
+        description: "Repeat sdk_python_version to enable its non-dry-run publish step"
+        required: false
+        default: ""
+      sdk_go_version:
+        description: "sdk_go tag version without leading v"
+        required: true
+      dry_run:
+        description: "Run validation and dry-run publish probes only"
+        required: true
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+jobs:
+  npm:
+    name: npm package dry-run
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - package_dir: sdk
+            requested_version: ${{ github.event.inputs.sdk_version }}
+            confirmation: ${{ github.event.inputs.sdk_confirmation }}
+          - package_dir: sdk_react
+            requested_version: ${{ github.event.inputs.sdk_react_version }}
+            confirmation: ${{ github.event.inputs.sdk_react_confirmation }}
+          - package_dir: sdk_ssr
+            requested_version: ${{ github.event.inputs.sdk_ssr_version }}
+            confirmation: ${{ github.event.inputs.sdk_ssr_confirmation }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e
+        with:
+          node-version: "22"
+          cache: pnpm
+          cache-dependency-path: ${{ matrix.package_dir }}/pnpm-lock.yaml
+          registry-url: "https://registry.npmjs.org"
+
+      - name: Enable pnpm
+        run: corepack enable pnpm
+
+      - name: Install base package dependencies
+        if: ${{ matrix.package_dir != 'sdk' }}
+        working-directory: sdk
+        run: pnpm install --frozen-lockfile
+
+      - name: Install package dependencies
+        working-directory: ${{ matrix.package_dir }}
+        run: pnpm install --frozen-lockfile
+
+      - name: Verify package manifest identity
+        working-directory: ${{ matrix.package_dir }}
+        run: |
+          node - <<'NODE'
+          const packageManifest = require("./package.json");
+          if (!packageManifest.name) throw new Error("missing package name");
+          console.log(packageManifest.name);
+          NODE
+
+      - name: Test package
+        working-directory: ${{ matrix.package_dir }}
+        run: pnpm test
+
+      - name: Build package
+        working-directory: ${{ matrix.package_dir }}
+        run: pnpm build
+
+      - name: Verify requested version matches package
+        id: package_version
+        working-directory: ${{ matrix.package_dir }}
+        env:
+          INPUT_VERSION: ${{ matrix.requested_version }}
+        run: |
+          node - <<'NODE'
+          const fs = require("node:fs");
+          const packageManifest = require("./package.json");
+          const expectedVersion = process.env.INPUT_VERSION;
+          if (packageManifest.version !== expectedVersion) {
+            throw new Error(
+              `package version ${packageManifest.version} does not match requested ${expectedVersion}`,
+            );
+          }
+          fs.appendFileSync(
+            process.env.GITHUB_OUTPUT,
+            `version=${packageManifest.version}\n`,
+          );
+          NODE
+
+      - name: Pack package
+        working-directory: ${{ matrix.package_dir }}
+        run: |
+          mkdir -p dist
+          npm pack --pack-destination dist
+
+      - name: Dry-run npm publish
+        working-directory: ${{ matrix.package_dir }}
+        run: npm publish --dry-run --access public
+
+      - name: Upload package artifact
+        uses: actions/upload-artifact@65462800fd760344b1a7b4382951275a0abb4808
+        with:
+          name: npm-${{ matrix.package_dir }}-${{ matrix.requested_version }}
+          path: ${{ matrix.package_dir }}/dist/*.tgz
+          if-no-files-found: error
+
+  npm_sdk_publish:
+    name: Publish npm sdk package
+    needs: npm
+    if: >-
+      ${{
+        github.event.inputs.dry_run == 'false' &&
+        github.event.inputs.sdk_confirmation == github.event.inputs.sdk_version
+      }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e
+        with:
+          node-version: "22"
+          registry-url: "https://registry.npmjs.org"
+
+      - name: Download package artifact
+        uses: actions/download-artifact@fa0a91b85d4f404e444e00e005971372dc801d16
+        with:
+          name: npm-sdk-${{ github.event.inputs.sdk_version }}
+          path: dist
+
+      - name: Publish npm package
+        run: npm publish dist/*.tgz --access public --provenance
+
+  npm_react_publish:
+    name: Publish npm react package
+    needs: npm
+    if: >-
+      ${{
+        github.event.inputs.dry_run == 'false' &&
+        github.event.inputs.sdk_react_confirmation == github.event.inputs.sdk_react_version
+      }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e
+        with:
+          node-version: "22"
+          registry-url: "https://registry.npmjs.org"
+
+      - name: Download package artifact
+        uses: actions/download-artifact@fa0a91b85d4f404e444e00e005971372dc801d16
+        with:
+          name: npm-sdk_react-${{ github.event.inputs.sdk_react_version }}
+          path: dist
+
+      - name: Publish npm package
+        run: npm publish dist/*.tgz --access public --provenance
+
+  npm_ssr_publish:
+    name: Publish npm ssr package
+    needs: npm
+    if: >-
+      ${{
+        github.event.inputs.dry_run == 'false' &&
+        github.event.inputs.sdk_ssr_confirmation == github.event.inputs.sdk_ssr_version
+      }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e
+        with:
+          node-version: "22"
+          registry-url: "https://registry.npmjs.org"
+
+      - name: Download package artifact
+        uses: actions/download-artifact@fa0a91b85d4f404e444e00e005971372dc801d16
+        with:
+          name: npm-sdk_ssr-${{ github.event.inputs.sdk_ssr_version }}
+          path: dist
+
+      - name: Publish npm package
+        run: npm publish dist/*.tgz --access public --provenance
+
+  python:
+    name: Python package dry-run
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    defaults:
+      run:
+        working-directory: sdk_python
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-python@e797f83bcb11b83ae66e0230d6156d7c80228e7c
+        with:
+          python-version: "3.12"
+
+      - name: Install package
+        run: python3 -m pip install ".[dev]" -q
+
+      - name: Test package
+        run: python3 -m pytest
+
+      - name: Build wheel and sdist
+        run: python3 -m build --wheel --sdist
+
+      - name: Verify requested version matches distributions
+        id: distribution_version
+        env:
+          INPUT_VERSION: ${{ github.event.inputs.sdk_python_version }}
+        run: |
+          python3 - <<'PY'
+          import os
+          import tarfile
+          import zipfile
+          from email.parser import Parser
+          from pathlib import Path
+
+          dist_dir = Path("dist")
+          wheel_paths = list(dist_dir.glob("*.whl"))
+          sdist_paths = list(dist_dir.glob("*.tar.gz"))
+          if len(wheel_paths) != 1 or len(sdist_paths) != 1:
+              raise SystemExit("expected exactly one wheel and one sdist")
+
+          with zipfile.ZipFile(wheel_paths[0]) as wheel:
+              metadata_paths = [
+                  name for name in wheel.namelist() if name.endswith(".dist-info/METADATA")
+              ]
+              if len(metadata_paths) != 1:
+                  raise SystemExit("expected exactly one wheel METADATA file")
+              wheel_metadata = Parser().parsestr(
+                  wheel.read(metadata_paths[0]).decode("utf-8")
+              )
+
+          with tarfile.open(sdist_paths[0]) as sdist:
+              metadata_members = [
+                  member for member in sdist.getmembers() if member.name.endswith("/PKG-INFO")
+              ]
+              if len(metadata_members) != 1:
+                  raise SystemExit("expected exactly one sdist PKG-INFO file")
+              metadata_file = sdist.extractfile(metadata_members[0])
+              if metadata_file is None:
+                  raise SystemExit("could not read sdist PKG-INFO")
+              sdist_metadata = Parser().parsestr(metadata_file.read().decode("utf-8"))
+
+          expected_version = os.environ["INPUT_VERSION"]
+          built_versions = {wheel_metadata["Version"], sdist_metadata["Version"]}
+          if built_versions != {expected_version}:
+              raise SystemExit(
+                  f"built versions {sorted(built_versions)} do not match requested "
+                  f"{expected_version}"
+              )
+
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
+              print(f"version={expected_version}", file=output)
+          PY
+
+      - name: Validate Python distributions
+        run: python3 -m twine check dist/*
+
+      - name: Upload Python distributions
+        uses: actions/upload-artifact@65462800fd760344b1a7b4382951275a0abb4808
+        with:
+          name: python-sdk-${{ github.event.inputs.sdk_python_version }}
+          path: |
+            sdk_python/dist/*.whl
+            sdk_python/dist/*.tar.gz
+          if-no-files-found: error
+
+  python_publish:
+    name: Publish Python package
+    needs: python
+    if: >-
+      ${{
+        github.event.inputs.dry_run == 'false' &&
+        github.event.inputs.sdk_python_confirmation == github.event.inputs.sdk_python_version
+      }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Download Python distributions
+        uses: actions/download-artifact@fa0a91b85d4f404e444e00e005971372dc801d16
+        with:
+          name: python-sdk-${{ github.event.inputs.sdk_python_version }}
+          path: dist
+
+      - name: Publish PyPI package
+        uses: pypa/gh-action-pypi-publish@ba38be9e461d3875417946c167d0b5f3d385a247
+        with:
+          packages-dir: dist
+
+  go:
+    name: Go module tag validation
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16
+        with:
+          go-version-file: sdk_go/go.mod
+
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e
+        with:
+          node-version: "22"
+
+      - name: Validate Go module tag format
+        env:
+          INPUT_VERSION: ${{ github.event.inputs.sdk_go_version }}
+        run: |
+          set -euo pipefail
+          case "$INPUT_VERSION" in
+            ''|[!0-9]*|*[!0-9A-Za-z.+-]*)
+              echo "version must be semantic version text without leading v" >&2
+              exit 1
+              ;;
+          esac
+          if ! npx --yes semver@7.7.3 "$INPUT_VERSION" >/dev/null; then
+            echo "version must be valid semantic version text" >&2
+            exit 1
+          fi
+          tag="sdk_go/v${INPUT_VERSION}"
+          printf '%s\n' "$tag"
+
+      - name: Test Go package
+        working-directory: sdk_go
+        run: go test ./...

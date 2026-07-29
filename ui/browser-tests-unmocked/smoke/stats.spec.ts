@@ -1,10 +1,32 @@
 import {
   test,
   expect,
+  expectOfflineRetryRecovery,
+  navigateDashboardScreenInPage,
   probeEndpoint,
-  fetchAdminStatsSnapshot,
   waitForDashboard,
 } from "../fixtures";
+import type { Page, Response } from "@playwright/test";
+
+interface AdminStatsSnapshot {
+  uptime_seconds: number;
+  go_version: string;
+  goroutines: number;
+  memory_alloc: number;
+  memory_sys: number;
+  gc_cycles: number;
+  db_pool_total?: number;
+  db_pool_idle?: number;
+  db_pool_in_use?: number;
+  db_pool_max?: number;
+}
+
+function waitForStatsResponse(page: Page): Promise<Response> {
+  return page.waitForResponse((response) => {
+    const url = new URL(response.url());
+    return url.pathname === "/api/admin/stats" && response.request().method() === "GET";
+  });
+}
 
 function formatExpectedUptime(seconds: number): string {
   const days = Math.floor(seconds / 86400);
@@ -29,32 +51,29 @@ function formatExpectedBytes(bytes: number): string {
  */
 
 test.describe("Smoke: Stats", () => {
-  test("stats page renders system metrics and memory stats", async ({ page, request, adminToken }) => {
+  test("stats page renders system metrics and memory stats", async ({
+    page,
+    request,
+    adminToken,
+    context,
+  }) => {
     const status = await probeEndpoint(request, adminToken, "/api/admin/stats/");
     test.skip(
       status === 501 || status === 404,
       `Stats endpoint not available (status ${status})`,
     );
 
-    const snapshot = await fetchAdminStatsSnapshot(request, adminToken);
+    await page.goto("/admin/");
+    await waitForDashboard(page);
+
+    const statsResponsePromise = waitForStatsResponse(page);
+    await page.locator("aside").getByRole("button", { name: /Stats/i }).click();
+    await expect(page.getByRole("heading", { name: /Stats/i })).toBeVisible({ timeout: 15_000 });
+    const snapshot = (await (await statsResponsePromise).json()) as AdminStatsSnapshot;
 
     const expectedUptime = formatExpectedUptime(snapshot.uptime_seconds);
     const expectedAlloc = formatExpectedBytes(snapshot.memory_alloc);
     const expectedSys = formatExpectedBytes(snapshot.memory_sys);
-
-    await page.route("**/api/admin/stats*", async (route) => {
-      await route.fulfill({
-        status: 200,
-        contentType: "application/json",
-        body: JSON.stringify(snapshot),
-      });
-    });
-
-    await page.goto("/admin/");
-    await waitForDashboard(page);
-
-    await page.locator("aside").getByRole("button", { name: /Stats/i }).click();
-    await expect(page.getByRole("heading", { name: /Stats/i })).toBeVisible({ timeout: 15_000 });
 
     await expect(page.getByTestId("stats-card-uptime")).toContainText(expectedUptime, {
       timeout: 5000,
@@ -71,5 +90,24 @@ test.describe("Smoke: Stats", () => {
       await expect(page.getByTestId("stats-card-in-use")).toContainText(String(snapshot.db_pool_in_use ?? 0));
       await expect(page.getByTestId("stats-card-max")).toContainText(String(snapshot.db_pool_max));
     }
+
+    // Closest-real proxy: runtime stats has no narrow server-side fault switch,
+    // so offline mode exercises the same fetch rejection and retry callback.
+    await navigateDashboardScreenInPage(page, "api-explorer");
+    await expect(page.getByRole("heading", { name: /API Explorer/i })).toBeVisible();
+
+    await expectOfflineRetryRecovery(
+      page,
+      context,
+      async () => {
+        await navigateDashboardScreenInPage(page, "stats");
+      },
+      async () => {
+        await expect(page.getByTestId("stats-card-go-version")).toContainText(snapshot.go_version, {
+          timeout: 5000,
+        });
+        await expect(page.getByTestId("stats-card-goroutines")).toBeVisible();
+      },
+    );
   });
 });

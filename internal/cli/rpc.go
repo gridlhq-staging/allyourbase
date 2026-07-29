@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"strings"
 	"text/tabwriter"
@@ -20,12 +21,10 @@ var rpcCmd = &cobra.Command{
 	Long: `Call a PostgreSQL function via the RPC endpoint on the running AYB server.
 
 Pass arguments with --arg flags (key=value pairs). Values are sent as strings
-and the server handles type coercion.
-
-Examples:
-  ayb rpc increment_counter --arg count=5
-  ayb rpc get_user_stats
-  ayb rpc search_products --arg query=laptop --arg limit=10 --json`,
+and the server handles type coercion.`,
+	Example: `ayb rpc increment_counter --arg count=5
+ayb rpc get_user_stats
+ayb rpc search_products --arg query=laptop --arg limit=10 --json`,
 	Args: cobra.ExactArgs(1),
 	RunE: runRPC,
 }
@@ -79,7 +78,7 @@ func runRPC(cmd *cobra.Command, args []string) error {
 	}
 
 	body, _ := json.Marshal(funcArgs)
-	req, err := http.NewRequest("POST", baseURL+"/api/rpc/"+funcName, bytes.NewReader(body))
+	req, err := http.NewRequest("POST", baseURL+"/api/rpc/"+url.PathEscape(funcName), bytes.NewReader(body))
 	if err != nil {
 		return fmt.Errorf("creating request: %w", err)
 	}

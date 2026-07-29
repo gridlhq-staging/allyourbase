@@ -87,17 +87,6 @@ export function AuditLogs() {
   const totalPages = Math.max(1, Math.ceil(totalCount / PAGE_SIZE));
   const expandedEntry = entries.find((entry) => entry.id === expandedId);
 
-  if (error) {
-    return (
-      <div className="p-6">
-        <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-4">
-          Audit Logs
-        </h2>
-        <p className="text-red-600 dark:text-red-400">{error}</p>
-      </div>
-    );
-  }
-
   return (
     <div className="p-6">
       <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-4">
@@ -118,56 +107,55 @@ export function AuditLogs() {
         }}
       />
 
-      {loading ? (
-        <p className="text-sm text-gray-500 dark:text-gray-400 mt-4">
-          Loading...
-        </p>
-      ) : (
-        <>
-          <AdminTable
-            columns={columns}
-            rows={entries}
-            rowKey="id"
-            page={page + 1}
-            totalPages={totalPages}
-            onPageChange={(p) => setPage(p - 1)}
-            emptyMessage="No audit log entries found"
-          />
+      <div className="mt-4">
+        <AdminTable
+          columns={columns}
+          rows={entries}
+          rowKey="id"
+          page={page + 1}
+          totalPages={totalPages}
+          onPageChange={(p) => setPage(p - 1)}
+          emptyMessage="No audit log entries found"
+          loading={loading}
+          loadingMessage="Loading..."
+          error={error}
+          docsPath="/guide/security"
+          onRetry={() => fetchEntries(page * PAGE_SIZE)}
+        />
 
-          {expandedEntry && (
-            <div
-              id={CHANGE_DETAILS_REGION_ID}
-              role="region"
-              aria-label="Audit change details"
-              className="mt-2 p-3 bg-gray-100 dark:bg-gray-800 rounded text-xs font-mono whitespace-pre-wrap"
-            >
-              <p className="font-semibold mb-1">Old Values:</p>
-              <p>{JSON.stringify(expandedEntry.old_values, null, 2) ?? "null"}</p>
-              <p className="font-semibold mt-2 mb-1">New Values:</p>
-              <p>{JSON.stringify(expandedEntry.new_values, null, 2) ?? "null"}</p>
-            </div>
-          )}
+        {expandedEntry && (
+          <div
+            id={CHANGE_DETAILS_REGION_ID}
+            role="region"
+            aria-label="Audit change details"
+            className="mt-2 p-3 bg-gray-100 dark:bg-gray-800 rounded text-xs font-mono whitespace-pre-wrap"
+          >
+            <p className="font-semibold mb-1">Old Values:</p>
+            <p>{JSON.stringify(expandedEntry.old_values, null, 2) ?? "null"}</p>
+            <p className="font-semibold mt-2 mb-1">New Values:</p>
+            <p>{JSON.stringify(expandedEntry.new_values, null, 2) ?? "null"}</p>
+          </div>
+        )}
 
-          {entries.length > 0 && (
-            <div className="mt-2">
-              {entries.map((entry) => (
-                <button
-                  key={entry.id}
-                  onClick={() =>
-                    setExpandedId(expandedId === entry.id ? null : entry.id)
-                  }
-                  aria-expanded={expandedId === entry.id}
-                  aria-controls={CHANGE_DETAILS_REGION_ID}
-                  className="text-xs text-blue-500 hover:text-blue-600 mr-3"
-                >
-                  {expandedId === entry.id ? "Hide" : "Show"} changes for{" "}
-                  {entry.id.slice(0, 8)}
-                </button>
-              ))}
-            </div>
-          )}
-        </>
-      )}
+        {entries.length > 0 && (
+          <div className="mt-2">
+            {entries.map((entry) => (
+              <button
+                key={entry.id}
+                onClick={() =>
+                  setExpandedId(expandedId === entry.id ? null : entry.id)
+                }
+                aria-expanded={expandedId === entry.id}
+                aria-controls={CHANGE_DETAILS_REGION_ID}
+                className="text-xs text-blue-500 hover:text-blue-600 mr-3"
+              >
+                {expandedId === entry.id ? "Hide" : "Show"} changes for{" "}
+                {entry.id.slice(0, 8)}
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
     </div>
   );
 }

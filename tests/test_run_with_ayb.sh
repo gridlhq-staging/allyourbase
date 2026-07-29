@@ -102,6 +102,7 @@ SUCCESS_STDERR_PATH="${TMP_DIR}/success.stderr.log"
 if ! AYB_START_COMMAND="python3 -m http.server ${SUCCESS_PORT} --bind 127.0.0.1 --directory \"${SUCCESS_DIR}\"" \
   AYB_HEALTH_URL="http://127.0.0.1:${SUCCESS_PORT}/health" \
   AYB_ADMIN_PASSWORD='unused-for-test' \
+  AYB_ADMIN_TOKEN='unused-for-test-token' \
   bash scripts/run-with-ayb.sh 'printf "post-health-ok\n"' > "$SUCCESS_STDOUT_PATH" 2> "$SUCCESS_STDERR_PATH"; then
   echo "FAIL: scripts/run-with-ayb.sh did not run the post-health command after a healthy startup"
   cat "$SUCCESS_STDOUT_PATH"
@@ -122,6 +123,60 @@ fi
 
 echo "PASS: scripts/run-with-ayb.sh runs post-health commands and cleans up the started server"
 
+TOKEN_READY_DIR="${TMP_DIR}/token-ready"
+TOKEN_READY_PORT="$(python3 - <<'PY'
+import socket
+
+with socket.socket() as sock:
+    sock.bind(("127.0.0.1", 0))
+    print(sock.getsockname()[1])
+PY
+)"
+TOKEN_READY_START_SCRIPT="${TOKEN_READY_DIR}/ayb"
+TOKEN_READY_STDOUT_PATH="${TOKEN_READY_DIR}/stdout.log"
+TOKEN_READY_STDERR_PATH="${TOKEN_READY_DIR}/stderr.log"
+mkdir -p "$TOKEN_READY_DIR"
+printf 'ok\n' > "${TOKEN_READY_DIR}/health"
+mkdir -p "$HOME/.ayb"
+printf 'stale-token\n' > "$HOME/.ayb/admin-token"
+cat > "$TOKEN_READY_START_SCRIPT" <<'SH'
+#!/usr/bin/env bash
+set -euo pipefail
+
+mkdir -p "$HOME/.ayb"
+(
+  sleep 1
+  printf 'delayed-token\n' > "$HOME/.ayb/admin-token"
+) &
+exec python3 -m http.server "$AYB_SERVER_PORT" --bind 127.0.0.1 --directory "$AYB_TEST_TOKEN_READY_DIR"
+SH
+chmod +x "$TOKEN_READY_START_SCRIPT"
+
+if ! AYB_START_COMMAND="$TOKEN_READY_START_SCRIPT" \
+  AYB_SERVER_PORT="$TOKEN_READY_PORT" \
+  AYB_HEALTH_URL="http://127.0.0.1:${TOKEN_READY_PORT}/health" \
+  AYB_ADMIN_PASSWORD='unused-for-test' \
+  AYB_TEST_TOKEN_READY_DIR="$TOKEN_READY_DIR" \
+  bash scripts/run-with-ayb.sh 'test "$(cat ~/.ayb/admin-token)" = "delayed-token" && printf "token-ready-ok\n"' > "$TOKEN_READY_STDOUT_PATH" 2> "$TOKEN_READY_STDERR_PATH"; then
+  echo "FAIL: scripts/run-with-ayb.sh dispatched before the generated admin token was ready"
+  cat "$TOKEN_READY_STDOUT_PATH"
+  cat "$TOKEN_READY_STDERR_PATH"
+  exit 1
+fi
+
+if ! grep -q '^token-ready-ok$' "$TOKEN_READY_STDOUT_PATH"; then
+  echo "FAIL: expected post-health command to observe generated admin-token material"
+  cat "$TOKEN_READY_STDOUT_PATH"
+  exit 1
+fi
+
+if [[ "$(cat "$HOME/.ayb/admin-token")" != "stale-token" ]]; then
+  echo "FAIL: scripts/run-with-ayb.sh did not restore the pre-existing admin token"
+  exit 1
+fi
+
+echo "PASS: scripts/run-with-ayb.sh waits for generated admin-token material"
+
 ISOLATED_DIR="${TMP_DIR}/isolated"
 ISOLATED_BIN_DIR="${ISOLATED_DIR}/bin"
 ISOLATED_CAPTURE_PATH="${ISOLATED_DIR}/runtime_ports"
@@ -139,6 +194,7 @@ chmod +x "${ISOLATED_BIN_DIR}/lsof"
 if ! PATH="${ISOLATED_BIN_DIR}:$PATH" \
   AYB_START_COMMAND="python3 -m http.server \"\$AYB_SERVER_PORT\" --bind 127.0.0.1 --directory \"${ISOLATED_DIR}/www\"" \
   AYB_ADMIN_PASSWORD='unused-for-test' \
+  AYB_ADMIN_TOKEN='unused-for-test-token' \
   AYB_TEST_RUNTIME_CAPTURE="$ISOLATED_CAPTURE_PATH" \
   bash scripts/run-with-ayb.sh 'printf "%s %s %s %s\n" "$AYB_SERVER_PORT" "$AYB_DATABASE_EMBEDDED_PORT" "$PLAYWRIGHT_BASE_URL" "$AYB_SERVER_SITE_URL" > "$AYB_TEST_RUNTIME_CAPTURE"'; then
   echo "FAIL: scripts/run-with-ayb.sh did not select isolated runtime ports"
@@ -269,6 +325,7 @@ if ! HOME="$BUILD_SCOPE_HOME" \
   AYB_TEST_GO_CALL_PATH="$FRESH_PREBUILT_GO_CALL_PATH" \
   AYB_TEST_FAKE_AYB_WEB_DIR="$FRESH_PREBUILT_WEB_DIR" \
   AYB_ADMIN_PASSWORD='unused-for-test' \
+  AYB_ADMIN_TOKEN='unused-for-test-token' \
   bash scripts/run-with-ayb.sh 'printf "fresh-prebuilt-ok\n"' > "$FRESH_PREBUILT_STDOUT_PATH" 2> "$FRESH_PREBUILT_STDERR_PATH"; then
   echo "FAIL: fresh non-browser local AYB runs should start an existing ./ayb without rebuilding"
   cat "$FRESH_PREBUILT_STDOUT_PATH"
@@ -342,6 +399,7 @@ if ! HOME="$BUILD_SCOPE_HOME" \
   AYB_TEST_GO_WRITES_FAKE_AYB=1 \
   AYB_TEST_FAKE_AYB_WEB_DIR="$BROWSER_WEB_DIR" \
   AYB_ADMIN_PASSWORD='unused-for-test' \
+  AYB_ADMIN_TOKEN='unused-for-test-token' \
   bash scripts/run-with-ayb.sh 'printf "playwright browser-ok\n"' > "$BROWSER_STDOUT_PATH" 2> "$BROWSER_STDERR_PATH"; then
   echo "FAIL: browser local AYB runs should still build the UI bundle before startup"
   cat "$BROWSER_STDOUT_PATH"
@@ -384,23 +442,30 @@ PORT_REFRESH_GO_CALL_PATH="${BUILD_SCOPE_DIR}/port_refresh_go"
 PORT_REFRESH_WEB_DIR="${BUILD_SCOPE_DIR}/port_refresh_www"
 mkdir -p "$PORT_REFRESH_WEB_DIR"
 printf 'ok\n' > "${PORT_REFRESH_WEB_DIR}/health"
+PORT_REFRESH_FREE_PORTS=()
+for candidate_port in 48092 49092 50092 51092 52092; do
+  if ! lsof -ti :"$candidate_port" > /dev/null 2>&1; then
+    PORT_REFRESH_FREE_PORTS+=("$candidate_port")
+  fi
+done
+if (( ${#PORT_REFRESH_FREE_PORTS[@]} < 2 )); then
+  echo "FAIL: port-refresh fixture needs two free AYB candidate ports"
+  exit 1
+fi
+PORT_REFRESH_INITIAL_PORT="${PORT_REFRESH_FREE_PORTS[0]}"
+PORT_REFRESH_FALLBACK_PORT="${PORT_REFRESH_FREE_PORTS[1]}"
+PORT_REFRESH_REAL_LSOF="$(command -v lsof)"
 cat > "${BUILD_SCOPE_BIN_DIR}/lsof" <<'SH'
 #!/usr/bin/env bash
-if [[ "${*: -1}" == ":48092" && -e "$AYB_TEST_BUILD_STARTED_PATH" ]]; then
+if [[ "${*: -1}" == ":${AYB_TEST_INITIAL_PORT}" && -e "$AYB_TEST_BUILD_STARTED_PATH" ]]; then
   exit 0
 fi
-exit 1
+exec "$AYB_TEST_REAL_LSOF" "$@"
 SH
 chmod +x "${BUILD_SCOPE_BIN_DIR}/lsof"
 
 unset AYB_BASE_URL AYB_HEALTH_URL AYB_SERVER_PORT AYB_DATABASE_EMBEDDED_PORT
 unset PLAYWRIGHT_BASE_URL AYB_SERVER_SITE_URL
-for _ in $(seq 1 40); do
-  if ! curl -fsS "http://localhost:48092/health" > /dev/null 2>&1; then
-    break
-  fi
-  sleep 0.05
-done
 if ! HOME="$BUILD_SCOPE_HOME" \
   PATH="${BUILD_SCOPE_BIN_DIR}:$PATH" \
   AYB_START_COMMAND='./ayb start --foreground --host 127.0.0.1' \
@@ -411,7 +476,10 @@ if ! HOME="$BUILD_SCOPE_HOME" \
   AYB_TEST_GO_WRITES_FAKE_AYB=1 \
   AYB_TEST_FAKE_AYB_WEB_DIR="$PORT_REFRESH_WEB_DIR" \
   AYB_TEST_RUNTIME_CAPTURE="$PORT_REFRESH_CAPTURE_PATH" \
+  AYB_TEST_INITIAL_PORT="$PORT_REFRESH_INITIAL_PORT" \
+  AYB_TEST_REAL_LSOF="$PORT_REFRESH_REAL_LSOF" \
   AYB_ADMIN_PASSWORD='unused-for-test' \
+  AYB_ADMIN_TOKEN='unused-for-test-token' \
   bash scripts/run-with-ayb.sh 'printf "%s %s %s\n" "$AYB_SERVER_PORT" "$PLAYWRIGHT_BASE_URL" "$AYB_SERVER_SITE_URL" > "$AYB_TEST_RUNTIME_CAPTURE"' > "$PORT_REFRESH_STDOUT_PATH" 2> "$PORT_REFRESH_STDERR_PATH"; then
   echo "FAIL: wrapper should refresh automatic ports after the browser build"
   cat "$PORT_REFRESH_STDOUT_PATH"
@@ -419,9 +487,42 @@ if ! HOME="$BUILD_SCOPE_HOME" \
   exit 1
 fi
 
-if [[ "$(cat "$PORT_REFRESH_CAPTURE_PATH")" != "49092 http://localhost:49092 http://localhost:49092" ]]; then
+if [[ "$(cat "$PORT_REFRESH_CAPTURE_PATH")" != "$PORT_REFRESH_FALLBACK_PORT http://localhost:$PORT_REFRESH_FALLBACK_PORT http://localhost:$PORT_REFRESH_FALLBACK_PORT" ]]; then
   echo "FAIL: expected post-build port refresh and aligned public URLs, got $(cat "$PORT_REFRESH_CAPTURE_PATH")"
   exit 1
 fi
 
 echo "PASS: scripts/run-with-ayb.sh refreshes automatic ports after slow browser builds"
+
+# The canonical admin-token file holds a live bearer token. internal/cli writes it
+# at 0600 (writeAdminTokenFile); the wrapper materializes the same path with shell
+# redirection and cp, which take their mode from the umask instead. Assert the
+# on-disk mode under a permissive umask so a regression to 0644 fails here.
+TOKEN_MODE_DIR="${TMP_DIR}/token-mode"
+TOKEN_MODE_HOME="${TOKEN_MODE_DIR}/home"
+TOKEN_MODE_CAPTURE_PATH="${TOKEN_MODE_DIR}/mode"
+TOKEN_MODE_STDERR_PATH="${TOKEN_MODE_DIR}/stderr.log"
+mkdir -p "$TOKEN_MODE_HOME"
+
+read_token_mode='python3 -c "import os, stat; print(oct(stat.S_IMODE(os.stat(os.path.expanduser(\"~/.ayb/admin-token\")).st_mode))[2:])" > "$AYB_TEST_TOKEN_MODE_PATH"'
+
+if ! (
+  umask 022
+  HOME="$TOKEN_MODE_HOME" \
+  AYB_START_COMMAND='bash -lc "sleep 30"' \
+  AYB_HEALTH_URL="http://127.0.0.1:${HEALTH_PORT}/health" \
+  AYB_ADMIN_TOKEN='token-materialized-by-wrapper' \
+  AYB_TEST_TOKEN_MODE_PATH="$TOKEN_MODE_CAPTURE_PATH" \
+  bash scripts/run-with-ayb.sh "$read_token_mode"
+) 2> "$TOKEN_MODE_STDERR_PATH"; then
+  echo "FAIL: wrapper should materialize the admin token and run the post-health command"
+  cat "$TOKEN_MODE_STDERR_PATH"
+  exit 1
+fi
+
+if [[ "$(cat "$TOKEN_MODE_CAPTURE_PATH")" != "600" ]]; then
+  echo "FAIL: canonical admin-token file must be 0600, got $(cat "$TOKEN_MODE_CAPTURE_PATH")"
+  exit 1
+fi
+
+echo "PASS: scripts/run-with-ayb.sh materializes the canonical admin token at 0600"

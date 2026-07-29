@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { renderWithProviders, expectWcagContrastToken } from "../../test-utils";
 import { AuthHooks } from "../AuthHooks";
 
@@ -52,5 +53,22 @@ describe("AuthHooks", () => {
     await waitFor(() => {
       expect(screen.getByText("Auth error")).toBeInTheDocument();
     });
+  });
+
+  it("recovers from an auth hooks load failure through an error-scoped Retry that refetches", async () => {
+    const user = userEvent.setup();
+    // First load rejects; the beforeEach default (mockHooks) satisfies the retry.
+    (api.getAuthHooks as ReturnType<typeof vi.fn>).mockRejectedValueOnce(new Error("Auth error"));
+    renderWithProviders(<AuthHooks />);
+
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent("Auth error");
+    // Panel shell (heading) stays mounted alongside the error.
+    expect(screen.getByRole("heading", { name: "Auth Hooks" })).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Retry" }));
+
+    await waitFor(() => expect(screen.getByText("validate_email")).toBeInTheDocument());
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });
 });

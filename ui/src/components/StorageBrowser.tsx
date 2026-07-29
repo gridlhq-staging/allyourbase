@@ -222,7 +222,11 @@ export function StorageBrowser() {
 
       {error && (
         <div className="mx-6 mt-3">
-          <ErrorNotice message={error} docsPath="/guide/file-storage" />
+          <ErrorNotice
+            message={error}
+            docsPath="/guide/file-storage"
+            onAction={() => void fetchFiles()}
+          />
         </div>
       )}
 

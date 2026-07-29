@@ -21,7 +21,7 @@ const domainStatusMap: Record<string, "success" | "error" | "warning" | "info" |
 };
 
 export function CustomDomains() {
-  const { data, loading, error, actionLoading, runAction } = useAdminResource(
+  const { data, loading, error, actionLoading, refresh, runAction } = useAdminResource(
     () => listDomains().then((r) => r.items),
   );
   const [showCreate, setShowCreate] = useState(false);
@@ -102,17 +102,6 @@ export function CustomDomains() {
     },
   ];
 
-  if (error) {
-    return (
-      <div className="p-6">
-        <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-4">
-          Custom Domains
-        </h2>
-        <p className="text-red-600 dark:text-red-400">{error}</p>
-      </div>
-    );
-  }
-
   return (
     <div className="p-6">
       <div className="flex items-center justify-between mb-4">
@@ -188,19 +177,17 @@ export function CustomDomains() {
         </div>
       )}
 
-      {loading ? (
-        <p className="text-sm text-gray-500 dark:text-gray-300">Loading...</p>
-      ) : (
-        <AdminTable
-          columns={columns}
-          rows={data ?? []}
-          rowKey="id"
-          page={1}
-          totalPages={1}
-          onPageChange={() => {}}
-          emptyMessage="No custom domains configured"
-        />
-      )}
+      <AdminTable
+        columns={columns}
+        rows={data ?? []}
+        rowKey="id"
+        emptyMessage="No custom domains configured"
+        loading={loading}
+        loadingMessage="Loading..."
+        error={error}
+        docsPath="/guide/admin-dashboard"
+        onRetry={refresh}
+      />
 
       <ConfirmDialog
         open={deleteTarget !== null}

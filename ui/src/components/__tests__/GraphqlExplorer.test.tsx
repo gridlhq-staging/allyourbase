@@ -449,6 +449,41 @@ describe("GraphqlExplorer", () => {
     expect(screen.getByRole("button", { name: "Send" })).toBeEnabled();
   });
 
+  it("retries the current GraphQL query from the error panel without replacing editor controls", async () => {
+    const retryBody = { data: { retry_check: [{ id: "row_1" }] } };
+    mockExecuteGraphql
+      .mockRejectedValueOnce(new Error("GraphQL transport unavailable"))
+      .mockResolvedValueOnce(makeGraphqlResult({ body: retryBody }));
+    render(<GraphqlExplorer />);
+
+    setTextArea("GraphQL query", "query RetryCheck { retry_check { id } }");
+    setTextArea("GraphQL variables", '{"limit": 1}');
+    await sendDefaultQuery();
+
+    const alert = await screen.findByRole("alert");
+    expect(
+      within(alert).getByText("GraphQL transport unavailable", { exact: true }),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Retry" })).toBeInTheDocument();
+    expect(screen.getByLabelText("GraphQL query")).toHaveValue(
+      "query RetryCheck { retry_check { id } }",
+    );
+    expect(screen.getByLabelText("GraphQL variables")).toHaveValue('{"limit": 1}');
+
+    await userEvent.setup().click(screen.getByRole("button", { name: "Retry" }));
+
+    await waitFor(() => {
+      expect(screen.getByTestId("graphql-response-body").textContent).toBe(
+        JSON.stringify(retryBody, null, 2),
+      );
+    });
+    expect(mockExecuteGraphql).toHaveBeenNthCalledWith(
+      2,
+      "query RetryCheck { retry_check { id } }",
+      { limit: 1 },
+    );
+  });
+
   it("renders the schema load error message when introspection transport throws", async () => {
     mockExecuteGraphql.mockRejectedValueOnce(new Error("network down"));
     render(<GraphqlExplorer />);

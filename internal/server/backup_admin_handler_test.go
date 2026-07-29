@@ -35,7 +35,8 @@ func (f *fakeBackupService) TriggerBackup(_ context.Context) (backup.RunResult, 
 }
 
 func backupTestServer(svc backupAdmin) *Server {
-	s := &Server{backupService: svc}
+	s := &Server{}
+	s.SetBackupService(svc)
 	r := chi.NewRouter()
 	r.Route("/admin/backups", func(r chi.Router) {
 		r.Get("/", s.handleAdminBackupList)
@@ -104,6 +105,40 @@ func TestAdminBackupListNilService(t *testing.T) {
 	json.Unmarshal(w.Body.Bytes(), &resp)
 	if resp["total"] != float64(0) {
 		t.Errorf("total = %v; want 0", resp["total"])
+	}
+}
+
+func TestAdminBackupListUsesMetadataListerWithoutTriggerService(t *testing.T) {
+	s := backupTestServer(nil)
+	s.SetBackupLister(&fakeBackupService{
+		records: []backup.BackupRecord{{
+			ID:         "seeded-backup",
+			DBName:     "smoke_backup",
+			Status:     backup.StatusCompleted,
+			BackupType: "logical",
+		}},
+		total: 1,
+	})
+
+	req := httptest.NewRequest("GET", "/admin/backups", nil)
+	w := httptest.NewRecorder()
+	s.router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d; want 200", w.Code)
+	}
+	var resp struct {
+		Backups []backup.BackupRecord `json:"backups"`
+		Total   int                   `json:"total"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if resp.Total != 1 || len(resp.Backups) != 1 {
+		t.Fatalf("backups = %#v, total = %d; want one seeded backup", resp.Backups, resp.Total)
+	}
+	if resp.Backups[0].DBName != "smoke_backup" {
+		t.Fatalf("db_name = %q; want smoke_backup", resp.Backups[0].DBName)
 	}
 }
 

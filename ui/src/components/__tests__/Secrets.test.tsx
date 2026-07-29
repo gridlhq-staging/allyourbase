@@ -184,13 +184,47 @@ describe("Secrets", () => {
     });
   });
 
-  it("shows error state on fetch failure", async () => {
-    (api.listSecrets as ReturnType<typeof vi.fn>).mockRejectedValue(
+  it("retries the list fetch from the exact primary-load error", async () => {
+    (api.listSecrets as ReturnType<typeof vi.fn>).mockRejectedValueOnce(
       new Error("Forbidden"),
     );
     renderWithProviders(<Secrets />);
     await waitFor(() => {
       expect(screen.getByText("Forbidden")).toBeInTheDocument();
     });
+    expect(
+      screen.getByRole("button", { name: /create secret/i }),
+    ).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+
+    await waitFor(() => {
+      expect(screen.getByText("DATABASE_URL")).toBeInTheDocument();
+    });
+    expect(api.listSecrets).toHaveBeenCalledTimes(2);
+  });
+
+  it("keeps the create form mounted when create fails", async () => {
+    (api.createSecret as ReturnType<typeof vi.fn>).mockRejectedValueOnce(
+      new Error("Create forbidden"),
+    );
+    renderWithProviders(<Secrets />);
+    await screen.findByText("DATABASE_URL");
+
+    fireEvent.click(screen.getByRole("button", { name: /create secret/i }));
+    fireEvent.change(screen.getByLabelText("Name"), {
+      target: { value: "NEW_SECRET" },
+    });
+    fireEvent.change(screen.getByLabelText("Value"), {
+      target: { value: "secret-value" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /^create$/i }));
+
+    await waitFor(() => {
+      expect(screen.getByText("Create forbidden")).toBeInTheDocument();
+    });
+    expect(screen.getByText("New Secret")).toBeInTheDocument();
+    expect(screen.getByLabelText("Name")).toHaveValue("NEW_SECRET");
+    expect(screen.getByRole("button", { name: "Retry" })).toBeInTheDocument();
   });
 });

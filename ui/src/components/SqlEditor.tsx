@@ -348,7 +348,11 @@ export function SqlEditor({ onSchemaChange }: SqlEditorProps) {
       <div className="flex-1 overflow-auto">
         {error && (
           <div className="m-4">
-            <ErrorNotice message={error} docsPath="/guide/patterns" />
+            <ErrorNotice
+              message={error}
+              docsPath="/guide/patterns"
+              onAction={execute}
+            />
           </div>
         )}
 

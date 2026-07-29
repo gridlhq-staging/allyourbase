@@ -3,7 +3,9 @@ import {
   expect,
   seedEdgeFunction,
   deleteEdgeFunction,
+  expectOfflineRetryRecovery,
   getEdgeFunctionIDByName,
+  navigateDashboardScreenInPage,
   waitForDashboard,
 } from "../fixtures";
 
@@ -24,7 +26,7 @@ test.describe("Smoke: Edge Functions CRUD", () => {
     }
   });
 
-  test("seeded function renders in list view", async ({ page, request, adminToken }) => {
+  test("seeded function renders in list view", async ({ page, request, adminToken, context }) => {
     const runId = Date.now();
     const fnName = `seed-verify-${runId}`;
 
@@ -44,6 +46,23 @@ test.describe("Smoke: Edge Functions CRUD", () => {
 
     // Verify it shows as Public
     await expect(page.getByTestId(`fn-public-${fn.id}`)).toHaveText("Public");
+
+    // Closest-real proxy: the function registry has no narrow fault switch, so
+    // offline mode exercises the same list-fetch rejection and retry callback.
+    await navigateDashboardScreenInPage(page, "api-explorer");
+    await expect(page.getByRole("heading", { name: /API Explorer/i })).toBeVisible();
+
+    await expectOfflineRetryRecovery(
+      page,
+      context,
+      async () => {
+        await navigateDashboardScreenInPage(page, "edge-functions");
+      },
+      async () => {
+        await expect(page.getByRole("cell", { name: fnName })).toBeVisible({ timeout: 5000 });
+        await expect(page.getByTestId(`fn-public-${fn.id}`)).toHaveText("Public");
+      },
+    );
   });
 
   test("create, invoke, and delete a function via UI", async ({ page, request, adminToken }) => {
@@ -124,6 +143,7 @@ test.describe("Smoke: Edge Functions CRUD", () => {
     // Verify we're back on the list and the function is gone
     await expect(page.getByRole("heading", { name: "Edge Functions" })).toBeVisible({ timeout: 15_000 });
     await expect(page.getByRole("cell", { name: fnName })).not.toBeVisible({ timeout: 5000 });
+    await expect(page.getByText("No edge functions deployed yet", { exact: true })).toBeVisible();
     removeTrackedFunctionID(functionIDs, createdFunctionID);
   });
 });

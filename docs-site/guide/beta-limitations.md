@@ -18,11 +18,11 @@ The Firebase importer is retired; use PostgreSQL ingest paths or a custom migrat
 
 ## Passkey resident-key registration
 
-First-factor passkey login is shipped through the JavaScript SDK and React SDK, but resident-key / discoverable-credential registration is not yet enabled. The backend registration owner still calls `BeginRegistration` without resident-key options, so usernameless passkey login remains open.
+First-factor passkey login is shipped through the JavaScript SDK and React SDK. WebAuthn registration requests now set `residentKey: "preferred"` and `requireResidentKey: false`, so discoverable credentials are enabled when the authenticator supports them but are not mandatory for enrollment.
 
 ## Other-language SDK passkey helpers
 
-Search helper parity is shipped across the JavaScript, Go, Python, Dart, Kotlin, and Swift SDK list surfaces, and first-factor passkey wire helpers plus typed synonym methods shipped for Go, Python, Dart, Kotlin, and Swift on 2026-07-10 (contract-tested against the canonical `sdk_contract` fixtures). The remaining seam is device-only: the mobile SDKs' (Dart/Kotlin/Swift) native platform credential ceremony is exercised only on real devices, and no packaged Android credentials module ships yet.
+Search helper parity is shipped across the JavaScript, Go, Python, Dart, Kotlin, and Swift SDK list surfaces, and first-factor passkey wire helpers plus typed synonym methods shipped for Go, Python, Dart, Kotlin, and Swift on 2026-07-10 (contract-tested against the canonical `sdk_contract` fixtures). Passkey wire helpers are present in the JavaScript, Go, Python, Dart, Kotlin, and Swift SDKs. JavaScript runs browser WebAuthn ceremonies, and Swift ships a system assertion authenticator; remaining native credential ceremonies stay with each application/device platform. Dedicated RPC helpers are present in JavaScript, Python, and Dart; Go exposes Edge Function invocation helpers; and GraphQL helpers are present in JavaScript.
 
 ## Local Supabase Export Caveat
 

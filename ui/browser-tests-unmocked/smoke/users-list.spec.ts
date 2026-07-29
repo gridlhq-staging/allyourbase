@@ -25,7 +25,7 @@ test.describe("Smoke: Users List", () => {
   });
 
   test("seeded user renders in users list", async ({ page, request, adminToken }) => {
-    const probeStatus = await probeEndpoint(request, adminToken, "/api/admin/users/");
+    const probeStatus = await probeEndpoint(request, adminToken, "/api/admin/users");
     test.skip(
       probeStatus === 503 || probeStatus === 404 || probeStatus === 501,
       `Users service unavailable (status ${probeStatus})`,
@@ -41,7 +41,9 @@ test.describe("Smoke: Users List", () => {
     // Act: navigate to Users page
     await page.goto("/admin/");
     await waitForDashboard(page);
-    const usersButton = page.locator("aside").getByRole("button", { name: /^Users$/i });
+    const usersButton = page
+      .getByRole("complementary")
+      .getByRole("button", { name: /^Users$/i });
     await usersButton.click();
     await expect(page.getByRole("heading", { name: /Users/i })).toBeVisible({ timeout: 15_000 });
 

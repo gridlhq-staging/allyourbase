@@ -1,6 +1,12 @@
 import { expect, test as base, type APIRequestContext, type Page, type Request, type TestInfo } from "@playwright/test";
 import { getBrowserUnmockedSkipReason } from "../browser-preflight";
-import { checkAuthEnabled, execSQL, getStoredAdminToken, waitForDashboard } from "./core";
+import {
+  assertSafeSQLIdentifier,
+  checkAuthEnabled,
+  execSQL,
+  getStoredAdminToken,
+  waitForDashboard,
+} from "./core";
 import {
   cleanupAuthUser,
   ensureAuthSettings,
@@ -27,9 +33,10 @@ export * from "./usage";
 export * from "./tenants";
 export * from "./orgs";
 export * from "./chunks";
+export * from "./admin_relation";
+export * from "./conditional-readiness";
 
 const browserSkipReason = getBrowserUnmockedSkipReason();
-const SAFE_SQL_IDENTIFIER = /^[A-Za-z_][A-Za-z0-9_]*$/;
 
 function expectedPageOrigin(baseURL: string | undefined): string {
   if (!baseURL) {
@@ -45,13 +52,6 @@ function expectedPageOrigin(baseURL: string | undefined): string {
 
 function hasAuthorizationHeader(headers: Record<string, string>): boolean {
   return Object.keys(headers).some((name) => name.toLowerCase() === "authorization");
-}
-
-export function assertSafeSQLIdentifier(identifier: string, label: string): string {
-  if (!SAFE_SQL_IDENTIFIER.test(identifier)) {
-    throw new Error(`Unsafe SQL identifier for ${label}: ${identifier}`);
-  }
-  return identifier;
 }
 
 export function buildParallelSafeRunID(
@@ -70,6 +70,16 @@ export async function dropTableIfExists(
   await execSQL(request, token, `DROP TABLE IF EXISTS ${safeTableName}`);
 }
 
+/**
+ * Waits for a table to appear in the dashboard sidebar, re-requesting a schema
+ * refresh between attempts.
+ *
+ * Each attempt clicks "Refresh schema" once and then gives that fetch a bounded
+ * window to render the link. Sampling visibility immediately after the click
+ * re-clicked refresh every ~100ms and restarted the in-flight schema fetch, so a
+ * slow fetch could be starved for the whole timeout even though the table
+ * existed — the observed flake in `full/first-table-journey`.
+ */
 export async function waitForTableInSidebar(page: Page, tableName: string): Promise<void> {
   const safeTableName = assertSafeSQLIdentifier(tableName, "table name");
   const sidebar = page.getByRole("complementary");
@@ -81,9 +91,19 @@ export async function waitForTableInSidebar(page: Page, tableName: string): Prom
     .poll(
       async () => {
         await refreshButton.click();
-        return tableLink.isVisible();
+        try {
+          await tableLink.waitFor({ state: "visible", timeout: 3000 });
+          return true;
+        } catch (error) {
+          // Only a timeout means "not there yet"; strict-mode violations and
+          // page/context errors must stay visible instead of polling silently.
+          if (error instanceof Error && error.name === "TimeoutError") {
+            return false;
+          }
+          throw error;
+        }
       },
-      { timeout: 15000 },
+      { intervals: [500, 1000, 2000], timeout: 30000 },
     )
     .toBe(true);
 }

@@ -1,4 +1,12 @@
-import { test, expect, seedSAMLProvider, cleanupSAMLProvider, probeEndpoint, waitForDashboard } from "../fixtures";
+import {
+  test,
+  expect,
+  replaceAdminRelationWithEmptyClone,
+  seedSAMLProvider,
+  cleanupSAMLProvider,
+  probeEndpoint,
+  waitForDashboard,
+} from "../fixtures";
 
 /**
  * SMOKE TEST: SAML Configuration
@@ -47,5 +55,48 @@ test.describe("Smoke: SAML", () => {
 
     // Verify add-provider button
     await expect(page.getByRole("button", { name: /Add Provider/i })).toBeVisible();
+  });
+
+  test("empty and unavailable SAML storage recover through Retry", async ({
+    page,
+    request,
+    adminToken,
+  }) => {
+    const status = await probeEndpoint(request, adminToken, "/api/admin/auth/saml");
+    test.skip(
+      status === 501 || status === 404,
+      `SAML service not configured (status ${status})`,
+    );
+
+    const runId = Date.now();
+    const providerName = `retry-saml-${runId}`;
+    await seedSAMLProvider(request, adminToken, {
+      name: providerName,
+      entity_id: `urn:retry:${runId}`,
+    });
+    providerNames.push(providerName);
+    const relationState = await replaceAdminRelationWithEmptyClone(
+      request,
+      adminToken,
+      "_ayb_saml_providers",
+    );
+
+    try {
+      await page.goto("/admin/screens/saml");
+      await waitForDashboard(page);
+      await expect(page.getByText("No SAML providers configured", { exact: true })).toBeVisible();
+
+      await relationState.removeEmptyClone();
+      await page.reload();
+      await waitForDashboard(page);
+      await expect(page.getByText("failed to list SAML providers", { exact: true })).toBeVisible();
+      await expect(page.getByRole("heading", { name: /SAML Configuration/i })).toBeVisible();
+
+      await relationState.restore();
+      await page.getByRole("button", { name: "Retry", exact: true }).click();
+      await expect(page.getByText(providerName, { exact: true })).toBeVisible({ timeout: 5000 });
+    } finally {
+      await relationState.restore();
+    }
   });
 });

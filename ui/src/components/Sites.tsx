@@ -11,6 +11,7 @@ import {
 } from "../api_sites";
 import type { Deploy, Site } from "../types/sites";
 import { useAdminResource } from "../hooks/useAdminResource";
+import { ErrorNotice } from "./ErrorNotice";
 import { AdminTable, type Column } from "./shared/AdminTable";
 import { ConfirmDialog } from "./shared/ConfirmDialog";
 import { StatusBadge } from "./shared/StatusBadge";
@@ -431,17 +432,6 @@ export function Sites() {
     );
   }
 
-  if (error && !siteListResult) {
-    return (
-      <div className="p-6">
-        <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-4">
-          Sites
-        </h2>
-        <p className="text-red-600 dark:text-red-400">{error}</p>
-      </div>
-    );
-  }
-
   return (
     <div className="p-6">
       <div className="flex items-center justify-between mb-4">
@@ -456,8 +446,15 @@ export function Sites() {
         </button>
       </div>
 
-      {error ? (
-        <p className="mb-4 text-red-600 dark:text-red-400">{error}</p>
+      {error && siteListResult ? (
+        <div className="mb-4">
+          <ErrorNotice
+            message={error}
+            docsPath="/guide/admin-dashboard"
+            actionLabel="Retry"
+            onAction={refresh}
+          />
+        </div>
       ) : null}
 
       {showCreateForm && (
@@ -513,19 +510,20 @@ export function Sites() {
         </div>
       )}
 
-      {loading ? (
-        <p className="text-sm text-gray-500 dark:text-gray-400">Loading...</p>
-      ) : (
-        <AdminTable
-          columns={columns}
-          rows={siteListResult?.sites ?? []}
-          rowKey="id"
-          page={siteListResult?.page ?? page}
-          totalPages={totalPages}
-          onPageChange={setPage}
-          emptyMessage="No sites configured"
-        />
-      )}
+      <AdminTable
+        columns={columns}
+        rows={siteListResult?.sites ?? []}
+        rowKey="id"
+        page={siteListResult?.page ?? page}
+        totalPages={totalPages}
+        onPageChange={setPage}
+        emptyMessage="No sites configured"
+        loading={loading}
+        loadingMessage="Loading..."
+        error={siteListResult ? null : error}
+        docsPath="/guide/admin-dashboard"
+        onRetry={refresh}
+      />
 
       <ConfirmDialog
         open={deleteTarget !== null}

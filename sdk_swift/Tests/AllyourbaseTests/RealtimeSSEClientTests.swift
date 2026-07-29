@@ -52,6 +52,24 @@ struct RealtimeSSEClientTests {
     }
 
     @Test
+    func subscribeDoesNotRequireOriginatingClientToOutliveRealtimeClient() async throws {
+        let transport = MockSSETransport()
+        let connection = MockSSEConnection()
+        transport.enqueue(connection: connection)
+
+        let realtime = makeRealtimeClientWithExpiredOwner(transport: transport)
+        let unsubscribe = realtime.subscribe(tables: ["posts"]) { _ in }
+        defer { unsubscribe() }
+
+        try await waitUntil { !transport.requests.isEmpty }
+
+        let request = try #require(transport.requests.first)
+        #expect(request.url.path == "/api/realtime")
+        let components = try #require(URLComponents(url: request.url, resolvingAgainstBaseURL: false))
+        #expect(components.queryItems?.first(where: { $0.name == "token" })?.value == "jwt_token")
+    }
+
+    @Test
     func parsedEventsAreDeliveredToCallback() async throws {
         let transport = MockSSETransport()
         let connection = MockSSEConnection()
@@ -166,4 +184,18 @@ struct RealtimeSSEClientTests {
         #expect(transport.requests.count == 1)
         #expect(await recorder.count() == 0)
     }
+}
+
+private func makeRealtimeClientWithExpiredOwner(transport: MockSSETransport) -> RealtimeClient {
+    let client = AYBClient(
+        Stage3TestBootstrap.baseURL,
+        tokenStore: InMemoryTokenStore(accessToken: "jwt_token", refreshToken: "refresh")
+    )
+    return RealtimeClient(
+        client: client,
+        sseTransport: transport,
+        options: RealtimeOptions(maxReconnectAttempts: 0, reconnectDelays: [0.01], jitterMax: 0),
+        jitterProvider: { _ in 0 },
+        sleep: { _ in }
+    )
 }

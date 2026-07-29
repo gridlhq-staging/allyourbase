@@ -21,6 +21,8 @@ binaries, and cleans up PATH entries from your shell profile.
 
 Your database data (~/.ayb/data) is preserved by default. Use --purge to
 remove everything including your embedded database.`,
+	Example: `ayb uninstall
+ayb uninstall --purge --yes`,
 	RunE: runUninstall,
 }
 
@@ -41,7 +43,7 @@ func runUninstall(cmd *cobra.Command, args []string) error {
 
 	aybDir := filepath.Join(home, ".ayb")
 	binPath := filepath.Join(aybDir, "bin", "ayb")
-	proceed, err := uninstallPreflight(aybDir, jsonOut, purge, yes)
+	proceed, err := uninstallPreflight(cmd, aybDir, jsonOut, purge, yes)
 	if err != nil {
 		return err
 	}
@@ -54,7 +56,7 @@ func runUninstall(cmd *cobra.Command, args []string) error {
 	return renderUninstallResult(jsonOut, removed, profilesCleaned, dataPreserved, aybDir)
 }
 
-func uninstallPreflight(aybDir string, jsonOut, purge, yes bool) (bool, error) {
+func uninstallPreflight(cmd *cobra.Command, aybDir string, jsonOut, purge, yes bool) (bool, error) {
 	// Check if server is running.
 	if isServerRunning() {
 		if jsonOut {
@@ -68,19 +70,19 @@ func uninstallPreflight(aybDir string, jsonOut, purge, yes bool) (bool, error) {
 		if jsonOut {
 			return false, writeUninstallStatus("not_installed", "nothing to uninstall")
 		}
-		fmt.Println("Nothing to uninstall (~/.ayb does not exist).")
+		fmt.Fprintln(cmd.OutOrStdout(), "Nothing to uninstall (~/.ayb does not exist).")
 		return false, nil
 	}
 
 	// Confirm purge if requested.
 	if purge && !yes {
-		fmt.Println("This will delete your embedded database and all data in ~/.ayb.")
-		fmt.Print("Continue? [y/N] ")
-		reader := bufio.NewReader(os.Stdin)
+		fmt.Fprintln(cmd.ErrOrStderr(), "This will delete your embedded database and all data in ~/.ayb.")
+		fmt.Fprint(cmd.ErrOrStderr(), "Continue? [y/N] ")
+		reader := bufio.NewReader(cmd.InOrStdin())
 		answer, _ := reader.ReadString('\n')
 		answer = strings.TrimSpace(strings.ToLower(answer))
 		if answer != "y" && answer != "yes" {
-			fmt.Println("Aborted.")
+			fmt.Fprintln(cmd.ErrOrStderr(), "Aborted.")
 			return false, nil
 		}
 	}

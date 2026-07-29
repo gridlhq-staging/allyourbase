@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/url"
 	"os"
 	"strings"
 	"text/tabwriter"
@@ -16,6 +17,9 @@ import (
 var oauthCmd = &cobra.Command{
 	Use:   "oauth",
 	Short: "Manage OAuth 2.0 provider resources",
+	Example: `ayb oauth clients list
+ayb oauth clients create <app-id> --name web --redirect-uris http://localhost:3000/callback --scopes readwrite
+ayb oauth clients rotate-secret <client-id>`,
 }
 
 var oauthClientsCmd = &cobra.Command{
@@ -215,7 +219,7 @@ func runOAuthClientsList(cmd *cobra.Command, args []string) error {
 func runOAuthClientsDelete(cmd *cobra.Command, args []string) error {
 	clientID := args[0]
 
-	resp, body, err := adminRequest(cmd, "DELETE", "/api/admin/oauth/clients/"+clientID, nil)
+	resp, body, err := adminRequest(cmd, "DELETE", "/api/admin/oauth/clients/"+url.PathEscape(clientID), nil)
 	if err != nil {
 		return err
 	}
@@ -231,7 +235,7 @@ func runOAuthClientsRotateSecret(cmd *cobra.Command, args []string) error {
 	outFmt := outputFormat(cmd)
 	clientID := args[0]
 
-	resp, respBody, err := adminRequest(cmd, "POST", "/api/admin/oauth/clients/"+clientID+"/rotate-secret", nil)
+	resp, respBody, err := adminRequest(cmd, "POST", "/api/admin/oauth/clients/"+url.PathEscape(clientID)+"/rotate-secret", nil)
 	if err != nil {
 		return err
 	}

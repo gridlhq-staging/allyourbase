@@ -103,6 +103,24 @@ describe("AdminLogs", () => {
     expect(screen.queryByText(/no log entries found/i)).not.toBeInTheDocument();
   });
 
+  it("recovers from a logs load failure through an error-scoped Retry that refetches", async () => {
+    const user = userEvent.setup();
+    (api.listAdminLogs as ReturnType<typeof vi.fn>).mockRejectedValueOnce(new Error("network down"));
+
+    renderWithProviders(<AdminLogs />);
+
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent("network down");
+    // Panel shell (filters) stays mounted alongside the error.
+    expect(screen.getByLabelText("Search logs")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Retry" }));
+
+    // beforeEach default resolves listAdminLogs, so retry recovers the rows.
+    await expect(screen.findByText("boot complete")).resolves.toBeInTheDocument();
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
   it("renders buffering-disabled message from backend response", async () => {
     (api.listAdminLogs as ReturnType<typeof vi.fn>).mockResolvedValueOnce(
       makeLogsResult({

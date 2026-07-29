@@ -25,7 +25,10 @@ type Migrator struct {
 	// sourceColumnCache memoizes source schema column existence checks.
 	sourceColumnCache map[string]bool
 	// skippedTables tracks source tables intentionally skipped due schema incompatibilities.
-	skippedTables map[string]string
+	skippedTables    map[string]string
+	schemaTables     tableIdentitySet
+	skippedFunctions map[string]string
+	skippedTriggers  map[string]string
 }
 
 // NewMigrator creates a migrator that connects to both the source (Supabase)
@@ -36,6 +39,9 @@ func NewMigrator(opts MigrationOptions) (*Migrator, error) {
 	}
 	if opts.TargetURL == "" {
 		return nil, fmt.Errorf("target database URL is required")
+	}
+	if err := opts.validateStorageSourceOptions(); err != nil {
+		return nil, err
 	}
 
 	source, err := sql.Open("pgx", opts.SourceURL)
@@ -113,20 +119,83 @@ func (m *Migrator) Close() error {
 
 // phaseCount returns the total number of migration phases based on options.
 func (m *Migrator) phaseCount() int {
-	n := 1 // auth is always run
-	if !m.opts.SkipData {
-		n += 2 // schema + data
-	}
-	if !m.opts.SkipOAuth {
-		n++
-	}
-	if !m.opts.SkipRLS {
-		n++
-	}
-	if !m.opts.SkipStorage && m.opts.StorageExportPath != "" {
+	n := len(supabaseTransactionPhaseNames(m.opts))
+	if !m.opts.SkipStorage && m.opts.storageSourceConfigured() {
 		n++
 	}
 	return n
+}
+
+func (m *Migrator) skipFunctions() bool {
+	return skipFunctionsForOptions(m.opts)
+}
+
+func skipFunctionsForOptions(opts MigrationOptions) bool {
+	return opts.SkipFunctions || opts.SkipData
+}
+
+func supabaseTransactionPhaseNames(opts MigrationOptions) []string {
+	names := make([]string, 0, 7)
+	if !opts.SkipData {
+		if !skipFunctionsForOptions(opts) {
+			names = append(names, "Functions")
+		}
+		names = append(names, "Schema", "Data")
+	}
+	names = append(names, "Auth users")
+	if !opts.SkipOAuth {
+		names = append(names, "OAuth")
+	}
+	if !opts.SkipRLS {
+		names = append(names, "RLS policies")
+	}
+	if !skipFunctionsForOptions(opts) {
+		names = append(names, "Triggers")
+	}
+	return names
+}
+
+func (m *Migrator) migrateSchemaAndFunctions(
+	ctx context.Context,
+	tx *sql.Tx,
+	phaseIdx int,
+	totalPhases int,
+) (int, migratedFunctionSet, error) {
+	migratedFunctions := make(migratedFunctionSet)
+	if m.opts.SkipData {
+		return phaseIdx, migratedFunctions, nil
+	}
+
+	var functions []functionCatalogEntry
+	if !m.skipFunctions() {
+		var err error
+		functions, err = loadFunctionCatalog(ctx, m.source)
+		if err != nil {
+			return phaseIdx, migratedFunctions, fmt.Errorf("function inventory: %w", err)
+		}
+	}
+	schemaItems, err := m.prepareSchemaMigration(ctx, tx, functions)
+	if err != nil {
+		return phaseIdx, migratedFunctions, fmt.Errorf("preparing schema migration: %w", err)
+	}
+
+	// Namespaces must exist before functions, while table DDL follows so its
+	// defaults and generated expressions can reference migrated functions.
+	if !m.skipFunctions() {
+		phaseIdx++
+		phase := migrate.Phase{Name: "Functions", Index: phaseIdx, Total: totalPhases}
+		migratedFunctions, err = m.migrateFunctions(ctx, tx, functions, phase)
+		if err != nil {
+			return phaseIdx, migratedFunctions, fmt.Errorf("function migration: %w", err)
+		}
+	}
+
+	phaseIdx++
+	phase := migrate.Phase{Name: "Schema", Index: phaseIdx, Total: totalPhases}
+	if err := m.migrateSchema(ctx, tx, schemaItems, phase); err != nil {
+		return phaseIdx, migratedFunctions, fmt.Errorf("schema migration: %w", err)
+	}
+	return phaseIdx, migratedFunctions, nil
 }
 
 // Migrate runs the full Supabase → AYB migration in a single transaction.
@@ -140,38 +209,17 @@ func (m *Migrator) Migrate(ctx context.Context) (*MigrationStats, error) {
 	}
 	defer tx.Rollback() //nolint:errcheck
 
-	// Verify _ayb_users table exists.
-	var tableExists bool
-	err = tx.QueryRowContext(ctx, `
-		SELECT EXISTS (
-			SELECT 1 FROM information_schema.tables
-			WHERE table_name = '_ayb_users'
-		)
-	`).Scan(&tableExists)
-	if err != nil || !tableExists {
-		return nil, fmt.Errorf("_ayb_users table not found — run 'ayb start' or 'ayb migrate up' first")
-	}
-
-	// Check for existing users unless --force.
-	if !m.opts.Force {
-		var count int
-		if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM _ayb_users`).Scan(&count); err != nil {
-			return nil, fmt.Errorf("checking existing users: %w", err)
-		}
-		if count > 0 {
-			return nil, fmt.Errorf("_ayb_users table is not empty (%d users) — use --force to proceed", count)
-		}
+	if err := m.validateMigrationTarget(ctx, tx); err != nil {
+		return nil, err
 	}
 
 	totalPhases := m.phaseCount()
 	phaseIdx := 0
 
-	// Phase: Schema (create tables + views in target).
-	if !m.opts.SkipData {
-		phaseIdx++
-		if err := m.migrateSchema(ctx, tx, phaseIdx, totalPhases); err != nil {
-			return nil, fmt.Errorf("schema migration: %w", err)
-		}
+	var migratedFunctions migratedFunctionSet
+	phaseIdx, migratedFunctions, err = m.migrateSchemaAndFunctions(ctx, tx, phaseIdx, totalPhases)
+	if err != nil {
+		return nil, err
 	}
 
 	// Phase: Data (stream rows from source to target).
@@ -204,6 +252,22 @@ func (m *Migrator) Migrate(ctx context.Context) (*MigrationStats, error) {
 		}
 	}
 
+	if !m.skipFunctions() {
+		triggers, err := loadTriggerCatalog(ctx, m.source)
+		if err != nil {
+			return nil, fmt.Errorf("trigger inventory: %w", err)
+		}
+		triggerCloneStates, err := loadPartitionTriggerCloneStates(ctx, m.source)
+		if err != nil {
+			return nil, fmt.Errorf("partition trigger clone state inventory: %w", err)
+		}
+		phaseIdx++
+		phase := migrate.Phase{Name: "Triggers", Index: phaseIdx, Total: totalPhases}
+		if err := m.migrateTriggers(ctx, tx, triggers, triggerCloneStates, migratedFunctions, phase); err != nil {
+			return nil, fmt.Errorf("trigger migration: %w", err)
+		}
+	}
+
 	// Commit DB transaction before file operations.
 	if m.opts.DryRun {
 		fmt.Fprintln(m.output, "\n[DRY RUN] Rolling back (no changes made)")
@@ -214,7 +278,7 @@ func (m *Migrator) Migrate(ctx context.Context) (*MigrationStats, error) {
 	}
 
 	// Phase: Storage files (outside transaction — filesystem operations).
-	if !m.opts.SkipStorage && m.opts.StorageExportPath != "" && !m.opts.DryRun {
+	if !m.opts.SkipStorage && m.opts.storageSourceConfigured() && !m.opts.DryRun {
 		phaseIdx++
 		if err := m.migrateStorage(ctx, phaseIdx, totalPhases); err != nil {
 			return nil, fmt.Errorf("storage migration: %w", err)
@@ -225,4 +289,29 @@ func (m *Migrator) Migrate(ctx context.Context) (*MigrationStats, error) {
 	m.printStats()
 
 	return &m.stats, nil
+}
+
+func (m *Migrator) validateMigrationTarget(ctx context.Context, tx *sql.Tx) error {
+	var tableExists bool
+	err := tx.QueryRowContext(ctx, `
+		SELECT EXISTS (
+			SELECT 1 FROM information_schema.tables
+			WHERE table_name = '_ayb_users'
+		)
+	`).Scan(&tableExists)
+	if err != nil || !tableExists {
+		return fmt.Errorf("_ayb_users table not found — run 'ayb start' or 'ayb migrate up' first")
+	}
+
+	// Check for existing users unless --force.
+	if !m.opts.Force {
+		var count int
+		if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM _ayb_users`).Scan(&count); err != nil {
+			return fmt.Errorf("checking existing users: %w", err)
+		}
+		if count > 0 {
+			return fmt.Errorf("_ayb_users table is not empty (%d users) — use --force to proceed", count)
+		}
+	}
+	return nil
 }

@@ -51,8 +51,10 @@ export default defineConfig({
   outputDir: "test-results-unmocked",
   timeout: 30_000, // Increased for network latency in staging/prod
   expect: { timeout: 10_000 },
-  fullyParallel: true,
-  workers: 3, // Reduce parallelism to avoid resource contention
+  // Empty/unavailable-state smoke proofs temporarily replace shared backend
+  // relations, so unmocked projects must not overlap database mutations.
+  fullyParallel: false,
+  workers: 1,
   retries: 1, // Retry once on failure to handle timing issues
   use: {
     baseURL: resolveBaseURL(),

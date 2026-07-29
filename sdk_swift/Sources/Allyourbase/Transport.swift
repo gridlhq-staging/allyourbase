@@ -3,12 +3,22 @@ import Foundation
 import FoundationNetworking
 #endif
 
-public enum HTTPMethod: String {
-    case get = "GET"
-    case post = "POST"
-    case put = "PUT"
-    case patch = "PATCH"
-    case delete = "DELETE"
+public struct HTTPMethod: RawRepresentable, Hashable, Sendable {
+    public let rawValue: String
+
+    public init?(rawValue: String) {
+        self.rawValue = rawValue
+    }
+
+    public init(_ rawValue: String) {
+        self.rawValue = rawValue
+    }
+
+    public static let get = HTTPMethod("GET")
+    public static let post = HTTPMethod("POST")
+    public static let put = HTTPMethod("PUT")
+    public static let patch = HTTPMethod("PATCH")
+    public static let delete = HTTPMethod("DELETE")
 }
 
 public struct HTTPRequest {
@@ -17,7 +27,12 @@ public struct HTTPRequest {
     public let headers: [String: String]
     public let body: Data?
 
-    public init(url: URL, method: HTTPMethod, headers: [String: String], body: Data?) {
+    public init(
+        url: URL,
+        method: HTTPMethod,
+        headers: [String: String],
+        body: Data?
+    ) {
         self.url = url
         self.method = method
         self.headers = headers
@@ -352,6 +367,11 @@ public final class RequestBuilder {
 
         return HTTPRequest(url: url, method: method, headers: mergedHeaders, body: encodedBody)
     }
+}
+
+func encodePathSegment(_ value: String) -> String {
+    let allowed = CharacterSet(charactersIn: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_.~")
+    return value.addingPercentEncoding(withAllowedCharacters: allowed) ?? value
 }
 
 public enum RequestBuilderError: Error {

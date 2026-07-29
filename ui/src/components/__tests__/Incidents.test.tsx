@@ -75,6 +75,28 @@ describe("Incidents", () => {
     expect(screen.getByText("resolved")).toBeInTheDocument();
   });
 
+  it("shows active incidents first and refetches all incidents on Show All", async () => {
+    (api.listIncidents as ReturnType<typeof vi.fn>)
+      .mockResolvedValueOnce([mockIncidents[0]])
+      .mockResolvedValueOnce(mockIncidents);
+
+    renderWithProviders(<Incidents />);
+
+    await waitFor(() => {
+      expect(screen.getByText("Database latency spike")).toBeInTheDocument();
+    });
+    expect(screen.queryByText("Storage outage resolved")).not.toBeInTheDocument();
+    expect(api.listIncidents).toHaveBeenNthCalledWith(1, true);
+
+    fireEvent.click(screen.getByRole("button", { name: "Show All" }));
+
+    await waitFor(() => {
+      expect(screen.getByText("Storage outage resolved")).toBeInTheDocument();
+      expect(screen.getByText("resolved")).toBeInTheDocument();
+    });
+    expect(api.listIncidents).toHaveBeenNthCalledWith(2, undefined);
+  });
+
   it("create form validates required title", async () => {
     renderWithProviders(<Incidents />);
     await waitFor(() => {
@@ -132,13 +154,23 @@ describe("Incidents", () => {
     });
   });
 
-  it("shows error state on fetch failure", async () => {
-    (api.listIncidents as ReturnType<typeof vi.fn>).mockRejectedValue(
+  it("keeps incident controls mounted and retries the exact fetch failure", async () => {
+    (api.listIncidents as ReturnType<typeof vi.fn>).mockRejectedValueOnce(
       new Error("Service unavailable"),
     );
     renderWithProviders(<Incidents />);
     await waitFor(() => {
       expect(screen.getByText("Service unavailable")).toBeInTheDocument();
     });
+    expect(
+      screen.getByRole("button", { name: /create incident/i }),
+    ).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+
+    await waitFor(() => {
+      expect(screen.getByText("Database latency spike")).toBeInTheDocument();
+    });
+    expect(api.listIncidents).toHaveBeenCalledTimes(2);
   });
 });

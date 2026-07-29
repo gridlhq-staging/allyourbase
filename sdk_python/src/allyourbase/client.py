@@ -26,6 +26,7 @@ class AYBClient:
         self._auth_listeners: Set[AuthStateListener] = set()
 
         from allyourbase.auth import AuthClient
+        from allyourbase.functions import FunctionsClient
         from allyourbase.realtime import RealtimeClient
         from allyourbase.records import RecordsClient
         from allyourbase.storage import StorageClient
@@ -34,6 +35,7 @@ class AYBClient:
         self.records = RecordsClient(self)
         self.storage = StorageClient(self)
         self.realtime = RealtimeClient(self)
+        self.functions = FunctionsClient(self)
 
     @property
     def token(self) -> Optional[str]:
@@ -81,7 +83,9 @@ class AYBClient:
         headers: Optional[Dict[str, str]] = None,
         json: Optional[Any] = None,
         data: Optional[Any] = None,
+        content: Optional[Any] = None,
         skip_auth: bool = False,
+        return_response_on_204: bool = False,
     ) -> Optional[httpx.Response]:
         req_headers: Dict[str, str] = dict(headers or {})
         if not skip_auth and self._token is not None:
@@ -94,12 +98,13 @@ class AYBClient:
             headers=req_headers,
             json=json,
             data=data,
+            content=content,
         )
 
         if resp.status_code < 200 or resp.status_code >= 300:
             _raise_error(resp)
 
-        if resp.status_code == 204:
+        if resp.status_code == 204 and not return_response_on_204:
             return None
         return resp
 

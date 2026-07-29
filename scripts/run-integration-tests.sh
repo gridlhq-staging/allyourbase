@@ -5,11 +5,22 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT_DIR"
 
+# Per-package timeout. Go's default is 600s/package, which is too tight for the
+# largest integration packages (internal/auth, internal/api, internal/server)
+# under -race: each integration test resets and re-runs the full migration set
+# (DROP SCHEMA public CASCADE + all 100+ migrations) for isolation, so wall-clock
+# scales with test-count x migration-count and grows as migrations are added.
+# On a clean CI runner these packages finish well inside this budget; the
+# explicit ceiling gives headroom against runner load spikes while still catching
+# a genuine hang. -timeout is per test binary, so a fast package still fails fast.
+INTEGRATION_TIMEOUT="${INTEGRATION_TIMEOUT:-30m}"
+
 REGULAR_ARGS=(
   go test
   -p 1
   -race
   -count=1
+  -timeout "$INTEGRATION_TIMEOUT"
   -tags=integration
 )
 
@@ -19,6 +30,7 @@ SPECIAL_ARGS=(
   -parallel 1
   -race
   -count=1
+  -timeout "$INTEGRATION_TIMEOUT"
   -tags=integration
 )
 

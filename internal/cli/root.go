@@ -20,6 +20,7 @@ const (
 	defaultBuildVersion = "dev"
 	defaultBuildCommit  = "none"
 	defaultBuildDate    = "unknown"
+	rootVersionTemplate = "{{.Version}}\n"
 )
 
 var (
@@ -33,6 +34,8 @@ func SetVersion(version, commit, date string) {
 	buildVersion = normalizeBuildValue(version, defaultBuildVersion)
 	buildCommit = normalizeBuildValue(commit, defaultBuildCommit)
 	buildDate = normalizeBuildValue(date, defaultBuildDate)
+	rootCmd.Version = buildVersion
+	rootCmd.SetVersionTemplate(rootVersionTemplate)
 }
 
 func normalizeBuildValue(value string, fallback string) string {

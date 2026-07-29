@@ -130,13 +130,10 @@ var deployCmd = &cobra.Command{
 	Short:   "Deploy AYB to a cloud provider",
 	GroupID: groupCore,
 	// Grouping assigned in initHelp via command registration map.
-	Long: `Deploy AYB to a managed deployment target.
-
-Examples:
-  ayb deploy fly --domain app.example.com --env APP_ENV=production
-  ayb deploy digitalocean --region nyc1 --postgres-url postgresql://... \
-    --env APP_ENV=production
-  ayb deploy railway --region global --env APP_ENV=production`,
+	Long: `Deploy AYB to a managed deployment target.`,
+	Example: `ayb deploy fly --domain app.example.com --env APP_ENV=production
+ayb deploy digitalocean --region nyc1 --postgres-url postgresql://localhost/mydb --env APP_ENV=production
+ayb deploy railway --region global --env APP_ENV=production`,
 }
 
 var deployFlyCmd = &cobra.Command{

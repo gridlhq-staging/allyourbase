@@ -20,6 +20,34 @@ Then depend on product `Allyourbase`.
 
 Full guide: [docs-site/guide/swift-sdk.md](../docs-site/guide/swift-sdk.md).
 
+## PostgreSQL RPC
+
+`try await ayb.rpc(_:args:)` returns decoded JSON as `Any?`. A 204 or empty
+response returns `nil`.
+
+```swift
+let total = try await ayb.rpc(
+    "leaderboard_total",
+    args: ["club_id": "abc123"]
+)
+```
+
+## Edge functions
+
+`try await ayb.functions.invoke(_:options:)` returns `status: Int`,
+`headers: [String: String]`, and the raw response `rawBody: Data`.
+
+```swift
+let response = try await ayb.functions.invoke(
+    "send-digest",
+    options: EdgeInvokeOptions(body: ["club_id": "abc123"])
+)
+print(response.status, response.headers, response.rawBody.count)
+```
+
+GraphQL and admin/org typed clients are JS-only scope today. Swift applications
+can use AYB REST endpoints or custom HTTP calls for those surfaces.
+
 ## Passkey Login
 
 Create a client first:

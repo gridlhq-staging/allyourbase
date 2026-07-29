@@ -15,6 +15,7 @@ import (
 	"text/tabwriter"
 
 	"github.com/spf13/cobra"
+	"golang.org/x/term"
 )
 
 var sqlCmd = &cobra.Command{
@@ -26,12 +27,10 @@ Requires admin authentication if an admin password is set.
 Authentication is resolved in order: --admin-token flag, AYB_ADMIN_TOKEN env var,
 ~/.ayb/admin-token file (auto-saved by ayb start) for loopback servers only.
 For backward compatibility, the file may contain either a bearer token or a
-legacy password value.
-
-Examples:
-  ayb sql "SELECT * FROM users LIMIT 10"
-  ayb sql "SELECT count(*) FROM posts" --json
-  echo "SELECT 1" | ayb sql`,
+legacy password value.`,
+	Example: `ayb sql "SELECT * FROM users LIMIT 10"
+ayb sql "SELECT count(*) FROM posts" --json
+echo "SELECT 1" | ayb sql`,
 	RunE: runSQL,
 }
 
@@ -48,17 +47,18 @@ func runSQL(cmd *cobra.Command, args []string) error {
 	if baseURL == "" {
 		baseURL = serverURL()
 	}
-	token = resolveCLIAdminToken(token, baseURL)
-	if token == "" && !isLoopbackAdminURL(baseURL) {
-		return fmt.Errorf("saved admin auth from ~/.ayb/admin-token is only used for local loopback servers; pass --admin-token or set AYB_ADMIN_TOKEN for %s", baseURL)
-	}
 
-	query, err := readSQLQuery(args, os.Stdin)
+	query, err := resolveSQLInput(args, os.Stdin, term.IsTerminal(int(os.Stdin.Fd())))
 	if err != nil {
 		return err
 	}
 	if query == "" {
-		return fmt.Errorf("query is required (pass as argument or pipe to stdin)")
+		return sqlInputRequiredError()
+	}
+
+	token = resolveCLIAdminToken(token, baseURL)
+	if token == "" && !isLoopbackAdminURL(baseURL) {
+		return fmt.Errorf("saved admin auth from ~/.ayb/admin-token is only used for local loopback servers; pass --admin-token or set AYB_ADMIN_TOKEN for %s", baseURL)
 	}
 
 	body, err := json.Marshal(map[string]string{"query": query})
@@ -141,8 +141,15 @@ func resolveCLIAdminToken(explicitToken, baseURL string) string {
 }
 
 func readSQLQuery(args []string, stdin io.Reader) (string, error) {
+	return resolveSQLInput(args, stdin, false)
+}
+
+func resolveSQLInput(args []string, stdin io.Reader, stdinIsTerminal bool) (string, error) {
 	if len(args) > 0 {
 		return strings.Join(args, " "), nil
+	}
+	if stdinIsTerminal {
+		return "", sqlInputRequiredError()
 	}
 
 	data, err := io.ReadAll(stdin)
@@ -150,6 +157,10 @@ func readSQLQuery(args []string, stdin io.Reader) (string, error) {
 		return "", fmt.Errorf("reading stdin: %w", err)
 	}
 	return strings.TrimSpace(string(data)), nil
+}
+
+func sqlInputRequiredError() error {
+	return fmt.Errorf(`query is required (use ayb sql "..." or echo ... | ayb sql)`)
 }
 
 // stringifySQLRows converts raw JSON row values to display strings, rendering nulls as "NULL" (or empty for CSV).

@@ -25,9 +25,10 @@ Alongside the core [REST API](/guide/api-reference), [Authentication](/guide/aut
 ```bash
 curl -fsSLo /tmp/ayb-install.sh https://install.allyourbase.io/install.sh
 sh /tmp/ayb-install.sh
+export PATH="$HOME/.ayb/bin:$PATH"
 ```
 
-The installer places the binary at `~/.ayb/bin/ayb`; bare `ayb` below assumes that directory is on your `PATH`.
+The installer places the binary at `~/.ayb/bin/ayb`; bare `ayb` below assumes that directory is on your `PATH`. Add the same PATH line to your shell profile (`~/.zshrc`, `~/.bashrc`, or equivalent) if you want new terminals to pick it up automatically.
 
 ### Binary download
 

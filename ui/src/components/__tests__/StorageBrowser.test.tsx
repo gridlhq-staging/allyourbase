@@ -296,6 +296,26 @@ describe("StorageBrowser", () => {
     });
   });
 
+  it("recovers from a file list failure through an error-scoped Retry that refetches", async () => {
+    const user = userEvent.setup();
+    mockListFiles.mockRejectedValueOnce(new Error("network error"));
+    mockListFiles.mockResolvedValue({
+      items: [makeFile({ name: "recovered.txt", contentType: "text/plain" })],
+      totalItems: 1,
+    });
+    renderWithProviders(<StorageBrowser />);
+
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent("network error");
+    // Browser shell (bucket input) stays mounted alongside the error.
+    expect(screen.getByDisplayValue("default")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Retry" }));
+
+    await waitFor(() => expect(screen.getByText("recovered.txt")).toBeInTheDocument());
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
   it("shows preview button for image files", async () => {
     mockListFiles.mockResolvedValueOnce({
       items: [makeFile({ contentType: "image/png", name: "pic.png" })],

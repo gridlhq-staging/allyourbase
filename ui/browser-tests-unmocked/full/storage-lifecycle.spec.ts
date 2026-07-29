@@ -1,7 +1,6 @@
 import {
   test,
   expect,
-  probeEndpoint,
   seedFile,
   deleteFile,
   ensureStorageBucket,
@@ -39,12 +38,6 @@ test.describe("Storage Lifecycle (Full E2E)", () => {
   });
 
   test("seeded file renders in storage list", async ({ page, request, adminToken }) => {
-    const probeStatus = await probeEndpoint(request, adminToken, "/api/storage/default");
-    test.skip(
-      probeStatus === 503 || probeStatus === 404 || probeStatus === 501 || probeStatus === 500,
-      `Storage service unavailable (status ${probeStatus})`,
-    );
-
     const runId = Date.now();
     const bucketName = `storage-seeded-${runId}`;
     const fileName = `lifecycle-verify-${runId}.txt`;
@@ -61,25 +54,28 @@ test.describe("Storage Lifecycle (Full E2E)", () => {
     // Act: navigate to Storage page
     await page.goto("/admin/");
     await waitForDashboard(page);
-    const storageButton = page.locator("aside").getByRole("button", { name: /^Storage$/i });
+    const storageButton = page
+      .getByRole("complementary")
+      .getByRole("button", { name: /^Storage$/i });
     await storageButton.click();
     await expect(page.getByRole("button", { name: "Upload", exact: true })).toBeVisible({ timeout: 5000 });
     const bucketInput = page.getByPlaceholder("bucket name");
     await bucketInput.fill(bucketName);
 
-    // Assert: seeded file name appears in the list
-    await expect(page.getByText(fileName).first()).toBeVisible({ timeout: 5000 });
+    // Assert: seeded file name and row controls appear in the list
+    const seededRow = page.locator("tr").filter({ hasText: fileName }).first();
+    await expect(seededRow).toBeVisible({ timeout: 5000 });
+    await expect(seededRow.getByText("text/plain")).toBeVisible();
+    await expect(seededRow.getByRole("button", { name: "Copy name" })).toBeVisible();
+    await expect(seededRow.getByRole("link", { name: "Download" })).toBeVisible();
+    await expect(seededRow.getByRole("button", { name: "Copy signed URL" })).toBeVisible();
+    await expect(seededRow.getByRole("button", { name: "Copy download URL" })).toBeVisible();
+    await expect(seededRow.getByRole("button", { name: "Delete" })).toBeVisible();
 
     // Cleanup handled by afterEach
   });
 
   test("upload, preview, signed URL, download, and delete files", async ({ page, request, adminToken }) => {
-    const probeStatus = await probeEndpoint(request, adminToken, "/api/storage/default");
-    test.skip(
-      probeStatus === 503 || probeStatus === 404 || probeStatus === 501 || probeStatus === 500,
-      `Storage service unavailable (status ${probeStatus})`,
-    );
-
     const runId = Date.now();
     const bucketName = `storage-upload-${runId}`;
     const textFileName = `lifecycle-text-${runId}.txt`;
@@ -100,7 +96,9 @@ test.describe("Storage Lifecycle (Full E2E)", () => {
     await page.goto("/admin/");
     await waitForDashboard(page);
 
-    const storageButton = page.locator("aside").getByRole("button", { name: /^Storage$/i });
+    const storageButton = page
+      .getByRole("complementary")
+      .getByRole("button", { name: /^Storage$/i });
     await expect(storageButton).toBeVisible({ timeout: 5000 });
     await storageButton.click();
 
@@ -113,15 +111,19 @@ test.describe("Storage Lifecycle (Full E2E)", () => {
     // ============================================================
     // UPLOAD: Text file
     // ============================================================
-    const fileInput = page.locator('input[type="file"]');
-    await fileInput.setInputFiles({
+    const textChooserPromise = page.waitForEvent("filechooser");
+    await uploadButton.click();
+    const textFileChooser = await textChooserPromise;
+    await textFileChooser.setFiles({
       name: textFileName,
       mimeType: "text/plain",
       buffer: Buffer.from("Storage lifecycle test content"),
     });
 
     // Verify text file appears in the list
-    await expect(page.getByText(textFileName)).toBeVisible({ timeout: 10000 });
+    const textRow = page.locator("tr").filter({ hasText: textFileName }).first();
+    await expect(textRow).toBeVisible({ timeout: 10000 });
+    await expect(textRow.getByText("text/plain")).toBeVisible();
 
     // ============================================================
     // UPLOAD: Image file (1x1 red PNG)
@@ -131,19 +133,23 @@ test.describe("Storage Lifecycle (Full E2E)", () => {
       "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8/5+hHgAHggJ/PchI7wAAAABJRU5ErkJggg==",
       "base64"
     );
-    await fileInput.setInputFiles({
+    const imageChooserPromise = page.waitForEvent("filechooser");
+    await uploadButton.click();
+    const imageFileChooser = await imageChooserPromise;
+    await imageFileChooser.setFiles({
       name: imgFileName,
       mimeType: "image/png",
       buffer: pngBuffer,
     });
 
     // Verify image file uploaded
-    await expect(page.getByText(imgFileName)).toBeVisible({ timeout: 10000 });
+    const imgRow = page.locator("tr").filter({ hasText: imgFileName }).first();
+    await expect(imgRow).toBeVisible({ timeout: 10000 });
+    await expect(imgRow.getByText("image/png")).toBeVisible();
 
     // ============================================================
     // PREVIEW: Preview the image file
     // ============================================================
-    const imgRow = page.locator("tr").filter({ hasText: imgFileName }).first();
     const previewButton = imgRow.getByRole("button", { name: "Preview" });
 
     await expect(previewButton).toBeVisible({ timeout: 2000 });
@@ -165,7 +171,6 @@ test.describe("Storage Lifecycle (Full E2E)", () => {
     // ============================================================
     // SIGNED URL: Generate signed URL for text file
     // ============================================================
-    const textRow = page.locator("tr").filter({ hasText: textFileName }).first();
     const signedUrlButton = textRow.getByRole("button", { name: "Copy signed URL" });
 
     await expect(signedUrlButton).toBeVisible({ timeout: 2000 });

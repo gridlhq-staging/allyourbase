@@ -1,4 +1,32 @@
+import 'dart:typed_data';
+
 typedef JsonMap = Map<String, Object?>;
+
+class EdgeInvokeOptions {
+  const EdgeInvokeOptions({
+    this.method = 'POST',
+    this.headers = const <String, String>{},
+    this.body,
+    this.skipAuth = false,
+  });
+
+  final String method;
+  final Map<String, String> headers;
+  final Object? body;
+  final bool skipAuth;
+}
+
+class EdgeInvokeResponse {
+  const EdgeInvokeResponse({
+    required this.status,
+    required this.headers,
+    required this.rawBody,
+  });
+
+  final int status;
+  final Map<String, String> headers;
+  final Uint8List rawBody;
+}
 
 /// Query parameters for listing records with pagination, sorting, and filtering.
 class ListParams {

@@ -31,7 +31,7 @@ func runFromMigration(ctx context.Context, from string, databaseURL string, logg
 		logger.Info("detected generic PostgreSQL source", "url", urlutil.RedactURL(from))
 		return fmt.Errorf("generic PostgreSQL --from migration is not yet implemented")
 	default:
-		return fmt.Errorf("could not detect migration source type from %q (expected: path to pb_data, postgres:// URL, or firebase:// URL)", from)
+		return fmt.Errorf("could not detect migration source type from %q (expected: path to pb_data, postgres:// URL, or firebase:// URL)", urlutil.RedactURL(from))
 	}
 }
 
@@ -80,7 +80,7 @@ func runFromSupabase(ctx context.Context, sourceURL string, databaseURL string, 
 
 	progress := migrate.NewCLIReporter(os.Stderr)
 
-	migrator, err := sbmigrate.NewMigrator(sbmigrate.MigrationOptions{
+	migrator, err := newSupabaseMigrator(sbmigrate.MigrationOptions{
 		SourceURL: sourceURL,
 		TargetURL: databaseURL,
 		Progress:  progress,
@@ -96,6 +96,7 @@ func runFromSupabase(ctx context.Context, sourceURL string, databaseURL string, 
 		return fmt.Errorf("analysis failed: %w", err)
 	}
 
+	appendSupabaseMissingStorageSourceWarning(report, false, false)
 	report.PrintReport(os.Stderr)
 
 	fmt.Fprintf(os.Stderr, "  Migrating %s -> AYB...\n\n", report.SourceType)
@@ -106,8 +107,8 @@ func runFromSupabase(ctx context.Context, sourceURL string, databaseURL string, 
 	}
 
 	// Validation summary.
-	summaryReport := normalizeSupabaseSummaryReport(report, false, false, false, false, "")
-	summary := sbmigrate.BuildValidationSummary(summaryReport, stats)
+	summaryReport := normalizeSupabaseSummaryReport(report, false, false, false, false, false, false)
+	summary := buildSupabaseValidationSummary(summaryReport, stats)
 	summary.PrintSummary(os.Stderr)
 
 	return nil

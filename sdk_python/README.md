@@ -14,6 +14,36 @@ pip install ./sdk_python
 
 Full guide: [docs-site/guide/python-sdk.md](../docs-site/guide/python-sdk.md).
 
+## PostgreSQL RPC
+
+`await client.rpc(function_name, args=None)` returns decoded JSON. A 204 or
+empty response returns `None`.
+
+```python
+total = await client.rpc(
+    "leaderboard_total",
+    args={"club_id": "abc123"},
+)
+```
+
+## Edge functions
+
+`await client.functions.invoke(name, body=..., headers=..., method="POST",
+skip_auth=False)` returns the raw response fields `status: int`,
+`headers: dict[str, str]`, and `raw_body: bytes`.
+
+```python
+response = await client.functions.invoke(
+    "send-digest",
+    body={"club_id": "abc123"},
+)
+print(response.status, response.headers, response.raw_body)
+```
+
+GraphQL and admin/org typed clients are JS-only scope today. Python
+applications can use AYB REST endpoints or custom HTTP calls for those
+surfaces.
+
 ## Auth helpers
 
 Build an OAuth start URL without mutating the client session:

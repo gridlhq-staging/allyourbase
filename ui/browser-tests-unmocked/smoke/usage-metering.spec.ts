@@ -1,5 +1,13 @@
-import { test, expect, cleanupUsageMeteringTenant, seedUsageMeteringTenantDailyRows, waitForDashboard } from "../fixtures";
-import type { Page, Response } from "@playwright/test";
+import {
+  test,
+  expect,
+  cleanupUsageMeteringTenant,
+  failIfReadinessForced,
+  readinessNotMet,
+  seedUsageMeteringTenantDailyRows,
+  waitForDashboard,
+} from "../fixtures";
+import type { Page, Response, TestInfo } from "@playwright/test";
 
 const USAGE_LIST_PATH = "/api/admin/usage";
 
@@ -14,10 +22,10 @@ async function assertUsagePageOutcome(
   page: Page,
   usageResponse: Response,
   seededTenantName: string,
+  testInfo: TestInfo,
 ): Promise<void> {
   if (usageResponse.status() === 503) {
-    await expect(page.getByText(/usage .* not configured|usage aggregation service not configured/i)).toBeVisible();
-    return;
+    await readinessNotMet(testInfo, "usage", "usage aggregation service returned status 503");
   }
 
   expect(usageResponse.ok()).toBeTruthy();
@@ -28,26 +36,29 @@ async function assertUsagePageOutcome(
 }
 
 test.describe("Smoke: Usage Metering", () => {
-  test("admin can open usage dashboard and view seeded tenant row or 503 fallback", async ({
-    page,
-    request,
-    adminToken,
-  }) => {
-    const runSuffix = Date.now().toString();
-    const seededTenant = await seedUsageMeteringTenantDailyRows(request, adminToken, runSuffix);
+  test(
+    "admin can open usage dashboard and view seeded tenant row",
+    async ({ page, request, adminToken }, testInfo) => {
+      await failIfReadinessForced(testInfo, "usage");
 
-    try {
-      await page.goto("/admin/");
-      await waitForDashboard(page);
+      const runSuffix = Date.now().toString();
+      const seededTenant = await seedUsageMeteringTenantDailyRows(request, adminToken, runSuffix);
 
-      const usageResponsePromise = waitForUsageListResponse(page);
-      await page.locator("aside").getByRole("button", { name: /^Usage Metering$/i }).click();
-      await expect(page.getByRole("heading", { name: /Usage Metering/i })).toBeVisible({ timeout: 15_000 });
+      try {
+        await page.goto("/admin/");
+        await waitForDashboard(page);
 
-      const usageResponse = await usageResponsePromise;
-      await assertUsagePageOutcome(page, usageResponse, seededTenant.tenantName);
-    } finally {
-      await cleanupUsageMeteringTenant(request, adminToken, seededTenant.tenantId);
-    }
-  });
+        const usageResponsePromise = waitForUsageListResponse(page);
+        await page.locator("aside").getByRole("button", { name: /^Usage Metering$/i }).click();
+        await expect(page.getByRole("heading", { name: /Usage Metering/i })).toBeVisible({
+          timeout: 15_000,
+        });
+
+        const usageResponse = await usageResponsePromise;
+        await assertUsagePageOutcome(page, usageResponse, seededTenant.tenantName, testInfo);
+      } finally {
+        await cleanupUsageMeteringTenant(request, adminToken, seededTenant.tenantId);
+      }
+    },
+  );
 });

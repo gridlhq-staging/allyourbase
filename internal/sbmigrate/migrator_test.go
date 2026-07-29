@@ -106,6 +106,8 @@ func TestPrintStats(t *testing.T) {
 			stats: MigrationStats{
 				Tables:     5,
 				Views:      2,
+				Functions:  3,
+				Triggers:   4,
 				Records:    1000,
 				Sequences:  3,
 				Users:      10,
@@ -117,6 +119,8 @@ func TestPrintStats(t *testing.T) {
 		out := buf.String()
 		testutil.Contains(t, out, "Tables:     5")
 		testutil.Contains(t, out, "Views:      2")
+		testutil.Contains(t, out, "Functions:  3")
+		testutil.Contains(t, out, "Triggers:   4")
 		testutil.Contains(t, out, "Records:    1000")
 		testutil.Contains(t, out, "Sequences:  3")
 		testutil.Contains(t, out, "Users:      10")
@@ -137,6 +141,8 @@ func TestPrintStats(t *testing.T) {
 		out := buf.String()
 		testutil.False(t, strings.Contains(out, "Tables:"), "should not show Tables when zero")
 		testutil.False(t, strings.Contains(out, "Views:"), "should not show Views when zero")
+		testutil.False(t, strings.Contains(out, "Functions:"), "should not show Functions when zero")
+		testutil.False(t, strings.Contains(out, "Triggers:"), "should not show Triggers when zero")
 		testutil.False(t, strings.Contains(out, "Records:"), "should not show Records when zero")
 		testutil.False(t, strings.Contains(out, "Sequences:"), "should not show Sequences when zero")
 		testutil.Contains(t, out, "Users:      10")

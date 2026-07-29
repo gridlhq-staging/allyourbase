@@ -40,6 +40,25 @@ export function App() {
 }
 ```
 
+## RPC and edge functions
+
+React does not define separate RPC or edge transports. Use the underlying
+`@allyourbase/js` `AYBClient` instance through `client.rpc` and
+`client.functions.invoke`:
+
+```ts
+const total = await client.rpc<number>("leaderboard_total", {
+  club_id: "abc123",
+});
+const response = await client.functions.invoke("send-digest", {
+  body: { club_id: "abc123" },
+});
+```
+
+GraphQL and admin/org typed clients are JS-only scope today. Use them on the
+same underlying JS client; other SDKs use AYB REST endpoints or custom HTTP
+calls for those surfaces.
+
 ## Auth hooks
 
 `useAuth()` exposes the shared client auth helpers, including anonymous sign-in,

@@ -1,4 +1,12 @@
-import { test, expect, seedCustomDomain, cleanupCustomDomain, probeEndpoint, waitForDashboard } from "../fixtures";
+import {
+  test,
+  expect,
+  replaceAdminRelationWithEmptyClone,
+  seedCustomDomain,
+  cleanupCustomDomain,
+  probeEndpoint,
+  waitForDashboard,
+} from "../fixtures";
 
 /**
  * SMOKE TEST: Custom Domains
@@ -50,5 +58,45 @@ test.describe("Smoke: Custom Domains", () => {
 
     // Verify add-domain button
     await expect(page.getByRole("button", { name: /Add Domain/i })).toBeVisible();
+  });
+
+  test("empty and unavailable domain storage recover through Retry", async ({
+    page,
+    request,
+    adminToken,
+  }) => {
+    const status = await probeEndpoint(request, adminToken, "/api/admin/domains");
+    test.skip(
+      status === 501 || status === 404,
+      `Custom domains service not configured (status ${status})`,
+    );
+
+    const runId = Date.now();
+    const hostname = `retry-${runId}.example.com`;
+    const seeded = await seedCustomDomain(request, adminToken, hostname);
+    domainIDs.push(seeded.id);
+    const relationState = await replaceAdminRelationWithEmptyClone(
+      request,
+      adminToken,
+      "_ayb_custom_domains",
+    );
+
+    try {
+      await page.goto("/admin/screens/custom-domains");
+      await waitForDashboard(page);
+      await expect(page.getByText("No custom domains configured", { exact: true })).toBeVisible();
+
+      await relationState.removeEmptyClone();
+      await page.reload();
+      await waitForDashboard(page);
+      await expect(page.getByText("failed to list domains", { exact: true })).toBeVisible();
+      await expect(page.getByRole("heading", { name: /Custom Domains/i })).toBeVisible();
+
+      await relationState.restore();
+      await page.getByRole("button", { name: "Retry", exact: true }).click();
+      await expect(page.getByText(hostname, { exact: true })).toBeVisible({ timeout: 5000 });
+    } finally {
+      await relationState.restore();
+    }
   });
 });

@@ -7,10 +7,15 @@ makefile_path="Makefile"
 
 assert_contains "$makefile_path" 'test-api-journey' "Makefile should define a dedicated test-api-journey target and phony entry"
 assert_contains "$makefile_path" 'test-api-journey: build' "test-api-journey should depend on build"
-assert_contains "$makefile_path" "@AYB_STORAGE_ENABLED=true bash scripts/run-with-ayb.sh 'cd _dev/manual_smoke_tests && python3 full_journey.test.py'" "test-api-journey should enable storage and run full_journey through run-with-ayb"
+assert_contains "$makefile_path" "@AYB_AUTH_ENABLED=true AYB_STORAGE_ENABLED=true bash scripts/run-with-ayb.sh 'cd _dev/manual_smoke_tests && python3 full_journey.test.py'" "test-api-journey should enable auth and storage and run full_journey through run-with-ayb"
 
 assert_contains "$makefile_path" 'test-api-smoke: build' "Makefile should keep test-api-smoke target"
-assert_contains "$makefile_path" "@AYB_STORAGE_ENABLED=true bash scripts/run-with-ayb.sh 'cd _dev/manual_smoke_tests && ./run_all_tests.sh'" "test-api-smoke should enable storage and run through run-with-ayb"
+assert_contains "$makefile_path" "@AYB_AUTH_ENABLED=true AYB_STORAGE_ENABLED=true bash scripts/run-with-ayb.sh 'cd _dev/manual_smoke_tests && ./run_all_tests.sh'" "test-api-smoke should enable auth and storage and run through run-with-ayb"
+
+# scripts/run-with-ayb.sh only defaults AYB_AUTH_ENABLED for browser-facing
+# commands, and internal/server/routes_auth.go unregisters the whole /api/auth
+# group when auth is off, so the API smoke targets must ask for it explicitly.
+assert_contains "$makefile_path" 'AYB_AUTH_ENABLED=true' "API smoke targets must enable auth so /api/auth/register is routed"
 assert_not_contains "$makefile_path" '@./ayb start; \\' "test-api-smoke should not open-code ayb startup"
 assert_not_contains "$makefile_path" 'run_step "API smoke tests"    "./ayb start; cd _dev/manual_smoke_tests && ./run_all_tests.sh; R=\$$?; cd ../.. && ./ayb stop 2>/dev/null || true; exit \$$R"; \\' "test-everything should not inline duplicate api-smoke lifecycle"
 assert_not_contains "$makefile_path" 'run_step "Playwright e2e"     "bash scripts/run-with-ayb.sh '\''cd ui && npm run test:browser'\''"; \\' "test-everything should not inline a second Playwright lifecycle"

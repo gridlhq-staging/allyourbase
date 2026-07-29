@@ -193,13 +193,21 @@ describe("SAMLConfig", () => {
     );
   });
 
-  it("shows error state on fetch failure", async () => {
-    (api.listSAMLProviders as ReturnType<typeof vi.fn>).mockRejectedValue(
+  it("keeps provider controls mounted and retries the exact fetch failure", async () => {
+    (api.listSAMLProviders as ReturnType<typeof vi.fn>).mockRejectedValueOnce(
       new Error("Network error"),
     );
     renderWithProviders(<SAMLConfig screenLabel="SAML Configuration" />);
     await waitFor(() => {
       expect(screen.getByText("Network error")).toBeInTheDocument();
     });
+    expect(screen.getByRole("button", { name: "Add Provider" })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+
+    await waitFor(() => {
+      expect(screen.getByText("okta-prod")).toBeInTheDocument();
+    });
+    expect(api.listSAMLProviders).toHaveBeenCalledTimes(2);
   });
 });

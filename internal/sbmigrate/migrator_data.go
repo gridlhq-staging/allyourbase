@@ -26,6 +26,7 @@ func (m *Migrator) migrateData(ctx context.Context, tx *sql.Tx, phaseIdx, totalP
 		return fmt.Errorf("introspecting tables for data copy: %w", err)
 	}
 	tables = m.filterSkippedTables(tables)
+	tables = dataCopyTables(tables)
 
 	totalRows := totalTableRows(tables)
 
@@ -70,6 +71,21 @@ func (m *Migrator) migrateData(ctx context.Context, tx *sql.Tx, phaseIdx, totalP
 	m.progress.CompletePhase(phase, int(totalRows), time.Since(start))
 	fmt.Fprintf(m.output, "  ✓ %d records copied across %d tables\n", m.stats.Records, len(tables))
 	return nil
+}
+
+func dataCopyTables(tables []TableInfo) []TableInfo {
+	filtered := make([]TableInfo, 0, len(tables))
+	for _, table := range tables {
+		if table.PartitionKey != "" {
+			continue
+		}
+		filtered = append(filtered, table)
+	}
+	return filtered
+}
+
+func totalDataCopyRows(tables []TableInfo) int64 {
+	return totalTableRows(dataCopyTables(tables))
 }
 
 func totalTableRows(tables []TableInfo) int64 {

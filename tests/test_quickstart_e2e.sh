@@ -221,6 +221,27 @@ run_extracted_bash_block() {
   fi
 }
 
+run_installer_path_block() {
+  local label="$1"
+  local doc_file="$2"
+  local heading="$3"
+  local ordinal="$4"
+  local command_file="$TMP_DIR/${label}_path.sh"
+  local stdout_file="$TMP_DIR/${label}_path.stdout"
+  local stderr_file="$TMP_DIR/${label}_path.stderr"
+
+  extract_doc_block "$doc_file" "$heading" bash "$ordinal" \
+    | grep -F 'export PATH="$HOME/.ayb/bin:$PATH"' >"$command_file"
+
+  export HOME="$RUNTIME_HOME"
+  if ! env HOME="$RUNTIME_HOME" PATH="/usr/bin:/bin:/usr/sbin:/sbin" bash -c ". '$command_file'; command -v ayb" >"$stdout_file" 2>"$stderr_file"; then
+    cat "$stderr_file" >&2 || true
+    fail "documented ${label} PATH command did not resolve ayb from isolated HOME"
+  fi
+
+  assert_contains "$stdout_file" "$RUNTIME_HOME/.ayb/bin/ayb" "documented ${label} PATH command resolved the wrong ayb binary"
+}
+
 assert_collection_empty() {
   local collection="$1"
   local body_file="$2"
@@ -460,6 +481,8 @@ print(version)
 fi
 export PATH="$(dirname "$AYB_BIN"):$PATH"
 export HOME="$RUNTIME_HOME"
+run_installer_path_block "getting_started_install" "docs-site/guide/getting-started.md" "### curl (macOS / Linux)" 1
+run_installer_path_block "quickstart_install" "docs-site/guide/quickstart.md" "## 1. Start AYB" 1
 cd "$RUNTIME_WORKDIR"
 
 AYB_SERVER_PORT="$API_PORT" "$AYB_BIN" stop >/dev/null 2>&1 || true

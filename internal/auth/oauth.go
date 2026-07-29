@@ -563,23 +563,5 @@ func (s *Service) issueTokens(ctx context.Context, user *User) (*User, string, s
 }
 
 func (s *Service) issueTokensWithFirstFactorMethod(ctx context.Context, user *User, firstFactorMethod string) (*User, string, string, error) {
-	sessionOpts := firstFactorSessionOptions(firstFactorMethod)
-	sessionID, refreshToken, err := s.createSession(ctx, user.ID, sessionOpts)
-	if err != nil {
-		return nil, "", "", fmt.Errorf("creating session: %w", err)
-	}
-	if sessionOpts == nil {
-		sessionOpts = &tokenOptions{}
-	}
-	sessionOpts.SessionID = sessionID
-
-	opts, err := s.sessionTokenOptions(ctx, user, sessionOpts)
-	if err != nil {
-		return nil, "", "", fmt.Errorf("resolving session tenant: %w", err)
-	}
-	token, err := s.generateTokenWithOpts(ctx, user, opts)
-	if err != nil {
-		return nil, "", "", fmt.Errorf("generating token: %w", err)
-	}
-	return user, token, refreshToken, nil
+	return s.issueTokensInScope(ctx, user, firstFactorMethod, s.poolWriteScope())
 }

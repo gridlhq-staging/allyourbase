@@ -16,6 +16,8 @@ import (
 var adminCmd = &cobra.Command{
 	Use:   "admin",
 	Short: "Admin user management",
+	Example: `ayb admin create --email admin@example.com --password mysecretpassword
+ayb admin reset-password`,
 }
 
 var adminCreateCmd = &cobra.Command{

@@ -159,6 +159,8 @@ type AnalysisReport struct {
 	SourceInfo         string   `json:"sourceInfo"` // e.g., "PocketBase v0.22, SQLite 7.2 MB"
 	Tables             int      `json:"tables"`
 	Views              int      `json:"views"`
+	Functions          int      `json:"functions"`
+	Triggers           int      `json:"triggers"`
 	Records            int      `json:"records"`
 	AuthUsers          int      `json:"authUsers"`
 	OAuthLinks         int      `json:"oauthLinks"`
@@ -184,6 +186,12 @@ func (r *AnalysisReport) PrintReport(w io.Writer) {
 	fmt.Fprintf(w, "  Tables:       %d\n", r.Tables)
 	if r.Views > 0 {
 		fmt.Fprintf(w, "  Views:        %d\n", r.Views)
+	}
+	if r.Functions > 0 {
+		fmt.Fprintf(w, "  Functions:    %d\n", r.Functions)
+	}
+	if r.Triggers > 0 {
+		fmt.Fprintf(w, "  Triggers:     %d\n", r.Triggers)
 	}
 	fmt.Fprintf(w, "  Records:      %d\n", r.Records)
 	if r.AuthUsers > 0 {

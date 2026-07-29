@@ -16,6 +16,46 @@ go mod edit -replace=github.com/allyourbase/ayb/sdk_go=/absolute/path/to/allyour
 go get github.com/allyourbase/ayb/sdk_go
 ```
 
+## PostgreSQL RPC
+
+`Client.RPC(ctx, name, args)` returns the function result as `json.RawMessage`.
+A 204 or empty response returns `nil`.
+
+```go
+ctx := context.Background()
+client := allyourbase.NewClient("http://localhost:8080")
+
+raw, err := client.RPC(ctx, "leaderboard_total", map[string]any{
+	"club_id": "abc123",
+})
+if err != nil {
+	return err
+}
+if raw != nil {
+	fmt.Println(string(raw))
+}
+```
+
+## Edge functions
+
+`client.Edge.Invoke(ctx, name, req)` accepts an `EdgeInvokeRequest` and returns
+an `EdgeInvokeResponse` with `StatusCode int`, `Headers http.Header`, and
+`Body []byte`.
+
+```go
+response, err := client.Edge.Invoke(ctx, "send-digest", allyourbase.EdgeInvokeRequest{
+	Body:    []byte(`{"club_id":"abc123"}`),
+	Headers: map[string]string{"Content-Type": "application/json"},
+})
+if err != nil {
+	return err
+}
+fmt.Println(response.StatusCode, response.Headers, string(response.Body))
+```
+
+GraphQL and admin/org typed clients are JS-only scope today. Go applications
+can use AYB REST endpoints or custom HTTP calls for those surfaces.
+
 ## Auth
 
 ```go

@@ -170,7 +170,18 @@ func TestCheckPlaywrightExecutedScriptFailsWhenProjectHasOnlySkippedTests(t *tes
 	}
 }
 
+// gapSummaryMarkdown builds a synthetic matrix that still satisfies every gate,
+// so gate-count fixtures stay focused on the counts they vary. The degraded-state
+// inventory is appended verbatim from the shipped matrix because that section is
+// validated against real registry, component, spec, and browser-test files.
 func gapSummaryMarkdown(t *testing.T, repoRoot string, smokeNone, smokeHeadingOnly, crudMissingFull, mockedMissing int) string {
+	t.Helper()
+
+	return coverageMatrixGapSummaryMarkdown(t, repoRoot, smokeNone, smokeHeadingOnly, crudMissingFull, mockedMissing) +
+		canonicalDegradedStateSection(t, repoRoot)
+}
+
+func coverageMatrixGapSummaryMarkdown(t *testing.T, repoRoot string, smokeNone, smokeHeadingOnly, crudMissingFull, mockedMissing int) string {
 	t.Helper()
 
 	views := coverageMatrixViews(t, repoRoot)

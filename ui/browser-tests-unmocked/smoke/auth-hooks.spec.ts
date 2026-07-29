@@ -1,4 +1,12 @@
-import { test, expect, probeEndpoint, fetchAuthHooksConfig, waitForDashboard } from "../fixtures";
+import {
+  test,
+  expect,
+  expectOfflineRetryRecovery,
+  navigateDashboardScreenInPage,
+  probeEndpoint,
+  fetchAuthHooksConfig,
+  waitForDashboard,
+} from "../fixtures";
 
 /**
  * SMOKE TEST: Auth Hooks — Content-Verified
@@ -17,7 +25,12 @@ const HOOK_LABELS: { key: string; label: string }[] = [
 ];
 
 test.describe("Smoke: Auth Hooks", () => {
-  test("auth hooks page renders hook cards matching live API config", async ({ page, request, adminToken }) => {
+  test("auth hooks page renders hook cards matching live API config", async ({
+    page,
+    request,
+    adminToken,
+    context,
+  }) => {
     const status = await probeEndpoint(request, adminToken, "/api/admin/auth/hooks");
     test.skip(
       status === 501 || status === 404,
@@ -41,5 +54,24 @@ test.describe("Smoke: Auth Hooks", () => {
       await expect(card.getByText(label)).toBeVisible();
       await expect(page.getByTestId(`auth-hook-value-${key}`)).toContainText(expectedValue);
     }
+
+    await navigateDashboardScreenInPage(page, "api-explorer");
+    await expect(page.getByRole("heading", { name: /API Explorer/i })).toBeVisible();
+
+    await expectOfflineRetryRecovery(
+      page,
+      context,
+      async () => {
+        await navigateDashboardScreenInPage(page, "auth-hooks");
+      },
+      async () => {
+        for (const { key } of HOOK_LABELS) {
+          await expect(page.getByTestId(`auth-hook-value-${key}`)).toContainText(
+            hooksConfig[key] || "Not configured",
+            { timeout: 5000 },
+          );
+        }
+      },
+    );
   });
 });

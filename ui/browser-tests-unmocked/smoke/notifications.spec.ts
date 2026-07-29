@@ -4,7 +4,9 @@ import {
   ensureUserByEmail,
   cleanupNotificationsByTitle,
   cleanupUserByEmail,
+  failIfReadinessForced,
   probeEndpoint,
+  readinessNotMet,
   waitForDashboard,
 } from "../fixtures";
 
@@ -32,16 +34,21 @@ test.describe("Smoke: Notifications", () => {
     }
   });
 
-  test("admin can send a notification and see success state", async ({ page, request, adminToken }) => {
+  test("admin can send a notification and see success state", async ({ page, request, adminToken }, testInfo) => {
+    await failIfReadinessForced(testInfo, "notifications");
+
     // POST probe with empty body returns 400 if service exists, 501/404 if not.
     const probeStatus = await probeEndpoint(request, adminToken, "/api/admin/notifications", {
       method: "POST",
       data: {},
     });
-    test.skip(
-      probeStatus === 501 || probeStatus === 404,
-      `Notifications service not configured (status ${probeStatus})`,
-    );
+    if (probeStatus === 501 || probeStatus === 404) {
+      await readinessNotMet(
+        testInfo,
+        "notifications",
+        `notifications endpoint returned status ${probeStatus}`,
+      );
+    }
 
     const runId = Date.now();
     const testEmail = `notifications-smoke-${runId}@test.com`;

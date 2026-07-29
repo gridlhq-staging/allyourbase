@@ -541,6 +541,17 @@ func TestNewLoggerLevelAdjustable(t *testing.T) {
 	testutil.Equal(t, slog.LevelWarn, lvl.Level())
 }
 
+func TestNewAdminLoggerCapturesRequestRecords(t *testing.T) {
+	logger, logBuffer := newAdminLogger(testNoopLogger())
+
+	logger.Info("request", "path", "/api/admin/stats")
+
+	entries := logBuffer.Entries()
+	testutil.Equal(t, 1, len(entries))
+	testutil.Equal(t, "request", entries[0].Message)
+	testutil.Equal(t, "/api/admin/stats", entries[0].Attrs["path"])
+}
+
 // --- Banner body-only path ---
 
 func TestBannerBodyToContainsAPIURL(t *testing.T) {

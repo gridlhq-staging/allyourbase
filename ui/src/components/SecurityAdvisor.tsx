@@ -3,6 +3,7 @@ import { getSecurityAdvisorReport } from "../api";
 import type { AdvisorSeverity, SecurityFinding } from "../types";
 import { usePolling } from "../hooks/usePolling";
 import { toPanelError } from "./advisors/panelError";
+import { ErrorNotice } from "./ErrorNotice";
 
 const severityOrder: AdvisorSeverity[] = ["critical", "high", "medium", "low"];
 
@@ -13,7 +14,7 @@ export function SecurityAdvisor({ pollMs = 30000 }: { pollMs?: number }) {
   const [status, setStatus] = useState<string>(initial.get("secStatus") || "all");
   const [expandedId, setExpandedId] = useState<string | null>(null);
 
-  const { data, loading, error } = usePolling(() => getSecurityAdvisorReport(), pollMs);
+  const { data, loading, error, refresh } = usePolling(() => getSecurityAdvisorReport(), pollMs);
 
   useEffect(() => {
     const url = new URL(window.location.href);
@@ -45,7 +46,13 @@ export function SecurityAdvisor({ pollMs = 30000 }: { pollMs?: number }) {
     <div className="p-6 space-y-4" data-testid="security-advisor-panel">
       <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Security Advisor</h2>
       {loading && !data && <div className="text-sm text-gray-500">Loading security telemetry...</div>}
-      {Boolean(error) && <div className="text-sm text-red-600">{toPanelError(error)}</div>}
+      {Boolean(error) && (
+        <ErrorNotice
+          message={toPanelError(error)}
+          docsPath="/guide/security"
+          onAction={() => void refresh()}
+        />
+      )}
       {stale && <div className="text-sm text-amber-600">Telemetry may be stale</div>}
 
       <div className="flex flex-wrap items-center gap-2 text-xs">

@@ -274,13 +274,33 @@ await client.push.revokeDevice(devices.first.id);
 
 ## RPC
 
+`client.rpc<T>(functionName, args: ...)` returns decoded JSON. Use a nullable
+`T` when the function may return a 204 or empty response, which resolves to
+`null`.
+
 ```dart
-final result = await client.rpc<Map<String, Object?>>(
+final result = await client.rpc<Map<String, Object?>?>(
   'leaderboard_totals',
   args: {'club_id': 'abc123'},
 );
 print(result);
 ```
+
+## Edge functions
+
+`client.functions.invoke(name, options)` returns `status` (`int`), `headers`
+(`Map<String, String>`), and the raw response bytes in `rawBody` (`Uint8List`).
+
+```dart
+final response = await client.functions.invoke(
+  'send-digest',
+  const EdgeInvokeOptions(body: {'club_id': 'abc123'}),
+);
+print('${response.status}: ${response.rawBody.length} bytes');
+```
+
+GraphQL and admin/org typed clients are JS-only scope today. Dart applications
+can use AYB REST endpoints or custom HTTP calls for those surfaces.
 
 ## Async token persistence
 

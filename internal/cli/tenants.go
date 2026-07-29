@@ -20,6 +20,9 @@ import (
 var tenantsCmd = &cobra.Command{
 	Use:   "tenants",
 	Short: "Manage multi-tenancy and legacy migration",
+	Example: `ayb tenants migrate-legacy
+ayb tenants migrate-legacy --apply
+ayb tenants migrate-legacy --check-consistency`,
 }
 
 var tenantsMigrateLegacyCmd = &cobra.Command{

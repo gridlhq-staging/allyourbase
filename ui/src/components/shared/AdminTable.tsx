@@ -1,4 +1,6 @@
 import { ChevronLeft, ChevronRight } from "lucide-react";
+import { ErrorNotice } from "../ErrorNotice";
+import type { GuidePath } from "../../lib/docs_url";
 
 export interface Column<T> {
   key: string;
@@ -7,7 +9,7 @@ export interface Column<T> {
   className?: string;
 }
 
-interface AdminTableProps<T extends object> {
+interface AdminTableBaseProps<T extends object> {
   columns: Column<T>[];
   rows: T[];
   rowKey: keyof T & string;
@@ -15,8 +17,30 @@ interface AdminTableProps<T extends object> {
   totalPages?: number;
   onPageChange?: (page: number) => void;
   emptyMessage?: string;
+  loading?: boolean;
+  loadingMessage?: string;
 }
 
+/**
+ * The error branch delegates to ErrorNotice, whose docsPath is mandatory and is
+ * not produced by useAdminResource. Pairing them here makes the omission a type
+ * error at the call site instead of a silently unrendered error state.
+ */
+type AdminTableErrorProps =
+  | { error?: undefined; docsPath?: undefined; onRetry?: undefined }
+  | { error: string | null; docsPath: GuidePath; onRetry?: () => void };
+
+type AdminTableProps<T extends object> = AdminTableBaseProps<T> & AdminTableErrorProps;
+
+/**
+ * Renders rows, the empty state, and pagination, and — when a caller passes the
+ * optional degraded-state props — the loading and error states produced by
+ * useAdminResource. The hook stays the async lifecycle owner: nothing here
+ * fetches, retries on its own, or holds request state.
+ *
+ * Branch precedence is loading > error > empty > rows. Callers that pass none of
+ * the degraded-state props keep the pre-existing empty-or-rows render exactly.
+ */
 export function AdminTable<T extends object>({
   columns,
   rows,
@@ -25,10 +49,32 @@ export function AdminTable<T extends object>({
   totalPages,
   onPageChange,
   emptyMessage = "No results found",
+  loading,
+  loadingMessage = "Loading...",
+  error,
+  docsPath,
+  onRetry,
 }: AdminTableProps<T>) {
+  if (loading) {
+    return (
+      <div
+        role="status"
+        className="text-center py-12 border rounded-lg bg-gray-50 dark:bg-gray-800 text-gray-500 dark:text-gray-300 text-sm"
+      >
+        {loadingMessage}
+      </div>
+    );
+  }
+
+  if (error && docsPath) {
+    return (
+      <ErrorNotice message={error} docsPath={docsPath} actionLabel="Retry" onAction={onRetry} />
+    );
+  }
+
   if (rows.length === 0) {
     return (
-      <div className="text-center py-12 border rounded-lg bg-gray-50 dark:bg-gray-800 text-gray-500 dark:text-gray-400 text-sm">
+      <div className="text-center py-12 border rounded-lg bg-gray-50 dark:bg-gray-800 text-gray-500 dark:text-gray-300 text-sm">
         {emptyMessage}
       </div>
     );

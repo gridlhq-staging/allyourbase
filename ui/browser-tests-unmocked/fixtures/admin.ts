@@ -172,37 +172,45 @@ export async function seedSupportTicket(
 ): Promise<{ id: string; subject: string; priority: string; status: string }> {
   const status = options.status || "open";
   const priority = options.priority || "normal";
-  const createRes = await request.post("/api/support/tickets", {
-    headers: {
-      Authorization: `Bearer ${token}`,
-      "Content-Type": "application/json",
-      ...(options.tenantId ? { "X-Tenant-ID": options.tenantId } : {}),
-    },
-    data: {
-      subject: options.subject,
-      body: options.initialMessage || "Initial customer message",
-      priority,
-    },
-  });
-  await validateResponse(createRes, `Create support ticket ${options.subject}`);
-  const created = await createRes.json();
-  const id = created?.id;
-  if (status !== "open" || priority !== created?.priority) {
-    const updateRes = await request.put(`/api/admin/support/tickets/${encodeURIComponent(id)}`, {
-      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
-      data: { status, priority },
-    });
-    await validateResponse(updateRes, `Update support ticket ${options.subject}`);
-  }
-  const getRes = await request.get(`/api/admin/support/tickets/${encodeURIComponent(id)}`, {
-    headers: { Authorization: `Bearer ${token}` },
-  });
-  await validateResponse(getRes, `Get support ticket ${options.subject}`);
-  const body = await getRes.json();
-  const ticket = body?.ticket ?? body;
-  const subject = ticket?.subject;
-  const returnedPriority = ticket?.priority;
-  const returnedStatus = ticket?.status;
+  const fixtureID = randomUUID();
+  const tenantID = options.tenantId
+    ? `'${sqlLiteral(options.tenantId)}'::uuid`
+    : "NULL::uuid";
+  const userID = options.userId
+    ? `'${sqlLiteral(options.userId)}'::uuid`
+    : `'${randomUUID()}'::uuid`;
+  /* eslint-disable no-restricted-syntax -- Stage 1 product gap: support tickets have no deterministic admin seed API. */
+  const result = await execSQL(
+    request,
+    token,
+    `WITH fixture_tenant AS (
+       INSERT INTO _ayb_tenants (id, name, slug, state)
+       SELECT
+         '${fixtureID}'::uuid,
+         'E2E support ${fixtureID}',
+         'e2e-support-${fixtureID}',
+         'active'
+       WHERE ${options.tenantId ? "FALSE" : "TRUE"}
+       RETURNING id
+     ), new_ticket AS (
+       INSERT INTO _ayb_support_tickets (tenant_id, user_id, subject, status, priority)
+       VALUES (
+         COALESCE(${tenantID}, (SELECT id FROM fixture_tenant)),
+         ${userID},
+         '${sqlLiteral(options.subject)}',
+         '${status}',
+         '${priority}'
+       )
+       RETURNING id, subject, status, priority
+     ), initial_message AS (
+       INSERT INTO _ayb_support_messages (ticket_id, sender_type, body)
+       SELECT id, 'customer', '${sqlLiteral(options.initialMessage || "Initial customer message")}'
+       FROM new_ticket
+     )
+     SELECT id, subject, status, priority FROM new_ticket`,
+  );
+  /* eslint-enable no-restricted-syntax */
+  const [id, subject, returnedStatus, returnedPriority] = result.rows[0] ?? [];
   if (
     typeof id !== "string" ||
     typeof subject !== "string" ||
@@ -220,13 +228,20 @@ export async function cleanupSupportTicketByID(
   token: string,
   ticketID: string,
 ): Promise<void> {
-  // Stage 1 product gap: support ticket cleanup has no domain delete/retention API.
+  /* eslint-disable no-restricted-syntax -- Stage 1 product gap: support ticket cleanup has no domain delete/retention API. */
   await execSQL(
     request,
     token,
-    // eslint-disable-next-line no-restricted-syntax -- Stage 1 product gap: support ticket cleanup has no domain delete/retention API.
-    `DELETE FROM _ayb_support_tickets WHERE id = '${sqlLiteral(ticketID)}'`,
+    `WITH deleted_ticket AS (
+       DELETE FROM _ayb_support_tickets
+       WHERE id = '${sqlLiteral(ticketID)}'
+       RETURNING tenant_id
+     )
+     DELETE FROM _ayb_tenants
+     WHERE id = (SELECT tenant_id FROM deleted_ticket)
+       AND slug LIKE 'e2e-support-%'`,
   );
+  /* eslint-enable no-restricted-syntax */
 }
 
 /** Creates an incident and optionally posts an initial status update. */
@@ -465,6 +480,27 @@ export async function cleanupAuditLogsByTable(
     // eslint-disable-next-line no-restricted-syntax -- Stage 1 product gap: audit history has no domain delete/cleanup API.
     `DELETE FROM _ayb_audit_log WHERE table_name = '${sqlLiteral(tableName)}'`,
   );
+}
+
+/** Makes the isolated audit relation return a row that cannot decode as an audit timestamp. */
+export async function seedUnreadableAuditLogTimestamp(
+  request: APIRequestContext,
+  token: string,
+  tableName: string,
+): Promise<void> {
+  /* eslint-disable no-restricted-syntax -- Stage 1 product gap: audit history has no fault-injection API. */
+  await execSQL(
+    request,
+    token,
+    "ALTER TABLE _ayb_audit_log ALTER COLUMN timestamp TYPE text USING timestamp::text",
+  );
+  await execSQL(
+    request,
+    token,
+    `INSERT INTO _ayb_audit_log (timestamp, table_name, operation)
+     VALUES ('not-a-timestamp', '${sqlLiteral(tableName)}', 'INSERT')`,
+  );
+  /* eslint-enable no-restricted-syntax */
 }
 
 export interface AdminStatsSnapshot {

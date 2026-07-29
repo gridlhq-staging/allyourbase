@@ -1,5 +1,12 @@
 import type { APIRequestContext, TestInfo } from "@playwright/test";
-import { test, expect, execSQL, waitForDashboard } from "../fixtures";
+import {
+  test,
+  expect,
+  execSQL,
+  openTableFromSidebar,
+  waitForDashboard,
+  waitForTableInSidebar,
+} from "../fixtures";
 
 /**
  * FULL E2E TEST: First Table Journey (Onboarding Proof)
@@ -92,7 +99,7 @@ test.describe("First Table Journey (Full E2E)", () => {
     await page.goto("/admin/");
     await waitForDashboard(page);
 
-    const sidebar = page.locator("aside");
+    const sidebar = page.getByRole("complementary");
 
     // --- Empty-state assertions ---
     await expect(sidebar.getByText("No tables yet")).toBeVisible();
@@ -122,12 +129,10 @@ test.describe("First Table Journey (Full E2E)", () => {
     // --- Verify table appears in sidebar via schema refresh (onSchemaChange) ---
     // Schema refresh is triggered automatically by SqlEditor.execute() after DDL.
     // Generous timeout to tolerate slow schema fetches under load.
-    await expect(
-      sidebar.getByText(tableName, { exact: true }),
-    ).toBeVisible({ timeout: 10000 });
+    await waitForTableInSidebar(page, tableName);
 
     // --- Click the table to open the table browser ---
-    await sidebar.getByText(tableName, { exact: true }).click();
+    await openTableFromSidebar(page, tableName);
 
     // Table browser should display column headers for the new table
     await expect(
@@ -147,7 +152,7 @@ test.describe("First Table Journey (Full E2E)", () => {
     });
 
     // --- Navigate back to table browser and verify the row renders ---
-    await sidebar.getByText(tableName, { exact: true }).click();
+    await openTableFromSidebar(page, tableName);
     await expect(page.getByRole("cell", { name: seededName })).toBeVisible({
       timeout: 5000,
     });

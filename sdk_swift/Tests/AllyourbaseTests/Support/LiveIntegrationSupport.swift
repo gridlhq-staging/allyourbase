@@ -156,25 +156,36 @@ enum RecordsLiveIntegrationSupport {
         try await adminSQL(
             adminClient,
             """
-            INSERT INTO _ayb_user_mfa (
-                user_id, method, phone, enabled, enrolled_at,
-                webauthn_credential_id, webauthn_public_key,
-                webauthn_sign_count, webauthn_display_name
+            WITH factor AS (
+                INSERT INTO _ayb_user_mfa (
+                    user_id, method, phone, enabled, enrolled_at, webauthn_session_data
+                )
+                SELECT id, 'webauthn', NULL, true, NOW(), NULL
+                FROM _ayb_users
+                WHERE LOWER(email) = LOWER(\(sqlStringLiteral(email)))
+                ON CONFLICT (user_id, method) DO UPDATE
+                SET enabled = true,
+                    enrolled_at = NOW(),
+                    webauthn_session_data = NULL
+                RETURNING id
             )
-            SELECT id, 'webauthn', NULL, true, NOW(),
+            INSERT INTO _ayb_webauthn_credentials (
+                factor_id, credential_id, public_key, transports, sign_count, display_name
+            )
+            SELECT id,
                    decode('c3dpZnQtbGl2ZS13ZWJhdXRobi1jcmVkZW50aWFs', 'base64'),
                    decode('c3dpZnQtbGl2ZS13ZWJhdXRobi1wdWJsaWMta2V5', 'base64'),
-                   0, 'Swift live seeded passkey'
-            FROM _ayb_users
-            WHERE LOWER(email) = LOWER(\(sqlStringLiteral(email)))
-            ON CONFLICT (user_id, method) DO UPDATE
-            SET enabled = true,
-                enrolled_at = NOW(),
-                webauthn_credential_id = EXCLUDED.webauthn_credential_id,
-                webauthn_public_key = EXCLUDED.webauthn_public_key,
-                webauthn_sign_count = 0,
-                webauthn_display_name = EXCLUDED.webauthn_display_name,
-                webauthn_session_data = NULL
+                   ARRAY[]::TEXT[],
+                   0,
+                   'Swift live seeded passkey'
+            FROM factor
+            ON CONFLICT (credential_id) DO UPDATE
+            SET factor_id = EXCLUDED.factor_id,
+                public_key = EXCLUDED.public_key,
+                transports = EXCLUDED.transports,
+                sign_count = 0,
+                display_name = EXCLUDED.display_name,
+                last_used_at = NULL
             """
         )
     }

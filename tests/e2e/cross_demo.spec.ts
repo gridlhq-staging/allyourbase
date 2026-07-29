@@ -352,19 +352,15 @@ test.describe("local orchestration", () => {
       }
       await expect(signOutButton).toBeVisible({ timeout: SIGN_IN_TIMEOUT_MS });
 
+      // The movies UI searches via the SDK records.list("movies") collections API
+      // (examples/movies/src/lib/ayb.ts:searchMovies) — search-as-you-type with a 300ms
+      // debounce, no "Search" button and no /api/admin/movies/search call. Wait on the same
+      // real readiness signals the standalone spec uses (examples/movies/e2e/movies.spec.ts):
+      // corpus-loaded summary, then the Inception row rendered by SearchResults.tsx.
+      await expect(page.getByTestId("results-summary")).toContainText(/of 250 movies/, { timeout: 15_000 });
       await page.getByPlaceholder("Search movies...").fill("inception");
-      const searchResponsePromise = page.waitForResponse((res) => {
-        return res.request().method() === "POST" && res.url().includes("/api/admin/movies/search");
-      });
-      await page.getByRole("button", { name: "Search" }).click();
-
-      const searchResponse = await searchResponsePromise;
-      expect(searchResponse.status()).toBe(200);
-      const payload = (await searchResponse.json()) as { rows?: Array<{ slug?: string }> };
-      expect(Array.isArray(payload.rows)).toBeTruthy();
-      expect(payload.rows?.[0]?.slug).toBe("inception");
-
-      await expect(page.getByRole("heading", { level: 3 }).first()).toHaveText("Inception");
+      await expect(page.getByTestId("search-result-row-inception")).toBeVisible({ timeout: 15_000 });
+      await expect(page.getByTestId("search-result-title-inception")).toHaveText("Inception");
     });
   });
 });

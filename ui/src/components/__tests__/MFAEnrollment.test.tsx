@@ -427,6 +427,29 @@ describe("MFAEnrollment", () => {
     });
   });
 
+  it("retries the initial MFA data load while keeping the page shell visible", async () => {
+    mockGetMFAFactors
+      .mockRejectedValueOnce(new Error("MFA data API unavailable"))
+      .mockResolvedValueOnce({ factors: [] });
+    const user = userEvent.setup();
+
+    render(<MFAEnrollment screenLabel="Multi-Factor Authentication" />);
+
+    const alert = await screen.findByRole("alert");
+    expect(
+      within(alert).getByText("MFA data API unavailable", { exact: true }),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: /multi-factor authentication/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Retry" })).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Retry" }));
+
+    await waitFor(() => {
+      expect(mockGetMFAFactors).toHaveBeenCalledTimes(2);
+      expect(screen.getByText(/no mfa methods enrolled/i)).toBeInTheDocument();
+    });
+  });
+
   it("treats null factors payload as empty list instead of crashing", async () => {
     mockGetMFAFactors.mockResolvedValue({ factors: null as unknown as MFAFactor[] });
     render(<MFAEnrollment screenLabel="Multi-Factor Authentication" />);

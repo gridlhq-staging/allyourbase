@@ -1,4 +1,4 @@
-.PHONY: build dev test test-sdk test-sdk-go test-sdk-python test-sdk-dart test-sdk-swift test-sdk-kotlin test-sdk-react test-sdk-ssr test-sdk-all test-sdk-integration test-ui test-demos-unit test-quickstart-contract test-integration test-multinode test-cell test-demo-smoke test-demo-instantsearch test-demo-e2e test-demo-launch test-demo-cross-smoke test-demo-movies-real-provider test-push-smoke test-e2e test-smoke test-browser-full test-full test-all test-everything test-api-smoke test-api-journey lint govulncheck check demo-check hygiene check-hygiene check-sizes check-screen-specs check-demo-specs check-followups check-ui-bundle-size check-ui-lint check-browser-tests-lint check-func-sizes check-installer check-sdk-build launch-check adoption release-candidate-check clean ui demos release docker docker-runtime-smoke help sync-openapi build-postgres load-admin-status load-admin-status-local load-auth-request-path load-auth-request-path-local load-data-path load-data-path-local load-data-pool-pressure load-data-pool-pressure-local load-http-100 load-http-100-local load-http-500 load-http-500-local load-http-1000 load-http-1000-local load-realtime-ws load-realtime-ws-local load-realtime-ws-1000 load-realtime-ws-1000-local load-realtime-ws-5000 load-realtime-ws-5000-local load-realtime-ws-10000 load-realtime-ws-10000-local load-sustained-soak load-sustained-soak-local
+.PHONY: build dev test test-sdk test-sdk-go test-sdk-python test-sdk-dart test-sdk-swift test-sdk-kotlin test-sdk-react test-sdk-ssr test-sdk-all test-sdk-integration test-sdk-python-integration test-ui test-demos-unit test-quickstart-contract test-integration test-multinode test-cell test-demo-smoke test-demo-instantsearch test-demo-e2e test-demo-launch test-demo-cross-smoke test-demo-movies-real-provider test-push-smoke test-e2e test-smoke test-browser-full test-full test-all test-everything test-api-smoke test-api-journey lint govulncheck check demo-check hygiene check-hygiene check-sizes check-screen-specs check-demo-specs check-followups check-ui-bundle-size check-ui-lint check-browser-tests-lint check-func-sizes check-installer check-sdk-build launch-check adoption release-candidate-check clean ui demos release docker docker-runtime-smoke help sync-openapi build-postgres load-admin-status load-admin-status-local load-auth-request-path load-auth-request-path-local load-data-path load-data-path-local load-data-pool-pressure load-data-pool-pressure-local load-http-100 load-http-100-local load-http-500 load-http-500-local load-http-1000 load-http-1000-local load-realtime-ws load-realtime-ws-local load-realtime-ws-1000 load-realtime-ws-1000-local load-realtime-ws-5000 load-realtime-ws-5000-local load-realtime-ws-10000 load-realtime-ws-10000-local load-sustained-soak load-sustained-soak-local
 
 # Build variables
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
@@ -188,7 +188,12 @@ test-sdk-go: ## Run Go SDK checks
 	cd sdk_go && go vet ./... && go test -count=1 ./...
 
 test-sdk-python: ## Run Python SDK checks
-	cd sdk_python && python3 -m pip install ".[dev]" -q && python3 -m ruff check src/ --ignore E501 && python3 -m pytest
+	@# Isolated environments avoid PEP 668; uv --locked also exposes lock drift.
+	@if command -v uv >/dev/null 2>&1; then \
+		cd sdk_python && uv run --locked --extra dev ruff check src/ --ignore E501 && uv run --locked --extra dev pytest; \
+	else \
+		cd sdk_python && python3 -m venv .venv && .venv/bin/python -m pip install -q ".[dev]" && .venv/bin/ruff check src/ --ignore E501 && .venv/bin/pytest; \
+	fi
 
 test-sdk-dart: ## Run Dart SDK checks
 	cd sdk_dart && dart pub get && dart analyze && dart test
@@ -256,6 +261,9 @@ test-sdk-integration: build ## Run the SDK integration suite against a live AYB 
 	bash tests/test_sdk_integration_port_contract.sh
 	cd sdk && npm ci
 	@bash -lc '$(LOAD_BOOTSTRAP_FUNCTIONS); export -f load_base_url_is_loopback load_exchange_admin_password_for_token load_resolve_admin_token; source tests/port_helpers.sh; if [[ -z "$${AYB_BASE_URL:-}" && -z "$${AYB_HEALTH_URL:-}" && -z "$${AYB_SERVER_PORT:-}" ]]; then AYB_SERVER_PORT="$$(pick_free_port 48091 49091 50091 51091 52091)" || { echo "No free isolated AYB server port available for SDK integration" >&2; exit 1; }; export AYB_SERVER_PORT; fi; if [[ -z "$${AYB_DATABASE_URL:-}" && -z "$${AYB_DATABASE_EMBEDDED_PORT:-}" ]]; then AYB_DATABASE_EMBEDDED_PORT="$$(pick_free_port 45433 46433 47433 48433 49433)" || { echo "No free isolated embedded Postgres port available for SDK integration" >&2; exit 1; }; export AYB_DATABASE_EMBEDDED_PORT; fi; $(BROWSER_EXPORT_AUTH_ENV); export AYB_STORAGE_ENABLED=true; export AYB_AUTH_ANONYMOUS_AUTH_ENABLED=true; bash scripts/run-with-ayb.sh '"'"'load_resolve_admin_token && bash scripts/sdk_live_proof_seed.sh && cd sdk && npm run test:integration && cd ../sdk_go && export AYB_TEST_URL="$${AYB_BASE_URL}" AYB_TEST_COLLECTION="$${AYB_SDK_LIVE_PROOF_COLLECTION:-sdk_kotlin_search_posts}" AYB_TEST_ADMIN_TOKEN="$${AYB_ADMIN_TOKEN}" && go test -count=1 -run TestE2E ./... -v'"'"''
+
+test-sdk-python-integration: build ## Run the Python SDK edge-invoke live proof against a live AYB (builds + starts server)
+	@bash -lc '$(LOAD_BOOTSTRAP_FUNCTIONS); export -f load_base_url_is_loopback load_exchange_admin_password_for_token load_resolve_admin_token; source tests/port_helpers.sh; if [[ -z "$${AYB_BASE_URL:-}" && -z "$${AYB_HEALTH_URL:-}" && -z "$${AYB_SERVER_PORT:-}" ]]; then AYB_SERVER_PORT="$$(pick_free_port 48091 49091 50091 51091 52091)" || { echo "No free isolated AYB server port available for Python SDK live proof" >&2; exit 1; }; export AYB_SERVER_PORT; fi; if [[ -z "$${AYB_DATABASE_URL:-}" && -z "$${AYB_DATABASE_EMBEDDED_PORT:-}" ]]; then AYB_DATABASE_EMBEDDED_PORT="$$(pick_free_port 45433 46433 47433 48433 49433)" || { echo "No free isolated embedded Postgres port available for Python SDK live proof" >&2; exit 1; }; export AYB_DATABASE_EMBEDDED_PORT; fi; $(BROWSER_EXPORT_AUTH_ENV); export AYB_STORAGE_ENABLED=true; export AYB_AUTH_ANONYMOUS_AUTH_ENABLED=true; bash scripts/run-with-ayb.sh '"'"'load_resolve_admin_token && bash scripts/sdk_live_proof_seed.sh && export AYB_TEST_URL="$${AYB_BASE_URL}" AYB_TEST_COLLECTION="$${AYB_SDK_LIVE_PROOF_COLLECTION:-sdk_kotlin_search_posts}" AYB_TEST_ADMIN_TOKEN="$${AYB_ADMIN_TOKEN}" && cd sdk_python && python3 -m pip install ".[dev]" -q && python3 -m pytest tests/test_e2e.py -k "edge_invoke_live"'"'"''
 
 load-admin-status: ## Run direct k6 baseline scenario against AYB_BASE_URL (default http://127.0.0.1:8090)
 	@bash -lc '$(LOAD_BOOTSTRAP_FUNCTIONS); load_export_env; load_resolve_admin_token; $(LOAD_ADMIN_STATUS_K6_COMMAND)'
@@ -372,10 +380,10 @@ test-demo-cross-smoke: build ## Run cross-demo Playwright smoke — kanban + liv
 		AYB_BIN=$(CURDIR)/ayb npx playwright test --reporter=line cross_demo.spec.ts
 
 test-api-journey: build ## Run full_journey API smoke lifecycle via run-with-ayb
-	@AYB_STORAGE_ENABLED=true bash scripts/run-with-ayb.sh 'cd _dev/manual_smoke_tests && python3 full_journey.test.py'
+	@AYB_AUTH_ENABLED=true AYB_STORAGE_ENABLED=true bash scripts/run-with-ayb.sh 'cd _dev/manual_smoke_tests && python3 full_journey.test.py'
 
 test-api-smoke: build ## Run API smoke suite via run-with-ayb (starts server, runs run_all_tests.sh, stops server)
-	@AYB_STORAGE_ENABLED=true bash scripts/run-with-ayb.sh 'cd _dev/manual_smoke_tests && ./run_all_tests.sh'
+	@AYB_AUTH_ENABLED=true AYB_STORAGE_ENABLED=true bash scripts/run-with-ayb.sh 'cd _dev/manual_smoke_tests && ./run_all_tests.sh'
 
 test-everything: build ## Run absolutely everything: unit + integration + SDK + UI + browser + API smoke tests
 	@failed=""; passed=""; \

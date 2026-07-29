@@ -129,11 +129,20 @@ describe("Extensions", () => {
     });
   });
 
-  it("shows error state on fetch failure", async () => {
-    (api.listExtensions as ReturnType<typeof vi.fn>).mockRejectedValue(new Error("Connection lost"));
+  it("retries the extension list from the exact fetch failure", async () => {
+    (api.listExtensions as ReturnType<typeof vi.fn>).mockRejectedValueOnce(
+      new Error("Connection lost"),
+    );
     renderWithProviders(<Extensions />);
     await waitFor(() => {
       expect(screen.getByText("Connection lost")).toBeInTheDocument();
     });
+
+    fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+
+    await waitFor(() => {
+      expect(screen.getByText("pgvector")).toBeInTheDocument();
+    });
+    expect(api.listExtensions).toHaveBeenCalledTimes(2);
   });
 });

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -142,7 +143,14 @@ func (m *Migrator) migrateStorage(ctx context.Context, phaseIdx, totalPhases int
 	if err := validateStorageBucketNames(allBuckets); err != nil {
 		return err
 	}
-	if err := validateStorageBucketExportPaths(allBuckets, m.opts.StorageExportPath); err != nil {
+	if m.opts.StorageExportPath != "" {
+		if err := validateStorageBucketExportPaths(allBuckets, m.opts.StorageExportPath); err != nil {
+			return err
+		}
+	}
+
+	source, err := m.prepareStorageObjectSource(ctx)
+	if err != nil {
 		return err
 	}
 
@@ -157,7 +165,7 @@ func (m *Migrator) migrateStorage(ctx context.Context, phaseIdx, totalPhases int
 		if err := m.registerStorageBucket(ctx, bucketObjects.bucket); err != nil {
 			return err
 		}
-		copiedObjects, err := m.copyStorageBucket(ctx, phase, totalObjects, &processed, destination, bucketObjects)
+		copiedObjects, err := m.copyStorageBucket(ctx, phase, totalObjects, &processed, source, destination, bucketObjects)
 		if err != nil {
 			return err
 		}
@@ -309,6 +317,7 @@ func (m *Migrator) copyStorageBucket(
 	phase migrate.Phase,
 	totalObjects int,
 	processed *int,
+	source storageObjectSource,
 	destination storageDestination,
 	bucketObjects storageBucketObjects,
 ) ([]copiedStorageObject, error) {
@@ -325,26 +334,43 @@ func (m *Migrator) copyStorageBucket(
 	copied := 0
 	copiedObjects := make([]copiedStorageObject, 0, len(objects))
 	for _, obj := range objects {
-		exportBucketDir := filepath.Join(m.opts.StorageExportPath, bucket.Name)
-		srcFile := filepath.Join(exportBucketDir, obj.Name)
-		if !isStoragePathWithinRoot(exportBucketDir, m.opts.StorageExportPath) ||
-			!isStoragePathWithinRoot(srcFile, exportBucketDir) {
+		reader, err := source.open(ctx, bucket, obj)
+		if err != nil {
 			m.recordStorageObjectError(phase, processed, totalObjects,
-				fmt.Sprintf("skipping %s/%s: path traversal detected", bucket.Name, obj.Name))
+				fmt.Sprintf("opening %s/%s: %v", bucket.Name, obj.Name, err))
 			continue
 		}
 
 		backup, err := backupStorageObject(ctx, destination.backend, destination.backupScratchDir, bucketName, obj.Name)
 		if err != nil {
+			if closeErr := reader.Close(); closeErr != nil {
+				err = errors.Join(err, fmt.Errorf("closing source: %w", closeErr))
+			}
 			m.recordStorageObjectError(phase, processed, totalObjects,
 				fmt.Sprintf("preserving %s/%s before replacement: %v", bucket.Name, obj.Name, err))
 			continue
 		}
-		bytes, err := copyFile(ctx, destination.backend, bucketName, obj.Name, srcFile)
+		bytes, err := copyObjectReader(ctx, destination.backend, bucketName, obj.Name, reader)
+		closeErr := reader.Close()
 		if err != nil {
 			backup.discard()
 			m.recordStorageObjectError(phase, processed, totalObjects,
 				fmt.Sprintf("copying %s/%s: %v", bucket.Name, obj.Name, err))
+			continue
+		}
+		if closeErr != nil {
+			rollbackErr := rollbackCopiedStorageObjects(
+				context.WithoutCancel(ctx),
+				destination.backend,
+				[]copiedStorageObject{{
+					bucketName:   bucketName,
+					name:         obj.Name,
+					sourceBucket: bucket.Name,
+					backup:       backup,
+				}},
+			)
+			m.recordStorageObjectError(phase, processed, totalObjects,
+				fmt.Sprintf("closing %s/%s source: %v", bucket.Name, obj.Name, errors.Join(closeErr, rollbackErr)))
 			continue
 		}
 
@@ -429,7 +455,17 @@ func copyFile(
 	}
 	defer sf.Close()
 
-	n, err := backend.Put(ctx, "", bucketName, objectName, sf)
+	return copyObjectReader(ctx, backend, bucketName, objectName, sf)
+}
+
+func copyObjectReader(
+	ctx context.Context,
+	backend storage.Backend,
+	bucketName string,
+	objectName string,
+	source io.Reader,
+) (int64, error) {
+	n, err := backend.Put(ctx, "", bucketName, objectName, source)
 	if err != nil {
 		return 0, fmt.Errorf("copying data: %w", err)
 	}

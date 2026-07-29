@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"sort"
@@ -14,8 +15,9 @@ import (
 )
 
 var sitesCmd = &cobra.Command{
-	Use:   "sites",
-	Short: "Manage hosted static sites",
+	Use:     "sites",
+	Short:   "Manage hosted static sites",
+	Example: `ayb sites deploy docs --dir dist`,
 }
 
 var sitesDeployCmd = &cobra.Command{
@@ -182,7 +184,7 @@ func lookupAdminSiteByReference(cmd *cobra.Command, siteReference string) (*admi
 
 // createAdminSiteDeploy creates a new deploy record for the given site via the admin API and returns its summary.
 func createAdminSiteDeploy(cmd *cobra.Command, siteID string) (*adminDeploySummary, error) {
-	response, body, err := adminRequest(cmd, http.MethodPost, "/api/admin/sites/"+siteID+"/deploys", nil)
+	response, body, err := adminRequest(cmd, http.MethodPost, "/api/admin/sites/"+url.PathEscape(siteID)+"/deploys", nil)
 	if err != nil {
 		return nil, err
 	}
@@ -215,7 +217,7 @@ func uploadAdminDeployFile(cmd *cobra.Command, siteID, deployID, deployDirectory
 		sourceFile,
 		map[string]string{"name": relativePath},
 	)
-	uploadPath := "/api/admin/sites/" + siteID + "/deploys/" + deployID + "/files"
+	uploadPath := "/api/admin/sites/" + url.PathEscape(siteID) + "/deploys/" + url.PathEscape(deployID) + "/files"
 	response, body, err := adminRequestWithContentType(cmd, http.MethodPost, uploadPath, requestBody, contentType)
 	if err != nil {
 		return fmt.Errorf("uploading %q: %w", relativePath, err)
@@ -231,7 +233,7 @@ func failAdminSiteDeploy(cmd *cobra.Command, siteID, deployID, message string) e
 	if err != nil {
 		return fmt.Errorf("building fail payload: %w", err)
 	}
-	failPath := "/api/admin/sites/" + siteID + "/deploys/" + deployID + "/fail"
+	failPath := "/api/admin/sites/" + url.PathEscape(siteID) + "/deploys/" + url.PathEscape(deployID) + "/fail"
 	response, body, err := adminRequest(cmd, http.MethodPost, failPath, bytes.NewReader(payload))
 	if err != nil {
 		return err
@@ -243,7 +245,7 @@ func failAdminSiteDeploy(cmd *cobra.Command, siteID, deployID, message string) e
 }
 
 func promoteAdminSiteDeploy(cmd *cobra.Command, siteID, deployID string) error {
-	promotePath := "/api/admin/sites/" + siteID + "/deploys/" + deployID + "/promote"
+	promotePath := "/api/admin/sites/" + url.PathEscape(siteID) + "/deploys/" + url.PathEscape(deployID) + "/promote"
 	response, body, err := adminRequest(cmd, http.MethodPost, promotePath, nil)
 	if err != nil {
 		return err

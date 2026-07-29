@@ -1,9 +1,11 @@
 import { describe, it, expect, vi } from "vitest";
 import { render, screen, fireEvent } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { ConfirmDialog } from "../shared/ConfirmDialog";
 import { StatusBadge } from "../shared/StatusBadge";
 import { AdminTable, type Column } from "../shared/AdminTable";
 import { FilterBar, type FilterField } from "../shared/FilterBar";
+import { expectWcagContrastToken } from "../../test-utils";
 
 describe("ConfirmDialog", () => {
   it("renders title and message", () => {
@@ -300,6 +302,152 @@ describe("AdminTable", () => {
     ];
     render(<AdminTable columns={cols} rows={singleRow} rowKey="id" />);
     expect(screen.getByTestId("custom")).toHaveTextContent("Alpha!");
+  });
+
+  // The 16 screens that render their own loading/error blocks outside the table
+  // pass none of the degraded-state props, so omitting them must keep today's
+  // render byte-for-byte until Stage 3 migrates each caller.
+  it("renders rows and pagination unchanged when no degraded-state props are supplied", () => {
+    render(
+      <AdminTable
+        columns={columns}
+        rows={rows}
+        rowKey="id"
+        page={2}
+        totalPages={5}
+        onPageChange={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText("Alpha")).toBeInTheDocument();
+    expect(screen.getByText("2 / 5")).toBeInTheDocument();
+    expect(screen.queryByRole("status")).not.toBeInTheDocument();
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
+  it("renders the supplied loading message instead of rows while loading", () => {
+    render(
+      <AdminTable
+        columns={columns}
+        rows={rows}
+        rowKey="id"
+        loading
+        loadingMessage="Loading widgets..."
+      />,
+    );
+
+    expect(screen.getByRole("status")).toHaveTextContent("Loading widgets...");
+    expect(screen.queryByText("Alpha")).not.toBeInTheDocument();
+    expect(screen.queryByText("Name")).not.toBeInTheDocument();
+  });
+
+  it("falls back to a default loading message", () => {
+    render(<AdminTable columns={columns} rows={[]} rowKey="id" loading />);
+
+    const loadingState = screen.getByRole("status");
+    expect(loadingState).toHaveTextContent("Loading...");
+    expectWcagContrastToken(loadingState.className);
+  });
+
+  it("renders the exact empty message after a settled empty result", () => {
+    render(
+      <AdminTable
+        columns={columns}
+        rows={[]}
+        rowKey="id"
+        loading={false}
+        error={null}
+        docsPath="/guide/patterns"
+        emptyMessage="No widgets yet"
+      />,
+    );
+
+    const emptyState = screen.getByText("No widgets yet");
+    expect(emptyState).toBeInTheDocument();
+    expectWcagContrastToken(emptyState.className);
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
+  it("renders the returned error text with a Retry action", () => {
+    render(
+      <AdminTable
+        columns={columns}
+        rows={[]}
+        rowKey="id"
+        error="Widget service unavailable"
+        docsPath="/guide/patterns"
+        onRetry={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByRole("alert")).toHaveTextContent("Widget service unavailable");
+    expect(screen.getByRole("button", { name: "Retry" })).toBeInTheDocument();
+  });
+
+  it("invokes the supplied retry callback", async () => {
+    const onRetry = vi.fn();
+    render(
+      <AdminTable
+        columns={columns}
+        rows={[]}
+        rowKey="id"
+        error="Widget service unavailable"
+        docsPath="/guide/patterns"
+        onRetry={onRetry}
+      />,
+    );
+
+    await userEvent.setup().click(screen.getByRole("button", { name: "Retry" }));
+    expect(onRetry).toHaveBeenCalledOnce();
+  });
+
+  // ErrorNotice requires docsPath, and useAdminResource does not produce one, so
+  // callers must thread it through AdminTable for the error branch to render.
+  it("routes the error branch through the supplied docs path", () => {
+    render(
+      <AdminTable
+        columns={columns}
+        rows={[]}
+        rowKey="id"
+        error="Widget service unavailable"
+        docsPath="/guide/file-storage"
+      />,
+    );
+
+    expect(screen.getByRole("link", { name: "View guide" })).toHaveAttribute(
+      "href",
+      "https://allyourbase.io/guide/file-storage",
+    );
+  });
+
+  it("prefers loading over error, error over empty, and empty over rows", () => {
+    const degraded = {
+      columns,
+      rowKey: "id" as const,
+      docsPath: "/guide/patterns" as const,
+      emptyMessage: "No widgets yet",
+      loadingMessage: "Loading widgets...",
+    };
+
+    const { rerender } = render(
+      <AdminTable {...degraded} rows={rows} loading error="Widget service unavailable" />,
+    );
+    expect(screen.getByRole("status")).toHaveTextContent("Loading widgets...");
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+
+    rerender(
+      <AdminTable {...degraded} rows={rows} loading={false} error="Widget service unavailable" />,
+    );
+    expect(screen.getByRole("alert")).toHaveTextContent("Widget service unavailable");
+    expect(screen.queryByText("No widgets yet")).not.toBeInTheDocument();
+    expect(screen.queryByText("Alpha")).not.toBeInTheDocument();
+
+    rerender(<AdminTable {...degraded} rows={[]} loading={false} error={null} />);
+    expect(screen.getByText("No widgets yet")).toBeInTheDocument();
+
+    rerender(<AdminTable {...degraded} rows={rows} loading={false} error={null} />);
+    expect(screen.getByText("Alpha")).toBeInTheDocument();
+    expect(screen.queryByText("No widgets yet")).not.toBeInTheDocument();
   });
 });
 

@@ -1,125 +1,8 @@
 import Foundation
 
-public struct SseMessage {
-    public let event: String?
-    public let data: String?
-    public let id: String?
-    public let retry: Int?
-
-    public init(event: String? = nil, data: String? = nil, id: String? = nil, retry: Int? = nil) {
-        self.event = event
-        self.data = data
-        self.id = id
-        self.retry = retry
-    }
-}
-
-public struct SseParser<Bytes: AsyncSequence> where Bytes.Element == UInt8, Bytes: Sendable {
-    private let bytes: Bytes
-
-    public init(bytes: Bytes) {
-        self.bytes = bytes
-    }
-
-    public func messages() -> AsyncThrowingStream<SseMessage, Error> {
-        let inputBytes = bytes
-        return AsyncThrowingStream<SseMessage, Error> { continuation in
-            Task {
-                do {
-                    var buffer: [UInt8] = []
-                    var currentEvent: String?
-                    var currentData: String?
-                    var currentId: String?
-                    var currentRetry: Int?
-                    var hasField = false
-
-                    func flush() {
-                        guard hasField else {
-                            return
-                        }
-                        continuation.yield(
-                            SseMessage(
-                                event: currentEvent,
-                                data: currentData,
-                                id: currentId,
-                                retry: currentRetry
-                            )
-                        )
-                        currentEvent = nil
-                        currentData = nil
-                        currentId = nil
-                        currentRetry = nil
-                        hasField = false
-                    }
-
-                    func process(line: String) {
-                        if line.isEmpty {
-                            flush()
-                            return
-                        }
-                        if line.hasPrefix(":") {
-                            return
-                        }
-                        guard let separator = line.firstIndex(of: ":") else {
-                            return
-                        }
-
-                        let field = String(line[..<separator])
-                        var value = String(line[line.index(after: separator)...])
-                        if value.hasPrefix(" ") {
-                            value.removeFirst()
-                        }
-
-                        switch field {
-                        case "event":
-                            currentEvent = value
-                            hasField = true
-                        case "data":
-                            if let existing = currentData {
-                                currentData = "\(existing)\n\(value)"
-                            } else {
-                                currentData = value
-                            }
-                            hasField = true
-                        case "id":
-                            currentId = value
-                            hasField = true
-                        case "retry":
-                            if let retry = Int(value) {
-                                currentRetry = retry
-                                hasField = true
-                            }
-                        default:
-                            break
-                        }
-                    }
-
-                    for try await byte in inputBytes {
-                        if byte == 10 { // '\n'
-                            process(line: String(decoding: buffer, as: UTF8.self))
-                            buffer.removeAll(keepingCapacity: true)
-                        } else if byte != 13 { // ignore '\r'
-                            buffer.append(byte)
-                        }
-                    }
-
-                    if !buffer.isEmpty {
-                        process(line: String(decoding: buffer, as: UTF8.self))
-                    }
-                    flush()
-                    continuation.finish()
-                } catch is CancellationError {
-                    continuation.finish()
-                } catch {
-                    continuation.finish(throwing: error)
-                }
-            }
-        }
-    }
-}
-
 public final class RealtimeClient: @unchecked Sendable {
-    private unowned let client: AYBClient
+    private let configuration: AYBConfiguration
+    private let tokenStore: TokenStore
     private let sseTransport: SSETransport
     private let wsTransport: WebSocketTransport
     private let options: RealtimeOptions
@@ -413,7 +296,8 @@ public final class RealtimeClient: @unchecked Sendable {
         },
         wsPingInterval: TimeInterval = 25
     ) {
-        self.client = client
+        self.configuration = client.configuration
+        self.tokenStore = client.tokenStore
         self.sseTransport = sseTransport ?? client.sseTransport
         self.wsTransport = wsTransport ?? client.wsTransport
         self.options = options
@@ -514,13 +398,13 @@ public final class RealtimeClient: @unchecked Sendable {
     }
 
     private func buildSSERequest(tables: [String], filter: String?) throws -> HTTPRequest {
-        let base = "\(client.configuration.baseURL)/api/realtime"
+        let base = "\(configuration.baseURL)/api/realtime"
         guard var components = URLComponents(string: base) else {
             throw RequestBuilderError.unableToBuildURL
         }
 
         var queryItems = [URLQueryItem(name: "tables", value: tables.joined(separator: ","))]
-        if let token = client.token, !token.isEmpty {
+        if let token = tokenStore.accessToken(), !token.isEmpty {
             queryItems.append(URLQueryItem(name: "token", value: token))
         }
         if let filter, !filter.isEmpty {
@@ -812,7 +696,7 @@ public final class RealtimeClient: @unchecked Sendable {
     }
 
     private func buildWebSocketURL() throws -> URL {
-        guard var components = URLComponents(url: client.configuration.baseURL, resolvingAgainstBaseURL: false) else {
+        guard var components = URLComponents(url: configuration.baseURL, resolvingAgainstBaseURL: false) else {
             throw RequestBuilderError.unableToBuildURL
         }
         if components.scheme == "https" {
@@ -826,7 +710,7 @@ public final class RealtimeClient: @unchecked Sendable {
         } else {
             components.path = "/\(basePath)/api/realtime/ws"
         }
-        if let token = client.token, !token.isEmpty {
+        if let token = tokenStore.accessToken(), !token.isEmpty {
             components.queryItems = [URLQueryItem(name: "token", value: token)]
         } else {
             components.queryItems = nil

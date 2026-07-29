@@ -6,6 +6,7 @@ import (
 	"io"
 	"mime/multipart"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"sort"
@@ -18,6 +19,9 @@ import (
 var storageCmd = &cobra.Command{
 	Use:   "storage",
 	Short: "Manage file storage on the running AYB server",
+	Example: `ayb storage ls avatars
+ayb storage upload avatars ./photo.png
+ayb storage download avatars photo.png --output ./photo.png`,
 }
 
 var storageLsCmd = &cobra.Command{
@@ -88,7 +92,7 @@ func runStorageLs(cmd *cobra.Command, args []string) error {
 	bucket := args[0]
 	outFmt := outputFormat(cmd)
 
-	resp, body, err := storageRequest(cmd, "GET", "/api/storage/"+bucket, nil, "")
+	resp, body, err := storageRequest(cmd, "GET", "/api/storage/"+url.PathEscape(bucket), nil, "")
 	if err != nil {
 		return err
 	}
@@ -156,7 +160,7 @@ func runStorageUpload(cmd *cobra.Command, args []string) error {
 
 	requestBody, contentType := streamingMultipartFileBody("file", filepath.Base(filePath), f, nil)
 
-	req, err := newAuthenticatedRequest(http.MethodPost, baseURL, "/api/storage/"+bucket, token, contentType, requestBody)
+	req, err := newAuthenticatedRequest(http.MethodPost, baseURL, "/api/storage/"+url.PathEscape(bucket), token, contentType, requestBody)
 	if err != nil {
 		return err
 	}
@@ -192,7 +196,7 @@ func runStorageDownload(cmd *cobra.Command, args []string) error {
 	name := args[1]
 	output, _ := cmd.Flags().GetString("output")
 	token, baseURL := resolveStorageRequestOptions(cmd)
-	req, err := newAuthenticatedRequest(http.MethodGet, baseURL, "/api/storage/"+bucket+"/"+name, token, "", nil)
+	req, err := newAuthenticatedRequest(http.MethodGet, baseURL, "/api/storage/"+url.PathEscape(bucket)+"/"+url.PathEscape(name), token, "", nil)
 	if err != nil {
 		return err
 	}
@@ -233,7 +237,7 @@ func runStorageDelete(cmd *cobra.Command, args []string) error {
 	bucket := args[0]
 	name := args[1]
 
-	resp, body, err := storageRequest(cmd, "DELETE", "/api/storage/"+bucket+"/"+name, nil, "")
+	resp, body, err := storageRequest(cmd, "DELETE", "/api/storage/"+url.PathEscape(bucket)+"/"+url.PathEscape(name), nil, "")
 	if err != nil {
 		return err
 	}

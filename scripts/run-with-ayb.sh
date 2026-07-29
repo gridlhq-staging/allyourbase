@@ -6,7 +6,9 @@ if [[ $# -ne 1 ]]; then
   exit 1
 fi
 
-readonly RUNNER_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+RUNNER_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+readonly RUNNER_DIR
+# shellcheck disable=SC1091
 source "$RUNNER_DIR/../tests/port_helpers.sh"
 
 readonly POST_HEALTH_COMMAND="$1"
@@ -99,6 +101,13 @@ export AYB_AUTH_RATE_LIMIT_AUTH="${AYB_AUTH_RATE_LIMIT_AUTH:-10000/min}"
 # The live SDK integration suite covers storage uploads/signing against the
 # local backend, so the harness enables storage unless a caller overrides it.
 export AYB_STORAGE_ENABLED="${AYB_STORAGE_ENABLED:-true}"
+# Dashboard browser tests exercise incident and support-ticket persistence
+# against the isolated database, so keep those services available by default.
+export AYB_STATUS_ENABLED="${AYB_STATUS_ENABLED:-true}"
+export AYB_SUPPORT_ENABLED="${AYB_SUPPORT_ENABLED:-true}"
+# The isolated embedded-Postgres runtime has no physical standby to exercise.
+# An explicitly supplied value, including an empty one, overrides this default.
+export AYB_BROWSER_DISABLED_CAPABILITIES="${AYB_BROWSER_DISABLED_CAPABILITIES-replicas}"
 
 # Auth remains opt-in for baseline load targets, but explicit auth-enabled
 # wrapper runs need a local JWT secret before AYB's config validation starts.
@@ -135,23 +144,51 @@ remove_canonical_admin_token_file() {
   rm -f "$AYB_CANONICAL_ADMIN_TOKEN_PATH" 2>/dev/null || true
 }
 
+# The canonical token file holds a live admin bearer token, so it must match the
+# 0600 contract writeAdminTokenFile enforces in internal/cli. Shell redirection
+# and cp otherwise create it at 0666/source-mode minus umask, which is 0644 under
+# the default umask and leaves the token readable by every account on the host.
+restrict_canonical_admin_token_permissions() {
+  chmod 600 "$AYB_CANONICAL_ADMIN_TOKEN_PATH"
+}
+
+# SC2174's caveat does not apply: ~/.ayb is the deepest path component, so -m 700
+# lands on exactly the directory being created. Existing ~/.ayb keeps its mode,
+# which is why the token file is chmod'd separately rather than relying on this.
+ensure_canonical_admin_token_dir() {
+  # shellcheck disable=SC2174
+  mkdir -p -m 700 "$(dirname "$AYB_CANONICAL_ADMIN_TOKEN_PATH")"
+}
+
 report_startup_failure() {
   echo "AYB process exited before health check passed." >&2
   print_start_log_excerpt
   return 1
 }
 
+ayb_start_command_runs_ayb_binary() {
+  case "$AYB_START_COMMAND" in
+    "ayb"|"ayb "*|"./ayb"|"./ayb "*|*/ayb|*/ayb\ *) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
 admin_token_ready() {
-  [[ -n "${AYB_ADMIN_PASSWORD:-}" ||
-     -n "${AYB_ADMIN_TOKEN:-}" ||
+  [[ -n "${AYB_ADMIN_TOKEN:-}" ||
      -s "$AYB_ADMIN_TOKEN_PATH" ||
      -s "$AYB_CANONICAL_ADMIN_TOKEN_PATH" ]]
 }
 
-stored_admin_token_ready() {
-  [[ -n "${AYB_ADMIN_TOKEN:-}" ||
-     -s "$AYB_ADMIN_TOKEN_PATH" ||
-     -s "$AYB_CANONICAL_ADMIN_TOKEN_PATH" ]]
+started_runtime_credentials_ready() {
+  if admin_token_ready; then
+    return 0
+  fi
+
+  # Non-AYB fixture/custom launchers may use a supplied password without
+  # producing AYB's canonical token artifact.
+  [[ -n "${AYB_ADMIN_PASSWORD:-}" &&
+     "$CANONICAL_ADMIN_TOKEN_HAD_ORIGINAL" -eq 0 ]] &&
+    ! ayb_start_command_runs_ayb_binary
 }
 
 prepare_canonical_admin_token_file() {
@@ -166,8 +203,9 @@ prepare_canonical_admin_token_file() {
 # AYB_ADMIN_TOKEN_PATH files are caller-owned credentials.
 restore_canonical_admin_token_if_needed() {
   if (( CANONICAL_ADMIN_TOKEN_HAD_ORIGINAL )); then
-    mkdir -p "$(dirname "$AYB_CANONICAL_ADMIN_TOKEN_PATH")"
+    ensure_canonical_admin_token_dir
     cp "$CANONICAL_ADMIN_TOKEN_BACKUP_PATH" "$AYB_CANONICAL_ADMIN_TOKEN_PATH"
+    restrict_canonical_admin_token_permissions
   else
     remove_canonical_admin_token_file
   fi
@@ -213,6 +251,17 @@ should_refresh_ui_bundle() {
   esac
 
   post_health_command_uses_browser_ui
+}
+
+configure_auth_env_for_run() {
+  if post_health_command_uses_browser_ui; then
+    export AYB_AUTH_ENABLED="${AYB_AUTH_ENABLED:-true}"
+  fi
+
+  if [[ "${AYB_AUTH_ENABLED:-}" == "true" && -z "${AYB_AUTH_JWT_SECRET:-}" ]]; then
+    export AYB_AUTH_JWT_SECRET
+    AYB_AUTH_JWT_SECRET="$(python3 -c "import secrets; print(secrets.token_urlsafe(48))")"
+  fi
 }
 
 ensure_ayb_binary_if_needed() {
@@ -279,7 +328,7 @@ ayb_process_running() {
   return 0
 }
 
-# Poll health endpoint + admin-token readiness until both succeed or deadline
+# Poll health and credential readiness until both succeed or the deadline
 # expires. Exits with error if the AYB process dies before becoming healthy.
 wait_for_ayb_readiness() {
   local ayb_pid="$1"
@@ -298,7 +347,7 @@ wait_for_ayb_readiness() {
       if ! curl -fsS "$AYB_HEALTH_URL" > /dev/null 2>&1; then
         observed_health_transition=1
       fi
-    elif curl -fsS "$AYB_HEALTH_URL" > /dev/null 2>&1 && admin_token_ready; then
+    elif curl -fsS "$AYB_HEALTH_URL" > /dev/null 2>&1 && started_runtime_credentials_ready; then
       if ! ayb_process_running "$ayb_pid"; then
         report_startup_failure
       fi
@@ -316,7 +365,7 @@ wait_for_ayb_readiness() {
 }
 
 existing_ayb_ready() {
-  curl -fsS "$AYB_HEALTH_URL" > /dev/null 2>&1 && stored_admin_token_ready
+  curl -fsS "$AYB_HEALTH_URL" > /dev/null 2>&1 && admin_token_ready
 }
 
 refuse_stale_browser_runtime_reuse() {
@@ -326,15 +375,17 @@ refuse_stale_browser_runtime_reuse() {
 }
 
 materialize_canonical_admin_token_file() {
-  mkdir -p "$(dirname "$AYB_CANONICAL_ADMIN_TOKEN_PATH")"
+  ensure_canonical_admin_token_dir
 
   if [[ -n "${AYB_ADMIN_TOKEN:-}" ]]; then
     printf '%s\n' "$AYB_ADMIN_TOKEN" > "$AYB_CANONICAL_ADMIN_TOKEN_PATH"
+    restrict_canonical_admin_token_permissions
     return 0
   fi
 
   if [[ -s "$AYB_ADMIN_TOKEN_PATH" && "$AYB_ADMIN_TOKEN_PATH" != "$AYB_CANONICAL_ADMIN_TOKEN_PATH" ]]; then
     cp "$AYB_ADMIN_TOKEN_PATH" "$AYB_CANONICAL_ADMIN_TOKEN_PATH"
+    restrict_canonical_admin_token_permissions
     return 0
   fi
 
@@ -346,14 +397,16 @@ materialize_canonical_admin_token_file() {
   return 1
 }
 
-# Readiness includes admin-token material so SDK/load commands can authenticate
-# immediately after /health turns green.
+# Real AYB readiness includes admin-token material so SDK/load commands can
+# authenticate immediately after /health turns green.
 # Shared development hosts can already have the requested AYB runtime up from a
 # previous wrapper run. Reuse it when it is healthy instead of colliding on the
 # same port; unhealthy listeners still fall through to the normal startup path
 # so callers get the underlying bind/startup failure. Materialize the canonical
 # token file first so reused runtimes preserve the same auth contract as fresh
 # wrapper-owned startups.
+configure_auth_env_for_run
+
 if existing_ayb_ready; then
   if ayb_start_command_uses_local_binary && should_refresh_ui_bundle; then
     refuse_stale_browser_runtime_reuse
@@ -373,9 +426,7 @@ if curl -fsS "$AYB_HEALTH_URL" > /dev/null 2>&1; then
   HEALTH_ENDPOINT_WAS_READY_BEFORE_START=1
 fi
 prepare_canonical_admin_token_file
-if [[ -z "${AYB_ADMIN_PASSWORD:-}" ]]; then
-  remove_canonical_admin_token_file
-fi
+remove_canonical_admin_token_file
 prepare_owned_embedded_data_dir
 bash -lc "$AYB_START_COMMAND" > "$AYB_START_LOG" 2>&1 &
 AYB_PID=$!

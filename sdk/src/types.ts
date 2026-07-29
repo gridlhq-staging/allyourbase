@@ -594,6 +594,28 @@ export interface RpcOptions {
   notify?: RpcNotifyOption;
 }
 
+/** Options for invoking an edge function via `functions.invoke`. */
+export interface EdgeInvokeOptions {
+  /** Request body. Plain objects are JSON-serialized; strings and binary BodyInit values are sent verbatim. */
+  body?: unknown;
+  /** Additional request headers merged over the client defaults. */
+  headers?: Record<string, string>;
+  /** HTTP method; defaults to POST. */
+  method?: string;
+  /** Skip attaching the client's bearer token. */
+  skipAuth?: boolean;
+}
+
+/** Raw edge function response envelope returned by `functions.invoke`. */
+export interface EdgeInvokeResponse {
+  /** HTTP status code. */
+  status: number;
+  /** Response headers as a plain record. */
+  headers: Record<string, string>;
+  /** Raw response body text; empty string for a 204 No Content response. */
+  rawBody: string;
+}
+
 /** Registered OAuth client (matches admin OAuth clients API response). */
 export interface OAuthClient {
   id: string;

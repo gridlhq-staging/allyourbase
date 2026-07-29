@@ -6,7 +6,7 @@ import { AdminTable, type Column } from "./shared/AdminTable";
 import { ConfirmDialog } from "./shared/ConfirmDialog";
 
 export function LogDrains() {
-  const { data, loading, error, actionLoading, runAction } =
+  const { data, loading, error, actionLoading, refresh, runAction } =
     useAdminResource(listDrains);
   const [showCreate, setShowCreate] = useState(false);
   const [drainType, setDrainType] = useState("http");
@@ -119,17 +119,6 @@ export function LogDrains() {
     },
   ];
 
-  if (error) {
-    return (
-      <div className="p-6">
-        <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-4">
-          Log Drains
-        </h2>
-        <p className="text-red-600 dark:text-red-400">{error}</p>
-      </div>
-    );
-  }
-
   return (
     <div className="p-6">
       <div className="flex items-center justify-between mb-4">
@@ -230,19 +219,17 @@ export function LogDrains() {
         </div>
       )}
 
-      {loading ? (
-        <p className="text-sm text-gray-500 dark:text-gray-400">Loading...</p>
-      ) : (
-        <AdminTable
-          columns={columns}
-          rows={data ?? []}
-          rowKey="id"
-          page={1}
-          totalPages={1}
-          onPageChange={() => {}}
-          emptyMessage="No log drains configured"
-        />
-      )}
+      <AdminTable
+        columns={columns}
+        rows={data ?? []}
+        rowKey="id"
+        emptyMessage="No log drains configured"
+        loading={loading}
+        loadingMessage="Loading..."
+        error={error}
+        docsPath="/guide/logging"
+        onRetry={refresh}
+      />
 
       <ConfirmDialog
         open={deleteTarget !== null}

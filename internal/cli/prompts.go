@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/url"
 	"os"
 	"strings"
 	"text/tabwriter"
@@ -16,14 +17,12 @@ import (
 var promptsCmd = &cobra.Command{
 	Use:   "prompts",
 	Short: "Manage AI prompt templates",
-	Long: `Manage versioned AI prompt templates.
-
-Examples:
-  ayb prompts list
-  ayb prompts get <id>
-  ayb prompts create --name greeting --template "Hello {{name}}"
-  ayb prompts delete <id>
-  ayb prompts render <id> --var name=World`,
+	Long:  `Manage versioned AI prompt templates.`,
+	Example: `ayb prompts list
+ayb prompts get <id>
+ayb prompts create --name greeting --template "Hello {{name}}"
+ayb prompts delete <id>
+ayb prompts render <id> --var name=World`,
 }
 
 var promptsListCmd = &cobra.Command{
@@ -140,7 +139,7 @@ func runPromptsGet(cmd *cobra.Command, args []string) error {
 	id := args[0]
 	outFmt := outputFormat(cmd)
 
-	resp, body, err := adminRequest(cmd, "GET", "/api/admin/ai/prompts/"+id, nil)
+	resp, body, err := adminRequest(cmd, "GET", "/api/admin/ai/prompts/"+url.PathEscape(id), nil)
 	if err != nil {
 		return err
 	}
@@ -215,7 +214,7 @@ func runPromptsCreate(cmd *cobra.Command, args []string) error {
 func runPromptsDelete(cmd *cobra.Command, args []string) error {
 	id := args[0]
 
-	resp, body, err := adminRequest(cmd, "DELETE", "/api/admin/ai/prompts/"+id, nil)
+	resp, body, err := adminRequest(cmd, "DELETE", "/api/admin/ai/prompts/"+url.PathEscape(id), nil)
 	if err != nil {
 		return err
 	}
@@ -242,7 +241,7 @@ func runPromptsRender(cmd *cobra.Command, args []string) error {
 	}
 
 	payload, _ := json.Marshal(map[string]any{"variables": variables})
-	resp, body, err := adminRequest(cmd, "POST", "/api/admin/ai/prompts/"+id+"/render", bytes.NewReader(payload))
+	resp, body, err := adminRequest(cmd, "POST", "/api/admin/ai/prompts/"+url.PathEscape(id)+"/render", bytes.NewReader(payload))
 	if err != nil {
 		return err
 	}

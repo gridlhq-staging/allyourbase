@@ -18,10 +18,11 @@ import (
 )
 
 var stopCmd = &cobra.Command{
-	Use:   "stop",
-	Short: "Stop the AYB server",
-	Long:  `Stop a running Allyourbase server gracefully.`,
-	RunE:  runStop,
+	Use:     "stop",
+	Short:   "Stop the AYB server",
+	Long:    `Stop a running Allyourbase server gracefully.`,
+	Example: `ayb stop`,
+	RunE:    runStop,
 }
 
 var stopPortInUse = portInUse

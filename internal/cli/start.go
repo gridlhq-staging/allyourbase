@@ -15,23 +15,21 @@ import (
 
 	"github.com/allyourbase/ayb/internal/config"
 	"github.com/allyourbase/ayb/internal/jobs"
+	"github.com/allyourbase/ayb/internal/server"
 	"github.com/spf13/cobra"
 )
+
+const adminLogBufferCapacity = 1000
 
 var startCmd = &cobra.Command{
 	Use:   "start",
 	Short: "Start the AYB server",
 	Long: `Start the Allyourbase server. If no database URL is configured,
-AYB starts a managed PostgreSQL instance automatically.
-
-With external database:
-  ayb start --database-url postgresql://user:pass@localhost:5432/mydb
-
-Migrate and start from PocketBase (single command):
-  ayb start --from ./pb_data
-
-Migrate and start from Supabase:
-  ayb start --from postgres://db.xxx.supabase.co:5432/postgres`,
+AYB starts a managed PostgreSQL instance automatically.`,
+	Example: `ayb start
+ayb start --database-url postgresql://user:pass@localhost:5432/mydb  # External database
+ayb start --from ./pb_data  # Migrate and start from PocketBase
+ayb start --from postgres://db.xxx.supabase.co:5432/postgres  # Migrate and start from Supabase`,
 	RunE: runStart,
 }
 
@@ -98,6 +96,11 @@ func ensureConfiguredAdminPassword(cfg *config.Config) (string, error) {
 	return generatedPassword, nil
 }
 
+func newAdminLogger(logger *slog.Logger) (*slog.Logger, *server.LogBuffer) {
+	logBuffer := server.NewLogBuffer(logger.Handler(), adminLogBufferCapacity)
+	return slog.New(logBuffer), logBuffer
+}
+
 // runStartForeground runs the AYB server in the foreground, initializing the database, wiring all services, and blocking until a shutdown signal is received.
 func runStartForeground(cmd *cobra.Command, args []string) error {
 	input, err := readStartForegroundInput(cmd)
@@ -123,6 +126,7 @@ func runStartForeground(cmd *cobra.Command, args []string) error {
 	sp := newStartupProgress(os.Stderr, isTTY, isTTY)
 	logger, logLevel, logPath, closeLog := newLogger(cfg.Logging.Level, cfg.Logging.Format)
 	defer closeLog()
+	logger, logBuffer := newAdminLogger(logger)
 	if isTTY {
 		logLevel.Set(slog.LevelWarn)
 	}
@@ -155,6 +159,7 @@ func runStartForeground(cmd *cobra.Command, args []string) error {
 		stopManagedPostgres(pgMgr, logger)
 		return err
 	}
+	state.srv.SetLogBuffer(logBuffer)
 	defer state.cleanup(pool.DB(), logger)
 
 	usrCh := notifyUSR1()

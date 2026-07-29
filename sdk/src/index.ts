@@ -7,6 +7,7 @@ export {
   AdminOrgTeamMembersClient,
   AdminOrgTenantsClient,
 } from "./admin_orgs";
+export { FunctionsClient } from "./functions";
 export { AYBError, AYBGraphQLError } from "./errors";
 export type {
   AddOrgMemberRequest,
@@ -31,6 +32,8 @@ export type {
   CreateOAuthClientResponse,
   CreateTeamRequest,
   DeleteOrganizationOptions,
+  EdgeInvokeOptions,
+  EdgeInvokeResponse,
   FacetCounts,
   FacetValueCount,
   FacetValueSearchHit,

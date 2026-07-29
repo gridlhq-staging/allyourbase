@@ -1,6 +1,7 @@
 import {
   test,
   expect,
+  expectOfflineRetryRecovery,
   probeEndpoint,
   fetchAdminStatsSnapshot,
   waitForDashboard,
@@ -14,7 +15,12 @@ import {
  */
 
 test.describe("Smoke: API Explorer", () => {
-  test("api explorer executes a real request and shows response content", async ({ page, request, adminToken }) => {
+  test("api explorer executes a real request and shows response content", async ({
+    page,
+    request,
+    adminToken,
+    context,
+  }) => {
     const probeStatus = await probeEndpoint(request, adminToken, "/api/admin/stats");
     test.skip(
       probeStatus === 503 || probeStatus === 404 || probeStatus === 501,
@@ -63,5 +69,21 @@ test.describe("Smoke: API Explorer", () => {
     await page.getByRole("button", { name: /^History \(1\)$/i }).click();
     await expect(page.getByText("Recent Requests")).toBeVisible();
     await expect(page.getByRole("button", { name: new RegExp("GET.*/api/admin/stats.*200") })).toBeVisible();
+
+    await page.getByRole("button", { name: /^History \(1\)$/i }).click();
+    // Closest-real proxy: API Explorer request failures are surfaced from the
+    // browser fetch boundary; offline mode preserves request controls and retry.
+    await expectOfflineRetryRecovery(
+      page,
+      context,
+      async () => {
+        await page.getByRole("button", { name: /^Send$/i }).click();
+      },
+      async () => {
+        await expect(page.getByText(/^200 OK$/)).toBeVisible({ timeout: 10000 });
+        await expect(page.getByText(new RegExp(statsSnapshot.go_version.replaceAll(".", "\\.")))).toBeVisible();
+        await expect(page.getByLabel(/Request path/i)).toHaveValue("/api/admin/stats");
+      },
+    );
   });
 });

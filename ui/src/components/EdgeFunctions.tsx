@@ -61,6 +61,7 @@ export function EdgeFunctions() {
             error={error}
             onSelect={(id) => setView({ kind: "detail", id })}
             onCreate={() => setView({ kind: "create" })}
+            onRetry={() => void fetchFunctions()}
           />
         </div>
       )}
