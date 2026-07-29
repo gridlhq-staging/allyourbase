@@ -65,3 +65,40 @@ func TestDebbieHooksRemoveIgnoredDemoRuntimeArtifacts(t *testing.T) {
 		}
 	}
 }
+
+func TestDebbieHooksRehydratePublicScreenSpecsAfterDocsCleanup(t *testing.T) {
+	t.Parallel()
+
+	repoRoot := findRepoRoot(t)
+	debbieConfigPath := filepath.Join(repoRoot, ".debbie.toml")
+	if _, err := os.Stat(debbieConfigPath); os.IsNotExist(err) {
+		t.Skip(".debbie.toml and its source-only hooks are intentionally omitted from public mirrors")
+	} else if err != nil {
+		t.Fatalf("inspect Debbie configuration: %v", err)
+	}
+
+	config := readRepoText(t, debbieConfigPath)
+	if !strings.Contains(config, `path = "docs/reference/screen_specs/"`) {
+		t.Fatal(".debbie.toml must include the screen-spec corpus consumed by the public coverage gate")
+	}
+
+	debbieRoot := filepath.Join(repoRoot, ".debbie")
+	docsCleanup := `"$TARGET_ROOT/docs" \`
+	screenSpecSource := `"$DEV_ROOT/docs/reference/screen_specs/"`
+	screenSpecTarget := `"$TARGET_ROOT/docs/reference/screen_specs/"`
+	for _, hookName := range []string{"post-sync-staging.sh", "post-sync-prod.sh"} {
+		hook := readRepoText(t, filepath.Join(debbieRoot, hookName))
+		cleanupIndex := strings.Index(hook, docsCleanup)
+		sourceIndex := strings.Index(hook, screenSpecSource)
+		targetIndex := strings.Index(hook, screenSpecTarget)
+		if cleanupIndex < 0 || sourceIndex < 0 || targetIndex < 0 {
+			t.Fatalf(
+				"%s must remove the private docs tree and rehydrate the public screen-spec corpus",
+				hookName,
+			)
+		}
+		if sourceIndex < cleanupIndex || targetIndex < cleanupIndex {
+			t.Fatalf("%s rehydrates screen specs before the docs cleanup deletes them", hookName)
+		}
+	}
+}
