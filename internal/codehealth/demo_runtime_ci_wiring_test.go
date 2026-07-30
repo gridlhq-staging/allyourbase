@@ -265,6 +265,13 @@ AYB_AUTH_MAGIC_LINK_ENABLED=true exec "$AYB_BIN" demo "$name"`}
 			t.Fatal("Movies branch launch should satisfy Movies-only magic-link ownership")
 		}
 	})
+
+	t.Run("multiline movies scoped magic link launch is accepted", func(t *testing.T) {
+		commands := []string{`if [ "$name" = "movies" ]; then AYB_AUTH_ENABLED=true AYB_AUTH_ANONYMOUS_AUTH_ENABLED=true AYB_AUTH_MAGIC_LINK_ENABLED=true AYB_SERVER_SITE_URL="http://localhost:${port}" exec "$AYB_BIN" demo "$name"; else exec "$AYB_BIN" demo "$name"; fi`}
+		if !runDemoE2EScopesMagicLinkToMoviesLaunch(commands) {
+			t.Fatal("multiline Movies branch launch should satisfy Movies-only magic-link ownership")
+		}
+	})
 }
 
 func TestPlaywrightConfigExternalServerGuardFixtures(t *testing.T) {
@@ -333,6 +340,13 @@ func TestShellBlockRunsCommandWithEnvRequiresLeadingAssignment(t *testing.T) {
 		}
 	})
 
+	t.Run("leading assignment before later assignment is accepted", func(t *testing.T) {
+		block := `AYB_AUTH_MAGIC_LINK_ENABLED=true AYB_SERVER_SITE_URL="http://localhost:${port}" exec "$AYB_BIN" demo "$name"`
+		if !shellBlockRunsCommandWithEnv(block, []string{"exec", "$AYB_BIN", "demo", "$name"}, "AYB_AUTH_MAGIC_LINK_ENABLED", "true") {
+			t.Fatal("an env assignment followed by another leading assignment must still apply to the matched command")
+		}
+	})
+
 	t.Run("magic-link assignment in argument position is rejected", func(t *testing.T) {
 		block := `run_launcher AYB_AUTH_MAGIC_LINK_ENABLED=true exec "$AYB_BIN" demo "$name"`
 		if shellBlockRunsCommandWithEnv(block, []string{"exec", "$AYB_BIN", "demo", "$name"}, "AYB_AUTH_MAGIC_LINK_ENABLED", "true") {
@@ -378,8 +392,7 @@ func TestShellBlockRunsCommandWithEnvRequiresLeadingAssignment(t *testing.T) {
 
 func runDemoE2EScopesMagicLinkToMoviesLaunch(commands []string) bool {
 	for _, command := range commands {
-		if !strings.Contains(command, `"$AYB_BIN" demo "$name"`) ||
-			!strings.Contains(command, "AYB_AUTH_MAGIC_LINK_ENABLED=true") {
+		if !strings.Contains(command, `"$AYB_BIN" demo "$name"`) {
 			continue
 		}
 		if shellIfMoviesBranchRunsMagicLinkLaunch(command) {
@@ -444,20 +457,17 @@ func shellTopLevelThenArm(content string) (string, bool) {
 func shellBlockRunsCommandWithEnv(block string, args []string, name, value string) bool {
 	for _, segment := range shellCommandSegments(block) {
 		fields := strings.Fields(segment)
-		for index, field := range fields {
-			if !shellFieldAssignsEnv(field, name, value) {
-				continue
-			}
-			// A NAME=value token only exports into the following command's
-			// environment when it is a *leading* assignment: every field before it
-			// must also be a shell assignment. Once a bare command word appears,
-			// any later NAME=value token is a plain argument, not an env prefix.
-			if !allShellLeadingAssignments(fields[:index]) {
-				continue
-			}
-			if shellSegmentStartsWithFields(strings.Join(fields[index+1:], " "), args) {
-				return true
-			}
+		leadingAssignmentCount := 0
+		matchedEnv := false
+		for leadingAssignmentCount < len(fields) && shellFieldIsLeadingAssignment(fields[leadingAssignmentCount]) {
+			matchedEnv = matchedEnv || shellFieldAssignsEnv(fields[leadingAssignmentCount], name, value)
+			leadingAssignmentCount++
+		}
+		if !matchedEnv {
+			continue
+		}
+		if shellSegmentStartsWithFields(strings.Join(fields[leadingAssignmentCount:], " "), args) {
+			return true
 		}
 	}
 	return false
@@ -491,15 +501,6 @@ func shellFieldAssignsEnv(field, name, value string) bool {
 	}
 	evaluatedValue, valid := shellLiteralWordValue(fieldValue)
 	return valid && evaluatedValue == value
-}
-
-func allShellLeadingAssignments(fields []string) bool {
-	for _, field := range fields {
-		if !shellFieldIsLeadingAssignment(field) {
-			return false
-		}
-	}
-	return true
 }
 
 func shellCommandBlockIndexContaining(commands []string, substring string) int {

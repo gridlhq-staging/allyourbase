@@ -1,7 +1,21 @@
 const http = require("node:http");
 
 const HOST = "127.0.0.1";
-const PORT = 11434;
+const PORT = parseRequiredPort(process.env.AYB_MOVIES_FAKE_OLLAMA_PORT);
+
+function parseRequiredPort(rawPort) {
+  if (rawPort === undefined || rawPort === "") {
+    throw new Error("AYB_MOVIES_FAKE_OLLAMA_PORT is required");
+  }
+  if (!/^[0-9]+$/.test(rawPort)) {
+    throw new Error("AYB_MOVIES_FAKE_OLLAMA_PORT must be an ASCII digits-only integer in the range 1..65535");
+  }
+  const port = Number(rawPort);
+  if (!Number.isSafeInteger(port) || port < 1 || port > 65535) {
+    throw new Error("AYB_MOVIES_FAKE_OLLAMA_PORT must be in the range 1..65535");
+  }
+  return port;
+}
 
 function readJSON(req, callback) {
   let raw = "";
