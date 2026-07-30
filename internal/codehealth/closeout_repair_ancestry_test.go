@@ -15,24 +15,32 @@ type closeoutRepairAncestryResult struct {
 	exitCode int
 }
 
+type closeoutRepairGitFixture struct {
+	repoRoot     string
+	ancestorSHA  string
+	certifiedSHA string
+	repairSHAs   []string
+}
+
 func TestCheckCloseoutRepairAncestryRejectsNonAncestorRepairs(t *testing.T) {
 	t.Parallel()
 
+	gitFixture := newCloseoutRepairGitFixture(t)
 	closeoutDir := t.TempDir()
 	writeTextFile(t, filepath.Join(closeoutDir, "historical-incident.md"), strings.Join([]string{
 		"# Historical Incident",
 		"",
 		"## Verdict",
-		"GO on pinned evidence tree fb6f291e7bade309afc90d98beed5490180cd814",
+		"GO on pinned evidence tree " + gitFixture.certifiedSHA,
 		"",
 		"## Repairs",
-		"- Shell detector repaired at 0cfda34eb",
-		"- Fixture parser repaired at 4a148d864",
-		"- Ancestry guard repaired at 81f0f04fa",
+		"- Shell detector repaired at " + gitFixture.repairSHAs[0],
+		"- Fixture parser repaired at " + gitFixture.repairSHAs[1],
+		"- Ancestry guard repaired at " + gitFixture.repairSHAs[2],
 		"",
 	}, "\n"))
 
-	result := runCloseoutRepairAncestryScript(t, findRepoRoot(t), closeoutDir)
+	result := runCloseoutRepairAncestryScript(t, gitFixture.repoRoot, closeoutDir)
 	if result.exitCode != 1 {
 		t.Fatalf("exit code = %d, want 1, output:\n%s", result.exitCode, result.output)
 	}
@@ -40,29 +48,29 @@ func TestCheckCloseoutRepairAncestryRejectsNonAncestorRepairs(t *testing.T) {
 		"SUMMARY result=FAIL artifacts_scanned=1 artifacts_with_certified_sha=1 skipped_artifacts=0 repair_shas_checked=3 violations=3 indeterminate=0",
 	)
 	assertCloseoutRepairOutput(t, result.output,
-		"0cfda34eb",
-		"4a148d864",
-		"81f0f04fa",
+		gitFixture.repairSHAs[0],
+		gitFixture.repairSHAs[1],
+		gitFixture.repairSHAs[2],
 	)
 }
 
 func TestCheckCloseoutRepairAncestryAcceptsAncestorRepair(t *testing.T) {
 	t.Parallel()
 
-	const repairSHA = "c35411c095bf0cf804f040e33779ad1fd24381c2"
+	gitFixture := newCloseoutRepairGitFixture(t)
 	closeoutDir := t.TempDir()
 	writeTextFile(t, filepath.Join(closeoutDir, "ancestor-repair.md"), strings.Join([]string{
 		"# Ancestor Repair",
 		"",
 		"## Verdict",
-		"GO on pinned evidence tree fb6f291e7bade309afc90d98beed5490180cd814",
+		"GO on pinned evidence tree " + gitFixture.certifiedSHA,
 		"",
 		"## Repairs",
-		"- Detector contract repaired at " + repairSHA,
+		"- Detector contract repaired at " + gitFixture.ancestorSHA,
 		"",
 	}, "\n"))
 
-	result := runCloseoutRepairAncestryScript(t, findRepoRoot(t), closeoutDir)
+	result := runCloseoutRepairAncestryScript(t, gitFixture.repoRoot, closeoutDir)
 	if result.exitCode != 0 {
 		t.Fatalf("exit code = %d, want 0, output:\n%s", result.exitCode, result.output)
 	}
@@ -70,7 +78,7 @@ func TestCheckCloseoutRepairAncestryAcceptsAncestorRepair(t *testing.T) {
 		"SUMMARY result=PASS artifacts_scanned=1 artifacts_with_certified_sha=1 skipped_artifacts=0 repair_shas_checked=1 violations=0 indeterminate=0",
 	)
 	assertCloseoutRepairOutput(t, result.output,
-		repairSHA,
+		gitFixture.ancestorSHA,
 	)
 }
 
@@ -125,8 +133,9 @@ func TestCheckCloseoutRepairAncestryDefaultsToChatsICG(t *testing.T) {
 func TestCheckCloseoutRepairAncestryFailsClosedOnInvalidReferences(t *testing.T) {
 	t.Parallel()
 
-	const certifiedSHA = "fb6f291e7bade309afc90d98beed5490180cd814"
-	const repairSHA = "c35411c095bf0cf804f040e33779ad1fd24381c2"
+	gitFixture := newCloseoutRepairGitFixture(t)
+	certifiedSHA := gitFixture.certifiedSHA
+	repairSHA := gitFixture.ancestorSHA
 	testCases := []struct {
 		name        string
 		verdict     string
@@ -170,7 +179,7 @@ func TestCheckCloseoutRepairAncestryFailsClosedOnInvalidReferences(t *testing.T)
 				"- Detector contract repaired at " + testCase.repair,
 			}, "\n"))
 
-			result := runCloseoutRepairAncestryScript(t, findRepoRoot(t), closeoutDir)
+			result := runCloseoutRepairAncestryScript(t, gitFixture.repoRoot, closeoutDir)
 			if result.exitCode != 1 {
 				t.Fatalf("exit code = %d, want 1, output:\n%s", result.exitCode, result.output)
 			}
@@ -212,14 +221,15 @@ func TestCheckCloseoutRepairAncestryRejectsNonDirectoryInput(t *testing.T) {
 func TestCheckCloseoutRepairAncestryRejectsSymlinkedInputs(t *testing.T) {
 	t.Parallel()
 
+	gitFixture := newCloseoutRepairGitFixture(t)
 	fixtureRoot := t.TempDir()
 	targetDir := filepath.Join(fixtureRoot, "target")
 	targetArtifact := filepath.Join(targetDir, "violation.md")
 	writeTextFile(t, targetArtifact, strings.Join([]string{
 		"## Verdict",
-		"GO on pinned evidence tree fb6f291e7bade309afc90d98beed5490180cd814",
+		"GO on pinned evidence tree " + gitFixture.certifiedSHA,
 		"## Repairs",
-		"- Detector repaired at 0cfda34eb",
+		"- Detector repaired at " + gitFixture.repairSHAs[0],
 	}, "\n"))
 
 	testCases := []struct {
@@ -255,7 +265,7 @@ func TestCheckCloseoutRepairAncestryRejectsSymlinkedInputs(t *testing.T) {
 		testCase := testCase
 		t.Run(testCase.name, func(t *testing.T) {
 			closeoutDir := testCase.prepareDir(t)
-			result := runCloseoutRepairAncestryScript(t, findRepoRoot(t), closeoutDir)
+			result := runCloseoutRepairAncestryScript(t, gitFixture.repoRoot, closeoutDir)
 			if result.exitCode != 1 {
 				t.Fatalf("exit code = %d, want 1, output:\n%s", result.exitCode, result.output)
 			}
@@ -286,6 +296,52 @@ func runCloseoutRepairAncestryScript(t *testing.T, workingDir string, scriptArgs
 		exitCode = exitError.ExitCode()
 	}
 	return closeoutRepairAncestryResult{output: string(output), exitCode: exitCode}
+}
+
+func newCloseoutRepairGitFixture(t *testing.T) closeoutRepairGitFixture {
+	t.Helper()
+
+	repoRoot := t.TempDir()
+	runCloseoutRepairFixtureGit(t, repoRoot, "", "init", "--quiet")
+	emptyTree := runCloseoutRepairFixtureGit(t, repoRoot, "", "mktree")
+	commit := func(label, parent string) string {
+		t.Helper()
+		args := []string{
+			"-c", "user.name=Closeout Fixture",
+			"-c", "user.email=closeout-fixture@example.invalid",
+			"commit-tree", emptyTree, "-m", label,
+		}
+		if parent != "" {
+			args = append(args, "-p", parent)
+		}
+		return runCloseoutRepairFixtureGit(t, repoRoot, "", args...)
+	}
+
+	ancestorSHA := commit("ancestor fixture", "")
+	certifiedSHA := commit("certified fixture", ancestorSHA)
+	repairSHAs := []string{commit("repair fixture one", ""), "", ""}
+	repairSHAs[1] = commit("repair fixture two", repairSHAs[0])
+	repairSHAs[2] = commit("repair fixture three", repairSHAs[1])
+
+	return closeoutRepairGitFixture{
+		repoRoot:     repoRoot,
+		ancestorSHA:  ancestorSHA,
+		certifiedSHA: certifiedSHA,
+		repairSHAs:   repairSHAs,
+	}
+}
+
+func runCloseoutRepairFixtureGit(t *testing.T, workingDir, stdin string, args ...string) string {
+	t.Helper()
+
+	cmd := exec.Command("git", args...)
+	cmd.Dir = workingDir
+	cmd.Stdin = strings.NewReader(stdin)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("git %s failed: %v output=%s", strings.Join(args, " "), err, output)
+	}
+	return strings.TrimSpace(string(output))
 }
 
 func assertCloseoutRepairOutput(t *testing.T, output string, wantSubstrings ...string) {
