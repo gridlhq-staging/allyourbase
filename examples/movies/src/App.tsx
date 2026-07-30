@@ -151,9 +151,14 @@ export default function App() {
   useEffect(() => {
     if (authedReady) return;
     resetMoviesSearchState();
-    resetMoviesSearchControls();
+    // Retained-token readiness dips do not own user-entered controls; the old
+    // clear intermittently appeared as "Showing 10 of 250 movies". The
+    // `typed query survives an authedReady dip` test owns this policy.
+    if (!token) {
+      resetMoviesSearchControls();
+    }
     resetChatState();
-  }, [authedReady, resetChatState, resetMoviesSearchControls, resetMoviesSearchState]);
+  }, [authedReady, resetChatState, resetMoviesSearchControls, resetMoviesSearchState, token]);
 
   async function handleLogout() {
     const bootstrapEnabledBeforeLogout = anonymousBootstrapEnabled;

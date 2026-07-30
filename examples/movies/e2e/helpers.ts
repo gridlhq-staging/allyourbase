@@ -31,6 +31,8 @@ const EMPTY_MOVIES_RESPONSE: MovieSearchResponse = {
 
 const ANONYMOUS_BOOTSTRAP_OPTOUT_KEY = "ayb_anonymous_bootstrap_optout";
 const MOVIE_COLLECTION_ROUTE = "**/api/collections/movies**";
+const MOVIES_BUNDLE_ROUTE = "**/assets/index-*.js";
+const AUTH_ME_ROUTE = "**/api/auth/me";
 
 type BlockedRequestGate = {
   wasBlocked: () => boolean;
@@ -87,6 +89,15 @@ type RouteFailure = {
   message: string;
 };
 
+type MovieSearchRequestEvidence = {
+  url: string;
+  search: string;
+};
+
+type MovieSearchRequestCapture = {
+  evidence: () => Promise<MovieSearchRequestEvidence>;
+};
+
 async function failNextRequest(page: Page, routePattern: string, failure: RouteFailure): Promise<void> {
   let failed = false;
   await page.route(routePattern, async (route) => {
@@ -100,6 +111,41 @@ async function failNextRequest(page: Page, routePattern: string, failure: RouteF
       contentType: "application/json",
       body: JSON.stringify({ message: failure.message }),
     });
+  });
+}
+
+async function exposeMoviesClientFromBundle(page: Page): Promise<void> {
+  await page.route(MOVIES_BUNDLE_ROUTE, async (route) => {
+    const response = await route.fetch();
+    const body = await response.text();
+    const clientMatch = body.match(/(?:\bconst\s+|,)([$A-Z_a-z][$\w]*)=new\s+[$A-Z_a-z][$\w]*\([^)]*,\{fetch:/);
+    if (!clientMatch) {
+      await route.fulfill({
+        response,
+        body: `${body}\nglobalThis.__aybMoviesE2EClientInstallError = "AYB client construction was not found in the movies bundle";`,
+      });
+      return;
+    }
+    await route.fulfill({
+      response,
+      body: `${body}\nglobalThis.__aybMoviesE2EClient = ${clientMatch[1]};`,
+    });
+  });
+}
+
+async function refreshMoviesClientInPage(page: Page): Promise<void> {
+  await page.addScriptTag({
+    content: `
+      (async () => {
+        if (globalThis.__aybMoviesE2EClientInstallError) {
+          throw new Error(globalThis.__aybMoviesE2EClientInstallError);
+        }
+        if (!globalThis.__aybMoviesE2EClient) {
+          throw new Error("Movies E2E AYB client handle is not installed");
+        }
+        await globalThis.__aybMoviesE2EClient.auth.refresh();
+      })();
+    `,
   });
 }
 
@@ -119,6 +165,24 @@ export async function loginWithDemoAccount(page: Page): Promise<void> {
   await page.getByPlaceholder("you@example.com").fill(DEMO_EMAIL);
   await page.getByPlaceholder("At least 8 characters").fill("password123");
   await page.getByRole("button", { name: "Sign In" }).click();
+  await expect(page.getByRole("button", { name: "Sign out" })).toBeVisible({ timeout: 15000 });
+}
+
+export async function loginWithDemoAccountAndExposedClient(page: Page): Promise<void> {
+  await exposeMoviesClientFromBundle(page);
+  await loginWithDemoAccount(page);
+}
+
+export async function triggerSameAccountAuthedReadyDip(page: Page): Promise<void> {
+  await failNextRequest(page, AUTH_ME_ROUTE, {
+    status: 500,
+    message: "forced retained-token auth readiness failure",
+  });
+
+  await refreshMoviesClientInPage(page);
+  await expect(page.getByPlaceholder("you@example.com")).toBeVisible({ timeout: 15000 });
+
+  await refreshMoviesClientInPage(page);
   await expect(page.getByRole("button", { name: "Sign out" })).toBeVisible({ timeout: 15000 });
 }
 
@@ -157,6 +221,47 @@ export async function failNextAuthLogin(page: Page): Promise<void> {
     status: 401,
     message: "Forced auth failure",
   });
+}
+
+export async function recordNextMovieSearchRequest(page: Page): Promise<MovieSearchRequestCapture> {
+  let settled = false;
+  let resolveEvidence: (evidence: MovieSearchRequestEvidence) => void = () => {};
+  let rejectEvidence: (error: Error) => void = () => {};
+  const evidencePromise = new Promise<MovieSearchRequestEvidence>((resolve, reject) => {
+    resolveEvidence = resolve;
+    rejectEvidence = reject;
+  });
+
+  const handler = async (route: Route) => {
+    if (settled) {
+      await route.continue();
+      return;
+    }
+    settled = true;
+    clearTimeout(timeoutID);
+    const requestURL = route.request().url();
+    const url = new URL(requestURL);
+    try {
+      await route.continue();
+      resolveEvidence({
+        url: requestURL,
+        search: url.searchParams.get("search") ?? "",
+      });
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      rejectEvidence(new Error(`Failed to capture movie search request: ${detail}`));
+    } finally {
+      await page.unroute(MOVIE_COLLECTION_ROUTE, handler).catch(() => {});
+    }
+  };
+
+  await page.route(MOVIE_COLLECTION_ROUTE, handler);
+  const timeoutID = setTimeout(() => {
+    settled = true;
+    rejectEvidence(new Error("movie search request was not sent"));
+    void page.unroute(MOVIE_COLLECTION_ROUTE, handler).catch(() => {});
+  }, 15000);
+  return { evidence: () => evidencePromise };
 }
 
 /** Capture the next magic-link request while allowing it to reach the backend. */

@@ -87,11 +87,8 @@ const SEARCH_RESPONSE = listResponse(
 describe("App search", () => {
   let logout: ReturnType<typeof vi.fn>;
 
-  beforeEach(() => {
-    vi.clearAllMocks();
-    vi.mocked(isAnonymousBootstrapEnabled).mockReturnValue(true);
-    logout = vi.fn().mockResolvedValue(undefined);
-    mockUseAuth.mockReturnValue({
+  function authState(overrides: Partial<ReturnType<typeof useAuth>> = {}) {
+    return {
       loading: false,
       user: { id: "user-1", email: "me@test.com", isAnonymous: false },
       error: null,
@@ -107,7 +104,15 @@ describe("App search", () => {
       signInWithPasskey: vi.fn(),
       logout,
       refresh: vi.fn(),
-    });
+      ...overrides,
+    };
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(isAnonymousBootstrapEnabled).mockReturnValue(true);
+    logout = vi.fn().mockResolvedValue(undefined);
+    mockUseAuth.mockReturnValue(authState());
     mockUseAybAnonymousBootstrap.mockReturnValue({ bootstrapping: false });
     mockSearchMovies.mockResolvedValue(SEARCH_RESPONSE);
   });
@@ -125,6 +130,13 @@ describe("App search", () => {
       resolve = res;
     });
     return { promise, resolve };
+  }
+
+  async function setMovieSearchControls(query: string, decade: string) {
+    fireEvent.change(screen.getByPlaceholderText(/search movies/i), { target: { value: query } });
+    fireEvent.click(screen.getByTestId("genre-facet-Sci-Fi"));
+    fireEvent.change(screen.getByTestId("decade-filter"), { target: { value: decade } });
+    await advanceDebounce();
   }
 
   it("calls searchMovies via SDK with empty query on initial corpus load", async () => {
@@ -357,15 +369,13 @@ describe("App search", () => {
     expect(screen.getByTestId("results-summary")).toHaveTextContent("Loading movies...");
   });
 
-  it("clears query and filters across non-logout auth transitions", async () => {
-    const { rerender } = render(<App />);
+  it("clears query and filters after successful sign out", async () => {
+    const postLogoutSearch = deferredSearchResponse();
+    render(<App />);
     await advanceDebounce();
     await screen.findByText("The Matrix");
 
-    fireEvent.change(screen.getByPlaceholderText(/search movies/i), { target: { value: "matrix" } });
-    fireEvent.click(screen.getByTestId("genre-facet-Sci-Fi"));
-    fireEvent.change(screen.getByTestId("decade-filter"), { target: { value: "1990" } });
-    await advanceDebounce();
+    await setMovieSearchControls("matrix", "1990");
     await waitFor(() => {
       expect(mockSearchMovies).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -375,43 +385,54 @@ describe("App search", () => {
       );
     });
 
-    mockUseAuth.mockReturnValue({
-      loading: false,
+    mockSearchMovies.mockClear();
+    mockSearchMovies.mockReturnValueOnce(postLogoutSearch.promise);
+    fireEvent.click(screen.getByRole("button", { name: /sign out/i }));
+    await waitFor(() => {
+      expect(logout).toHaveBeenCalled();
+    });
+    await advanceDebounce();
+
+    expect(screen.getByPlaceholderText(/search movies/i)).toHaveValue("");
+    expect(screen.getByTestId("decade-filter")).toHaveValue("");
+    expect(mockSearchMovies).toHaveBeenCalledWith(expect.objectContaining({ search: "" }));
+    expect(mockSearchMovies).toHaveBeenCalledWith(
+      expect.not.objectContaining({ filter: expect.any(String) }),
+    );
+    expect(screen.queryByText("The Matrix")).not.toBeInTheDocument();
+    expect(screen.getByTestId("results-summary")).toHaveTextContent("Loading movies...");
+  });
+
+  it("clears query and filters after session invalidation before a different account signs in", async () => {
+    const { rerender } = render(<App />);
+    await advanceDebounce();
+    await screen.findByText("The Matrix");
+
+    await setMovieSearchControls("matrix", "1990");
+    await waitFor(() => {
+      expect(mockSearchMovies).toHaveBeenCalledWith(
+        expect.objectContaining({
+          search: "matrix",
+          filter: "primary_genre='Sci-Fi' AND release_year>=1990 AND release_year<2000",
+        }),
+      );
+    });
+
+    // SIGNED_OUT and an unauthorized /me reload both produce this invalidated
+    // session shape before a later sign-in can establish a different account.
+    mockUseAuth.mockReturnValue(authState({
       user: null,
-      error: null,
       token: null,
       refreshToken: null,
-      login: vi.fn(),
-      register: vi.fn(),
-      signInAnonymously: vi.fn(),
-      requestMagicLink: vi.fn(),
-      confirmMagicLink: vi.fn(),
-      linkEmail: vi.fn(),
-      signInWithOAuth: vi.fn(),
-      signInWithPasskey: vi.fn(),
-      logout,
-      refresh: vi.fn(),
-    });
+    }));
     rerender(<App />);
 
     mockSearchMovies.mockClear();
-    mockUseAuth.mockReturnValue({
-      loading: false,
+    mockUseAuth.mockReturnValue(authState({
       user: { id: "user-2", email: "next@test.com", isAnonymous: false },
-      error: null,
       token: "token-2",
       refreshToken: "refresh-2",
-      login: vi.fn(),
-      register: vi.fn(),
-      signInAnonymously: vi.fn(),
-      requestMagicLink: vi.fn(),
-      confirmMagicLink: vi.fn(),
-      linkEmail: vi.fn(),
-      signInWithOAuth: vi.fn(),
-      signInWithPasskey: vi.fn(),
-      logout,
-      refresh: vi.fn(),
-    });
+    }));
     rerender(<App />);
     await advanceDebounce();
 
@@ -425,6 +446,112 @@ describe("App search", () => {
     );
     expect(screen.getByPlaceholderText(/search movies/i)).toHaveValue("");
     expect(screen.getByTestId("decade-filter")).toHaveValue("");
+  });
+
+  it("ignores an in-flight search response after a retained-token authedReady dip", async () => {
+    const pendingSearch = deferredSearchResponse();
+    const recoveredSearch = deferredSearchResponse();
+    const { rerender } = render(<App />);
+    await advanceDebounce();
+    await screen.findByText("The Matrix");
+    mockSearchMovies.mockClear();
+    mockSearchMovies.mockReturnValueOnce(pendingSearch.promise);
+
+    await setMovieSearchControls("inception", "2010");
+    await waitFor(() => {
+      expect(mockSearchMovies).toHaveBeenCalledWith(
+        expect.objectContaining({
+          search: "inception",
+          filter: "primary_genre='Sci-Fi' AND release_year>=2010 AND release_year<2020",
+        }),
+      );
+    });
+
+    mockUseAuth.mockReturnValue(authState({
+      user: null,
+      error: new Error("temporary /me failure"),
+      token: "token-2",
+      refreshToken: "refresh-2",
+    }));
+    rerender(<App />);
+
+    mockUseAuth.mockReturnValue(authState({
+      token: "token-2",
+      refreshToken: "refresh-2",
+    }));
+    mockSearchMovies.mockClear();
+    mockSearchMovies.mockReturnValueOnce(recoveredSearch.promise);
+    rerender(<App />);
+    await advanceDebounce();
+
+    await waitFor(() => {
+      expect(mockSearchMovies).toHaveBeenCalledWith(
+        expect.objectContaining({
+          search: "inception",
+          filter: "primary_genre='Sci-Fi' AND release_year>=2010 AND release_year<2020",
+        }),
+      );
+    });
+
+    await act(async () => {
+      pendingSearch.resolve(SEARCH_RESPONSE);
+    });
+
+    expect(screen.getByPlaceholderText(/search movies/i)).toHaveValue("inception");
+    expect(screen.getByTestId("decade-filter")).toHaveValue("2010");
+    expect(screen.queryByText("The Matrix")).not.toBeInTheDocument();
+    expect(screen.queryByText("Inception")).not.toBeInTheDocument();
+    expect(screen.getByTestId("results-summary")).toHaveTextContent("Loading movies...");
+  });
+
+  it("typed query survives an authedReady dip", async () => {
+    const { rerender } = render(<App />);
+    await advanceDebounce();
+    mockSearchMovies.mockClear();
+
+    fireEvent.change(screen.getByPlaceholderText(/search movies/i), {
+      target: { value: "inception" },
+    });
+    await advanceDebounce();
+    await waitFor(() => {
+      expect(mockSearchMovies).toHaveBeenCalledWith(
+        expect.objectContaining({ search: "inception" }),
+      );
+    });
+
+    // TOKEN_REFRESHED retains the refreshed session. If its /me reload fails
+    // with a non-authorization error, useAuth clears user but keeps this token.
+    mockUseAuth.mockReturnValue(authState({
+      user: null,
+      error: new Error("temporary /me failure"),
+      token: "token-2",
+      refreshToken: "refresh-2",
+    }));
+    rerender(<App />);
+
+    // A later successful refresh can restore the same account and readiness.
+    mockSearchMovies.mockClear();
+    mockUseAuth.mockReturnValue(authState({
+      token: "token-2",
+      refreshToken: "refresh-2",
+    }));
+    rerender(<App />);
+    await advanceDebounce();
+
+    const recoveredInput = screen.getByPlaceholderText(/search movies/i);
+    const dispatchedTypedSearch = mockSearchMovies.mock.calls.some(
+      ([options]) => options.search === "inception",
+    );
+    expect(
+      {
+        inputValue: (recoveredInput as HTMLInputElement).value,
+        dispatchedTypedSearch,
+      },
+      "LOST_QUERY_REPRO",
+    ).toEqual({
+      inputValue: "inception",
+      dispatchedTypedSearch: true,
+    });
   });
 
   it("retry re-issues the SDK search call preserving query", async () => {

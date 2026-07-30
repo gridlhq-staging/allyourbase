@@ -1,5 +1,13 @@
 import { spawn, spawnSync, type ChildProcess } from "node:child_process";
-import { accessSync, constants } from "node:fs";
+import {
+  accessSync,
+  constants,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -23,6 +31,12 @@ export interface DemoRuntimePlan {
   aybConfigPath?: string;
 }
 
+export interface MoviesRuntimeFixturePlan {
+  configContents: string;
+  healthUrl: string;
+  processEnv: NodeJS.ProcessEnv;
+}
+
 export const STAGE5_NOT_IMPLEMENTED_ERROR =
   "Stage 5: demo orchestration is not yet implemented for this demo target.";
 
@@ -33,8 +47,8 @@ const DEMO_KANBAN_URL_ENV = "DEMO_KANBAN_URL";
 const DEMO_POLLS_URL_ENV = "DEMO_POLLS_URL";
 const DEMO_MOVIES_URL_ENV = "DEMO_MOVIES_URL";
 const DEMO_API_URL_ENV = "DEMO_API_URL";
-const OLLAMA_FAKE_PORT = 11_434;
-const OLLAMA_FAKE_HEALTH_URL = `http://127.0.0.1:${OLLAMA_FAKE_PORT}/health`;
+const OLLAMA_DEFAULT_BASE_URL = 'base_url = "http://127.0.0.1:11434"';
+const OLLAMA_FAKE_PORT_CANDIDATES: readonly number[] = [45_514, 46_514, 47_514, 48_514, 49_514];
 const READINESS_TIMEOUT_MS = 60_000;
 const POLL_INTERVAL_MS = 500;
 const GRACEFUL_EXIT_TIMEOUT_MS = 10_000;
@@ -62,7 +76,6 @@ export const DEMO_TARGETS: Record<"kanban" | "livePolls" | "movies", DemoTarget>
     runtime: {
       requiresAiSearchRuntime: true,
       aybConfigPath: MOVIES_E2E_CONFIG_PATH,
-      managedPorts: [OLLAMA_FAKE_PORT],
     },
   },
 };
@@ -108,6 +121,36 @@ export function managedPortsForDemoTargetForTest(demoTarget: DemoTarget): readon
 
 export function runtimePlanForTest(demoTarget: DemoTarget): DemoRuntimePlan {
   return runtimePlanForDemoTarget(demoTarget);
+}
+
+function moviesRuntimeFixturePlan(
+  sourceConfig: string,
+  fixturePort: number,
+): MoviesRuntimeFixturePlan {
+  const sourceMatchCount = sourceConfig.split(OLLAMA_DEFAULT_BASE_URL).length - 1;
+  if (sourceMatchCount !== 1) {
+    throw new Error(
+      `Expected exactly one movies Ollama base_url, found ${sourceMatchCount}`,
+    );
+  }
+
+  return {
+    configContents: sourceConfig.replace(
+      OLLAMA_DEFAULT_BASE_URL,
+      `base_url = "http://127.0.0.1:${fixturePort}"`,
+    ),
+    healthUrl: `http://127.0.0.1:${fixturePort}/health`,
+    processEnv: {
+      AYB_MOVIES_FAKE_OLLAMA_PORT: String(fixturePort),
+    },
+  };
+}
+
+export function moviesRuntimeFixturePlanForTest(
+  sourceConfig: string,
+  fixturePort: number,
+): MoviesRuntimeFixturePlan {
+  return moviesRuntimeFixturePlan(sourceConfig, fixturePort);
 }
 
 // Demos for which fixture orchestration is implemented. Adding a demo here is the
@@ -401,6 +444,44 @@ function killPid(pid: number, signal: NodeJS.Signals): void {
   }
 }
 
+interface PreparedMoviesRuntime {
+  configPath: string;
+  fixturePort: number;
+  healthUrl: string;
+  processEnv: NodeJS.ProcessEnv;
+  removeConfig: () => void;
+}
+
+function prepareMoviesRuntime(sourceConfigPath: string): PreparedMoviesRuntime {
+  const fixturePort = OLLAMA_FAKE_PORT_CANDIDATES.find(
+    (candidatePort) => pidsForPort(candidatePort).length === 0,
+  );
+  if (fixturePort === undefined) {
+    throw new Error("No free isolated port available for the movies fake Ollama fixture");
+  }
+
+  const fixturePlan = moviesRuntimeFixturePlan(
+    readFileSync(sourceConfigPath, "utf8"),
+    fixturePort,
+  );
+  const configDir = mkdtempSync(join(tmpdir(), "ayb-cross-demo-movies-"));
+  const configPath = join(configDir, "ayb.toml");
+  try {
+    writeFileSync(configPath, fixturePlan.configContents, { mode: 0o600 });
+  } catch (error) {
+    rmSync(configDir, { force: true, recursive: true });
+    throw error;
+  }
+
+  return {
+    configPath,
+    fixturePort,
+    healthUrl: fixturePlan.healthUrl,
+    processEnv: fixturePlan.processEnv,
+    removeConfig: () => rmSync(configDir, { force: true, recursive: true }),
+  };
+}
+
 /**
  * Best-effort SIGINT then SIGKILL sweep of any listeners on the given ports.
  * Used to guarantee a clean fixture start and to scrub leftovers on teardown.
@@ -456,7 +537,9 @@ export async function orchestrateDemoRoundtrip(
   }
 
   const runtimePlan = runtimePlanForDemoTarget(demoTarget);
-  const orchestrationManagedPorts = managedPortsForDemoTarget(demoTarget);
+  let orchestrationManagedPorts = managedPortsForDemoTarget(demoTarget);
+  let runtimeConfigPath = runtimePlan.aybConfigPath;
+  let moviesRuntime: PreparedMoviesRuntime | undefined;
   const aybBin = resolveAybBin();
   const managedProcesses: SpawnedProcess[] = [];
 
@@ -465,14 +548,32 @@ export async function orchestrateDemoRoundtrip(
 
   try {
     if (runtimePlan.startFakeOllama) {
-      const fakeOllamaProcess = spawnManagedProcess("node", [MOVIES_FAKE_OLLAMA_SCRIPT_PATH]);
+      if (!runtimeConfigPath) {
+        throw new Error("Movies AI runtime requires an AYB config template");
+      }
+      moviesRuntime = prepareMoviesRuntime(runtimeConfigPath);
+      runtimeConfigPath = moviesRuntime.configPath;
+      orchestrationManagedPorts = uniquePorts([
+        ...orchestrationManagedPorts,
+        moviesRuntime.fixturePort,
+      ]);
+
+      const fakeOllamaProcess = spawnManagedProcess(
+        "node",
+        [MOVIES_FAKE_OLLAMA_SCRIPT_PATH],
+        moviesRuntime.processEnv,
+      );
       managedProcesses.push(fakeOllamaProcess);
 
-      await waitForFakeOllama(OLLAMA_FAKE_HEALTH_URL, READINESS_TIMEOUT_MS, fakeOllamaProcess);
+      await waitForFakeOllama(
+        moviesRuntime.healthUrl,
+        READINESS_TIMEOUT_MS,
+        fakeOllamaProcess,
+      );
     }
 
-    const apiStartArgs = runtimePlan.aybConfigPath
-      ? ["start", "--config", runtimePlan.aybConfigPath]
+    const apiStartArgs = runtimeConfigPath
+      ? ["start", "--config", runtimeConfigPath]
       : ["start"];
 
     const apiProcess = spawnManagedProcess(aybBin, apiStartArgs, {
@@ -496,12 +597,15 @@ export async function orchestrateDemoRoundtrip(
 
     await executeRoundtrip({ demoTarget });
   } finally {
-    for (const managedProcess of [...managedProcesses].reverse()) {
-      await stopProcessWithFallback(managedProcess);
+    try {
+      for (const managedProcess of [...managedProcesses].reverse()) {
+        await stopProcessWithFallback(managedProcess);
+      }
+      await cleanupManagedPorts(orchestrationManagedPorts);
+      await assertNoManagedPortListeners(orchestrationManagedPorts);
+    } finally {
+      moviesRuntime?.removeConfig();
     }
-
-    await cleanupManagedPorts(orchestrationManagedPorts);
-    await assertNoManagedPortListeners(orchestrationManagedPorts);
     console.log(
       `[E2E-TEARDOWN-OK] demo=${demoName} ports=${orchestrationManagedPorts.join(",")}`,
     );

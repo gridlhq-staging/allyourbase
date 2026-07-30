@@ -4,6 +4,7 @@ import {
   DEMO_TARGETS,
   managedPortsForTest,
   managedPortsForDemoTargetForTest,
+  moviesRuntimeFixturePlanForTest,
   orchestrateDemoRoundtrip,
   resolveApiHealthUrlForTest,
   resolveDemoTargetForTest,
@@ -163,11 +164,9 @@ async function authenticateLiveAccount(
   await page.unroute("**/api/auth/register");
 }
 
-test("fixture leak-gate coverage includes fixture-declared runtime-managed ports", () => {
-  const expectedRuntimeManagedPorts = DEMO_TARGETS.movies.runtime?.managedPorts ?? [];
-
-  expect(expectedRuntimeManagedPorts.length).toBeGreaterThan(0);
-  expect(managedPortsForTest()).toEqual(expect.arrayContaining([...expectedRuntimeManagedPorts]));
+test("fixture leak-gate excludes the real Ollama provider port", () => {
+  expect(managedPortsForTest()).toEqual([8090, 5173, 5175, 5177]);
+  expect(managedPortsForTest()).not.toContain(11_434);
 });
 
 test("fixture AI runtime setup is scoped to demos that require it", () => {
@@ -184,19 +183,25 @@ test("fixture AI runtime setup is scoped to demos that require it", () => {
   expect(moviesPlan.aybConfigPath).toContain("ayb_movies_e2e.toml");
 });
 
-test("fixture orchestration port scope excludes movies runtime ports for non-movies demos", () => {
-  const moviesRuntimeManagedPorts = DEMO_TARGETS.movies.runtime?.managedPorts ?? [];
+test("fixture movies AI runtime threads one isolated port through process and config", () => {
+  const fixturePort = 45_514;
+  const plan = moviesRuntimeFixturePlanForTest(
+    '[ai.providers.ollama]\nbase_url = "http://127.0.0.1:11434"\n',
+    fixturePort,
+  );
 
-  expect(moviesRuntimeManagedPorts.length).toBeGreaterThan(0);
-  expect(managedPortsForDemoTargetForTest(DEMO_TARGETS.kanban)).not.toEqual(
-    expect.arrayContaining([...moviesRuntimeManagedPorts]),
-  );
-  expect(managedPortsForDemoTargetForTest(DEMO_TARGETS.livePolls)).not.toEqual(
-    expect.arrayContaining([...moviesRuntimeManagedPorts]),
-  );
-  expect(managedPortsForDemoTargetForTest(DEMO_TARGETS.movies)).toEqual(
-    expect.arrayContaining([...moviesRuntimeManagedPorts]),
-  );
+  expect(plan.healthUrl).toBe(`http://127.0.0.1:${fixturePort}/health`);
+  expect(plan.processEnv).toEqual({
+    AYB_MOVIES_FAKE_OLLAMA_PORT: String(fixturePort),
+  });
+  expect(plan.configContents).toContain(`base_url = "http://127.0.0.1:${fixturePort}"`);
+  expect(plan.configContents).not.toContain("127.0.0.1:11434");
+});
+
+test("fixture orchestration static port scope stays demo-specific", () => {
+  expect(managedPortsForDemoTargetForTest(DEMO_TARGETS.kanban)).toEqual([8090, 5173]);
+  expect(managedPortsForDemoTargetForTest(DEMO_TARGETS.livePolls)).toEqual([8090, 5175]);
+  expect(managedPortsForDemoTargetForTest(DEMO_TARGETS.movies)).toEqual([8090, 5177]);
 });
 
 test("fixture live mode resolves public URLs from environment and API health owner", () => {
