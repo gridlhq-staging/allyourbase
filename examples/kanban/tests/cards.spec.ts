@@ -78,7 +78,10 @@ test.describe("Cards", () => {
     // Close with Cancel button.
     await page.getByText("Close Test Modal").click();
     await expect(page.getByText("Edit Card")).toBeVisible();
-    await page.getByRole("button", { name: "Cancel", exact: true }).click();
+    await page
+      .getByRole("dialog")
+      .getByRole("button", { name: "Cancel", exact: true })
+      .click();
     await expect(page.getByText("Edit Card")).toBeHidden();
 
     // Close with Escape key.
@@ -86,6 +89,34 @@ test.describe("Cards", () => {
     await expect(page.getByText("Edit Card")).toBeVisible();
     await page.keyboard.press("Escape");
     await expect(page.getByText("Edit Card")).toBeHidden();
+  });
+
+  test("modal Cancel resolves while a column composer is open", async ({
+    page,
+  }) => {
+    await addCard(page, "To Do", "Ambiguity Guard Card");
+
+    // Reopen the composer and leave it open: the board now renders its own
+    // "Cancel" alongside the modal's, which is exactly the state that made a
+    // page-scoped Cancel lookup fail Playwright strict mode intermittently.
+    const column = page.getByTestId("column-To Do");
+    await column.getByText("+ Add a card").click();
+    await expect(column.getByPlaceholder("Card title...")).toBeVisible();
+
+    await page.getByText("Ambiguity Guard Card").click();
+    await expect(page.getByText("Edit Card")).toBeVisible();
+
+    // Guard the premise: without dialog scoping this locator is ambiguous.
+    await expect(
+      page.getByRole("button", { name: "Cancel", exact: true }),
+    ).toHaveCount(2);
+
+    await page
+      .getByRole("dialog")
+      .getByRole("button", { name: "Cancel", exact: true })
+      .click();
+    await expect(page.getByText("Edit Card")).toBeHidden();
+    await expect(page.getByText("Ambiguity Guard Card")).toBeVisible();
   });
 
   test("can delete a card from the modal", async ({ page }) => {
@@ -134,7 +165,10 @@ test.describe("Cards", () => {
 
     // Modal should still be open and card still exists
     await expect(page.getByText("Edit Card")).toBeVisible();
-    await page.getByRole("button", { name: "Cancel", exact: true }).click();
+    await page
+      .getByRole("dialog")
+      .getByRole("button", { name: "Cancel", exact: true })
+      .click();
     await expect(page.getByText("Keep This Card")).toBeVisible();
   });
 

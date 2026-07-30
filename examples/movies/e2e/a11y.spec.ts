@@ -2,8 +2,8 @@ import AxeBuilder from "@axe-core/playwright";
 import { expect, test, type Page } from "@playwright/test";
 import {
   DEMO_EMAIL,
+  blockNextMovieSearch,
   delayNextBYOKClear,
-  delayNextMovieSearch,
   delayNextNoteEmbed,
   failChatStream,
   failNextAuthLogin,
@@ -106,18 +106,28 @@ test.describe("Movies accessibility states", () => {
   });
 
   test("a11y: initial search loading", async ({ page }) => {
-    await delayNextMovieSearch(page);
+    const gate = await blockNextMovieSearch(page);
     await loginWithDemoAccount(page);
     await expect(page.getByTestId("results-summary")).toHaveText("Loading movies...");
     await assertAccessible(page, "initial search loading");
+    gate.release();
   });
 
   test("a11y: typed search loading", async ({ page }) => {
     await openSignedInSearch(page);
-    await delayNextMovieSearch(page);
-    await page.getByPlaceholder("Search movies...").fill("inception");
+    const gate = await blockNextMovieSearch(page);
+
+    const searchInput = page.getByPlaceholder("Search movies...");
+    await searchInput.fill("inception");
+    // Assert the premise separately: the input is controlled by searchQuery, and
+    // a re-render that lands on top of fill() drops the value with no search ever
+    // dispatched. Without this the failure surfaces as a stale results-summary and
+    // reads like a timing miss instead of a lost keystroke.
+    await expect(searchInput).toHaveValue("inception");
+
     await expect(page.getByTestId("results-summary")).toHaveText("Searching movies...");
     await assertAccessible(page, "typed search loading");
+    gate.release();
   });
 
   test("a11y: search error and retry", async ({ page }) => {

@@ -245,14 +245,14 @@ test.describe("Kanban visible states", () => {
     gate.release();
     await expect(modal.getByText("No attachments")).toBeVisible();
 
-    await page.getByRole("button", { name: "Cancel", exact: true }).click();
+    await modal.getByRole("button", { name: "Cancel", exact: true }).click();
     await installFailingCollectionRoute(page, "attachments", "GET", "Attachment load failed");
     await page.getByText("State Card").click();
     await expect(page.getByRole("dialog").getByRole("alert")).toContainText(
       "Attachment load failed",
     );
 
-    await page.getByRole("button", { name: "Cancel", exact: true }).click();
+    await modal.getByRole("button", { name: "Cancel", exact: true }).click();
     await installFailingStorageUploadRoute(page, "Attachment upload failed");
     await page.getByText("State Card").click();
     await page.getByRole("dialog").getByLabel("Attach file").setInputFiles({

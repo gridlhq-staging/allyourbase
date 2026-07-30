@@ -31,6 +31,11 @@ const EMPTY_MOVIES_RESPONSE: MovieSearchResponse = {
 
 const ANONYMOUS_BOOTSTRAP_OPTOUT_KEY = "ayb_anonymous_bootstrap_optout";
 const MOVIE_COLLECTION_ROUTE = "**/api/collections/movies**";
+
+type BlockedRequestGate = {
+  wasBlocked: () => boolean;
+  release: () => void;
+};
 const MAGIC_LINK_ROUTE = "**/api/auth/magic-link";
 
 type MagicLinkRequestEvidence = {
@@ -63,15 +68,41 @@ export async function loginWithDemoAccount(page: Page): Promise<void> {
   await expect(page.getByRole("button", { name: "Sign out" })).toBeVisible({ timeout: 15000 });
 }
 
-export async function delayNextMovieSearch(page: Page, delayMs = 900): Promise<void> {
-  let delayed = false;
+/**
+ * Hold the next movie-search response open until the caller releases it.
+ *
+ * Use this whenever a test asserts a transient in-flight state ("Loading
+ * movies..." / "Searching movies..."). The previous approach delayed the
+ * response by a fixed 900ms, which only widens the window the assertion is
+ * racing; under union load the two can drift far enough apart that the state is
+ * never observed. Holding the response makes the window last exactly as long as
+ * the test needs, so the assertion cannot flake.
+ *
+ * Mirrors blockCollectionRequest in examples/kanban/tests/helpers.ts.
+ */
+export async function blockNextMovieSearch(page: Page): Promise<BlockedRequestGate> {
+  let blocked = false;
+  let released = false;
+  let releaseHeldRequest = () => {};
+  const heldUntilReleased = new Promise<void>((resolve) => {
+    releaseHeldRequest = resolve;
+  });
+
   await page.route(MOVIE_COLLECTION_ROUTE, async (route) => {
-    if (!delayed) {
-      delayed = true;
-      await new Promise((resolve) => setTimeout(resolve, delayMs));
+    if (!blocked && !released) {
+      blocked = true;
+      await heldUntilReleased;
     }
     await route.continue();
   });
+
+  return {
+    wasBlocked: () => blocked,
+    release: () => {
+      released = true;
+      releaseHeldRequest();
+    },
+  };
 }
 
 export async function failNextMovieSearch(page: Page): Promise<void> {

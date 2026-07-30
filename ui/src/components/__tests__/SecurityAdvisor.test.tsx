@@ -51,9 +51,11 @@ describe("SecurityAdvisor", () => {
     const user = userEvent.setup();
     render(<SecurityAdvisor />);
 
-    await screen.findByText("Security Advisor");
+    // Await a finding, not the panel heading: the heading is part of the static
+    // shell that renders before the report resolves, so waiting on it would let
+    // the synchronous finding assertions below race the fetch.
+    await screen.findByText(/RLS disabled on public.posts/i);
     expect(screen.getByRole("heading", { name: /critical/i })).toBeInTheDocument();
-    expect(screen.getByText(/RLS disabled on public.posts/i)).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: /RLS disabled on public.posts/i }));
     expect(screen.getByText(/Enable RLS and add restrictive policies/i)).toBeInTheDocument();
@@ -63,7 +65,8 @@ describe("SecurityAdvisor", () => {
     const user = userEvent.setup();
     render(<SecurityAdvisor />);
 
-    await screen.findByText("Security Advisor");
+    // Await a finding so the severity filter runs against a populated report.
+    await screen.findByText(/RLS disabled on public.posts/i);
     await user.selectOptions(screen.getByLabelText(/Severity/i), "critical");
 
     expect(screen.getByText(/RLS disabled on public.posts/i)).toBeInTheDocument();

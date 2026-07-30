@@ -1,7 +1,7 @@
 import { expect, test } from "@playwright/test";
 import {
   DEMO_EMAIL,
-  delayNextMovieSearch,
+  blockNextMovieSearch,
   failNextAuthLogin,
   failChatStream,
   failNextLogout,
@@ -16,13 +16,15 @@ import {
 
 test("movie corpus load renders a browser-visible loading state before seeded rows", async ({ page }) => {
   // Real local demo searches can resolve before the browser observes the
-  // transient state, so this arrange-side route delay makes the contract
-  // deterministic without changing the user action path.
-  await delayNextMovieSearch(page);
+  // transient state, so this arrange-side hold makes the contract deterministic
+  // without changing the user action path. The response stays held until the
+  // loading state has been asserted, so no fixed delay is being raced.
+  const gate = await blockNextMovieSearch(page);
 
   await loginWithDemoAccount(page);
 
   await expect(page.getByTestId("results-summary")).toHaveText("Loading movies...");
+  gate.release();
   await expect(page.getByTestId("search-result-row-inception")).toBeVisible({ timeout: 15000 });
   await expect(page.getByTestId("search-result-title-inception")).toHaveText("Inception");
   await expect(page.getByTestId("search-result-year-inception")).toHaveText("2010");
@@ -37,11 +39,15 @@ test("typed search renders searching status before refreshed results", async ({ 
   await expect(page.getByTestId("results-summary")).toContainText("of 250 movies", { timeout: 15000 });
 
   // Debounced search-as-you-type is normally faster than a reliable visual
-  // assertion; this arrange-side delay pins the in-flight browser state.
-  await delayNextMovieSearch(page);
-  await page.getByPlaceholder("Search movies...").fill("inception");
+  // assertion; this arrange-side hold pins the in-flight browser state until
+  // the assertion below has observed it.
+  const gate = await blockNextMovieSearch(page);
+  const searchInput = page.getByPlaceholder("Search movies...");
+  await searchInput.fill("inception");
+  await expect(searchInput).toHaveValue("inception");
 
   await expect(page.getByTestId("results-summary")).toHaveText("Searching movies...");
+  gate.release();
   await expect(page.getByTestId("search-result-row-inception")).toBeVisible({ timeout: 15000 });
 });
 

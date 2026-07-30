@@ -787,4 +787,10 @@ export async function addCard(
   await column.getByPlaceholder("Card title...").fill(cardTitle);
   await column.getByRole("button", { name: "Add", exact: true }).click();
   await expect(page.getByText(cardTitle)).toBeVisible();
+  // The card can render from the realtime push before the create() promise
+  // resolves and collapses the composer, so card visibility alone does not
+  // imply the composer is gone. Wait for the collapse too: while it is open the
+  // column contributes a second "Cancel" button, which makes any page-scoped
+  // Cancel lookup ambiguous under Playwright strict mode.
+  await expect(column.getByPlaceholder("Card title...")).toBeHidden();
 }
