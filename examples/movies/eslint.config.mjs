@@ -6,11 +6,7 @@ import tseslint from "typescript-eslint";
 export default [
   ...tseslint.configs.recommended.map((config) => ({
     ...config,
-    files: ["src/**/*.{ts,tsx}"],
-  })),
-  ...tseslint.configs.recommended.map((config) => ({
-    ...config,
-    files: ["e2e/**/*.ts"],
+    files: ["src/**/*.{ts,tsx}", "e2e/**/*.ts"],
   })),
   {
     ...playwright.configs["flat/recommended"],
@@ -66,11 +62,19 @@ export default [
     },
   },
   {
-    // Exempt helper files from spec-only restrictions.
+    // Helper files keep Playwright-specific exemptions but must not reintroduce fixed-delay route sleeps.
     files: ["e2e/helpers.ts"],
     rules: {
       "playwright/no-raw-locators": "off",
-      "no-restricted-syntax": "off",
+      "no-restricted-syntax": [
+        "error",
+        {
+          selector:
+            "NewExpression[callee.name='Promise'] CallExpression:not([arguments.1.value=0]):matches([callee.name='setTimeout'], [callee.property.name='setTimeout'])",
+          message:
+            "Use blockNextMovieSearch or another release-on-assertion gate instead of fixed-delay helper sleeps.",
+        },
+      ],
     },
   },
 ];

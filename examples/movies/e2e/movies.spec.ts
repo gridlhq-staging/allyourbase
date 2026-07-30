@@ -1,7 +1,7 @@
 import { expect, test, type Locator, type Page } from "@playwright/test";
 import {
-  delayNextBYOKClear,
-  delayNextNoteEmbed,
+  blockNextBYOKClear,
+  blockNextNoteEmbed,
   expectInceptionNoteEmbedding,
   expectLocalChatStream,
   loginWithDemoAccount,
@@ -262,10 +262,14 @@ test("selected Inception keeps notes, chat, and BYOK sections usable", async ({ 
   await expect(page.getByTestId("chat-section")).toContainText("Chat");
   await expect(page.getByTestId("provider-keys-section")).toContainText("Provider Keys (BYOK)");
 
-  await delayNextNoteEmbed(page);
+  const noteEmbedGate = await blockNextNoteEmbed(page);
   await page.getByPlaceholder("Add a note about this movie...").fill("Inception selected-state note");
   await page.getByRole("button", { name: "Save Note" }).click();
-  await expect(page.getByRole("button", { name: "Saving..." })).toBeDisabled();
+  try {
+    await expect(page.getByRole("button", { name: "Saving..." })).toBeDisabled();
+  } finally {
+    noteEmbedGate.release();
+  }
   await expect(page.getByText("Saved")).toBeVisible({ timeout: 15000 });
 
   await page.getByPlaceholder("Ask about movies...").fill("Summarize inception");
@@ -279,14 +283,18 @@ test("selected Inception keeps notes, chat, and BYOK sections usable", async ({ 
 
 test("provider-key clear disables controls while clearing and returns without error", async ({ page }) => {
   await loginWithDemoAccount(page);
-  await delayNextBYOKClear(page);
+  const gate = await blockNextBYOKClear(page);
 
   const providerKeys = page.getByTestId("provider-keys-section");
   const clearButton = providerKeys.getByRole("button", { name: "Clear" });
   await clearButton.click();
 
-  await expect(clearButton).toBeDisabled();
-  await expect(providerKeys.getByPlaceholder("Vault secret name...")).toBeDisabled();
+  try {
+    await expect(clearButton).toBeDisabled();
+    await expect(providerKeys.getByPlaceholder("Vault secret name...")).toBeDisabled();
+  } finally {
+    gate.release();
+  }
   await expect(clearButton).toBeEnabled({ timeout: 15000 });
   await expect(providerKeys.getByRole("alert")).toBeHidden();
 });

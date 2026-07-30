@@ -36,6 +36,39 @@ type BlockedRequestGate = {
   wasBlocked: () => boolean;
   release: () => void;
 };
+
+type BlockedRequestController = {
+  gate: BlockedRequestGate;
+  holdNextRequest: () => Promise<boolean>;
+};
+
+function createBlockedRequestController(): BlockedRequestController {
+  let blocked = false;
+  let released = false;
+  let releaseHeldRequest = () => {};
+  const heldUntilReleased = new Promise<void>((resolve) => {
+    releaseHeldRequest = resolve;
+  });
+
+  return {
+    gate: {
+      wasBlocked: () => blocked,
+      release: () => {
+        released = true;
+        releaseHeldRequest();
+      },
+    },
+    holdNextRequest: async () => {
+      if (blocked || released) {
+        return false;
+      }
+      blocked = true;
+      await heldUntilReleased;
+      return true;
+    },
+  };
+}
+
 const MAGIC_LINK_ROUTE = "**/api/auth/magic-link";
 
 type MagicLinkRequestEvidence = {
@@ -48,6 +81,27 @@ type MagicLinkRequestEvidence = {
 type MagicLinkRequestCapture = {
   evidence: () => Promise<MagicLinkRequestEvidence>;
 };
+
+type RouteFailure = {
+  status: number;
+  message: string;
+};
+
+async function failNextRequest(page: Page, routePattern: string, failure: RouteFailure): Promise<void> {
+  let failed = false;
+  await page.route(routePattern, async (route) => {
+    if (failed) {
+      await route.continue();
+      return;
+    }
+    failed = true;
+    await route.fulfill({
+      status: failure.status,
+      contentType: "application/json",
+      body: JSON.stringify({ message: failure.message }),
+    });
+  });
+}
 
 export async function optOutAnonymousBootstrap(page: Page): Promise<void> {
   await page.addInitScript((key) => {
@@ -81,59 +135,27 @@ export async function loginWithDemoAccount(page: Page): Promise<void> {
  * Mirrors blockCollectionRequest in examples/kanban/tests/helpers.ts.
  */
 export async function blockNextMovieSearch(page: Page): Promise<BlockedRequestGate> {
-  let blocked = false;
-  let released = false;
-  let releaseHeldRequest = () => {};
-  const heldUntilReleased = new Promise<void>((resolve) => {
-    releaseHeldRequest = resolve;
-  });
+  const controller = createBlockedRequestController();
 
   await page.route(MOVIE_COLLECTION_ROUTE, async (route) => {
-    if (!blocked && !released) {
-      blocked = true;
-      await heldUntilReleased;
-    }
+    await controller.holdNextRequest();
     await route.continue();
   });
 
-  return {
-    wasBlocked: () => blocked,
-    release: () => {
-      released = true;
-      releaseHeldRequest();
-    },
-  };
+  return controller.gate;
 }
 
 export async function failNextMovieSearch(page: Page): Promise<void> {
-  let failed = false;
-  await page.route(MOVIE_COLLECTION_ROUTE, async (route) => {
-    if (!failed) {
-      failed = true;
-      await route.fulfill({
-        status: 500,
-        contentType: "application/json",
-        body: JSON.stringify({ message: "forced movies search failure" }),
-      });
-      return;
-    }
-    await route.continue();
+  await failNextRequest(page, MOVIE_COLLECTION_ROUTE, {
+    status: 500,
+    message: "forced movies search failure",
   });
 }
 
 export async function failNextAuthLogin(page: Page): Promise<void> {
-  let failed = false;
-  await page.route("**/api/auth/login", async (route) => {
-    if (!failed) {
-      failed = true;
-      await route.fulfill({
-        status: 401,
-        contentType: "application/json",
-        body: JSON.stringify({ message: "Forced auth failure" }),
-      });
-      return;
-    }
-    await route.continue();
+  await failNextRequest(page, "**/api/auth/login", {
+    status: 401,
+    message: "Forced auth failure",
   });
 }
 
@@ -198,18 +220,9 @@ export async function recordNextMagicLinkRequest(page: Page): Promise<MagicLinkR
 }
 
 export async function failNextLogout(page: Page): Promise<void> {
-  let failed = false;
-  await page.route("**/api/auth/logout", async (route) => {
-    if (!failed) {
-      failed = true;
-      await route.fulfill({
-        status: 503,
-        contentType: "application/json",
-        body: JSON.stringify({ message: "forced logout failure" }),
-      });
-      return;
-    }
-    await route.continue();
+  await failNextRequest(page, "**/api/auth/logout", {
+    status: 503,
+    message: "forced logout failure",
   });
 }
 
@@ -224,18 +237,9 @@ export async function returnEmptyMovieCorpus(page: Page): Promise<void> {
 }
 
 export async function failNextNoteEmbed(page: Page): Promise<void> {
-  let failed = false;
-  await page.route("**/api/admin/movies/notes/embed", async (route) => {
-    if (!failed) {
-      failed = true;
-      await route.fulfill({
-        status: 500,
-        contentType: "application/json",
-        body: JSON.stringify({ message: "forced note embed failure" }),
-      });
-      return;
-    }
-    await route.continue();
+  await failNextRequest(page, "**/api/admin/movies/notes/embed", {
+    status: 500,
+    message: "forced note embed failure",
   });
 }
 
@@ -249,32 +253,35 @@ export async function failChatStream(page: Page): Promise<void> {
   });
 }
 
-export async function delayNextBYOKClear(page: Page, delayMs = 900): Promise<void> {
-  let delayed = false;
+export async function blockNextBYOKClear(page: Page): Promise<BlockedRequestGate> {
+  const controller = createBlockedRequestController();
+
   await page.route("**/api/admin/movies/byok/*", async (route) => {
     if (route.request().method() !== "DELETE") {
       await route.continue();
       return;
     }
-    if (!delayed) {
-      delayed = true;
-      await new Promise((resolve) => setTimeout(resolve, delayMs));
+    if (await controller.holdNextRequest()) {
+      // Let the disabled-control assertion own the in-flight window; the old fixed delay raced under union load.
       await route.fulfill({ status: 204, body: "" });
       return;
     }
     await route.continue();
   });
+
+  return controller.gate;
 }
 
-export async function delayNextNoteEmbed(page: Page, delayMs = 900): Promise<void> {
-  let delayed = false;
+export async function blockNextNoteEmbed(page: Page): Promise<BlockedRequestGate> {
+  const controller = createBlockedRequestController();
+
   await page.route("**/api/admin/movies/notes/embed", async (route) => {
-    if (!delayed) {
-      delayed = true;
-      await new Promise((resolve) => setTimeout(resolve, delayMs));
-    }
+    // Let the Saving... assertion own the in-flight window; the old fixed delay raced under union load.
+    await controller.holdNextRequest();
     await route.continue();
   });
+
+  return controller.gate;
 }
 
 // UI-only search helper. Types the query and waits for the named result row

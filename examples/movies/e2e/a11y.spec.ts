@@ -2,9 +2,9 @@ import AxeBuilder from "@axe-core/playwright";
 import { expect, test, type Page } from "@playwright/test";
 import {
   DEMO_EMAIL,
+  blockNextBYOKClear,
   blockNextMovieSearch,
-  delayNextBYOKClear,
-  delayNextNoteEmbed,
+  blockNextNoteEmbed,
   failChatStream,
   failNextAuthLogin,
   failNextMovieSearch,
@@ -176,11 +176,15 @@ test.describe("Movies accessibility states", () => {
 
   test("a11y: note saving", async ({ page }) => {
     await openSelectedInception(page);
-    await delayNextNoteEmbed(page);
+    const gate = await blockNextNoteEmbed(page);
     await page.getByPlaceholder("Add a note about this movie...").fill("A11y saving note");
     await page.getByRole("button", { name: "Save Note" }).click();
-    await expect(page.getByRole("button", { name: "Saving..." })).toBeDisabled();
-    await assertAccessible(page, "note saving");
+    try {
+      await expect(page.getByRole("button", { name: "Saving..." })).toBeDisabled();
+      await assertAccessible(page, "note saving");
+    } finally {
+      gate.release();
+    }
   });
 
   test("a11y: note error", async ({ page }) => {
@@ -204,11 +208,15 @@ test.describe("Movies accessibility states", () => {
 
   test("a11y: provider clear pending", async ({ page }) => {
     await openSignedInSearch(page);
-    await delayNextBYOKClear(page);
+    const gate = await blockNextBYOKClear(page);
     const providerKeys = page.getByTestId("provider-keys-section");
     await providerKeys.getByRole("button", { name: "Clear" }).click();
-    await expect(providerKeys.getByRole("button", { name: "Clear" })).toBeDisabled();
-    await assertAccessible(page, "provider clear pending");
+    try {
+      await expect(providerKeys.getByRole("button", { name: "Clear" })).toBeDisabled();
+      await assertAccessible(page, "provider clear pending");
+    } finally {
+      gate.release();
+    }
   });
 
   test("a11y: provider error", async ({ page }) => {
