@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
-	"net"
 	"os"
 	"path/filepath"
 	"strings"
@@ -16,6 +15,7 @@ import (
 	"github.com/allyourbase/ayb/internal/config"
 	"github.com/allyourbase/ayb/internal/migrate"
 	"github.com/allyourbase/ayb/internal/sbmigrate"
+	"github.com/allyourbase/ayb/internal/testutil"
 	"github.com/pelletier/go-toml/v2"
 	"github.com/spf13/cobra"
 )
@@ -61,15 +61,20 @@ func resetJSONFlag() {
 	rootCmd.PersistentFlags().Set("json", "false")
 }
 
-// freePort allocates and returns a free TCP port.
+// freePort leases a free TCP port through the shared testutil owner so a
+// concurrently running test cannot claim the same port between allocation and
+// the server bind. The lease is released when the test finishes.
 func freePort(t *testing.T) int {
 	t.Helper()
-	l, err := net.Listen("tcp", "127.0.0.1:0")
+	port, err := testutil.FreePort()
 	if err != nil {
 		t.Fatal(err)
 	}
-	port := l.Addr().(*net.TCPAddr).Port
-	l.Close()
+	t.Cleanup(func() {
+		if err := testutil.ReleasePortLease(port); err != nil {
+			t.Errorf("release port lease %d: %v", port, err)
+		}
+	})
 	return port
 }
 

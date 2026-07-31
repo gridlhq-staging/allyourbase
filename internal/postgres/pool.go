@@ -7,6 +7,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -40,6 +41,11 @@ func New(ctx context.Context, cfg Config, logger *slog.Logger) (*Pool, error) {
 		return nil, fmt.Errorf("parsing database URL: %w", err)
 	}
 
+	// Collection schemas can be replaced while the server is running. Describe
+	// each query against the current schema so cached row shapes cannot survive DDL.
+	poolCfg.ConnConfig.DefaultQueryExecMode = pgx.QueryExecModeDescribeExec
+	poolCfg.ConnConfig.StatementCacheCapacity = 0
+	poolCfg.ConnConfig.DescriptionCacheCapacity = 0
 	poolCfg.MaxConns = cfg.MaxConns
 	poolCfg.MinConns = cfg.MinConns
 	if cfg.MaxConnLifetime > 0 {

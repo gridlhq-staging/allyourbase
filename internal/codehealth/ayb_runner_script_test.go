@@ -3,18 +3,22 @@ package codehealth
 import (
 	"errors"
 	"fmt"
+	"github.com/allyourbase/ayb/internal/testutil"
 	"net"
 	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 )
 
 const runWithAYBScript = "scripts/run-with-ayb.sh"
 const skippedPostHealthCommand = "echo should-not-run"
+const runnerPortSelectionAttempts = 3
 
 func runAYBScript(t *testing.T, postHealthCommand string, env ...string) (string, error) {
 	t.Helper()
@@ -32,13 +36,18 @@ func runAYBScript(t *testing.T, postHealthCommand string, env ...string) (string
 }
 
 func hasEnvKey(env []string, key string) bool {
+	_, found := envValue(env, key)
+	return found
+}
+
+func envValue(env []string, key string) (string, bool) {
 	prefix := key + "="
 	for _, entry := range env {
 		if strings.HasPrefix(entry, prefix) {
-			return true
+			return strings.TrimPrefix(entry, prefix), true
 		}
 	}
-	return false
+	return "", false
 }
 
 func requireOutputContains(t *testing.T, output, want string) {
@@ -87,6 +96,72 @@ func freshTokenWriterStartCommand(port int, writeDelay time.Duration) string {
 		return fmt.Sprintf(`AYB_START_COMMAND=node -e "const fs=require('fs'); const path=require('path'); const http=require('http'); const home=process.env.HOME; http.createServer((_,res)=>res.end('ok')).listen(%d); setTimeout(() => { %s }, %d); setInterval(() => {}, 1000);"`, port, writeFreshToken, writeDelay/time.Millisecond)
 	}
 	return fmt.Sprintf(`AYB_START_COMMAND=node -e "const fs=require('fs'); const path=require('path'); const http=require('http'); const home=process.env.HOME; %s http.createServer((_,res)=>res.end('ok')).listen(%d); setInterval(() => {}, 1000);"`, writeFreshToken, port)
+}
+
+func runAYBScriptWithLeasedPort(
+	t *testing.T,
+	postHealthCommand string,
+	envForPort func(int) []string,
+) (string, error) {
+	t.Helper()
+
+	var output string
+	var err error
+	for range runnerPortSelectionAttempts {
+		port := leasedRunnerPort(t)
+		env := envForPort(port)
+		output, err = runAYBScript(t, postHealthCommand, env...)
+		if err == nil || !runFailedWithAddressInUse(output, env) {
+			return output, err
+		}
+
+		// Leases prevent co-resident AYB handouts; retries cover non-AYB binders.
+		if releaseErr := testutil.ReleasePortLease(port); releaseErr != nil {
+			t.Fatalf("release raced runner port %d: %v", port, releaseErr)
+		}
+	}
+	return output, err
+}
+
+func runFailedWithAddressInUse(output string, env []string) bool {
+	if textReportsAddressInUse(output) {
+		return true
+	}
+	logPath, ok := envValue(env, "AYB_START_LOG")
+	if !ok {
+		return false
+	}
+	logOutput, err := os.ReadFile(logPath)
+	return err == nil && textReportsAddressInUse(string(logOutput))
+}
+
+func textReportsAddressInUse(output string) bool {
+	return strings.Contains(output, "EADDRINUSE") ||
+		strings.Contains(strings.ToLower(output), "address already in use")
+}
+
+func occupyPortWithoutServingHealth(t *testing.T, network, address string) {
+	t.Helper()
+
+	listener, err := net.Listen(network, address)
+	if err != nil {
+		t.Fatalf("bind deterministic competing listener: %v", err)
+	}
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		for {
+			connection, acceptErr := listener.Accept()
+			if acceptErr != nil {
+				return
+			}
+			_ = connection.Close()
+		}
+	}()
+	t.Cleanup(func() {
+		_ = listener.Close()
+		<-done
+	})
 }
 
 func TestRunWithAYBScriptRequiresPostHealthCommandArgument(t *testing.T) {
@@ -158,8 +233,6 @@ func TestRunWithAYBScriptRefreshesAutomaticPortsAfterBuild(t *testing.T) {
 }
 
 func TestRunWithAYBScriptFailsFastOnHealthTimeout(t *testing.T) {
-	t.Parallel()
-
 	logPath := filepath.Join(t.TempDir(), "ayb-timeout.log")
 
 	output, err := runAYBScript(t, skippedPostHealthCommand,
@@ -177,8 +250,6 @@ func TestRunWithAYBScriptFailsFastOnHealthTimeout(t *testing.T) {
 }
 
 func TestRunWithAYBScriptRejectsInvalidHealthTimeoutConfig(t *testing.T) {
-	t.Parallel()
-
 	output, err := runAYBScript(t, skippedPostHealthCommand,
 		"AYB_HEALTH_TIMEOUT_SECONDS=0",
 	)
@@ -190,8 +261,6 @@ func TestRunWithAYBScriptRejectsInvalidHealthTimeoutConfig(t *testing.T) {
 }
 
 func TestRunWithAYBScriptRejectsInvalidHealthPollIntervalConfig(t *testing.T) {
-	t.Parallel()
-
 	output, err := runAYBScript(t, skippedPostHealthCommand,
 		"AYB_HEALTH_POLL_INTERVAL_SECONDS=not-a-number",
 	)
@@ -203,8 +272,6 @@ func TestRunWithAYBScriptRejectsInvalidHealthPollIntervalConfig(t *testing.T) {
 }
 
 func TestRunWithAYBScriptFailsIfProcessExitsBeforeHealthy(t *testing.T) {
-	t.Parallel()
-
 	logPath := filepath.Join(t.TempDir(), "ayb-exit.log")
 
 	output, err := runAYBScript(t, skippedPostHealthCommand,
@@ -222,10 +289,8 @@ func TestRunWithAYBScriptFailsIfProcessExitsBeforeHealthy(t *testing.T) {
 }
 
 func TestRunWithAYBScriptRunsCommandAfterHealthReady(t *testing.T) {
-	t.Parallel()
-
 	logPath := filepath.Join(t.TempDir(), "ayb-success.log")
-	healthPort := reserveLocalhostPort(t)
+	healthPort := leasedRunnerPort(t)
 	healthURL := fmt.Sprintf("http://127.0.0.1:%d/health", healthPort)
 
 	output, err := runAYBScript(t, "echo command-finished",
@@ -242,12 +307,101 @@ func TestRunWithAYBScriptRunsCommandAfterHealthReady(t *testing.T) {
 	requireOutputContains(t, output, "command-finished")
 }
 
-func TestRunWithAYBScriptIsolatesEmbeddedDataDirForOwnedServer(t *testing.T) {
-	t.Parallel()
+func TestRunWithAYBScriptSurvivesHelperToConsumerPortCollision(t *testing.T) {
+	attempts := 0
+	logDir := t.TempDir()
+	output, err := runAYBScriptWithLeasedPort(t, "echo command-finished", func(healthPort int) []string {
+		attempts++
+		if attempts == 1 {
+			occupyPortWithoutServingHealth(t, "tcp", fmt.Sprintf("127.0.0.1:%d", healthPort))
+		}
+		return []string{
+			fmt.Sprintf(`AYB_START_COMMAND=node -e "const http=require('http'); http.createServer((_,res)=>res.end('ok')).listen(%d, '127.0.0.1');"`, healthPort),
+			fmt.Sprintf("AYB_HEALTH_URL=http://127.0.0.1:%d/health", healthPort),
+			"AYB_HEALTH_TIMEOUT_SECONDS=3",
+			"AYB_HEALTH_POLL_INTERVAL_SECONDS=0.1",
+			"AYB_ADMIN_PASSWORD=test-admin-password",
+			fmt.Sprintf("AYB_START_LOG=%s/attempt-%d.log", logDir, attempts),
+		}
+	})
+	if err != nil {
+		t.Fatalf("expected foreign address-in-use retry to recover: %v output=%s", err, output)
+	}
+	if attempts < 2 {
+		t.Fatalf("select-to-spawn attempts = %d, want at least 2 after one deterministic collision", attempts)
+	}
+	requireOutputContains(t, output, "command-finished")
+}
 
+func TestReserveLocalhostPortCoversAllInterfaceConsumerBind(t *testing.T) {
+	consumerListener, err := net.Listen("tcp6", "[::]:0")
+	if err != nil {
+		t.Skipf("IPv6 all-interface listeners are unavailable: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = consumerListener.Close()
+	})
+
+	address, ok := consumerListener.Addr().(*net.TCPAddr)
+	if !ok {
+		t.Fatalf("IPv6 all-interface listener returned invalid address: %#v", consumerListener.Addr())
+	}
+
+	leasedPort := leasedRunnerPortFromCandidatesOrFree(t, address.Port)
+	if leasedPort == address.Port {
+		t.Fatalf("leased port = occupied all-interface port %d", address.Port)
+	}
+	candidateListener, err := net.Listen("tcp", fmt.Sprintf(":%d", leasedPort))
+	if err != nil {
+		t.Fatalf("leased runner port %d does not support the consumer all-interface bind: %v", leasedPort, err)
+	}
+	if err := candidateListener.Close(); err != nil {
+		t.Fatalf("close all-interface candidate: %v", err)
+	}
+}
+
+func TestPortHelperSubprocessLeavesNoLivePIDLeases(t *testing.T) {
+	leaseDir := t.TempDir()
+	cmd := exec.Command("bash", "tests/test_port_helpers.sh")
+	cmd.Dir = findRepoRoot(t)
+	cmd.Env = append(os.Environ(), "AYB_PORT_LEASE_DIR="+leaseDir)
+
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("port helper subprocess failed: %v output=%s", err, output)
+	}
+	requireOutputContains(t, string(output), "leases_remaining_after_run=0")
+
+	liveLeaseOwners := 0
+	err = filepath.WalkDir(leaseDir, func(path string, entry os.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if entry.Type()&os.ModeSymlink == 0 {
+			return nil
+		}
+		owner, readErr := os.Readlink(path)
+		if readErr != nil {
+			return readErr
+		}
+		pid, atoiErr := strconv.Atoi(owner)
+		if atoiErr == nil && pid > 0 && syscall.Kill(pid, 0) == nil {
+			liveLeaseOwners++
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("inspect subprocess lease directory: %v", err)
+	}
+	if liveLeaseOwners != 0 {
+		t.Fatalf("port helper subprocess left %d symlink lease(s) pointing at live PIDs in %s", liveLeaseOwners, leaseDir)
+	}
+}
+
+func TestRunWithAYBScriptIsolatesEmbeddedDataDirForOwnedServer(t *testing.T) {
 	homeDir := t.TempDir()
 	logPath := filepath.Join(t.TempDir(), "ayb-isolated-data-dir.log")
-	healthPort := reserveLocalhostPort(t)
+	healthPort := leasedRunnerPort(t)
 	healthURL := fmt.Sprintf("http://127.0.0.1:%d/health", healthPort)
 	defaultDataDir := filepath.Join(homeDir, ".ayb", "data")
 
@@ -273,8 +427,6 @@ func TestRunWithAYBScriptIsolatesEmbeddedDataDirForOwnedServer(t *testing.T) {
 }
 
 func TestRunWithAYBScriptReusesExistingHealthyServer(t *testing.T) {
-	t.Parallel()
-
 	server, healthURL := startHealthServerOnRandomPort(t)
 	defer server.Close()
 
@@ -293,8 +445,6 @@ func TestRunWithAYBScriptReusesExistingHealthyServer(t *testing.T) {
 }
 
 func TestRunWithAYBScriptReuseMaterializesCanonicalAdminToken(t *testing.T) {
-	t.Parallel()
-
 	homeDir := t.TempDir()
 	tokenPath := filepath.Join(homeDir, ".ayb", "admin-token")
 	server, healthURL := startHealthServerOnRandomPort(t)
@@ -316,10 +466,8 @@ func TestRunWithAYBScriptReuseMaterializesCanonicalAdminToken(t *testing.T) {
 }
 
 func TestRunWithAYBScriptDerivesHealthAndBaseURLFromServerHostPort(t *testing.T) {
-	t.Parallel()
-
 	logPath := filepath.Join(t.TempDir(), "ayb-derived-host-port.log")
-	healthPort := reserveLocalhostPort(t)
+	healthPort := leasedRunnerPort(t)
 	baseURL := fmt.Sprintf("http://127.0.0.1:%d", healthPort)
 
 	output, err := runAYBScript(t, fmt.Sprintf(`test "$AYB_BASE_URL" = %q && echo command-finished`, baseURL),
@@ -338,10 +486,8 @@ func TestRunWithAYBScriptDerivesHealthAndBaseURLFromServerHostPort(t *testing.T)
 }
 
 func TestRunWithAYBScriptUsesExplicitBaseURLForHealthAndChildren(t *testing.T) {
-	t.Parallel()
-
 	logPath := filepath.Join(t.TempDir(), "ayb-explicit-base-url.log")
-	healthPort := reserveLocalhostPort(t)
+	healthPort := leasedRunnerPort(t)
 	baseURL := fmt.Sprintf("http://127.0.0.1:%d", healthPort)
 
 	output, err := runAYBScript(t, fmt.Sprintf(`test "$AYB_BASE_URL" = %q && echo command-finished`, baseURL),
@@ -359,10 +505,8 @@ func TestRunWithAYBScriptUsesExplicitBaseURLForHealthAndChildren(t *testing.T) {
 }
 
 func TestRunWithAYBScriptTreatsAdminTokenEnvAsReadyCredentials(t *testing.T) {
-	t.Parallel()
-
 	logPath := filepath.Join(t.TempDir(), "ayb-admin-token-env.log")
-	healthPort := reserveLocalhostPort(t)
+	healthPort := leasedRunnerPort(t)
 	healthURL := fmt.Sprintf("http://127.0.0.1:%d/health", healthPort)
 
 	output, err := runAYBScript(t, "echo command-finished",
@@ -380,12 +524,10 @@ func TestRunWithAYBScriptTreatsAdminTokenEnvAsReadyCredentials(t *testing.T) {
 }
 
 func TestRunWithAYBScriptUsesFreshAdminTokenAndRestoresOriginalToken(t *testing.T) {
-	t.Parallel()
-
 	homeDir := t.TempDir()
 	logPath := filepath.Join(t.TempDir(), "ayb-token.log")
 	tokenPath := filepath.Join(homeDir, ".ayb", "admin-token")
-	healthPort := reserveLocalhostPort(t)
+	healthPort := leasedRunnerPort(t)
 	healthURL := fmt.Sprintf("http://127.0.0.1:%d/health", healthPort)
 	writeTextFile(t, tokenPath, "original-token\n")
 
@@ -405,12 +547,10 @@ func TestRunWithAYBScriptUsesFreshAdminTokenAndRestoresOriginalToken(t *testing.
 }
 
 func TestRunWithAYBScriptPreservesCallerOwnedCustomAdminTokenPath(t *testing.T) {
-	t.Parallel()
-
 	homeDir := t.TempDir()
 	logPath := filepath.Join(t.TempDir(), "ayb-custom-token-path.log")
 	customTokenPath := filepath.Join(t.TempDir(), "caller-owned-token")
-	healthPort := reserveLocalhostPort(t)
+	healthPort := leasedRunnerPort(t)
 	healthURL := fmt.Sprintf("http://127.0.0.1:%d/health", healthPort)
 	writeTextFile(t, customTokenPath, "caller-token\n")
 
@@ -431,12 +571,10 @@ func TestRunWithAYBScriptPreservesCallerOwnedCustomAdminTokenPath(t *testing.T) 
 }
 
 func TestRunWithAYBScriptRestoresOriginalTokenWhenAdminPasswordProvided(t *testing.T) {
-	t.Parallel()
-
 	homeDir := t.TempDir()
 	logPath := filepath.Join(t.TempDir(), "ayb-token-with-password.log")
 	tokenPath := filepath.Join(homeDir, ".ayb", "admin-token")
-	healthPort := reserveLocalhostPort(t)
+	healthPort := leasedRunnerPort(t)
 	healthURL := fmt.Sprintf("http://127.0.0.1:%d/health", healthPort)
 	writeTextFile(t, tokenPath, "original-token\n")
 
@@ -457,10 +595,8 @@ func TestRunWithAYBScriptRestoresOriginalTokenWhenAdminPasswordProvided(t *testi
 }
 
 func TestRunWithAYBScriptStopsForegroundServerOnExit(t *testing.T) {
-	t.Parallel()
-
 	logPath := filepath.Join(t.TempDir(), "ayb-cleanup.log")
-	healthPort := reserveLocalhostPort(t)
+	healthPort := leasedRunnerPort(t)
 	healthURL := fmt.Sprintf("http://127.0.0.1:%d/health", healthPort)
 
 	output, err := runAYBScript(t, "echo command-finished",
@@ -490,20 +626,49 @@ func TestRunWithAYBScriptStopsForegroundServerOnExit(t *testing.T) {
 	t.Fatal("expected foreground AYB process to be stopped after wrapper exit")
 }
 
-func reserveLocalhostPort(t *testing.T) int {
+func leasedRunnerPort(t *testing.T) int {
 	t.Helper()
 
-	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	port, err := testutil.FreePort()
 	if err != nil {
-		t.Fatalf("reserveLocalhostPort listen: %v", err)
+		t.Fatalf("lease runner port: %v", err)
 	}
-	defer listener.Close()
+	t.Cleanup(func() {
+		if err := testutil.ReleasePortLease(port); err != nil {
+			t.Errorf("release runner port %d: %v", port, err)
+		}
+	})
+	return port
+}
 
-	addr, ok := listener.Addr().(*net.TCPAddr)
-	if !ok || addr.Port <= 0 {
-		t.Fatalf("reserveLocalhostPort invalid address: %#v", listener.Addr())
+func leasedRunnerPortFromCandidates(t *testing.T, candidates ...int) int {
+	t.Helper()
+
+	port, err := testutil.FreePortFromCandidates(candidates...)
+	if err != nil {
+		t.Fatalf("lease runner port from candidates %v: %v", candidates, err)
 	}
-	return addr.Port
+	t.Cleanup(func() {
+		if err := testutil.ReleasePortLease(port); err != nil {
+			t.Errorf("release runner port %d: %v", port, err)
+		}
+	})
+	return port
+}
+
+func leasedRunnerPortFromCandidatesOrFree(t *testing.T, candidates ...int) int {
+	t.Helper()
+
+	port, err := testutil.FreePortFromCandidatesOrFree(candidates...)
+	if err != nil {
+		t.Fatalf("lease runner port from candidates or free fallback %v: %v", candidates, err)
+	}
+	t.Cleanup(func() {
+		if err := testutil.ReleasePortLease(port); err != nil {
+			t.Errorf("release runner port %d: %v", port, err)
+		}
+	})
+	return port
 }
 
 func startHealthServerOnRandomPort(t *testing.T) (*http.Server, string) {

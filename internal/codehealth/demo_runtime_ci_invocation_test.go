@@ -115,6 +115,11 @@ func runDemoRunnerHarness(t *testing.T, repoRoot, runDemoE2E string, expectAYBOw
 
 	cmd := exec.Command("bash", "-c", harness)
 	cmd.Dir = repoRoot
+	// The harness calls pick_free_port for real, which writes lease markers.
+	// Keep them inside the test's temp dir instead of the host-shared default
+	// namespace, so a lease taken here cannot block a concurrently running
+	// process as the same uid. The rest of the environment is inherited.
+	cmd.Env = append(os.Environ(), "AYB_PORT_LEASE_DIR="+filepath.Join(tempDir, "port_leases"))
 	output, err := cmd.CombinedOutput()
 	observations, readErr := os.ReadFile(observationsPath)
 	if readErr != nil {

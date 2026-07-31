@@ -10,25 +10,28 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 - Supabase migration now imports admitted `plpgsql` and `sql` database
   functions plus ordinary table triggers whose handlers migrate, with runtime
-  integration coverage for migrated behavior (`9775ea69a`).
+  integration coverage for migrated behavior.
 - `ayb migrate supabase` can pull storage objects directly from a Supabase
   S3-compatible source using the `--storage-s3-*` flags, alongside local
-  storage exports (`e632345e8`).
+  storage exports.
 
 ### Changed
 
 - Server security headers now include HSTS for HTTPS requests and an enforcing
-  dashboard Content-Security-Policy, following the Report-Only validation path
-  (`00d9c7223`, `b6a73fe6c`).
+  dashboard Content-Security-Policy, following the Report-Only validation path.
 
 ### Fixed
 
 - SAML login now verifies assertion signatures against IdP signing
   certificates, rejects SHA-1, unsigned, forged, and replayed assertions, and
-  consumes only the verified assertion (`e79fd9335`).
+  consumes only the verified assertion. **Action required for SAML
+  deployments:** assertion signatures are now mandatory. If your identity
+  provider does not sign assertions, sign-in will fail until the provider is
+  configured to sign them. This closes a hole where an unsigned or forged
+  response could log a user in.
 - The demo launch CI guard now rejects checked-in build drift for
   `examples/instantsearch_demo/dist` alongside the Kanban, Live Polls, and
-  Movies demo dist outputs (`4221d194d`).
+  Movies demo dist outputs.
 
 ## [0.0.20-beta] - 2026-07-23
 

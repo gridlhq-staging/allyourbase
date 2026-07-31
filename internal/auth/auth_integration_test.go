@@ -1249,6 +1249,56 @@ func TestRefreshTokenCanOnlyBeUsedOnce(t *testing.T) {
 	testutil.StatusCode(t, http.StatusUnauthorized, w.Code)
 }
 
+func TestRefreshTokenConcurrentUseAllowsOnlyOneSuccess(t *testing.T) {
+	ctx := context.Background()
+	resetAndMigrate(t, ctx)
+
+	svc := newAuthService()
+	_, _, refreshToken, err := svc.Register(ctx, "concurrent-refresh@example.com", "password123")
+	testutil.NoError(t, err)
+
+	// Hold the winning UPDATE open long enough for the competing request to
+	// reach the rotation boundary. The token comparison must still be atomic.
+	_, err = sharedPG.Pool.Exec(ctx, `
+		CREATE FUNCTION delay_session_token_rotation() RETURNS trigger
+		LANGUAGE plpgsql AS $$
+		BEGIN
+			PERFORM pg_sleep(0.2);
+			RETURN NEW;
+		END
+		$$;
+		CREATE TRIGGER delay_session_token_rotation
+		BEFORE UPDATE OF token_hash ON _ayb_sessions
+		FOR EACH ROW EXECUTE FUNCTION delay_session_token_rotation()`)
+	testutil.NoError(t, err)
+
+	start := make(chan struct{})
+	errs := make(chan error, 2)
+	for range 2 {
+		go func() {
+			<-start
+			_, _, _, refreshErr := svc.RefreshToken(ctx, refreshToken)
+			errs <- refreshErr
+		}()
+	}
+	close(start)
+
+	successes := 0
+	rejections := 0
+	for range 2 {
+		switch refreshErr := <-errs; {
+		case refreshErr == nil:
+			successes++
+		case errors.Is(refreshErr, auth.ErrInvalidRefreshToken):
+			rejections++
+		default:
+			t.Fatalf("unexpected concurrent refresh error: %v", refreshErr)
+		}
+	}
+	testutil.Equal(t, 1, successes)
+	testutil.Equal(t, 1, rejections)
+}
+
 func TestRefreshTokenRejectedAfterExpiry(t *testing.T) {
 	ctx := context.Background()
 	// Match the existing short-TTL helper path so the refresh token expires

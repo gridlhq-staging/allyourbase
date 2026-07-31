@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/allyourbase/ayb/internal/auth"
 	"github.com/allyourbase/ayb/internal/httputil"
 	"github.com/allyourbase/ayb/internal/schema"
 	"github.com/allyourbase/ayb/internal/sqlutil"
@@ -24,7 +25,10 @@ func (h *Handler) handleRPC(w http.ResponseWriter, r *http.Request) {
 	if fn == nil {
 		return
 	}
-	notify := normalizeRPCNotifyContract(r.Header)
+	notify, ok := h.resolveRPCNotifyContract(w, r)
+	if !ok {
+		return
+	}
 
 	args, ok := decodeRPCArgs(w, r)
 	if !ok {
@@ -69,6 +73,7 @@ func decodeRPCArgs(w http.ResponseWriter, r *http.Request) (map[string]any, bool
 type rpcNotifyContract struct {
 	action  string
 	table   string
+	target  *schema.Table
 	enabled bool
 }
 
@@ -90,6 +95,31 @@ func normalizeRPCNotifyContract(headers http.Header) rpcNotifyContract {
 	default:
 		return rpcNotifyContract{}
 	}
+}
+
+func (h *Handler) resolveRPCNotifyContract(w http.ResponseWriter, r *http.Request) (rpcNotifyContract, bool) {
+	notify := normalizeRPCNotifyContract(r.Header)
+	if !notify.enabled {
+		return notify, true
+	}
+
+	cache := h.schema.Get()
+	target := cache.TableByNameInSchema(tenant.ActiveSchemaFromContext(r.Context()), notify.table)
+	if target == nil {
+		writeError(w, http.StatusNotFound, "collection not found: "+notify.table)
+		return rpcNotifyContract{}, false
+	}
+	if err := auth.CheckTableScope(auth.ClaimsFromContext(r.Context()), target.Name); err != nil {
+		writeErrorWithDoc(w, http.StatusForbidden, "api key does not have access to table: "+target.Name, docURL("/guide/api-reference"))
+		return rpcNotifyContract{}, false
+	}
+	if !requireWritable(w, target) || !requirePK(w, target) {
+		return rpcNotifyContract{}, false
+	}
+
+	notify.table = target.Name
+	notify.target = target
+	return notify, true
 }
 
 func (h *Handler) executeVoidRPC(w http.ResponseWriter, r *http.Request, fn *schema.Function, q Querier, done func(error) error, query string, queryArgs []any) {
@@ -145,7 +175,7 @@ func (h *Handler) executeReadRPC(w http.ResponseWriter, r *http.Request, fn *sch
 }
 
 func (h *Handler) publishRPCNotifyRecord(ctx context.Context, notify rpcNotifyContract, record map[string]any) {
-	if !notify.enabled || record == nil {
+	if !notify.enabled || !schema.RecordHasPrimaryKeyValues(notify.target, record) {
 		return
 	}
 	h.publishEvent(ctx, notify.action, notify.table, record, nil)
@@ -210,6 +240,10 @@ func buildRPCCall(fn *schema.Function, args map[string]any) (string, []any, erro
 	placeholders := make([]string, len(fn.Parameters))
 
 	for i, param := range fn.Parameters {
+		castType, err := normalizeRPCParamType(param.Type)
+		if err != nil {
+			return "", nil, fmt.Errorf("function %q parameter %q has unsupported type %q", fn.Name, param.Name, param.Type)
+		}
 		val, ok := args[param.Name]
 		if !ok {
 			// If param has no name, try positional matching is not supported —
@@ -224,9 +258,9 @@ func buildRPCCall(fn *schema.Function, args map[string]any) (string, []any, erro
 		// Use explicit cast so pgx text-encodes the value and Postgres handles conversion.
 		// VARIADIC params need the VARIADIC keyword so Postgres spreads the array.
 		if param.IsVariadic {
-			placeholders[i] = fmt.Sprintf("VARIADIC $%d::%s", i+1, param.Type)
+			placeholders[i] = fmt.Sprintf("VARIADIC $%d::%s", i+1, castType)
 		} else {
-			placeholders[i] = fmt.Sprintf("$%d::%s", i+1, param.Type)
+			placeholders[i] = fmt.Sprintf("$%d::%s", i+1, castType)
 		}
 	}
 
@@ -243,6 +277,166 @@ func buildRPCCall(fn *schema.Function, args map[string]any) (string, []any, erro
 	}
 
 	return query, queryArgs, nil
+}
+
+func normalizeRPCParamType(pgType string) (string, error) {
+	pgType = strings.TrimSpace(pgType)
+	if pgType == "" {
+		return "", fmt.Errorf("empty type")
+	}
+
+	arraySuffix := ""
+	for strings.HasSuffix(pgType, "[]") {
+		arraySuffix += "[]"
+		pgType = strings.TrimSpace(strings.TrimSuffix(pgType, "[]"))
+	}
+
+	tokens, err := tokenizeRPCType(pgType)
+	if err != nil {
+		return "", err
+	}
+	if len(tokens) == 0 {
+		return "", fmt.Errorf("empty type")
+	}
+	if err := validateRPCTypeTokens(tokens); err != nil {
+		return "", err
+	}
+
+	var b strings.Builder
+	for i, token := range tokens {
+		switch token.kind {
+		case rpcTypeTokenDot:
+			b.WriteByte('.')
+		case rpcTypeTokenModifier:
+			b.WriteString(token.value)
+		default:
+			if i > 0 && tokens[i-1].kind != rpcTypeTokenDot {
+				b.WriteByte(' ')
+			}
+			b.WriteString(token.value)
+		}
+	}
+	b.WriteString(arraySuffix)
+	return b.String(), nil
+}
+
+type rpcTypeToken struct {
+	kind  int
+	value string
+}
+
+const (
+	rpcTypeTokenIdent = iota
+	rpcTypeTokenDot
+	rpcTypeTokenModifier
+)
+
+func tokenizeRPCType(pgType string) ([]rpcTypeToken, error) {
+	tokens := make([]rpcTypeToken, 0, 4)
+	for i := 0; i < len(pgType); {
+		switch ch := pgType[i]; {
+		case ch == ' ':
+			i++
+		case ch == '.':
+			tokens = append(tokens, rpcTypeToken{kind: rpcTypeTokenDot, value: "."})
+			i++
+		case ch == '"':
+			start := i
+			i++
+			for i < len(pgType) {
+				if pgType[i] != '"' {
+					i++
+					continue
+				}
+				if i+1 < len(pgType) && pgType[i+1] == '"' {
+					i += 2
+					continue
+				}
+				i++
+				tokens = append(tokens, rpcTypeToken{kind: rpcTypeTokenIdent, value: pgType[start:i]})
+				break
+			}
+			if i > len(pgType) || pgType[i-1] != '"' {
+				return nil, fmt.Errorf("unterminated quoted identifier")
+			}
+		case ch == '(':
+			start := i
+			i++
+			for i < len(pgType) && pgType[i] != ')' {
+				if (pgType[i] < '0' || pgType[i] > '9') && pgType[i] != ' ' && pgType[i] != ',' {
+					return nil, fmt.Errorf("invalid modifier")
+				}
+				i++
+			}
+			if i >= len(pgType) || pgType[i] != ')' {
+				return nil, fmt.Errorf("unterminated modifier")
+			}
+			i++
+			tokens = append(tokens, rpcTypeToken{kind: rpcTypeTokenModifier, value: pgType[start:i]})
+		case isRPCTypeBareIdentStart(ch):
+			start := i
+			i++
+			for i < len(pgType) && isRPCTypeBareIdentPart(pgType[i]) {
+				i++
+			}
+			tokens = append(tokens, rpcTypeToken{kind: rpcTypeTokenIdent, value: pgType[start:i]})
+		default:
+			return nil, fmt.Errorf("invalid character %q", ch)
+		}
+	}
+	return tokens, nil
+}
+
+func validateRPCTypeTokens(tokens []rpcTypeToken) error {
+	allowedKeywords := map[string]bool{
+		"bit": true, "character": true, "day": true, "double": true, "hour": true,
+		"interval": true, "minute": true, "month": true, "precision": true,
+		"second": true, "time": true, "timestamp": true, "to": true,
+		"varying": true, "with": true, "without": true, "year": true, "zone": true,
+	}
+
+	expectIdent := true
+	allowExtraWords := false
+	seenModifier := false
+	for i, token := range tokens {
+		switch token.kind {
+		case rpcTypeTokenDot:
+			if expectIdent || i == len(tokens)-1 || tokens[i-1].kind != rpcTypeTokenIdent || tokens[i+1].kind != rpcTypeTokenIdent {
+				return fmt.Errorf("invalid qualified type")
+			}
+			expectIdent = true
+		case rpcTypeTokenModifier:
+			if expectIdent || seenModifier {
+				return fmt.Errorf("invalid type modifier placement")
+			}
+			seenModifier = true
+			allowExtraWords = true
+		case rpcTypeTokenIdent:
+			if expectIdent {
+				expectIdent = false
+				continue
+			}
+			if !allowExtraWords || token.value != strings.ToLower(token.value) || !allowedKeywords[token.value] {
+				return fmt.Errorf("invalid trailing type token %q", token.value)
+			}
+			allowExtraWords = true
+		}
+		if token.kind == rpcTypeTokenIdent && i == 0 {
+			allowExtraWords = true
+		}
+	}
+	if expectIdent {
+		return fmt.Errorf("incomplete type")
+	}
+	return nil
+}
+
+func isRPCTypeBareIdentStart(ch byte) bool {
+	return ch == '_' || (ch >= 'A' && ch <= 'Z') || (ch >= 'a' && ch <= 'z')
+}
+
+func isRPCTypeBareIdentPart(ch byte) bool {
+	return isRPCTypeBareIdentStart(ch) || ch == '$' || (ch >= '0' && ch <= '9')
 }
 
 // coerceRPCArg converts a JSON-decoded value to a Go type that pgx can encode

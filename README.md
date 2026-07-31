@@ -14,7 +14,7 @@ Download the installer, then launch a demo app in a few minutes:
 
 ```bash
 curl -fsSLo /tmp/ayb-install.sh https://staging.allyourbase.io/install.sh
-sh /tmp/ayb-install.sh
+sh /tmp/ayb-install.sh v0.0.20-beta
 ~/.ayb/bin/ayb start
 ~/.ayb/bin/ayb demo live-polls
 ```
@@ -70,6 +70,7 @@ ayb sql "CREATE TABLE posts (
   id serial PRIMARY KEY,
   title text NOT NULL,
   body text,
+  published boolean DEFAULT false,
   created_at timestamptz DEFAULT now()
 )"
 ```
@@ -120,21 +121,39 @@ npm install @allyourbase/js
 import { AYBClient } from "@allyourbase/js";
 const ayb = new AYBClient("http://localhost:8090");
 
-// Records
-const { items } = await ayb.records.list("posts", {
-  filter: "published=true",
-  sort: "-created_at",
-  expand: "author",
-});
-await ayb.records.create("posts", { title: "New post" });
-
 // Auth
 await ayb.auth.login("user@example.com", "password");
 
 // Realtime
-ayb.realtime.subscribe(["posts"], (e) => {
-  console.log(e.action, e.record);
+let resolveNextPost;
+const nextPost = new Promise((resolve, reject) => {
+  const timeout = setTimeout(() => reject(new Error("Timed out waiting for New post")), 5000);
+  resolveNextPost = resolve;
+  resolveNextPost = (event) => {
+    clearTimeout(timeout);
+    resolve(event);
+  };
 });
+const unsubscribe = await ayb.realtime.subscribeWS(["posts"], (e) => {
+  if (e.action === "create" && e.record.title === "New post") resolveNextPost(e);
+});
+
+// Records
+const { items } = await ayb.records.list("posts", {
+  filter: "published=true",
+  sort: "-created_at",
+});
+console.log("Published posts:", items.map((post) => post.title));
+
+const created = await ayb.records.create("posts", {
+  title: "New post",
+  published: true,
+});
+console.log("Created post:", created.title);
+
+const event = await nextPost;
+console.log("Realtime event:", event.action, event.record.title);
+unsubscribe();
 ```
 
 ## Existing database
@@ -227,15 +246,19 @@ Supabase storage files: include `--storage-export <dir>` only if you have an exp
 
 ```bash
 # Install script (recommended)
-curl -fsSLo /tmp/ayb-install.sh https://staging.allyourbase.io/install.sh
-sh /tmp/ayb-install.sh
+tmp_install="$(mktemp)"
+curl -fsSLo "$tmp_install" https://staging.allyourbase.io/install.sh && \
+  sh "$tmp_install"
+rm -f "$tmp_install"
 
 # From source
 git clone https://github.com/gridlhq-staging/allyourbase.git && cd allyourbase && make build
 
 # Specific version
-curl -fsSLo /tmp/ayb-install.sh https://staging.allyourbase.io/install.sh
-sh /tmp/ayb-install.sh v0.0.20-beta
+tmp_install="$(mktemp)"
+curl -fsSLo "$tmp_install" https://staging.allyourbase.io/install.sh && \
+  sh "$tmp_install" v0.0.20-beta
+rm -f "$tmp_install"
 ```
 
 ## vs. PocketBase vs. Supabase

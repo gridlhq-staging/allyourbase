@@ -12,6 +12,7 @@ import {
   manualRunCronTrigger,
   waitForFunctionLog,
   waitForDashboard,
+  blockMatchingRequest,
 } from "../fixtures";
 
 type TriggerKind = "db" | "cron" | "storage";
@@ -118,6 +119,39 @@ async function getTriggerRowControls(triggerRow: Locator): Promise<TriggerRowCon
     toggleButton: triggerRow.getByTestId(`trigger-toggle-${triggerId}`),
     runButton: triggerRow.getByTestId(`trigger-run-${triggerId}`),
   };
+}
+
+async function createCronTriggerThroughUI(
+  page: Page,
+  functionID: string,
+  expression: string,
+  payload: object,
+): Promise<TriggerRowControls> {
+  const cronTriggerEndpoint = `/api/admin/functions/${functionID}/triggers/cron`;
+  await page.getByTestId("add-cron-trigger-btn").click();
+  await page.getByTestId("cron-trigger-expr").fill(expression);
+  await page.getByTestId("cron-trigger-payload").fill(JSON.stringify(payload));
+  const submitButton = page.getByTestId("cron-trigger-submit");
+  await blockMatchingRequest(
+    page,
+    { method: "POST", urlIncludes: cronTriggerEndpoint },
+    async (createGate) => {
+      await createGate.startAndWaitForInterception(() => submitButton.click());
+      await expect(submitButton).toBeVisible();
+      await expect(submitButton).toBeDisabled();
+      await expect(submitButton).toHaveText("Create Trigger");
+      const refreshCompleted = page.waitForResponse(
+        (response) =>
+          response.request().method() === "GET" && response.url().includes(cronTriggerEndpoint),
+      );
+      expect(await createGate.release()).toBeLessThan(300);
+      expect((await refreshCompleted).status()).toBeLessThan(300);
+    },
+  );
+
+  const row = page.locator("tr").filter({ hasText: expression }).first();
+  await expect(row).toBeVisible();
+  return getTriggerRowControls(row);
 }
 
 async function expectTriggerStatus(statusBadge: Locator, enabled: boolean): Promise<void> {
@@ -407,15 +441,9 @@ test.describe("Edge Function Triggers (Full E2E)", () => {
     functionIDs.push(fn.id);
 
     await openFunctionTriggers(page, fnName, "cron");
-
-    await page.getByTestId("add-cron-trigger-btn").click();
-    await page.getByTestId("cron-trigger-expr").fill("0 0 * * *");
-    await page.getByTestId("cron-trigger-payload").fill(JSON.stringify({ testRunId: runId }));
-    await page.getByTestId("cron-trigger-submit").click();
-
-    const cronRow = page.locator("tr").filter({ hasText: "0 0 * * *" }).first();
-    await expect(cronRow).toBeVisible({ timeout: 10000 });
-    const cronControls = await getTriggerRowControls(cronRow);
+    const cronControls = await createCronTriggerThroughUI(page, fn.id, "0 0 * * *", {
+      testRunId: runId,
+    });
     await expect(cronControls.runButton).toBeVisible({ timeout: 3000 });
 
     const runCronTrigger = async (triggerId: string): Promise<number> => {
@@ -427,14 +455,12 @@ test.describe("Edge Function Triggers (Full E2E)", () => {
     const cronMarker = marker("cron-api-payload", runId);
     await page.getByTestId(`trigger-delete-${cronControls.triggerId}`).click();
     await page.getByTestId(`trigger-confirm-delete-${cronControls.triggerId}`).click();
-    await page.getByTestId("add-cron-trigger-btn").click();
-    await page.getByTestId("cron-trigger-expr").fill("5 0 * * *");
-    await page.getByTestId("cron-trigger-payload").fill(JSON.stringify({ testRunId: runId, marker: cronMarker }));
-    await page.getByTestId("cron-trigger-submit").click();
-
-    const apiPayloadCronRow = page.locator("tr").filter({ hasText: "5 0 * * *" }).first();
-    await expect(apiPayloadCronRow).toBeVisible({ timeout: 10000 });
-    const apiPayloadCronControls = await getTriggerRowControls(apiPayloadCronRow);
+    const apiPayloadCronControls = await createCronTriggerThroughUI(
+      page,
+      fn.id,
+      "5 0 * * *",
+      { testRunId: runId, marker: cronMarker },
+    );
     await expectTriggerStatus(apiPayloadCronControls.statusBadge, true);
 
     const initialActionAt = await runCronTrigger(apiPayloadCronControls.triggerId);

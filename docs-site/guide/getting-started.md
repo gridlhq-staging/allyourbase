@@ -167,7 +167,7 @@ The full row is returned, including server-generated fields like `id` and `creat
 ### Filter and sort
 
 ```bash
-curl "http://127.0.0.1:8090/api/collections/posts?filter=title='Hello World'&sort=-created_at"
+curl "http://127.0.0.1:8090/api/collections/posts?filter=title='Hello%20World'&sort=-created_at"
 ```
 
 **Response:**
@@ -185,7 +185,7 @@ curl "http://127.0.0.1:8090/api/collections/posts?filter=title='Hello World'&sor
 ```
 
 ::: tip Boolean filters
-Boolean filters like `filter=published=true` work but the double `=` can look confusing in a URL. For string columns, wrap values in single quotes: `filter=title='Hello World'`.
+Boolean filters like `filter=published=true` work but the double `=` can look confusing in a URL. For string columns, wrap values in single quotes and encode spaces: `filter=title='Hello%20World'`.
 :::
 
 ### Get a single record

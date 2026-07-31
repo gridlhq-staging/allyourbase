@@ -164,23 +164,30 @@ func (s *Service) RefreshToken(ctx context.Context, refreshToken string) (*User,
 	newHash := hashToken(newPlaintext)
 	userAgent, ipAddress := requestMetadataFromContext(ctx)
 
-	_, err = s.pool.Exec(ctx,
+	tag, err := s.pool.Exec(ctx,
 		`UPDATE _ayb_sessions
 		 SET token_hash = $1,
 		     expires_at = $2,
 		     user_agent = COALESCE($4, user_agent),
 		     ip_address = COALESCE($5, ip_address),
 		     last_active_at = NOW()
-		 WHERE id = $3`,
+		 WHERE id = $3
+		   AND token_hash = $6
+		   AND expires_at > NOW()`,
 		newHash,
 		time.Now().Add(s.refreshDur),
 		sessionID,
 		nullableString(userAgent),
 		nullableString(ipAddress),
+		hash,
 	)
 	if err != nil {
 		observability.RecordSpanError(span, err)
 		return nil, "", "", fmt.Errorf("rotating session: %w", err)
+	}
+	if tag.RowsAffected() != 1 {
+		observability.RecordSpanError(span, ErrInvalidRefreshToken)
+		return nil, "", "", ErrInvalidRefreshToken
 	}
 
 	// Preserve AAL/AMR from the session — refresh never elevates or downgrades.

@@ -7,7 +7,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"net"
 	"net/http"
 	"os"
 	"os/exec"
@@ -38,8 +37,7 @@ type instantsearchSmokePorts struct {
 }
 
 type instantsearchSmokePortReservation struct {
-	ports     instantsearchSmokePorts
-	listeners []net.Listener
+	ports instantsearchSmokePorts
 }
 
 type instantsearchSmokeAuthPayload struct {
@@ -67,7 +65,6 @@ func testDemoInstantsearchOneCommandSmoke(t *testing.T) {
 	cmd.Stdout = &output
 	cmd.Stderr = &output
 
-	ports.release(t)
 	if err := cmd.Start(); err != nil {
 		t.Fatalf("starting ayb demo instantsearch: %v", err)
 	}
@@ -107,21 +104,22 @@ func instantsearchSmokeShortTempDir(t *testing.T, pattern string) string {
 	return dir
 }
 
+// instantsearchSmokeReservePorts leases the three demo ports through the shared
+// testutil owner. A lease is held for the whole test rather than released
+// before the demo subprocess binds, so no concurrent test can take a port in
+// between. The leases are released when the test finishes.
 func instantsearchSmokeReservePorts(t *testing.T) instantsearchSmokePortReservation {
 	t.Helper()
-	listeners := make([]net.Listener, 0, 3)
 	ports := make([]int, 0, 3)
 	seen := map[int]bool{}
 	for range 3 {
-		listener, err := net.Listen("tcp", "127.0.0.1:0")
+		port, err := testutil.FreePort()
 		testutil.NoError(t, err)
-		listeners = append(listeners, listener)
-
-		tcpAddr, ok := listener.Addr().(*net.TCPAddr)
-		if !ok {
-			t.Fatalf("listener address %T is not a TCP address", listener.Addr())
-		}
-		port := tcpAddr.Port
+		t.Cleanup(func() {
+			if err := testutil.ReleasePortLease(port); err != nil {
+				t.Errorf("release port lease %d: %v", port, err)
+			}
+		})
 		if seen[port] {
 			t.Fatalf("duplicate free port allocated: %d", port)
 		}
@@ -134,14 +132,6 @@ func instantsearchSmokeReservePorts(t *testing.T) instantsearchSmokePortReservat
 			postgres: ports[1],
 			app:      ports[2],
 		},
-		listeners: listeners,
-	}
-}
-
-func (reservation instantsearchSmokePortReservation) release(t *testing.T) {
-	t.Helper()
-	for _, listener := range reservation.listeners {
-		testutil.NoError(t, listener.Close())
 	}
 }
 

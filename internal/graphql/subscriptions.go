@@ -6,6 +6,7 @@ import (
 	"strconv"
 
 	"github.com/allyourbase/ayb/internal/realtime"
+	"github.com/allyourbase/ayb/internal/tenant"
 	"github.com/graphql-go/graphql/language/ast"
 	"github.com/graphql-go/graphql/language/parser"
 )
@@ -57,6 +58,8 @@ func (h *Handler) onWSSubscribe(ctx context.Context, conn *GQLWSConn, id string,
 	tenantID := ""
 	if claims := conn.Claims(); claims != nil {
 		tenantID = claims.TenantID
+	} else {
+		tenantID = tenant.TenantFromContext(ctx)
 	}
 	hubClient := h.hub.SubscribeWithFilter(map[string]bool{sub.table: true}, nil, tenantID)
 	subCtx, cancel := context.WithCancel(context.Background())
@@ -281,11 +284,15 @@ func (h *Handler) canDeliverEvent(ctx context.Context, conn *GQLWSConn, event *r
 	if event == nil {
 		return false
 	}
+	claims := conn.Claims()
+	if claims == nil && event.TenantID != "" && event.TenantID != state.tenantID {
+		return false
+	}
 	if h.pool == nil {
-		if event.TenantID != "" && event.TenantID != state.tenantID {
+		if claims != nil {
 			return false
 		}
-	} else if !realtime.CanSeeRecord(ctx, h.pool, h.cacheHolder, h.logger, conn.Claims(), state.activeSchema, event) {
+	} else if claims != nil && !realtime.CanSeeRecord(ctx, h.pool, h.cacheHolder, h.logger, claims, state.activeSchema, event) {
 		return false
 	}
 	row := eventRecordForDelivery(event)

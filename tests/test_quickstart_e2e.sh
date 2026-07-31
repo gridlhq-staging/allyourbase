@@ -6,6 +6,7 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 source "$SCRIPT_DIR/bash_assert_helpers.sh"
 source "$SCRIPT_DIR/port_helpers.sh"
+source "$SCRIPT_DIR/quickstart_doc_helpers.sh"
 
 API_PORT="$(pick_free_port 45290 46290 47290 48290 49290)" || fail "no free port available for quickstart API server"
 DEMO_PORT="$(pick_free_port 45295 46295 47295 48295 49295)" || fail "no free port available for quickstart demo app"
@@ -19,6 +20,8 @@ LOGIN_URL="${AYB_BASE_URL}/api/auth/login"
 DEMO_JWT_SECRET="quickstart-e2e-demo-jwt-secret-0123456789abcdef"
 MAX_RETRIES=90
 RETRY_SLEEP_SECONDS=1
+REALTIME_MAX_RETRIES=100
+REALTIME_RETRY_SLEEP_SECONDS=0.1
 QUICKSTART_BUILD_VERSION="quickstart-e2e"
 
 TMP_DIR="$(mktemp -d)"
@@ -30,8 +33,16 @@ EXTRACT_DOC_BLOCK="$REPO_ROOT/scripts/extract_doc_block.sh"
 LOCAL_AYB_BIN="$RUNTIME_HOME/.ayb/bin/ayb"
 AYB_BIN="${AYB_QUICKSTART_BIN:-$LOCAL_AYB_BIN}"
 DEMO_PID=""
+REALTIME_PID=""
 
 cleanup() {
+  if [ -n "$REALTIME_PID" ]; then
+    if kill -0 "$REALTIME_PID" 2>/dev/null; then
+      kill "$REALTIME_PID" 2>/dev/null || true
+    fi
+    wait "$REALTIME_PID" 2>/dev/null || true
+  fi
+
   HOME="$RUNTIME_HOME" \
     AYB_SERVER_PORT="$API_PORT" \
     AYB_DATABASE_EMBEDDED_PORT="$PG_PORT" \
@@ -113,221 +124,8 @@ wait_for_demo_http_200_with_body() {
   return 1
 }
 
-assert_auth_me_disabled() {
-  local body_file="$1"
-  local http_code=""
-
-  http_code="$(curl -sS -m 5 -o "$body_file" -w "%{http_code}" "$AUTH_ME_URL" || true)"
-  if [ "$http_code" != "404" ]; then
-    echo "expected auth-disabled /api/auth/me to return HTTP 404, got ${http_code:-<none>}" >&2
-    [ -f "$body_file" ] && cat "$body_file" >&2
-    fail "pre-demo auth-disabled check failed"
-  fi
-}
-
-assert_health_contract() {
-  local body_file="$1"
-  local expected_version="$2"
-  python3 - "$body_file" "$expected_version" <<'PY'
-import json
-import sys
-
-with open(sys.argv[1], encoding="utf-8") as handle:
-    body = json.load(handle)
-
-expected_fields = {
-    "status": "ok",
-    "database": "ok",
-    "version": sys.argv[2],
-}
-for field, expected in expected_fields.items():
-    actual = body.get(field)
-    if actual != expected:
-        raise SystemExit(
-            f"health response field {field!r} mismatch: got {actual!r}, want {expected!r}; body={body!r}"
-        )
-PY
-}
-
-admin_password_is_nonempty() {
-  local banner_file="$1"
-
-  awk '
-    {
-      line = $0
-      gsub(/\033\[[0-9;]*m/, "", line)
-      marker = "Admin password:"
-      marker_start = index(line, marker)
-      if (marker_start == 0) {
-        next
-      }
-      value = substr(line, marker_start + length(marker))
-      gsub(/^[[:space:]]+|[[:space:]]+$/, "", value)
-      if (length(value) > 0) {
-        found = 1
-      }
-    }
-    END { exit found ? 0 : 1 }
-  ' "$banner_file"
-}
-
-assert_admin_password_predicate_contract() {
-  local empty_banner="$TMP_DIR/admin_password_empty.stderr"
-  local whitespace_banner="$TMP_DIR/admin_password_whitespace.stderr"
-  local populated_banner="$TMP_DIR/admin_password_populated.stderr"
-
-  printf '%s\n' '  Admin password:' >"$empty_banner"
-  printf '%s\n' '  Admin password:    ' >"$whitespace_banner"
-  printf '%s\n' '  Admin password: generated-secret' >"$populated_banner"
-
-  if admin_password_is_nonempty "$empty_banner"; then
-    fail "startup predicate accepted an empty Admin password value"
-  fi
-  if admin_password_is_nonempty "$whitespace_banner"; then
-    fail "startup predicate accepted a whitespace-only Admin password value"
-  fi
-  admin_password_is_nonempty "$populated_banner" \
-    || fail "startup predicate rejected a non-empty Admin password value"
-}
-
-extract_doc_block() {
-  local doc_file="$1"
-  local heading="$2"
-  local language="$3"
-  local ordinal="$4"
-
-  "$EXTRACT_DOC_BLOCK" "$DOC_ROOT/$doc_file" "$heading" "$language" "$ordinal"
-}
-
-rewrite_doc_command() {
-  sed \
-    -e "s#http://127.0.0.1:8090#$AYB_BASE_URL#g" \
-    -e "s#http://localhost:8090#$AYB_BASE_URL#g"
-}
-
-run_extracted_bash_block() {
-  local label="$1"
-  local doc_file="$2"
-  local heading="$3"
-  local ordinal="$4"
-  local stdout_file="$5"
-  local stderr_file="$6"
-  local command_file="$TMP_DIR/${label}.sh"
-
-  extract_doc_block "$doc_file" "$heading" bash "$ordinal" | rewrite_doc_command >"$command_file"
-  if ! bash "$command_file" >"$stdout_file" 2>"$stderr_file"; then
-    cat "$stderr_file" >&2 || true
-    fail "documented ${label} command failed"
-  fi
-}
-
-run_installer_path_block() {
-  local label="$1"
-  local doc_file="$2"
-  local heading="$3"
-  local ordinal="$4"
-  local command_file="$TMP_DIR/${label}_path.sh"
-  local stdout_file="$TMP_DIR/${label}_path.stdout"
-  local stderr_file="$TMP_DIR/${label}_path.stderr"
-
-  extract_doc_block "$doc_file" "$heading" bash "$ordinal" \
-    | grep -F 'export PATH="$HOME/.ayb/bin:$PATH"' >"$command_file"
-
-  export HOME="$RUNTIME_HOME"
-  if ! env HOME="$RUNTIME_HOME" PATH="/usr/bin:/bin:/usr/sbin:/sbin" bash -c ". '$command_file'; command -v ayb" >"$stdout_file" 2>"$stderr_file"; then
-    cat "$stderr_file" >&2 || true
-    fail "documented ${label} PATH command did not resolve ayb from isolated HOME"
-  fi
-
-  assert_contains "$stdout_file" "$RUNTIME_HOME/.ayb/bin/ayb" "documented ${label} PATH command resolved the wrong ayb binary"
-}
-
-assert_collection_empty() {
-  local collection="$1"
-  local body_file="$2"
-  local http_code=""
-
-  http_code="$(curl -sS -m 5 -o "$body_file" -w "%{http_code}" "$AYB_BASE_URL/api/collections/$collection" || true)"
-  if [ "$http_code" != "200" ]; then
-    echo "expected ${collection} list endpoint to return HTTP 200, got ${http_code:-<none>}" >&2
-    [ -f "$body_file" ] && cat "$body_file" >&2
-    fail "${collection} collection reachability check failed"
-  fi
-
-  python3 - "$body_file" "$collection" <<'PY'
-import json
-import sys
-
-with open(sys.argv[1], encoding="utf-8") as handle:
-    body = json.load(handle)
-
-expected = {
-    "items": [],
-    "page": 1,
-    "perPage": 20,
-    "totalItems": 0,
-    "totalPages": 0,
-}
-if body != expected:
-    raise SystemExit(f"{sys.argv[2]} empty list mismatch: got {body!r}, want {expected!r}")
-PY
-}
-
-assert_dashboard_served() {
-  local html_file="$1"
-  local asset_file="$2"
-  local headers_file="$TMP_DIR/admin_asset.headers"
-  local http_code=""
-  local asset_path=""
-
-  http_code="$(curl -sS -m 5 -o "$html_file" -w "%{http_code}" "$AYB_BASE_URL/admin/" || true)"
-  if [ "$http_code" != "200" ]; then
-    echo "expected dashboard shell to return HTTP 200, got ${http_code:-<none>}" >&2
-    [ -f "$html_file" ] && cat "$html_file" >&2
-    fail "dashboard shell check failed"
-  fi
-  assert_contains "$html_file" "<title>Allyourbase Admin</title>" "dashboard shell missing title"
-  assert_contains "$html_file" 'id="root"' "dashboard shell missing root element"
-
-  asset_path="$(python3 - "$html_file" <<'PY'
-import re
-import sys
-
-html = open(sys.argv[1], encoding="utf-8").read()
-match = re.search(r'<script[^>]+src="(/admin/assets/[^"]+\.js)"', html)
-if not match:
-    raise SystemExit("dashboard shell missing /admin/assets/*.js module")
-print(match.group(1))
-PY
-)"
-
-  http_code="$(curl -sS -m 5 -D "$headers_file" -o "$asset_file" -w "%{http_code}" "$AYB_BASE_URL$asset_path" || true)"
-  if [ "$http_code" != "200" ]; then
-    echo "expected dashboard asset ${asset_path} to return HTTP 200, got ${http_code:-<none>}" >&2
-    [ -f "$asset_file" ] && cat "$asset_file" >&2
-    fail "dashboard asset check failed"
-  fi
-  assert_contains "$headers_file" "javascript" "dashboard asset response missing JavaScript content type"
-  [ -s "$asset_file" ] || fail "dashboard asset body was empty"
-}
-
-assert_npm_registry_package_available() {
-  local stdout_file="$TMP_DIR/npm_view_allyourbase_js.stdout"
-  local stderr_file="$TMP_DIR/npm_view_allyourbase_js.stderr"
-  local version=""
-
-  if ! npm view @allyourbase/js version >"$stdout_file" 2>"$stderr_file"; then
-    cat "$stderr_file" >&2 || true
-    fail "npm registry availability check failed for @allyourbase/js"
-  fi
-  version="$(tr -d '[:space:]' <"$stdout_file")"
-  if ! printf '%s' "$version" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+([-.][0-9A-Za-z.-]+)?$'; then
-    cat "$stdout_file" >&2 || true
-    fail "npm registry returned a non-semver @allyourbase/js version"
-  fi
-}
-
 prepare_local_sdk_package() {
+  [ -f "$LOCAL_SDK_DIR/dist/index.js" ] && return 0
   cp -R "$REPO_ROOT/sdk" "$LOCAL_SDK_DIR"
   if ! (cd "$LOCAL_SDK_DIR" && npm ci >"$TMP_DIR/sdk_npm_ci.stdout" 2>"$TMP_DIR/sdk_npm_ci.stderr"); then
     cat "$TMP_DIR/sdk_npm_ci.stderr" >&2 || true
@@ -337,6 +135,190 @@ prepare_local_sdk_package() {
     cat "$TMP_DIR/sdk_build.stderr" >&2 || true
     fail "local SDK build failed"
   fi
+}
+
+sdk_program_doc_file() {
+  case "$1" in
+    getting_started_sdk_crud) printf '%s\n' "docs-site/guide/getting-started.md" ;;
+    readme_sdk_program*) printf '%s\n' "README.md" ;;
+    *) fail "unknown SDK program label: $1" ;;
+  esac
+}
+
+sdk_program_heading() {
+  case "$1" in
+    getting_started_sdk_crud) printf '%s\n' "## Use the JavaScript SDK" ;;
+    readme_sdk_program*) printf '%s\n' "## SDK" ;;
+    *) fail "unknown SDK program label: $1" ;;
+  esac
+}
+
+sdk_program_language() {
+  case "$1" in
+    getting_started_sdk_crud) printf '%s\n' "ts" ;;
+    readme_sdk_program*) printf '%s\n' "typescript" ;;
+    *) fail "unknown SDK program label: $1" ;;
+  esac
+}
+
+sdk_program_app_prefix() {
+  case "$1" in
+    getting_started_sdk_crud) printf '%s\n' "getting_started_sdk" ;;
+    readme_sdk_program*) printf '%s\n' "readme_sdk" ;;
+    *) fail "unknown SDK program label: $1" ;;
+  esac
+}
+
+prepare_documented_sdk_program_app() {
+  local label="$1"
+  local app_dir="$2"
+  local setup_script="$app_dir/install.sh"
+  local doc_file=""
+  local heading=""
+  local language=""
+
+  doc_file="$(sdk_program_doc_file "$label")"
+  heading="$(sdk_program_heading "$label")"
+  language="$(sdk_program_language "$label")"
+
+  prepare_local_sdk_package
+  printf '%s\n' '{"private":true,"type":"module"}' >"$app_dir/package.json"
+
+  extract_doc_block "$doc_file" "$heading" bash 1 \
+    | substitute_local_sdk_source >"$setup_script"
+  if ! (cd "$app_dir" && bash "$setup_script" >install.stdout 2>install.stderr); then
+    cat "$app_dir/install.stderr" >&2 || true
+    fail "$label: local SDK install failed"
+  fi
+
+  extract_doc_block "$doc_file" "$heading" "$language" 1 \
+    | rewrite_doc_command >"$app_dir/index.mjs"
+}
+
+run_documented_sdk_program() {
+  local label="$1"
+  local stdout_file="$2"
+  local stderr_file="$3"
+  local app_dir=""
+
+  app_dir="$(mktemp -d "$RUNTIME_WORKDIR/$(sdk_program_app_prefix "$label").XXXXXX")"
+  prepare_documented_sdk_program_app "$label" "$app_dir"
+  if ! (cd "$app_dir" && node index.mjs >"$stdout_file" 2>"$stderr_file"); then
+    cat "$stderr_file" >&2 || true
+    fail "$label: documented SDK program failed"
+  fi
+}
+
+run_getting_started_sdk_program() {
+  run_documented_sdk_program "getting_started_sdk_crud" "$1" "$2"
+}
+
+run_readme_sdk_program() {
+  run_documented_sdk_program "readme_sdk_program" "$1" "$2"
+}
+
+capture_prerepair_readme_sdk_baseline() {
+  local git_ref="$1"
+  local output_dir="$2"
+  local previous_doc_root="$DOC_ROOT"
+  local baseline_doc_root="$TMP_DIR/prerepair_readme_doc_root"
+  local app_dir=""
+  local status=0
+
+  mkdir -p "$output_dir" "$baseline_doc_root"
+  git -C "$REPO_ROOT" show "${git_ref}:README.md" >"$baseline_doc_root/README.md"
+
+  DOC_ROOT="$baseline_doc_root"
+  app_dir="$(mktemp -d "$RUNTIME_WORKDIR/readme_sdk_prerepair.XXXXXX")"
+  prepare_documented_sdk_program_app "readme_sdk_program_prerepair" "$app_dir"
+  DOC_ROOT="$previous_doc_root"
+
+  set +e
+  (cd "$app_dir" && node index.mjs >"$output_dir/stdout.txt" 2>"$output_dir/stderr.txt")
+  status=$?
+  set -e
+  printf '%s\n' "$status" >"$output_dir/status.txt"
+  cp "$app_dir/index.mjs" "$output_dir/index.mjs"
+  cp "$app_dir/install.sh" "$output_dir/install.sh"
+
+  if [ "$status" -eq 0 ]; then
+    fail "readme_sdk_program_prerepair: expected the pre-repair SDK sample to fail"
+  fi
+}
+
+assert_sdk_runner_single_lifecycle_owner() {
+  python3 - "$0" <<'PY'
+from pathlib import Path
+import sys
+
+text = Path(sys.argv[1]).read_text()
+needle = "prepare_documented_sdk_program_app" + "() {"
+if text.count(needle) != 1:
+    raise SystemExit("SDK runner lifecycle helper must have exactly one owner")
+for wrapper in ("run_getting_started_sdk_program", "run_readme_sdk_program"):
+    start = text.index(f"{wrapper}() {{")
+    end = text.index("\n}\n", start)
+    body = text[start:end]
+    forbidden = ("prepare_local_sdk_package", "mktemp -d", "extract_doc_block", "node index.mjs")
+    leaked = [token for token in forbidden if token in body]
+    if leaked:
+        raise SystemExit(f"{wrapper} duplicates SDK runner lifecycle tokens: {leaked}")
+PY
+}
+
+assert_readme_sdk_output() {
+  local stdout_file="$1"
+
+  [ -f "$stdout_file" ] || fail "readme_sdk_program: SDK program was not executed"
+  python3 - "$stdout_file" <<'PY'
+import ast
+import sys
+
+lines = [line.strip() for line in open(sys.argv[1], encoding="utf-8")]
+
+def line_after(prefix):
+    matches = [line[len(prefix):].strip() for line in lines if line.startswith(prefix)]
+    if len(matches) != 1:
+        raise SystemExit(f"readme_sdk_program: expected one {prefix!r} line, got {matches!r}; stdout={lines!r}")
+    return matches[0]
+
+published = ast.literal_eval(line_after("Published posts:"))
+expected_published = ["Hello", "Hello World"]
+if published != expected_published:
+    raise SystemExit(
+        f"readme_sdk_program: published title order mismatch: "
+        f"got {published!r}, want {expected_published!r}; stdout={lines!r}"
+    )
+if "Excluded Post" in published or "Hello world" in published:
+    raise SystemExit(f"readme_sdk_program: unpublished row leaked into published list: {published!r}")
+if line_after("Created post:") != "New post":
+    raise SystemExit(f"readme_sdk_program: created post line mismatch; stdout={lines!r}")
+if line_after("Realtime event:") != "create New post":
+    raise SystemExit(f"readme_sdk_program: realtime event mismatch; stdout={lines!r}")
+PY
+}
+
+assert_getting_started_sdk_output() {
+  local stdout_file="$1"
+
+  [ -f "$stdout_file" ] || fail "getting_started_sdk_crud: SDK program was not executed"
+  python3 - "$stdout_file" <<'PY'
+import re
+import sys
+
+output = open(sys.argv[1], encoding="utf-8").read()
+titles = [match[1] for match in re.findall(r"\btitle:\s*(['\"])(.*?)\1", output)]
+expected_titles = ["Hello", "Hello World"]
+if titles != expected_titles:
+    raise SystemExit(
+        f"getting_started_sdk_crud: title order mismatch: "
+        f"got {titles!r}, want {expected_titles!r}; stdout={output!r}"
+    )
+if "Excluded Post" in output:
+    raise SystemExit(
+        f"getting_started_sdk_crud: unpublished excluded row was returned; stdout={output!r}"
+    )
+PY
 }
 
 run_quickstart_sdk_program() {
@@ -350,18 +332,21 @@ run_quickstart_sdk_program() {
 
   # Substitute only the package source so registry publication lag cannot
   # invalidate the CRUD contract or write SDK build artifacts into the checkout.
+# inventory-id: quickstart_project_setup
   extract_doc_block "docs-site/guide/quickstart.md" "## 3. Set up the project" bash 1 \
     | rewrite_doc_command \
-    | sed "s#npm install @allyourbase/js#npm install \"$LOCAL_SDK_DIR\"#" \
+    | substitute_local_sdk_source \
     >"$setup_script"
   if ! (cd "$RUNTIME_WORKDIR" && bash "$setup_script" >"$TMP_DIR/sdk_setup.stdout" 2>"$TMP_DIR/sdk_setup.stderr"); then
     cat "$TMP_DIR/sdk_setup.stderr" >&2 || true
     fail "documented SDK setup command failed"
   fi
 
+# inventory-id: quickstart_app_crud
   extract_doc_block "docs-site/guide/quickstart.md" "## 4. Write the app" js 1 \
     | rewrite_doc_command >"$app_dir/index.mjs"
 
+# inventory-id: quickstart_run_app
   extract_doc_block "docs-site/guide/quickstart.md" "## 5. Run it" bash 1 \
     | rewrite_doc_command >"$run_script"
   if ! (cd "$app_dir" && bash "$run_script" >"$stdout_file" 2>"$stderr_file"); then
@@ -467,8 +452,23 @@ assert_generated_scaffold_project() {
   assert_contains "$run_stdout" 'Search items for "demo": 0' "scaffold generated program missing search output"
 }
 
+if [ "${AYB_QUICKSTART_NODE_FLOOR_SELFTEST:-}" = "1" ]; then
+  assert_quickstart_node_floor_predicate_contract
+  exit 0
+fi
+
+if [ "${AYB_QUICKSTART_SDK_RUNNER_SELFTEST:-}" = "1" ]; then
+  assert_sdk_runner_single_lifecycle_owner
+  exit 0
+fi
+
 mkdir -p "$RUNTIME_WORKDIR"
+QUICKSTART_NODE_MINIMUM="$(quickstart_node_minimum_from_doc "$DOC_ROOT")"
+assert_quickstart_documented_node_floor "$QUICKSTART_NODE_MINIMUM"
+QUICKSTART_NODE_MAJOR="$(node -p 'Number(process.versions.node.split(".")[0])')"
+[ "$QUICKSTART_NODE_MAJOR" -ge "$QUICKSTART_NODE_MINIMUM" ] || fail "quickstart_realtime: Node.js ${QUICKSTART_NODE_MINIMUM} or newer is required"
 assert_admin_password_predicate_contract
+# inventory-id: readme_quickstart_commands
 prepare_ayb_binary
 if ! AYB_EXPECTED_VERSION="$("$AYB_BIN" version --json | python3 -c '
 import json, sys
@@ -479,14 +479,18 @@ print(version)
 ')"; then
   fail "could not read the quickstart binary version"
 fi
-export PATH="$(dirname "$AYB_BIN"):$PATH"
 export HOME="$RUNTIME_HOME"
+export PATH="$HOME/.ayb/bin:$PATH"
+[ "$(command -v ayb)" = "$LOCAL_AYB_BIN" ] || fail "documented installer PATH did not resolve the local ayb binary"
+# inventory-id: getting_started_curl_install
 run_installer_path_block "getting_started_install" "docs-site/guide/getting-started.md" "### curl (macOS / Linux)" 1
+# inventory-id: quickstart_start_commands
 run_installer_path_block "quickstart_install" "docs-site/guide/quickstart.md" "## 1. Start AYB" 1
 cd "$RUNTIME_WORKDIR"
 
 AYB_SERVER_PORT="$API_PORT" "$AYB_BIN" stop >/dev/null 2>&1 || true
 
+# inventory-id: getting_started_managed_start
 AYB_SERVER_PORT="$API_PORT" \
 AYB_DATABASE_EMBEDDED_PORT="$PG_PORT" \
 AYB_AUTH_ENABLED=false \
@@ -497,6 +501,7 @@ AYB_AUTH_JWT_SECRET="$DEMO_JWT_SECRET" \
   fail "documented ayb start command failed"
 }
 
+# inventory-id: getting_started_health
 wait_for_ready_health "$TMP_DIR/health.json" || {
   cat "$TMP_DIR/ayb_start.stdout" >&2 || true
   cat "$TMP_DIR/ayb_start.stderr" >&2 || true
@@ -507,8 +512,29 @@ assert_contains "$TMP_DIR/health.json" '"status":"ok"' "health response missing 
 admin_password_is_nonempty "$TMP_DIR/ayb_start.stderr" \
   || fail "startup banner missing non-empty admin password"
 assert_contains "$TMP_DIR/ayb_start.stderr" "To reset: ayb admin reset-password" "startup banner missing reset hint"
+# inventory-id: quickstart_health
 assert_health_contract "$TMP_DIR/health.json" "$AYB_EXPECTED_VERSION"
 
+# inventory-id: readme_api_create_table
+run_extracted_bash_block \
+  "readme_api_create_table" \
+  "README.md" \
+  "## Working with the API" \
+  1 \
+  "$TMP_DIR/readme_posts_sql.stdout" \
+  "$TMP_DIR/readme_posts_sql.stderr"
+fetch_and_assert_collection_empty "posts" "$TMP_DIR/readme_posts_empty.json"
+# inventory-id: readme_api_open_crud
+run_extracted_bash_block \
+  "readme_api_open_crud" \
+  "README.md" \
+  "## Working with the API" \
+  2 \
+  "$TMP_DIR/readme_posts_crud.json" \
+  "$TMP_DIR/readme_posts_crud.stderr"
+assert_readme_api_crud_response "$TMP_DIR/readme_posts_crud.json"
+run_harness_sql "drop_readme_posts" "DROP TABLE IF EXISTS posts CASCADE"
+# inventory-id: quickstart_create_todos
 run_extracted_bash_block \
   "quickstart_create_todos" \
   "docs-site/guide/quickstart.md" \
@@ -517,15 +543,30 @@ run_extracted_bash_block \
   "$TMP_DIR/todos_sql.stdout" \
   "$TMP_DIR/todos_sql.stderr"
 
+# Both "## Create a table" fences create the same posts table, so each is executed
+# and asserted in turn with a harness-local drop between them.
+# inventory-id: getting_started_create_posts_ayb_sql
 run_extracted_bash_block \
-  "getting_started_create_posts" \
+  "getting_started_create_posts_ayb_sql" \
   "docs-site/guide/getting-started.md" \
   "## Create a table" \
   1 \
-  "$TMP_DIR/posts_sql.stdout" \
-  "$TMP_DIR/posts_sql.stderr"
+  "$TMP_DIR/getting_started_create_posts_ayb_sql.stdout" \
+  "$TMP_DIR/getting_started_create_posts_ayb_sql.stderr"
+assert_documented_posts_columns "getting_started_create_posts_ayb_sql"
+run_harness_sql "drop_getting_started_ayb_sql_posts" "DROP TABLE IF EXISTS posts CASCADE"
 
-run_extracted_bash_block \
+# inventory-id: getting_started_create_posts_sql
+run_extracted_sql_block \
+  "getting_started_create_posts_sql" \
+  "docs-site/guide/getting-started.md" \
+  "## Create a table" \
+  1 \
+  "$TMP_DIR/posts_sql_block.stdout" \
+  "$TMP_DIR/posts_sql_block.stderr"
+
+# inventory-id: getting_started_list_posts
+run_extracted_bash_block_with_curl_status \
   "getting_started_list_posts" \
   "docs-site/guide/getting-started.md" \
   "### List records" \
@@ -533,15 +574,113 @@ run_extracted_bash_block \
   "$TMP_DIR/posts_list.json" \
   "$TMP_DIR/posts_list.stderr"
 
-assert_collection_empty "posts" "$TMP_DIR/posts_list.json"
-assert_collection_empty "todos" "$TMP_DIR/todos_list.json"
+assert_empty_collection_response "$TMP_DIR/posts_list.json" "getting_started_list_posts"
+fetch_and_assert_collection_empty "todos" "$TMP_DIR/todos_list.json"
+
+# inventory-id: getting_started_create_post
+run_extracted_bash_block_with_curl_status \
+  "getting_started_create_post" \
+  "docs-site/guide/getting-started.md" \
+  "### Create a record" \
+  1 \
+  "$TMP_DIR/getting_started_create_post.json" \
+  "$TMP_DIR/getting_started_create_post.stderr"
+assert_getting_started_post_response "$TMP_DIR/getting_started_create_post.json" "201" "getting_started_create_post"
+run_harness_sql "seed_getting_started_excluded_post" \
+  "INSERT INTO posts (title, body, published) VALUES ('Excluded Post', 'Not the documented post', false)"
+# inventory-id: getting_started_filter_posts
+run_extracted_bash_block \
+  "getting_started_filter_posts" \
+  "docs-site/guide/getting-started.md" \
+  "### Filter and sort" \
+  1 \
+  "$TMP_DIR/getting_started_filter_posts.json" \
+  "$TMP_DIR/getting_started_filter_posts.stderr"
+assert_getting_started_filter_response "$TMP_DIR/getting_started_filter_posts.json"
+# inventory-id: getting_started_get_post
+run_extracted_bash_block_with_curl_status \
+  "getting_started_get_post" \
+  "docs-site/guide/getting-started.md" \
+  "### Get a single record" \
+  1 \
+  "$TMP_DIR/getting_started_get_post.json" \
+  "$TMP_DIR/getting_started_get_post.stderr"
+assert_getting_started_post_response "$TMP_DIR/getting_started_get_post.json" "200" "getting_started_get_post"
+# inventory-id: getting_started_sdk_crud
+run_getting_started_sdk_program "$TMP_DIR/getting_started_sdk.stdout" "$TMP_DIR/getting_started_sdk.stderr"
+assert_getting_started_sdk_output "$TMP_DIR/getting_started_sdk.stdout"
 assert_dashboard_served "$TMP_DIR/admin.html" "$TMP_DIR/admin_asset.js"
+# inventory-id: readme_sdk_install
+run_documented_sdk_install "readme_sdk_install" "README.md" "## SDK"
+# inventory-id: getting_started_sdk_install
+run_documented_sdk_install "getting_started_sdk_install" "docs-site/guide/getting-started.md" "## Use the JavaScript SDK"
 assert_npm_registry_package_available
 run_quickstart_sdk_program "$TMP_DIR/sdk_run.stdout" "$TMP_DIR/sdk_run.stderr"
 assert_quickstart_sdk_output "$TMP_DIR/sdk_run.stdout"
 run_generated_scaffold_project
 assert_generated_scaffold_project "$RUNTIME_WORKDIR/todo-scaffold" "$TMP_DIR/scaffold_init.stdout" "$TMP_DIR/scaffold_run.stdout"
 assert_auth_me_disabled "$TMP_DIR/auth_me_disabled.json"
+
+# inventory-id: quickstart_realtime
+extract_doc_block "docs-site/guide/quickstart.md" "## 6. Add realtime" js 1 \
+  | rewrite_doc_command >"$RUNTIME_WORKDIR/todo-app/realtime.mjs"
+node "$RUNTIME_WORKDIR/todo-app/realtime.mjs" >"$TMP_DIR/realtime.stdout" 2>"$TMP_DIR/realtime.stderr" &
+REALTIME_PID="$!"
+wait_for_realtime_log_entry \
+  "Listening for todo changes... (Ctrl-C to stop)" \
+  "" \
+  "listener readiness"
+
+REALTIME_CREATED_TITLE="Quickstart realtime event"
+if ! curl -sS -m 5 -w '\n__AYB_HTTP_CODE:%{http_code}\n' \
+  -X POST "$AYB_BASE_URL/api/collections/todos" \
+  -H "Content-Type: application/json" \
+  -d "{\"title\":\"$REALTIME_CREATED_TITLE\"}" >"$TMP_DIR/realtime_create.response"; then
+  fail "quickstart_realtime: todo create request failed"
+fi
+extract_http_json_response \
+  "$TMP_DIR/realtime_create.response" \
+  "201" \
+  "quickstart_realtime" >"$TMP_DIR/realtime_create.json"
+python3 - "$TMP_DIR/realtime_create.json" "$REALTIME_CREATED_TITLE" <<'PY'
+import json
+import sys
+
+body = json.load(open(sys.argv[1], encoding="utf-8"))
+expected_title = sys.argv[2]
+actual_title = body.get("title")
+if actual_title != expected_title:
+    raise SystemExit(
+        f"quickstart_realtime: created title mismatch: "
+        f"got {actual_title!r}, want {expected_title!r}; body={body!r}"
+    )
+PY
+wait_for_realtime_log_entry \
+  "[create]" \
+  "$REALTIME_CREATED_TITLE" \
+  "documented [create] event with inserted title"
+kill -0 "$REALTIME_PID" 2>/dev/null \
+  || fail "quickstart_realtime: listener exited after receiving the create event"
+
+restart_ayb_with_auth_enabled
+register_quickstart_auth_fixtures
+
+if [ -n "${AYB_QUICKSTART_PREREPAIR_SDK_BASELINE_REF:-}" ]; then
+  capture_prerepair_readme_sdk_baseline \
+    "$AYB_QUICKSTART_PREREPAIR_SDK_BASELINE_REF" \
+    "${AYB_QUICKSTART_PREREPAIR_SDK_BASELINE_DIR:-$TMP_DIR/prerepair_readme_sdk_baseline}"
+  exit 0
+fi
+
+# inventory-id: readme_api_authenticated_crud
+run_readme_api_authenticated_crud \
+  "$TMP_DIR/readme_authenticated_crud.stdout" \
+  "$TMP_DIR/readme_authenticated_crud.stderr"
+assert_readme_api_authenticated_crud_response "$TMP_DIR/readme_authenticated_crud.stdout"
+assert_readme_api_authenticated_read_and_rejects_unauthorized_create
+# inventory-id: readme_sdk_program
+run_readme_sdk_program "$TMP_DIR/readme_sdk.stdout" "$TMP_DIR/readme_sdk.stderr"
+assert_readme_sdk_output "$TMP_DIR/readme_sdk.stdout"
 
 AYB_SERVER_PORT="$API_PORT" \
 AYB_DATABASE_EMBEDDED_PORT="$PG_PORT" \

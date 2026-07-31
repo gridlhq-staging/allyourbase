@@ -291,17 +291,20 @@ func addDirToTar(t *testing.T, tw *tar.Writer, dir, prefix string) {
 	})
 }
 
-// findFreePort finds an available TCP port by binding to :0 and reading the
-// assigned port. The port is released before returning, so there is a small
-// TOCTOU window, but this is acceptable for test use.
+// findFreePort leases an available TCP port through the shared testutil owner
+// so a concurrently running test cannot claim the same port between allocation
+// and the Postgres bind. The lease is released when the test finishes.
 func findFreePort(t *testing.T) uint32 {
 	t.Helper()
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	port, err := testutil.FreePort()
 	if err != nil {
 		t.Fatalf("findFreePort: %v", err)
 	}
-	port := ln.Addr().(*net.TCPAddr).Port
-	ln.Close()
+	t.Cleanup(func() {
+		if err := testutil.ReleasePortLease(port); err != nil {
+			t.Errorf("release port lease %d: %v", port, err)
+		}
+	})
 	return uint32(port)
 }
 

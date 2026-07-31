@@ -3,6 +3,8 @@
 
 Build a working CRUD app with Allyourbase in a few minutes.
 
+This quickstart requires Node.js 22 or newer.
+
 ## 1. Start AYB
 
 If you have not installed AYB yet, follow [Install](/guide/getting-started#install) first.
@@ -125,7 +127,7 @@ import { AYBClient } from "@allyourbase/js";
 
 const ayb = new AYBClient("http://127.0.0.1:8090");
 
-const unsubscribe = ayb.realtime.subscribe(["todos"], (event) => {
+const unsubscribe = await ayb.realtime.subscribeWS(["todos"], (event) => {
   console.log(`[${event.action}]`, event.record);
 });
 

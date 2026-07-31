@@ -7,14 +7,11 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
-	"sort"
-	"strconv"
 	"strings"
 
 	"github.com/allyourbase/ayb/internal/auth"
 	"github.com/allyourbase/ayb/internal/httputil"
 	"github.com/allyourbase/ayb/internal/schema"
-	"github.com/allyourbase/ayb/internal/sqlutil"
 	"github.com/allyourbase/ayb/internal/tenant"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -306,9 +303,10 @@ func (h *Handler) canSeeRecord(ctx context.Context, claims *auth.Claims, activeS
 // Because RLS-filtered subscribers bypass the Hub tenant gate (see
 // RLSFilteredTenantScope / tenantMatches), this function is the single source of
 // truth for per-record visibility, including tenant isolation. A candidate
-// tagged for a different tenant is dropped unless the table has the metadata and
-// RLS SELECT policy needed to prove the row visible — a table without that
-// proof path would otherwise fail open and leak it across tenants.
+// tagged for a different tenant is dropped unless BOTH the table has the
+// metadata and RLS SELECT policy needed to build a per-record visibility query
+// AND the candidate's own record carries the PK values that query binds —
+// either half missing would otherwise fail open and leak it across tenants.
 //
 // Authenticated clients need a database pool to prove row visibility; without
 // one, realtime visibility fails closed. Unauthenticated clients keep the
@@ -318,7 +316,8 @@ func (h *Handler) canSeeRecord(ctx context.Context, claims *auth.Claims, activeS
 //   - no claims are present (unauthenticated client, no RLS applies)
 //   - schema metadata or primary-key values are missing AND the candidate is not
 //     tagged for a foreign tenant
-//   - delete events lack SELECT-applicable RLS policies
+//   - delete events lack SELECT-applicable RLS policies AND the candidate is not
+//     tagged for a foreign tenant
 //   - the RLS-scoped SELECT finds the row
 func CanSeeRecord(ctx context.Context, pool *pgxpool.Pool, schemaCache *schema.CacheHolder, logger *slog.Logger, claims *auth.Claims, activeSchema string, event *Event) bool {
 	if claims == nil {
@@ -328,9 +327,17 @@ func CanSeeRecord(ctx context.Context, pool *pgxpool.Pool, schemaCache *schema.C
 		return false
 	}
 
+	// A candidate tagged for another tenant is the only case the tenant floor
+	// below can never wave through, so it is decided ahead of every bypass.
+	foreignTenant := event.TenantID != "" && event.TenantID != claims.TenantID
+
 	sc := schemaCache.Get()
 	if sc == nil {
-		return true
+		// The cache is unloaded (server startup gates on CacheHolder.Ready(), so
+		// this is reachable only for embedders that serve before the first
+		// introspection). No table metadata means no proof path, so a
+		// foreign-tenant candidate must be dropped rather than fall through.
+		return !foreignTenant
 	}
 	tbl := sc.TableByNameInSchema(activeSchema, event.Table)
 	if tbl != nil && activeSchema != "" && activeSchema != "public" && tbl.Schema != activeSchema && event.Table != internalNotificationsTable {
@@ -344,7 +351,7 @@ func CanSeeRecord(ctx context.Context, pool *pgxpool.Pool, schemaCache *schema.C
 	// policies. Drop the foreign-tenant candidate instead of failing open. Empty
 	// event.TenantID is the _ayb_notifications / wildcard case and is handled by
 	// the checks below.
-	if event.TenantID != "" && event.TenantID != claims.TenantID && !canProveRecordVisibility(tbl) {
+	if foreignTenant && !canProveRecordVisibility(tbl) {
 		return false
 	}
 	if tbl == nil || len(tbl.PrimaryKey) == 0 {
@@ -360,12 +367,23 @@ func CanSeeRecord(ctx context.Context, pool *pgxpool.Pool, schemaCache *schema.C
 	}
 
 	if event.Action == "delete" {
+		// canProveRecordVisibility only proves the TABLE can be checked; the
+		// deleted ROW still has to carry PK values or canSeeDeletedRecord fails
+		// open. That fail-open is safe only inside the subscriber's own tenant,
+		// so drop an unprovable foreign-tenant candidate here.
+		if foreignTenant && !schema.RecordHasPrimaryKeyValues(tbl, event.OldRecord) {
+			return false
+		}
 		return canSeeDeletedRecord(ctx, pool, logger, tbl, event.OldRecord, claims)
 	}
 
 	query, args := buildVisibilityCheck(tbl, event.Record)
 	if query == "" {
-		return activeSchema == "" || activeSchema == "public"
+		// The record carries no PK value, so no per-record RLS SELECT can prove
+		// it visible. Publishers are not required to echo the table's PK (the
+		// RPC X-Notify-Table path forwards whatever the function returned), so a
+		// foreign-tenant candidate must not inherit the public-schema fail-open.
+		return !foreignTenant && (activeSchema == "" || activeSchema == "public")
 	}
 
 	return runVisibilityCheck(ctx, pool, logger, claims, query, args)
@@ -377,174 +395,4 @@ func realtimeTableExistsInActiveSchema(sc *schema.SchemaCache, activeSchema, nam
 		return false
 	}
 	return activeSchema == "" || activeSchema == "public" || tbl.Schema == activeSchema
-}
-
-// canSeeDeletedRecord applies the delete-visibility truth table. Delete
-// filtering needs OldRecord because transports serialize Event.Record to clients
-// while keeping OldRecord internal; without OldRecord, the handler cannot prove
-// the deleted row was visible and fails closed. Missing OldRecord PK values and
-// tables without RLS SELECT/ALL policies retain the established fail-open
-// behavior. Otherwise it evaluates OldRecord against the table's
-// SELECT-applicable UsingExpr policies under the request user's RLS context and
-// delivers only when the deleted row would have been visible.
-func canSeeDeletedRecord(ctx context.Context, pool *pgxpool.Pool, logger *slog.Logger, tbl *schema.Table, oldRecord map[string]any, claims *auth.Claims) bool {
-	if oldRecord == nil {
-		return false
-	}
-	if !recordHasPrimaryKeyValues(tbl, oldRecord) {
-		return true
-	}
-
-	predicate, enforce := deleteVisibilityPredicate(tbl)
-	if !enforce {
-		return true
-	}
-
-	query, args := buildDeletedVisibilityCheck(tbl, predicate, oldRecord)
-	return runVisibilityCheck(ctx, pool, logger, claims, query, args)
-}
-
-// runVisibilityCheck executes a visibility query under the caller's RLS context and fails closed on any error.
-func runVisibilityCheck(ctx context.Context, pool *pgxpool.Pool, logger *slog.Logger, claims *auth.Claims, query string, args []any) bool {
-	tx, err := pool.Begin(ctx)
-	if err != nil {
-		logger.Error("rls filter: begin tx", "error", err)
-		return false // fail closed
-	}
-	defer tx.Rollback(ctx)
-
-	if err := auth.SetRLSContext(ctx, tx, claims); err != nil {
-		logger.Error("rls filter: set rls context", "error", err)
-		return false
-	}
-
-	var one int
-	err = tx.QueryRow(ctx, query, args...).Scan(&one)
-	return err == nil
-}
-
-// canProveRecordVisibility reports whether the table has the metadata needed to
-// build a per-record visibility query that RLS can narrow safely for
-// cross-tenant candidates: a primary key plus at least one SELECT- or
-// ALL-applicable policy on an RLS-enabled table.
-func canProveRecordVisibility(tbl *schema.Table) bool {
-	return tbl != nil && len(tbl.PrimaryKey) > 0 && hasSelectApplicablePolicy(tbl)
-}
-
-func hasSelectApplicablePolicy(tbl *schema.Table) bool {
-	if tbl == nil || !tbl.RLSEnabled {
-		return false
-	}
-	for _, policy := range tbl.RLSPolicies {
-		if isSelectApplicablePolicy(policy) {
-			return true
-		}
-	}
-	return false
-}
-
-func isSelectApplicablePolicy(policy *schema.RLSPolicy) bool {
-	if policy == nil {
-		return false
-	}
-	command := strings.ToUpper(strings.TrimSpace(policy.Command))
-	return command == "ALL" || command == "SELECT"
-}
-
-// deleteVisibilityPredicate combines SELECT-applicable policies for evaluation against a deleted row.
-func deleteVisibilityPredicate(tbl *schema.Table) (string, bool) {
-	if !tbl.RLSEnabled {
-		return "", false
-	}
-	var permissive []string
-	var restrictive []string
-	for _, policy := range tbl.RLSPolicies {
-		if !isSelectApplicablePolicy(policy) {
-			continue
-		}
-		expr := strings.TrimSpace(policy.UsingExpr)
-		if expr == "" {
-			expr = "TRUE"
-		}
-		if policy.Permissive {
-			permissive = append(permissive, expr)
-		} else {
-			restrictive = append(restrictive, expr)
-		}
-	}
-	if len(permissive) == 0 && len(restrictive) == 0 {
-		return "", false
-	}
-	if len(permissive) == 0 {
-		return "FALSE", true
-	}
-	clauses := append([]string{joinPolicyPredicates(permissive, " OR ")}, restrictive...)
-	return joinPolicyPredicates(clauses, " AND "), true
-}
-
-func joinPolicyPredicates(predicates []string, sep string) string {
-	wrapped := make([]string, len(predicates))
-	for i, predicate := range predicates {
-		wrapped[i] = "(" + predicate + ")"
-	}
-	return strings.Join(wrapped, sep)
-}
-
-func recordHasPrimaryKeyValues(tbl *schema.Table, record map[string]any) bool {
-	for _, pk := range tbl.PrimaryKey {
-		value, ok := record[pk]
-		if !ok || value == nil {
-			return false
-		}
-	}
-	return true
-}
-
-// buildDeletedVisibilityCheck evaluates a deleted record as a typed VALUES row against an RLS predicate.
-func buildDeletedVisibilityCheck(tbl *schema.Table, predicate string, record map[string]any) (string, []any) {
-	columns := make([]string, 0, len(record))
-	for column := range record {
-		columns = append(columns, column)
-	}
-	sort.Strings(columns)
-
-	args := make([]any, 0, len(columns))
-	placeholders := make([]string, len(columns))
-	quotedColumns := make([]string, len(columns))
-	for i, column := range columns {
-		placeholders[i] = deletedRecordPlaceholder(tbl, column, i+1)
-		quotedColumns[i] = sqlutil.QuoteIdent(column)
-		args = append(args, record[column])
-	}
-	query := fmt.Sprintf("SELECT 1 FROM (VALUES (%s)) AS %s (%s) WHERE %s",
-		strings.Join(placeholders, ", "),
-		sqlutil.QuoteIdent(tbl.Name),
-		strings.Join(quotedColumns, ", "),
-		predicate)
-	return query, args
-}
-
-// buildVisibilityCheck builds a SELECT 1 query scoped to a row's PK.
-// Returns ("", nil) if the record is missing any PK column value.
-func buildVisibilityCheck(tbl *schema.Table, record map[string]any) (string, []any) {
-	args := make([]any, 0, len(tbl.PrimaryKey))
-	var sb strings.Builder
-	sb.WriteString("SELECT 1 FROM ")
-	sb.WriteString(sqlutil.QuoteQualifiedName(tbl.Schema, tbl.Name))
-	sb.WriteString(" WHERE ")
-
-	for i, pk := range tbl.PrimaryKey {
-		v, ok := record[pk]
-		if !ok {
-			return "", nil
-		}
-		if i > 0 {
-			sb.WriteString(" AND ")
-		}
-		sb.WriteString(sqlutil.QuoteIdent(pk))
-		sb.WriteString(" = $")
-		sb.WriteString(strconv.Itoa(i + 1))
-		args = append(args, v)
-	}
-	return sb.String(), args
 }

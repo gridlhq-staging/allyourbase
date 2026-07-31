@@ -84,6 +84,21 @@ type Table struct {
 	RLSEnabled       bool               `json:"rlsEnabled"`
 }
 
+// RecordHasPrimaryKeyValues reports whether a record contains a non-nil value
+// for every primary-key column in the table.
+func RecordHasPrimaryKeyValues(table *Table, record map[string]any) bool {
+	if table == nil || len(table.PrimaryKey) == 0 {
+		return false
+	}
+	for _, primaryKey := range table.PrimaryKey {
+		value, ok := record[primaryKey]
+		if !ok || value == nil {
+			return false
+		}
+	}
+	return true
+}
+
 // CheckConstraint represents a CHECK constraint on a table.
 type CheckConstraint struct {
 	Name       string `json:"name"`

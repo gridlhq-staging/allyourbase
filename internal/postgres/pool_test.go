@@ -9,6 +9,7 @@ import (
 
 	"github.com/allyourbase/ayb/internal/postgres"
 	"github.com/allyourbase/ayb/internal/testutil"
+	"github.com/jackc/pgx/v5"
 )
 
 var sharedPG *testutil.PGContainer
@@ -42,6 +43,56 @@ func TestNewPool(t *testing.T) {
 	err = pool.DB().QueryRow(ctx, "SELECT 1").Scan(&result)
 	testutil.NoError(t, err)
 	testutil.Equal(t, 1, result)
+}
+
+func TestPoolQueriesSurviveTableRecreationWithDifferentColumns(t *testing.T) {
+	ctx := context.Background()
+	pool, err := postgres.New(ctx, postgres.Config{
+		URL:             sharedPG.ConnString,
+		MaxConns:        1,
+		MinConns:        1,
+		HealthCheckSecs: 0,
+	}, testutil.DiscardLogger())
+	testutil.NoError(t, err)
+	defer pool.Close()
+
+	db := pool.DB()
+	const table = "postgres_pool_recreated_shape"
+	const query = "SELECT * FROM " + table
+	_, err = db.Exec(ctx, "DROP TABLE IF EXISTS "+table)
+	testutil.NoError(t, err)
+	t.Cleanup(func() {
+		_, _ = db.Exec(ctx, "DROP TABLE IF EXISTS "+table)
+	})
+
+	readOnlyRow := func() []any {
+		rows, queryErr := db.Query(ctx, query)
+		testutil.NoError(t, queryErr)
+		values, collectErr := pgx.CollectExactlyOneRow(rows, func(row pgx.CollectableRow) ([]any, error) {
+			return row.Values()
+		})
+		testutil.NoError(t, collectErr)
+		return values
+	}
+
+	_, err = db.Exec(ctx, "CREATE TABLE "+table+" (id integer NOT NULL)")
+	testutil.NoError(t, err)
+	_, err = db.Exec(ctx, "INSERT INTO "+table+" VALUES (1)")
+	testutil.NoError(t, err)
+	originalValues := readOnlyRow()
+	testutil.Equal(t, 1, len(originalValues))
+	testutil.Equal[any](t, int32(1), originalValues[0])
+
+	_, err = db.Exec(ctx, "DROP TABLE "+table)
+	testutil.NoError(t, err)
+	_, err = db.Exec(ctx, "CREATE TABLE "+table+" (slug text NOT NULL, published boolean NOT NULL)")
+	testutil.NoError(t, err)
+	_, err = db.Exec(ctx, "INSERT INTO "+table+" VALUES ('replacement', true)")
+	testutil.NoError(t, err)
+	recreatedValues := readOnlyRow()
+	testutil.Equal(t, 2, len(recreatedValues))
+	testutil.Equal[any](t, "replacement", recreatedValues[0])
+	testutil.Equal[any](t, true, recreatedValues[1])
 }
 
 func TestNewPoolEmptyURL(t *testing.T) {

@@ -2,6 +2,7 @@ package backup
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -10,6 +11,8 @@ import (
 	"os"
 	"os/exec"
 	"strconv"
+	"strings"
+	"syscall"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -175,6 +178,31 @@ func queryPGIsInRecovery(ctx context.Context, connURL string) (bool, error) {
 	return inRecovery, nil
 }
 
+// isAddressInUse reports whether err was caused by another process already
+// holding the recovery instance's listen port. It is the single classifier for
+// that condition in this package; callers must not re-derive it.
+//
+// A typed cause is authoritative when one survives. pg_ctl does not provide
+// one: it exits with a plain status code, so exec.ExitError carries only a wait
+// status and the bind errno reaches us solely as text in the captured server
+// log. For that path only, the two markers Postgres always emits together on a
+// failed bind are matched. Matching either marker alone would misclassify
+// unrelated failures that merely mention an address, so both are required.
+func isAddressInUse(err error) bool {
+	if err == nil {
+		return false
+	}
+	if errors.Is(err, syscall.EADDRINUSE) {
+		return true
+	}
+	text := strings.ToLower(err.Error())
+	return strings.Contains(text, "could not bind") && strings.Contains(text, "address already in use")
+}
+
+// FindFreePort returns a port that was free at the moment it was probed. The
+// probe listener is closed before returning, so a concurrent process can still
+// take the port before the caller binds it; callers that bind must be prepared
+// to retry on isAddressInUse.
 func FindFreePort() (int, error) {
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {

@@ -240,6 +240,42 @@ func TestBuildRPCCallMissingArgPassesNull(t *testing.T) {
 	testutil.Nil(t, args[0])
 }
 
+func TestBuildRPCCallSupportsQualifiedAndDecoratedTypes(t *testing.T) {
+	t.Parallel()
+	fn := &schema.Function{
+		Schema:     "public",
+		Name:       "schedule_job",
+		ReturnType: "text",
+		Parameters: []*schema.FuncParam{
+			{Name: "run_at", Type: "timestamp(6) with time zone", Position: 1},
+			{Name: "labels", Type: `public."TagType"[]`, Position: 2},
+		},
+	}
+
+	query, args, err := buildRPCCall(fn, map[string]any{
+		"run_at": "2026-07-30T12:00:00Z",
+		"labels": []any{"alpha", "beta"},
+	})
+	testutil.NoError(t, err)
+	testutil.Contains(t, query, `SELECT "public"."schedule_job"($1::timestamp(6) with time zone, $2::public."TagType"[])`)
+	testutil.Equal(t, 2, len(args))
+}
+
+func TestBuildRPCCallRejectsUnsafeParameterType(t *testing.T) {
+	t.Parallel()
+	fn := &schema.Function{
+		Schema:     "public",
+		Name:       "unsafe_func",
+		ReturnType: "integer",
+		Parameters: []*schema.FuncParam{
+			{Name: "payload", Type: `text OR pg_sleep(10)`, Position: 1},
+		},
+	}
+
+	_, _, err := buildRPCCall(fn, map[string]any{"payload": "x"})
+	testutil.ErrorContains(t, err, `unsupported type "text OR pg_sleep(10)"`)
+}
+
 func TestBuildRPCCallUnnamedParamErrors(t *testing.T) {
 	t.Parallel()
 	fn := &schema.Function{
@@ -692,7 +728,7 @@ func (h *rpcRequestPathHarness) doRPC(function, body string, headers map[string]
 	return w
 }
 
-func (h *rpcRequestPathHarness) doRPCWithClaims(function, body string, headers map[string]string) *httptest.ResponseRecorder {
+func (h *rpcRequestPathHarness) doRPCWithClaims(function, body string, headers map[string]string, claims *auth.Claims) *httptest.ResponseRecorder {
 	var req *http.Request
 	if body != "" {
 		req = httptest.NewRequest(http.MethodPost, "/rpc/"+function, strings.NewReader(body))
@@ -704,12 +740,7 @@ func (h *rpcRequestPathHarness) doRPCWithClaims(function, body string, headers m
 		req.Header.Set(k, v)
 	}
 	ctx := tenant.ContextWithRequestConn(req.Context(), h.conn)
-	ctx = auth.ContextWithClaims(ctx, &auth.Claims{
-		RegisteredClaims: jwt.RegisteredClaims{
-			Subject: "user_1",
-		},
-		Email: "user_1@example.com",
-	})
+	ctx = auth.ContextWithClaims(ctx, claims)
 	req = req.WithContext(ctx)
 	w := httptest.NewRecorder()
 	h.router.ServeHTTP(w, req)
@@ -935,7 +966,7 @@ func TestRPCHandleRejectsNotifyHeadersBeforeExecution(t *testing.T) {
 		h.assertNoPublish(t)
 	})
 
-	t.Run("valid_headers_scalar_read_publishes_one_event", func(t *testing.T) {
+	t.Run("valid_headers_scalar_without_target_primary_key_publishes_nothing", func(t *testing.T) {
 		t.Parallel()
 		h := newRPCRequestPathHarness()
 		w := h.doRPC("add_numbers", `{"a": 1, "b": 2}`, headers)
@@ -944,7 +975,7 @@ func TestRPCHandleRejectsNotifyHeadersBeforeExecution(t *testing.T) {
 		testutil.NoError(t, json.NewDecoder(w.Body).Decode(&value))
 		testutil.Equal(t, float64(3), value)
 		h.assertQueryCalledOnce(t, "add_numbers")
-		h.assertPublishedEvents(t, "update", "users", []map[string]any{{"add_numbers": int64(3)}})
+		h.assertNoPublish(t)
 	})
 
 	t.Run("valid_headers_single_row_read_publishes_one_event", func(t *testing.T) {
@@ -1072,7 +1103,10 @@ func TestRPCHandleNotifyHeadersShortCircuitExecution(t *testing.T) {
 			commitErr: errors.New("commit failed"),
 		}
 
-		w := h.doRPCWithClaims("add_numbers", `{"a": 1, "b": 2}`, headers)
+		w := h.doRPCWithClaims("add_numbers", `{"a": 1, "b": 2}`, headers, &auth.Claims{
+			RegisteredClaims: jwt.RegisteredClaims{Subject: "user_1"},
+			Email:            "user_1@example.com",
+		})
 		testutil.Equal(t, http.StatusInternalServerError, w.Code)
 		testutil.Contains(t, decodeError(t, w).Message, "internal error")
 		h.assertNoPublish(t)

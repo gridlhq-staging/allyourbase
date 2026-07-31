@@ -185,18 +185,17 @@ func TestStatusIntegration_ProbeOrchestrationWithDatabaseProbe(t *testing.T) {
 	testutil.True(t, foundDB, "database service probe must be present")
 }
 
+// findFreePort leases an available TCP port through the shared testutil owner
+// so a concurrently running test cannot claim the same port between allocation
+// and the server bind. The lease is released when the test finishes.
 func findFreePort(t *testing.T) int {
 	t.Helper()
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	port, err := testutil.FreePort()
 	testutil.NoError(t, err)
-	defer ln.Close()
-
-	addr, ok := ln.Addr().(*net.TCPAddr)
-	if !ok {
-		t.Fatalf("unexpected listener addr type %T", ln.Addr())
-	}
-	if addr.Port <= 0 {
-		t.Fatalf("invalid free port %d", addr.Port)
-	}
-	return addr.Port
+	t.Cleanup(func() {
+		if err := testutil.ReleasePortLease(port); err != nil {
+			t.Errorf("release port lease %d: %v", port, err)
+		}
+	})
+	return port
 }

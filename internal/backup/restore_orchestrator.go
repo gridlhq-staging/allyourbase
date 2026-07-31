@@ -246,22 +246,56 @@ func (o *RestoreOrchestrator) runRestoreExecutionPhase(
 		return fmt.Errorf("writing recovery configuration: %w", err)
 	}
 
-	port, err := o.findFreePortFn()
-	if err != nil {
-		return fmt.Errorf("allocating recovery port: %w", err)
-	}
-
-	state.recoveryInstance = o.newRecoveryInstanceFn(state.dataDir, port, o.logger)
-	if err := state.recoveryInstance.UsePrimaryConnectionURL(o.primaryDBURL); err != nil {
-		return fmt.Errorf("configuring recovery connection URL: %w", err)
-	}
-	if err := state.recoveryInstance.Start(ctx); err != nil {
-		return fmt.Errorf("starting recovery instance: %w", err)
+	if err := o.startRecoveryInstance(ctx, state); err != nil {
+		return err
 	}
 	if err := state.recoveryInstance.WaitForRecovery(ctx); err != nil {
 		return fmt.Errorf("waiting for WAL replay: %w", err)
 	}
 	return nil
+}
+
+// maxRecoveryPortAttempts bounds how many ports the restore execution phase
+// will burn before giving up on starting the recovery instance.
+const maxRecoveryPortAttempts = 3
+
+// startRecoveryInstance allocates a port, builds and configures a recovery
+// instance on it, and starts it, leaving the last instance it built on state so
+// cleanup can stop it.
+//
+// findFreePortFn closes its probe listener before returning the port, so
+// another process on the host can take that port before pg_ctl binds it. Only
+// that collision is retried, and each retry starts from a freshly allocated
+// port. Allocation, configuration, and unrelated start failures are returned
+// immediately; so is the final collision, through the same error context an
+// unretried failure would use.
+func (o *RestoreOrchestrator) startRecoveryInstance(ctx context.Context, state *restoreExecutionState) error {
+	var startErr error
+	for attempt := range maxRecoveryPortAttempts {
+		port, err := o.findFreePortFn()
+		if err != nil {
+			return fmt.Errorf("allocating recovery port: %w", err)
+		}
+
+		instance := o.newRecoveryInstanceFn(state.dataDir, port, o.logger)
+		if err := instance.UsePrimaryConnectionURL(o.primaryDBURL); err != nil {
+			return fmt.Errorf("configuring recovery connection URL: %w", err)
+		}
+		state.recoveryInstance = instance
+
+		startErr = instance.Start(ctx)
+		if startErr == nil {
+			return nil
+		}
+		if !isAddressInUse(startErr) {
+			return fmt.Errorf("starting recovery instance: %w", startErr)
+		}
+		if attempt < maxRecoveryPortAttempts-1 {
+			o.logger.Warn("recovery port taken between allocation and bind; retrying on a new port",
+				"port", port, "error", startErr)
+		}
+	}
+	return fmt.Errorf("starting recovery instance: %w", startErr)
 }
 
 // runRestoreVerificationPhase compares the recovery instance against the primary database to verify data integrity, then transitions to the ready-for-cutover state on success.

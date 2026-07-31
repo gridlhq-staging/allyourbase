@@ -323,3 +323,95 @@ func rlsEnabledPostTable() *schema.Table {
 		},
 	}
 }
+
+// tenantScopedUsersTable is a fully-provable table for the tenant-isolation
+// floor: it has PK metadata and a SELECT-applicable RLS policy, so
+// canProveRecordVisibility reports true and the floor defers to the per-record
+// visibility query.
+func tenantScopedUsersTable() *schema.Table {
+	return &schema.Table{
+		Schema:     "public",
+		Name:       "users",
+		PrimaryKey: []string{"id"},
+		RLSEnabled: true,
+		RLSPolicies: []*schema.RLSPolicy{
+			{Name: "users_select", Command: "SELECT", UsingExpr: "tenant_id = current_setting('ayb.tenant_id', true)"},
+		},
+	}
+}
+
+func TestCanSeeRecordForeignTenantRecordWithoutPrimaryKeyValueFailsClosed(t *testing.T) {
+	// Table metadata alone clears the floor, but a record that carries no PK
+	// value cannot build a per-record visibility query. Publishers that do not
+	// echo the table's PK (e.g. the RPC X-Notify-Table path in
+	// internal/api/rpc.go) would otherwise hand a foreign-tenant candidate the
+	// public-schema bypass and deliver it across the tenant boundary.
+	t.Parallel()
+
+	event := &Event{
+		Action:   "create",
+		Table:    "users",
+		TenantID: "tenant-b",
+		Record:   map[string]any{"title": "tenant-b secret"},
+	}
+
+	testutil.False(t, canSeeRecordForTenant(event, "public", "tenant-a", tenantScopedUsersTable()),
+		"foreign-tenant candidate whose record carries no PK value must fail closed")
+}
+
+func TestCanSeeRecordForeignTenantDeleteWithoutOldRecordPrimaryKeyValueFailsClosed(t *testing.T) {
+	// canSeeDeletedRecord intentionally fails open when OldRecord has no PK
+	// values, which is safe only within the subscriber's own tenant. A
+	// foreign-tenant delete candidate must be dropped by the floor before that
+	// fail-open is reached.
+	t.Parallel()
+
+	event := &Event{
+		Action:    "delete",
+		Table:     "users",
+		TenantID:  "tenant-b",
+		Record:    map[string]any{"id": 1},
+		OldRecord: map[string]any{"title": "tenant-b secret"},
+	}
+
+	testutil.False(t, canSeeRecordForTenant(event, "public", "tenant-a", tenantScopedUsersTable()),
+		"foreign-tenant delete candidate whose OldRecord carries no PK value must fail closed")
+}
+
+func TestCanSeeRecordSameTenantRecordWithoutPrimaryKeyValueStillFailsOpen(t *testing.T) {
+	// The floor must not narrow same-tenant delivery: a subscriber whose claims
+	// match the event tenant keeps the established public-schema fail-open when
+	// the record carries no PK value.
+	t.Parallel()
+
+	event := &Event{
+		Action:   "create",
+		Table:    "users",
+		TenantID: "tenant-a",
+		Record:   map[string]any{"title": "tenant-a row"},
+	}
+
+	testutil.True(t, canSeeRecordForTenant(event, "public", "tenant-a", tenantScopedUsersTable()),
+		"same-tenant candidate without a PK value must retain the public-schema fail-open")
+}
+
+func TestCanSeeRecordForeignTenantUnloadedSchemaCacheFailsClosed(t *testing.T) {
+	// Before the first successful introspection the cache holder returns nil.
+	// Non-tenant candidates keep the established permissive behaviour, but a
+	// candidate tagged for another tenant has no proof path at all here, so the
+	// floor must drop it rather than fall through to the nil-cache bypass.
+	t.Parallel()
+
+	cache := schema.NewCacheHolder(nil, testutil.DiscardLogger())
+	claims := &auth.Claims{Email: "user@example.com"}
+	claims.Subject = "user-1"
+	claims.TenantID = "tenant-a"
+
+	foreign := &Event{Action: "create", Table: "users", TenantID: "tenant-b", Record: map[string]any{"id": 1}}
+	testutil.False(t, CanSeeRecord(context.Background(), &pgxpool.Pool{}, cache, testutil.DiscardLogger(), claims, "public", foreign),
+		"foreign-tenant candidate must fail closed while the schema cache is unloaded")
+
+	same := &Event{Action: "create", Table: "users", TenantID: "tenant-a", Record: map[string]any{"id": 1}}
+	testutil.True(t, CanSeeRecord(context.Background(), &pgxpool.Pool{}, cache, testutil.DiscardLogger(), claims, "public", same),
+		"same-tenant candidate must retain the unloaded-cache bypass")
+}

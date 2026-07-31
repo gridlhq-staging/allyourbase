@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
+	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/allyourbase/ayb/internal/auth"
 	"github.com/allyourbase/ayb/internal/realtime"
@@ -90,6 +91,15 @@ func readGQLWSMessage(t *testing.T, conn *websocket.Conn) gqlwsMessage {
 	var msg gqlwsMessage
 	testutil.NoError(t, conn.ReadJSON(&msg))
 	return msg
+}
+
+func assertGQLWSReadTimeout(t *testing.T, conn *websocket.Conn) {
+	t.Helper()
+	conn.SetReadDeadline(time.Now().Add(200 * time.Millisecond))
+	var msg gqlwsMessage
+	err := conn.ReadJSON(&msg)
+	netErr, ok := err.(net.Error)
+	testutil.True(t, ok && netErr.Timeout(), "expected read timeout, got: %v", err)
 }
 
 func expectCloseCode(t *testing.T, conn *websocket.Conn, want int) {
@@ -532,7 +542,7 @@ func TestGQLWSSubscribeRejectsPeerOnlyActiveSchemaTable(t *testing.T) {
 	testutil.False(t, registered, "peer-only table must not register")
 }
 
-func TestHandlerGQLWSHubDeliveryUsesClaimsTenantScope(t *testing.T) {
+func TestHandlerGQLWSHeaderClaimsNilPoolFailsClosed(t *testing.T) {
 	t.Parallel()
 
 	cache := testCache([]*schema.Table{{
@@ -580,34 +590,13 @@ func TestHandlerGQLWSHubDeliveryUsesClaimsTenantScope(t *testing.T) {
 	h.hub.Publish(&realtime.Event{
 		Action:   "create",
 		Table:    "posts",
-		TenantID: "tenant-b",
-		Record:   map[string]any{"id": 1, "title": "peer"},
-	})
-	h.hub.Publish(&realtime.Event{
-		Action:   "create",
-		Table:    "posts",
 		TenantID: "tenant-a",
 		Record:   map[string]any{"id": 2, "title": "own"},
 	})
-
-	deadline := time.Now().Add(2 * time.Second)
-	for {
-		conn.SetReadDeadline(deadline)
-		msg := readGQLWSMessage(t, conn)
-		if msg.Type != gqlwsNext {
-			continue
-		}
-		testutil.Equal(t, "sub-tenant-a", msg.ID)
-		var payload map[string]map[string]any
-		testutil.NoError(t, json.Unmarshal(msg.Payload, &payload))
-		row := payload["data"]["posts"].(map[string]any)
-		testutil.Equal(t, "own", row["title"])
-		testutil.Equal(t, float64(2), row["id"].(float64))
-		return
-	}
+	assertGQLWSReadTimeout(t, conn)
 }
 
-func TestHandlerGQLWSHubDeliveryUsesConnectionInitTenantScope(t *testing.T) {
+func TestHandlerGQLWSConnectionInitClaimsNilPoolFailsClosed(t *testing.T) {
 	t.Parallel()
 
 	cache := testCache([]*schema.Table{{
@@ -654,6 +643,53 @@ func TestHandlerGQLWSHubDeliveryUsesConnectionInitTenantScope(t *testing.T) {
 	h.hub.Publish(&realtime.Event{
 		Action:   "create",
 		Table:    "posts",
+		TenantID: "tenant-a",
+		Record:   map[string]any{"id": 2, "title": "own"},
+	})
+	assertGQLWSReadTimeout(t, conn)
+}
+
+func TestHandlerGQLWSUnauthenticatedPoolStillUsesRequestTenantScope(t *testing.T) {
+	t.Parallel()
+
+	cache := testCache([]*schema.Table{{
+		Schema: "public",
+		Name:   "posts",
+		Kind:   "table",
+		Columns: []*schema.Column{
+			{Name: "id", TypeName: "integer", IsPrimaryKey: true},
+			{Name: "title", TypeName: "text"},
+		},
+		PrimaryKey: []string{"id"},
+	}})
+	cacheHolder := &schema.CacheHolder{}
+	cacheHolder.SetForTesting(cache)
+
+	h := NewHandler(&pgxpool.Pool{}, cacheHolder, testutil.DiscardLogger())
+	h.SetHub(realtime.NewHub(testutil.DiscardLogger()))
+	h.wsHandler.InitTimeout = 200 * time.Millisecond
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		h.ServeHTTP(w, r.WithContext(tenant.ContextWithTenantID(r.Context(), "tenant-a")))
+	}))
+	defer srv.Close()
+
+	conn, _ := dialGQLWS(t, srv, true)
+	defer conn.Close()
+
+	writeGQLWSMessage(t, conn, gqlwsMessage{Type: gqlwsConnectionInit})
+	testutil.Equal(t, gqlwsConnectionAck, readGQLWSMessage(t, conn).Type)
+
+	subPayload, err := json.Marshal(gqlwsSubscribePayload{
+		Query: `subscription { posts { id title } }`,
+	})
+	testutil.NoError(t, err)
+	writeGQLWSMessage(t, conn, gqlwsMessage{ID: "sub-tenant-a-public", Type: gqlwsSubscribe, Payload: subPayload})
+	waitForWSSubRegistered(t, h, "gqlws-1", "sub-tenant-a-public")
+
+	h.hub.Publish(&realtime.Event{
+		Action:   "create",
+		Table:    "posts",
 		TenantID: "tenant-b",
 		Record:   map[string]any{"id": 1, "title": "peer"},
 	})
@@ -671,7 +707,7 @@ func TestHandlerGQLWSHubDeliveryUsesConnectionInitTenantScope(t *testing.T) {
 		if msg.Type != gqlwsNext {
 			continue
 		}
-		testutil.Equal(t, "sub-tenant-a-init", msg.ID)
+		testutil.Equal(t, "sub-tenant-a-public", msg.ID)
 		var payload map[string]map[string]any
 		testutil.NoError(t, json.Unmarshal(msg.Payload, &payload))
 		row := payload["data"]["posts"].(map[string]any)

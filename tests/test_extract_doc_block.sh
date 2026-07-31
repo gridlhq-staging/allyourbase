@@ -8,6 +8,9 @@ DOC_ROOT="${AYB_QUICKSTART_DOC_ROOT:-$REPO_DIR}"
 INVENTORY="${AYB_QUICKSTART_INVENTORY:-$REPO_DIR/tests/quickstart_doc_blocks.tsv}"
 INSTALL_DOC_HOST="${AYB_INSTALL_DOC_HOST:-$([ "${GITHUB_REPOSITORY:-}" = "gridlhq-staging/allyourbase" ] && echo staging.allyourbase.io || echo install.allyourbase.io)}"
 EXPECTED_INSTALL_URL="${AYB_QUICKSTART_EXPECTED_INSTALL_URL:-https://${INSTALL_DOC_HOST}/install.sh}"
+QUICKSTART_OWNER="tests/test_quickstart_e2e.sh"
+QUICKSTART_OWNER_SOURCE="${AYB_QUICKSTART_OWNER_SOURCE:-$REPO_DIR/$QUICKSTART_OWNER}"
+RUNNABLE_LANGUAGE_PATTERN='^(bash|sh|shell|sql|javascript|js|typescript|ts)$'
 CORPUS_FILES=(
   "README.md"
   "docs-site/guide/getting-started.md"
@@ -42,7 +45,7 @@ assert_fails_with() {
 }
 
 readme_quickstart_expected="curl -fsSLo /tmp/ayb-install.sh $EXPECTED_INSTALL_URL
-sh /tmp/ayb-install.sh
+sh /tmp/ayb-install.sh v0.0.20-beta
 ~/.ayb/bin/ayb start
 ~/.ayb/bin/ayb demo live-polls"
 
@@ -151,10 +154,13 @@ enumerate_corpus_fences() {
 
 reconcile_inventory_with_corpus() {
   local discovered_file="$1"
-  awk -F '\t' '
+  awk -F '\t' -v runnable_language_pattern="$RUNNABLE_LANGUAGE_PATTERN" '
     function is_runnable(language, normalized) {
       normalized = tolower(language)
-      return normalized ~ /^(bash|sh|shell|sql|javascript|js|typescript|ts)$/
+      return normalized ~ runnable_language_pattern
+    }
+    function has_falsifiable_allowlist_note(note) {
+      return note ~ /^environment limit: [^[:space:]].*$/
     }
     function report(message) {
       print message > "/dev/stderr"
@@ -199,8 +205,8 @@ reconcile_inventory_with_corpus() {
             report("covered runnable fence has invalid owner on line " FNR ": " $7)
           }
         } else if ($8 == "allowlisted") {
-          if ($9 == "") {
-            report("allowlisted runnable fence needs a reason on line " FNR)
+          if (!has_falsifiable_allowlist_note($9)) {
+            report("invalid allowlist note for inventory id " $1 "; accepted form: environment limit: <reason>")
           }
           allowlisted_count++
           allowlisted_locators[allowlisted_count] = $2 " | " $3 " | " $4 " | " $5
@@ -247,18 +253,72 @@ reconcile_inventory_with_corpus() {
   ' "$INVENTORY" "$discovered_file"
 }
 
+reconcile_quickstart_source_markers() {
+  awk -F '\t' \
+    -v quickstart_owner="$QUICKSTART_OWNER" \
+    -v runnable_language_pattern="$RUNNABLE_LANGUAGE_PATTERN" '
+    function is_runnable(language, normalized) {
+      normalized = tolower(language)
+      return normalized ~ runnable_language_pattern
+    }
+    function report(message) {
+      print message > "/dev/stderr"
+      errors = 1
+    }
+    NR == FNR {
+      if (FNR == 1) {
+        next
+      }
+      if ($6 == "fence" && is_runnable($4) && $7 == quickstart_owner && $8 == "covered") {
+        expected[$1] = 1
+        expected_total++
+      }
+      next
+    }
+    /^# inventory-id: [^[:space:]]+$/ {
+      marker_id = substr($0, length("# inventory-id: ") + 1)
+      marker_counts[marker_id]++
+    }
+    END {
+      if (expected_total == 0) {
+        report("quickstart source traceability has no covered runnable inventory ids")
+      }
+      for (id in expected) {
+        if (!(id in marker_counts)) {
+          report("missing quickstart source marker: " id)
+        } else if (marker_counts[id] > 1) {
+          report("duplicate quickstart source marker: " id)
+        } else {
+          traceable++
+        }
+      }
+      for (id in marker_counts) {
+        if (!(id in expected)) {
+          report("stale quickstart source marker: " id)
+        }
+      }
+      printf "traceable=%d/%d\n", traceable, expected_total
+      exit errors
+    }
+  ' "$INVENTORY" "$QUICKSTART_OWNER_SOURCE"
+}
+
 validate_coverage_gate() {
   local discovered_file
+  local status=0
   discovered_file="$(mktemp)"
   if ! enumerate_corpus_fences >"$discovered_file"; then
     rm -f "$discovered_file"
     return 1
   fi
   if ! reconcile_inventory_with_corpus "$discovered_file"; then
-    rm -f "$discovered_file"
-    return 1
+    status=1
+  fi
+  if ! reconcile_quickstart_source_markers; then
+    status=1
   fi
   rm -f "$discovered_file"
+  return "$status"
 }
 
 validate_coverage_gate
@@ -311,6 +371,46 @@ EOF
 
 if [ "${QUICKSTART_SKIP_DRIFT_REGRESSION:-0}" != "1" ]; then
   assert_uninventoried_runnable_fence_fails_closed
+fi
+
+assert_traceability_fixture_fails() {
+  local owner_source="$1"
+  local expected_error="$2"
+  local stderr_file="$owner_source.stderr"
+
+  if AYB_QUICKSTART_OWNER_SOURCE="$owner_source" \
+    QUICKSTART_SKIP_DRIFT_REGRESSION=1 \
+    QUICKSTART_SKIP_TRACEABILITY_REGRESSION=1 \
+    bash "$0" >/dev/null 2>"$stderr_file"; then
+    fail "invalid quickstart source markers unexpectedly passed: $expected_error"
+  fi
+  assert_contains "$stderr_file" "$expected_error" "traceability failure missing expected diagnostic"
+}
+
+assert_quickstart_traceability_fails_closed() {
+  local scratch_dir
+  local missing_source
+  local duplicate_source
+  local stale_source
+  scratch_dir="$(mktemp -d)"
+  missing_source="$scratch_dir/missing.sh"
+  duplicate_source="$scratch_dir/duplicate.sh"
+  stale_source="$scratch_dir/stale.sh"
+
+  awk '$0 != "# inventory-id: getting_started_health"' "$QUICKSTART_OWNER_SOURCE" >"$missing_source"
+  cp "$QUICKSTART_OWNER_SOURCE" "$duplicate_source"
+  printf '%s\n' '# inventory-id: getting_started_health' >>"$duplicate_source"
+  cp "$QUICKSTART_OWNER_SOURCE" "$stale_source"
+  printf '%s\n' '# inventory-id: stage_one_stale_marker' >>"$stale_source"
+
+  assert_traceability_fixture_fails "$missing_source" "missing quickstart source marker: getting_started_health"
+  assert_traceability_fixture_fails "$duplicate_source" "duplicate quickstart source marker: getting_started_health"
+  assert_traceability_fixture_fails "$stale_source" "stale quickstart source marker: stage_one_stale_marker"
+  rm -rf "$scratch_dir"
+}
+
+if [ "${QUICKSTART_SKIP_TRACEABILITY_REGRESSION:-0}" != "1" ]; then
+  assert_quickstart_traceability_fails_closed
 fi
 
 echo "PASS: doc block extractor contract succeeded"

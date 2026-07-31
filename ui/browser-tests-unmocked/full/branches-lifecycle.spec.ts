@@ -5,6 +5,7 @@ import {
   seedBranch,
   cleanupBranch,
   observeMatchingRequests,
+  blockMatchingRequest,
   waitForDashboard,
 } from "../fixtures";
 
@@ -76,13 +77,27 @@ test.describe("Branches Lifecycle (Full E2E)", () => {
     await expect(page.getByRole("heading", { name: /Create Branch/i })).toBeVisible({ timeout: 5000 });
 
     await page.getByPlaceholder(/Branch name/i).fill(createdName);
-    await page.getByRole("button", { name: /^Create$/i }).click();
     branchNames.push(createdName);
-
-    await expect(
-      page.getByText(new RegExp(`Branch "${createdName}" created`, "i")),
-      `UI create did not report success for ${createdName}`,
-    ).toBeVisible({ timeout: 15000 });
+    const createButton = page.getByRole("button", { name: /^Creat(?:e|ing…)$/i });
+    await blockMatchingRequest(
+      page,
+      {
+        method: "POST",
+        urlIncludes: "/api/admin/branches",
+      },
+      async (createGate) => {
+        await createGate.startAndWaitForInterception(() => createButton.click());
+        await expect(page.getByRole("heading", { name: /Create Branch/i })).toBeVisible();
+        await expect(page.getByPlaceholder(/Branch name/i)).toHaveValue(createdName);
+        await expect(createButton).toBeDisabled();
+        await expect(createButton).toHaveText("Creating…");
+        expect(await createGate.release()).toBeLessThan(300);
+        await expect(
+          page.getByText(new RegExp(`Branch "${createdName}" created`, "i")),
+          `UI create did not report success for ${createdName}`,
+        ).toBeVisible({ timeout: 15000 });
+      },
+    );
 
     const createdRow = page.getByRole("row", { name: new RegExp(createdName) }).first();
     await expect(createdRow, `Created branch row missing for ${createdName}`).toBeVisible({ timeout: 15000 });

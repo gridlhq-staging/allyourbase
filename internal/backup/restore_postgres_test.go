@@ -2,10 +2,14 @@ package backup
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net"
+	"os"
+	"os/exec"
 	"reflect"
+	"syscall"
 	"testing"
 	"time"
 )
@@ -126,4 +130,86 @@ func TestRecoveryInstanceFindFreePort(t *testing.T) {
 		t.Fatalf("expected to bind to returned port %d: %v", port, err)
 	}
 	_ = ln.Close()
+}
+
+// realPGCtlAddressInUseOutput is the diagnostic pg_ctl surfaces when the
+// postmaster loses the race for its listen socket. The errno lives only in the
+// captured server log: pg_ctl exits with a plain status code, so exec.ExitError
+// carries no syscall.Errno to unwrap.
+const realPGCtlAddressInUseOutput = `waiting for server to start....` +
+	`2026-07-30 12:00:00.000 UTC [41234] LOG:  could not bind IPv4 address "127.0.0.1": Address already in use` + "\n" +
+	`2026-07-30 12:00:00.000 UTC [41234] HINT:  Is another postmaster already running on port 55432? If not, wait a few seconds and retry.` + "\n" +
+	`2026-07-30 12:00:00.000 UTC [41234] WARNING:  could not create listen socket for "127.0.0.1"` + "\n" +
+	`2026-07-30 12:00:00.000 UTC [41234] FATAL:  could not create any TCP/IP sockets` + "\n" +
+	` stopped waiting` + "\n" +
+	`pg_ctl: could not start server` + "\n" +
+	`Examine the log output.`
+
+func TestIsAddressInUse(t *testing.T) {
+	t.Parallel()
+
+	pgCtlExitErr := fmt.Errorf(
+		"command pg_ctl [start -D /tmp/restore-data -o -p 55432 -w -t 300] failed: %w (output: %s)",
+		&exec.ExitError{ProcessState: &os.ProcessState{}}, realPGCtlAddressInUseOutput,
+	)
+
+	tests := []struct {
+		name string
+		err  error
+		want bool
+	}{
+		{
+			name: "typed errno unwraps to EADDRINUSE",
+			err:  fmt.Errorf("starting recovery postgres instance: %w", &net.OpError{Op: "listen", Err: os.NewSyscallError("bind", syscall.EADDRINUSE)}),
+			want: true,
+		},
+		{
+			name: "bare EADDRINUSE",
+			err:  syscall.EADDRINUSE,
+			want: true,
+		},
+		{
+			name: "real pg_ctl address-in-use diagnostic without a typed errno",
+			err:  pgCtlExitErr,
+			want: true,
+		},
+		{
+			name: "IPv6 bind failure diagnostic",
+			err:  fmt.Errorf(`LOG:  could not bind IPv6 address "::1": Address already in use`),
+			want: true,
+		},
+		{
+			name: "unrelated pg_ctl failure",
+			err: fmt.Errorf(
+				"command pg_ctl [start -D /tmp/restore-data] failed: %w (output: %s)",
+				&exec.ExitError{ProcessState: &os.ProcessState{}},
+				"FATAL:  data directory \"/tmp/restore-data\" has invalid permissions\npg_ctl: could not start server",
+			),
+			want: false,
+		},
+		{
+			name: "unrelated errno",
+			err:  fmt.Errorf("starting recovery postgres instance: %w", syscall.ECONNREFUSED),
+			want: false,
+		},
+		{
+			name: "prose mentioning address reuse without a bind failure",
+			err:  errors.New("restore aborted: the operator said the address already in use policy applies"),
+			want: false,
+		},
+		{
+			name: "nil error",
+			err:  nil,
+			want: false,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			if got := isAddressInUse(tc.err); got != tc.want {
+				t.Fatalf("isAddressInUse(%v) = %t; want %t", tc.err, got, tc.want)
+			}
+		})
+	}
 }

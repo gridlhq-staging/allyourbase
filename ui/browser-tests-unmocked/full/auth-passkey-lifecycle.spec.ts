@@ -5,6 +5,7 @@ import {
   waitForDashboard,
   createVirtualAuthenticator,
   createLinkedEmailAuthSessionToken,
+  blockMatchingRequest,
 } from "../fixtures";
 import type { Locator, Page } from "@playwright/test";
 
@@ -13,10 +14,12 @@ function passkeyRow(page: Page, passkeyName: string): Locator {
 }
 
 async function enrollPasskey(page: Page, passkeyName: string): Promise<void> {
+  const registerButton = page.getByTestId("passkey-register-button");
   await page.getByTestId("passkey-display-name-input").fill(passkeyName);
-  await page.getByTestId("passkey-register-button").click();
+  await registerButton.click();
   await expect(page.getByText(`Passkey "${passkeyName}" registered`)).toBeVisible({ timeout: 10000 });
   await expect(passkeyRow(page, passkeyName)).toBeVisible({ timeout: 10000 });
+  await expect(registerButton).toBeEnabled({ timeout: 10000 });
 }
 
 async function deletePasskeyThroughUI(passkey: Locator): Promise<void> {
@@ -95,10 +98,25 @@ test.describe("Auth Passkey Lifecycle (Full E2E)", () => {
       await test.step("MFA Management: rename one passkey and delete the other", async () => {
         const firstPasskey = passkeyRow(page, firstPasskeyName);
         await firstPasskey.getByTestId("passkey-rename-input").fill(renamedPasskeyName);
-        await firstPasskey.getByTestId("passkey-rename-button").click();
-        await expect(page.getByText(`Passkey "${renamedPasskeyName}" renamed`)).toBeVisible({ timeout: 10000 });
-        await expect(passkeyRow(page, renamedPasskeyName)).toBeVisible({ timeout: 10000 });
-        await expect(firstPasskey).not.toBeVisible({ timeout: 10000 });
+        const renameButton = firstPasskey.getByTestId("passkey-rename-button");
+        await blockMatchingRequest(
+          page,
+          {
+            method: "PATCH",
+            urlIncludes: "/api/auth/mfa/webauthn/credentials/",
+          },
+          async (renameGate) => {
+            await renameGate.startAndWaitForInterception(() => renameButton.click());
+            await expect(firstPasskey).toBeVisible();
+            await expect(firstPasskey.getByTestId("passkey-name")).toHaveText(firstPasskeyName);
+            await expect(renameButton).toBeDisabled();
+            await expect(renameButton).toContainText("Saving...");
+            expect(await renameGate.release()).toBeLessThan(300);
+            await expect(page.getByText(`Passkey "${renamedPasskeyName}" renamed`)).toBeVisible({ timeout: 10000 });
+            await expect(passkeyRow(page, renamedPasskeyName)).toBeVisible({ timeout: 10000 });
+            await expect(firstPasskey).not.toBeVisible({ timeout: 10000 });
+          },
+        );
 
         const secondPasskey = passkeyRow(page, secondPasskeyName);
         await deletePasskeyThroughUI(secondPasskey);

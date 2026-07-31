@@ -55,7 +55,7 @@ export default defineConfig({
   // relations, so unmocked projects must not overlap database mutations.
   fullyParallel: false,
   workers: 1,
-  retries: 1, // Retry once on failure to handle timing issues
+  retries: 0,
   use: {
     baseURL: resolveBaseURL(),
     headless: true, // Always run in headless mode

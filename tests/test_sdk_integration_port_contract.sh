@@ -42,6 +42,12 @@ exit 1
 SH
 chmod +x "$commands_dir/lsof"
 
+# The probes below call pick_free_port for real, which writes lease markers.
+# Point them at a lease directory under tmp_dir so this contract never leaves
+# markers in the host-shared default namespace, where they would be visible to
+# every other process running as this uid. The EXIT trap removes it.
+export AYB_PORT_LEASE_DIR="$tmp_dir/port_leases"
+
 selected_port="$({ PATH="$commands_dir:$PATH"; source tests/port_helpers.sh; pick_free_port 48091 49091 50091 51091 52091; })"
 if [[ "$selected_port" != "49091" ]]; then
   fail "SDK integration port selection should bypass occupied ports; got '$selected_port'"

@@ -1,6 +1,7 @@
 package backup
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -8,6 +9,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -465,5 +467,152 @@ func TestRestoreOrchestratorAbandonActiveJob(t *testing.T) {
 	}
 	if jobs.jobs[job.ID].Status != RestoreStatusFailed || jobs.jobs[job.ID].ErrorMessage != "abandoned" {
 		t.Fatalf("job not marked abandoned/failed: %+v", jobs.jobs[job.ID])
+	}
+}
+
+// newRetryTestOrchestrator wires an orchestrator whose restore execution phase
+// reaches recovery-instance startup with every earlier step stubbed out, and
+// whose ports are handed out from portQueue in order. startErrs supplies the
+// error returned by the Nth pg_ctl "start" invocation (nil to succeed).
+func newRetryTestOrchestrator(t *testing.T, portQueue []int, startErrs []error) (*RestoreOrchestrator, *[]int, *string) {
+	t.Helper()
+
+	orch := NewRestoreOrchestrator(
+		&fakeRestorePlanner{plan: testRestorePlan()},
+		newFakeRestoreJobRepo(),
+		newFakeStore(),
+		&captureNotifier{},
+		PITRConfig{},
+		"postgresql://ayb:ayb@primary.example:5432/app?sslmode=disable",
+		"archive",
+		slog.Default(),
+	)
+	orch.extractBaseBackupFn = func(context.Context, Store, string, string) error { return nil }
+	orch.downloadWALSegmentsFn = func(context.Context, Store, []WALSegment, string, string, string, string) error { return nil }
+	orch.writeRecoveryConfigFn = func(string, time.Time, string) error { return nil }
+
+	allocated := &[]int{}
+	orch.findFreePortFn = func() (int, error) {
+		next := len(*allocated)
+		if next >= len(portQueue) {
+			return 0, fmt.Errorf("test allocated more ports than the %d queued", len(portQueue))
+		}
+		*allocated = append(*allocated, portQueue[next])
+		return portQueue[next], nil
+	}
+
+	startCount := 0
+	stopCount := 0
+	orch.newRecoveryInstanceFn = func(dataDir string, port int, logger *slog.Logger) *RecoveryInstance {
+		_ = logger
+		inst := newTestRecoveryInstance(&stopCount)
+		inst.dataDir = dataDir
+		inst.port = port
+		inst.runCommand = func(ctx context.Context, name string, args ...string) error {
+			_ = ctx
+			_ = name
+			if len(args) == 0 {
+				return nil
+			}
+			switch args[0] {
+			case "start":
+				attempt := startCount
+				startCount++
+				if attempt < len(startErrs) {
+					return startErrs[attempt]
+				}
+				return nil
+			case "stop":
+				stopCount++
+			}
+			return nil
+		}
+		return inst
+	}
+
+	recoveryDBURL := new(string)
+	orch.newVerifierFn = func(primaryDBURL, gotRecoveryDBURL string) restoreVerifier {
+		_ = primaryDBURL
+		*recoveryDBURL = gotRecoveryDBURL
+		return &fakeRestoreVerifier{result: &RestoreVerification{Passed: true}}
+	}
+	return orch, allocated, recoveryDBURL
+}
+
+func TestRestoreOrchestratorRetriesRecoveryPortCollision(t *testing.T) {
+	t.Parallel()
+
+	collision := fmt.Errorf(
+		"starting recovery postgres instance: command pg_ctl [start] failed: exit status 1 (output: %s)",
+		realPGCtlAddressInUseOutput,
+	)
+	orch, allocated, recoveryDBURL := newRetryTestOrchestrator(t, []int{55432, 55433}, []error{collision})
+
+	job, err := orch.Execute(context.Background(), "proj1", "db1", time.Now().UTC().Add(-10*time.Minute), "tester")
+	if err != nil {
+		t.Fatalf("Execute after a retried port collision: %v", err)
+	}
+	if job.Phase != RestorePhaseReadyForCutover {
+		t.Fatalf("job phase = %s; want %s", job.Phase, RestorePhaseReadyForCutover)
+	}
+	if !reflect.DeepEqual(*allocated, []int{55432, 55433}) {
+		t.Fatalf("allocated ports = %v; want two fresh allocations [55432 55433]", *allocated)
+	}
+	if *recoveryDBURL != "postgresql://ayb:ayb@127.0.0.1:55433/app?sslmode=disable" {
+		t.Fatalf("recoveryDBURL = %q; want the second allocated port", *recoveryDBURL)
+	}
+}
+
+func TestRestoreOrchestratorReturnsUnrelatedStartErrorWithoutRetry(t *testing.T) {
+	t.Parallel()
+
+	unrelated := errors.New("starting recovery postgres instance: command pg_ctl [start] failed: exit status 1 (output: FATAL:  data directory has invalid permissions)")
+	orch, allocated, _ := newRetryTestOrchestrator(t, []int{55432, 55433, 55434}, []error{unrelated, nil})
+
+	_, err := orch.Execute(context.Background(), "proj1", "db1", time.Now().UTC(), "tester")
+	if err == nil {
+		t.Fatal("expected the unrelated start failure to be returned")
+	}
+	if !strings.Contains(err.Error(), "starting recovery instance") {
+		t.Fatalf("error = %q; want it wrapped with the existing \"starting recovery instance\" context", err)
+	}
+	if !strings.Contains(err.Error(), "invalid permissions") {
+		t.Fatalf("error = %q; want the underlying start failure preserved", err)
+	}
+	if len(*allocated) != 1 {
+		t.Fatalf("allocated ports = %v; want exactly one attempt for an unrelated failure", *allocated)
+	}
+}
+
+func TestRestoreOrchestratorStopsRetryingAfterThreeCollisions(t *testing.T) {
+	t.Parallel()
+
+	collision := fmt.Errorf(
+		"starting recovery postgres instance: command pg_ctl [start] failed: exit status 1 (output: %s)",
+		realPGCtlAddressInUseOutput,
+	)
+	orch, allocated, _ := newRetryTestOrchestrator(
+		t,
+		[]int{55432, 55433, 55434, 55435},
+		[]error{collision, collision, collision, collision},
+	)
+	var logs bytes.Buffer
+	orch.logger = slog.New(slog.NewTextHandler(&logs, &slog.HandlerOptions{Level: slog.LevelWarn}))
+
+	_, err := orch.Execute(context.Background(), "proj1", "db1", time.Now().UTC(), "tester")
+	if err == nil {
+		t.Fatal("expected the final collision to be returned after the attempt budget is spent")
+	}
+	if !strings.Contains(err.Error(), "starting recovery instance") {
+		t.Fatalf("error = %q; want the existing \"starting recovery instance\" context rather than a synthesized exhaustion error", err)
+	}
+	if !strings.Contains(err.Error(), "Address already in use") {
+		t.Fatalf("error = %q; want the final start error preserved", err)
+	}
+	if len(*allocated) != 3 {
+		t.Fatalf("allocated ports = %v; want exactly three attempts", *allocated)
+	}
+	if got := strings.Count(logs.String(), "retrying on a new port"); got != 2 {
+		t.Fatalf("retry warning count = %d; want 2 non-terminal warnings before the final collision\nlogs:\n%s", got, logs.String())
 	}
 }

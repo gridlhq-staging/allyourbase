@@ -4,6 +4,7 @@ import {
   probeEndpoint,
   seedIncident,
   cleanupIncidentByID,
+  blockMatchingRequest,
   waitForDashboard,
 } from "../fixtures";
 
@@ -79,8 +80,24 @@ test.describe("Incidents Lifecycle (Full E2E)", () => {
     await expect(page.getByText(updateMessage)).toBeVisible({ timeout: 5000 });
 
     // Resolve the created incident
-    await createdRow.getByRole("button", { name: /Resolve/i }).click();
+    await blockMatchingRequest(
+      page,
+      {
+        method: "PUT",
+        urlIncludes: "/api/admin/incidents/",
+      },
+      async (resolveGate) => {
+        await resolveGate.startAndWaitForInterception(() =>
+          createdRow.getByRole("button", { name: /Resolve/i }).click(),
+        );
+        await expect(createdRow).toContainText("investigating");
+        await expect(createdRow.getByRole("button", { name: /Resolve/i })).toBeVisible();
+        expect(await resolveGate.release()).toBeLessThan(300);
+        await expect(createdRow).toBeHidden({ timeout: 5000 });
+      },
+    );
     await page.getByRole("button", { name: /Show All/i }).click();
-    await expect(createdRow).toContainText("resolved", { timeout: 5000 });
+    const resolvedRow = page.getByRole("row", { name: new RegExp(createdTitle) }).first();
+    await expect(resolvedRow).toContainText("resolved", { timeout: 5000 });
   });
 });
